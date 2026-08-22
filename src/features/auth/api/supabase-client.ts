@@ -1,22 +1,35 @@
 import { createBrowserClient, createServerClient } from '@supabase/ssr';
 import type { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adapters/request-cookies';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
+export function isSupabaseConfigured(): boolean {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  return Boolean(
+    url &&
+    key &&
+    !url.includes('placeholder') &&
+    url !== 'https://your-project.supabase.co'
+  );
+}
 
 /**
- * Creates a Supabase client for Client Components (Browser-side).
- * Follows Auth-First approach and row-level security (RLS).
+ * Cria o cliente Supabase para o lado do cliente (Navegador).
+ * Utiliza @supabase/ssr com sincronização automática de cookies e sessão.
  */
 export function createClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
+
   return createBrowserClient(supabaseUrl, supabaseAnonKey);
 }
 
 /**
- * Creates a Supabase client for Server Actions and Server Components.
- * Properly manages cookie serialization with Next.js headers/cookies.
+ * Cria o cliente Supabase para Server Components e Server Actions.
  */
 export function createServerSupabaseClient(cookieStore: ReadonlyRequestCookies | any) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
+
   return createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
@@ -28,7 +41,7 @@ export function createServerSupabaseClient(cookieStore: ReadonlyRequestCookies |
             cookieStore.set(name, value, options);
           });
         } catch {
-          // Can happen in Server Components where cookies are read-only
+          // Em Server Components os cookies são somente leitura
         }
       },
     },

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Search,
   Folder,
@@ -12,7 +13,10 @@ import {
   FilePlus,
   Tag,
   X,
+  LogOut,
+  User,
 } from 'lucide-react';
+import { createClient } from '@/src/features/auth/api/supabase-client';
 
 interface SidebarNavigationProps {
   activeNoteId?: string;
@@ -25,9 +29,30 @@ export function SidebarNavigation({
   onSelectNote,
   onCloseMobile,
 }: SidebarNavigationProps) {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [pasta2Open, setPasta2Open] = useState(true);
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user?.email) {
+        setUserEmail(data.user.email);
+      }
+    });
+  }, []);
+
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    } else {
+      router.push('/login');
+    }
+  };
 
   const tags = ['#Nota', '#Estudo', '#Livro'];
 
@@ -200,6 +225,28 @@ export function SidebarNavigation({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* User Session & Logout */}
+        <div className="pt-2 border-t border-[#d1c4bc]/40 flex items-center justify-between px-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-full bg-[#e4e2dd] text-[#68594d] flex items-center justify-center shrink-0">
+              <User className="w-4 h-4" />
+            </div>
+            <span className="font-sans-ui text-xs text-[#4e453f] truncate max-w-[130px]" title={userEmail || 'Usuário'}>
+              {userEmail || 'Anotado!'}
+            </span>
+          </div>
+
+          <button
+            id="sidebar-logout-btn"
+            onClick={handleLogout}
+            className="p-1.5 text-[#7f756e] hover:text-[#ba1a1a] hover:bg-[#e4e2dd]/60 rounded-lg transition-colors cursor-pointer"
+            title="Encerrar Sessão (Sair)"
+            aria-label="Encerrar Sessão"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </aside>

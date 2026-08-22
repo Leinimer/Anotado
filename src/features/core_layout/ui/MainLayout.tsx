@@ -1,28 +1,32 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { SidebarNavigation } from '@/src/features/notes/ui/SidebarNavigation';
 import { NoteCanvas } from '@/src/features/notes/ui/NoteCanvas';
 import { EditorToolbar } from '@/src/features/notes/ui/EditorToolbar';
-import { LoginForm } from '@/src/features/auth/ui/LoginForm';
+import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 
-interface MainLayoutProps {
-  initialView?: 'notes' | 'login';
-}
-
-export function MainLayout({ initialView = 'notes' }: MainLayoutProps) {
-  const [currentView, setCurrentView] = useState<'notes' | 'login'>(initialView);
+export function MainLayout() {
   const [activeNoteId, setActiveNoteId] = useState('texto-2');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  if (currentView === 'login') {
-    return (
-      <LoginForm
-        onSuccess={() => setCurrentView('notes')}
-        onSwitchToApp={() => setCurrentView('notes')}
-      />
-    );
-  }
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    const supabase = createClient();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        if (typeof window !== 'undefined') {
+          window.location.replace('/login');
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   return (
     <div
