@@ -46,17 +46,7 @@ export function LoginForm({ onSuccess, onSwitchToApp }: LoginFormProps) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (!isMounted) return;
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
-        if (typeof window !== 'undefined') {
-          window.location.replace('/');
-        }
-      }
-    });
-
-    // 2. Valida sessão existente no carregamento da página
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!isMounted) return;
-      if (session?.user) {
+      if (event === 'SIGNED_IN' && session?.user) {
         if (typeof window !== 'undefined') {
           window.location.replace('/');
         }

@@ -13,14 +13,27 @@ export function isSupabaseConfigured(): boolean {
 }
 
 /**
+ * Opções de cookies compatíveis com o ambiente de iframe do AI Studio e deploy HTTPS.
+ * SameSite=None e Secure=true garantem a propagação de cookies tanto no iframe (Preview)
+ * quanto em navegação de topo (Deploy).
+ */
+export const supabaseCookieOptions = {
+  path: '/',
+  sameSite: 'none' as const,
+  secure: true,
+};
+
+/**
  * Cria o cliente Supabase para o lado do cliente (Navegador).
- * Utiliza @supabase/ssr com sincronização automática de cookies e sessão.
+ * Utiliza @supabase/ssr com sincronização de cookies SameSite=None e Secure para compatibilidade total.
  */
 export function createClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
-  return createBrowserClient(supabaseUrl, supabaseAnonKey);
+  return createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    cookieOptions: supabaseCookieOptions,
+  });
 }
 
 /**
@@ -31,6 +44,7 @@ export function createServerSupabaseClient(cookieStore: ReadonlyRequestCookies |
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
   return createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookieOptions: supabaseCookieOptions,
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -38,7 +52,10 @@ export function createServerSupabaseClient(cookieStore: ReadonlyRequestCookies |
       setAll(cookiesToSet) {
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
+            cookieStore.set(name, value, {
+              ...options,
+              ...supabaseCookieOptions,
+            });
           });
         } catch {
           // Em Server Components os cookies são somente leitura
@@ -47,3 +64,4 @@ export function createServerSupabaseClient(cookieStore: ReadonlyRequestCookies |
     },
   });
 }
+

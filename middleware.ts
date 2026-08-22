@@ -1,9 +1,16 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+const supabaseCookieOptions = {
+  path: '/',
+  sameSite: 'none' as const,
+  secure: true,
+};
+
 /**
  * Middleware de Segurança com Supabase Auth.
  * Atualiza cookies de sessão e protege rotas autenticadas.
+ * Configurado com SameSite=None e Secure para suportar tanto o iframe do Preview quanto o Deploy.
  */
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -24,6 +31,7 @@ export async function middleware(request: NextRequest) {
 
   if (hasValidSupabaseConfig) {
     const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookieOptions: supabaseCookieOptions,
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -34,7 +42,10 @@ export async function middleware(request: NextRequest) {
             request,
           });
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, {
+              ...options,
+              ...supabaseCookieOptions,
+            })
           );
         },
       },
@@ -51,7 +62,10 @@ export async function middleware(request: NextRequest) {
       url.pathname = '/login';
       const redirectResponse = NextResponse.redirect(url);
       supabaseResponse.cookies.getAll().forEach((cookie) => {
-        redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
+        redirectResponse.cookies.set(cookie.name, cookie.value, {
+          ...cookie,
+          ...supabaseCookieOptions,
+        });
       });
       return redirectResponse;
     }
@@ -62,7 +76,10 @@ export async function middleware(request: NextRequest) {
       url.pathname = '/';
       const redirectResponse = NextResponse.redirect(url);
       supabaseResponse.cookies.getAll().forEach((cookie) => {
-        redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
+        redirectResponse.cookies.set(cookie.name, cookie.value, {
+          ...cookie,
+          ...supabaseCookieOptions,
+        });
       });
       return redirectResponse;
     }

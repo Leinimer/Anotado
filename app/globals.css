@@ -70,27 +70,13 @@
   box-shadow: 0 4px 24px rgba(104, 89, 77, 0.05), 0 1px 3px rgba(104, 89, 77, 0.04);
 }
 
-/* Folha de Caderno / Área de Trabalho */
+/* Folha de Caderno / Área de Trabalho com Altura Dinâmica Infinita */
 .paper-sheet {
   background-color: #ffffff;
   border: 1px solid #eae8e3;
   box-shadow: 0 2px 12px rgba(104, 89, 77, 0.04), 0 1px 2px rgba(104, 89, 77, 0.03);
-}
-
-/* Animações sutis */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fadeIn {
-  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  min-height: 550px;
+  height: auto;
 }
 
 /* Scrollbar suave */
@@ -110,4 +96,248 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #7f756e;
+}
+
+/* ==========================================================================
+   Estilização do Editor Rico Tiptap / ProseMirror (Papyrus & Ink)
+   ========================================================================== */
+.ProseMirror {
+  outline: none;
+  min-height: 480px;
+  height: auto;
+  font-family: var(--font-source-serif), "Source Serif 4", Georgia, serif;
+  color: #1b1c19;
+  font-size: 1.0625rem;
+}
+
+.ProseMirror p {
+  margin-bottom: 0.85rem;
+  line-height: 1.75;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: "Comece a escrever sua nota...";
+  color: #7f756e;
+  float: left;
+  height: 0;
+  pointer-events: none;
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.ProseMirror h1 {
+  font-family: var(--font-source-serif), Georgia, serif;
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #1b1c19;
+  margin-top: 1.75rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.25;
+}
+
+.ProseMirror h2 {
+  font-family: var(--font-source-serif), Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1b1c19;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.3;
+}
+
+.ProseMirror h3 {
+  font-family: var(--font-source-serif), Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1b1c19;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Listas com marcadores (Bullets) */
+.ProseMirror ul:not([data-type="taskList"]) {
+  list-style-type: disc;
+  padding-left: 1.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.ProseMirror ul:not([data-type="taskList"]) ul {
+  list-style-type: circle;
+  margin-top: 0.25rem;
+}
+
+/* Listas numeradas (Ordered) */
+.ProseMirror ol {
+  list-style-type: decimal;
+  padding-left: 1.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.ProseMirror ol ol {
+  list-style-type: lower-alpha;
+  margin-top: 0.25rem;
+}
+
+.ProseMirror li {
+  margin-bottom: 0.35rem;
+  line-height: 1.65;
+}
+
+.ProseMirror li > p {
+  margin-bottom: 0;
+}
+
+/* Checklist / Task List Redonda Minimalista (○ vazia desmarcada, ✓ check marcada) */
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+  margin-top: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-bottom: 0.2rem;
+  line-height: 1.7;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label {
+  user-select: none;
+  margin-top: 0.28rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 1.6px solid #7f756e;
+  border-radius: 9999px; /* Círculo perfeito quando desmarcado */
+  background-color: transparent;
+  outline: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  transition: border-color 0.15s ease;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:hover {
+  border-color: #68594d;
+}
+
+/* Quando concluído: substitui o círculo por um símbolo de check ✓ sem preenchimento */
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+  border: none !important;
+  background-color: transparent !important;
+  border-radius: 0 !important;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked::before {
+  content: "✓";
+  font-family: var(--font-manrope), system-ui, -apple-system, sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #68594d;
+  line-height: 1;
+  display: block;
+  text-align: center;
+  transform: translateY(-0.5px);
+}
+
+.ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.ProseMirror ul[data-type="taskList"] li p {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  line-height: 1.7;
+}
+
+.ProseMirror ul[data-type="taskList"] li > div > p {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  line-height: 1.7;
+}
+
+/* NENHUM line-through ao marcar */
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div,
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > p,
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div > p,
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] span {
+  text-decoration: none !important;
+  opacity: 1 !important;
+  color: inherit !important;
+}
+
+/* Citações */
+.ProseMirror blockquote {
+  border-left: 3px solid #68594d;
+  padding-left: 1.25rem;
+  margin: 1rem 0;
+  color: #4e453f;
+  font-style: italic;
+}
+
+/* ==========================================================================
+   Bloco de Alternância Minimalista (Toggle / Details) - Papyrus & Ink
+   ========================================================================== */
+.tiptap-toggle-wrapper {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.tiptap-toggle-summary {
+  font-family: var(--font-source-serif), Georgia, serif;
+  color: #1b1c19;
+}
+
+.tiptap-toggle-wrapper[data-open="false"] .tiptap-toggle-content {
+  display: none !important;
+}
+
+.tiptap-toggle-wrapper[data-open="true"] .tiptap-toggle-content {
+  display: block !important;
+  animation: toggleContentReveal 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes toggleContentReveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Imagens */
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 1rem;
+  margin: 1.25rem 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Document Cards */
+.ProseMirror .tiptap-document-card {
+  user-select: none;
 }
