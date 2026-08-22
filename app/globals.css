@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-primary: #68594d;
+    --color-primary-container: #827165;
+    --color-on-primary: #ffffff;
+    --color-secondary: #6b5c4c;
+    --color-secondary-container: #f4dfcb;
+    --color-tertiary: #605b54;
+    --color-background: #fbf9f4;
+    --color-surface: #fbf9f4;
+    --color-surface-dim: #dbdad5;
+    --color-surface-container-lowest: #ffffff;
+    --color-surface-container-low: #f5f3ee;
+    --color-surface-container: #f0eee9;
+    --color-surface-container-high: #eae8e3;
+    --color-surface-container-highest: #e4e2dd;
+    --color-surface-variant: #e4e2dd;
+    --color-on-surface: #1b1c19;
+    --color-on-surface-variant: #4e453f;
+    --color-outline: #7f756e;
+    --color-outline-variant: #d1c4bc;
+  }
+
+  body {
+    background-color: #fbf9f4;
+    color: #1b1c19;
+    font-family: var(--font-manrope), sans-serif;
+  }
+}
+
+.font-serif-note {
+  font-family: var(--font-source-serif), "Source Serif 4", Georgia, serif;
+}
+
+.font-sans-ui {
+  font-family: var(--font-manrope), "Manrope", sans-serif;
+}
+
+/* Desk textured layer for Login / Backdrop */
+.desk-background {
+  background-color: #605b54;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
+}
+
+/* Digital Tactility Paper Sheet */
+.paper-sheet {
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter2'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter2)' opacity='0.025'/%3E%3C/svg%3E");
+  border: 1px solid #eae8e3;
+  box-shadow: 0 4px 20px rgba(104, 89, 77, 0.06), 0 1px 3px rgba(104, 89, 77, 0.08);
+}
+
+.paper-card {
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter3'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter3)' opacity='0.02'/%3E%3C/svg%3E");
+  border: 1px solid #e4e2dd;
+  box-shadow: 0 8px 30px rgba(104, 89, 77, 0.08), 0 2px 6px rgba(104, 89, 77, 0.05);
+}
+
+/* Custom Soft Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1c4bc;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #7f756e;
+}
