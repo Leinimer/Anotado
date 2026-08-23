@@ -37,6 +37,14 @@ const FOLDER_PRESET_COLORS = [
   { id: 'purple', label: 'Roxo', color: '#9333ea', hex: '#9333ea' },
 ];
 
+interface DropTargetInfo {
+  targetId: string;
+  targetType: 'folder' | 'note';
+  dropPosition: 'before' | 'after' | 'inside';
+  targetParentId: string | null;
+  targetPosition: number;
+}
+
 interface SidebarNavigationProps {
   folders: FolderType[];
   notes: NoteType[];
@@ -109,12 +117,16 @@ export function SidebarNavigation({
     hasChildren?: boolean;
   } | null>(null);
 
-  // Drag & Drop State
+  // Drag & Drop State (Diferenciação precisa de 'before', 'after' e 'inside')
   const [draggingItem, setDraggingItem] = useState<{
     type: 'folder' | 'note';
     id: string;
   } | null>(null);
-  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTargetInfo | null>(null);
+
+  // Touch Long-Press Timer para Mobile Drag & Drop
+  const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -256,7 +268,9 @@ export function SidebarNavigation({
     setConfirmDelete(null);
   };
 
-  // Drag & Drop Handlers
+  // ==========================================
+  // DRAG & DROP INTELIGENTE (REORDENAR VS ENTRAR)
+  // ==========================================
   const handleDragStart = (e: React.DragEvent, type: 'folder' | 'note', id: string) => {
     e.stopPropagation();
     setDraggingItem({ type, id });
@@ -264,45 +278,205 @@ export function SidebarNavigation({
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  const handleDragOverFolder = (e: React.DragEvent, folderId: string) => {
+  const handleDragEnd = () => {
+    setDraggingItem(null);
+    setDropTarget(null);
+  };
+
+  // Cálculo de posição para PASTAS
+  const handleDragOverFolder = (
+    e: React.DragEvent,
+    folder: TreeFolderNode
+  ) => {
     e.preventDefault();
     e.stopPropagation();
     if (!draggingItem) return;
 
-    // Proteção contra ciclos para pastas
-    if (draggingItem.type === 'folder') {
-      if (wouldCreateCycle(draggingItem.id, folderId, folders)) {
+    // Se estiver arrastando a própria pasta
+    if (draggingItem.type === 'folder' && draggingItem.id === folder.id) {
+      setDropTarget(null);
+      return;
+    }
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const relY = (e.clientY - rect.top) / rect.height;
+
+    // Se for pasta arrastada, previne ciclos de aninhamento
+    const isCycle =
+      draggingItem.type === 'folder' &&
+      wouldCreateCycle(draggingItem.id, folder.id, folders);
+
+    if (relY < 0.25) {
+      // Reordenar ANTES da pasta (mesmo nível da pasta alvo)
+      setDropTarget({
+        targetId: folder.id,
+        targetType: 'folder',
+        dropPosition: 'before',
+        targetParentId: folder.parentId,
+        targetPosition: Math.max(0, folder.position),
+      });
+    } else if (relY > 0.75) {
+      // Reordenar DEPOIS da pasta (mesmo nível da pasta alvo)
+      setDropTarget({
+        targetId: folder.id,
+        targetType: 'folder',
+        dropPosition: 'after',
+        targetParentId: folder.parentId,
+        targetPosition: folder.position + 1,
+      });
+    } else {
+      // Se não for ciclo, permite soltar DENTRO da pasta
+      if (!isCycle) {
+        setDropTarget({
+          targetId: folder.id,
+          targetType: 'folder',
+          dropPosition: 'inside',
+          targetParentId: folder.id,
+          targetPosition: folder.subfolders.length + folder.notes.length,
+        });
+      } else {
+        // Fallback para reordenar depois
+        setDropTarget({
+          targetId: folder.id,
+          targetType: 'folder',
+          dropPosition: 'after',
+          targetParentId: folder.parentId,
+          targetPosition: folder.position + 1,
+        });
+      }
+    }
+  };
+
+  // Cálculo de posição para NOTAS
+  const handleDragOverNote = (
+    e: React.DragEvent,
+    note: TreeNodeItem
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!draggingItem) return;
+
+    // Se estiver arrastando a própria nota sobre si mesma
+    if (draggingItem.type === 'note' && draggingItem.id === note.id) {
+      setDropTarget(null);
+      return;
+    }
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const relY = (e.clientY - rect.top) / rect.height;
+
+    if (relY < 0.5) {
+      // Reordenar ANTES da nota
+      setDropTarget({
+        targetId: note.id,
+        targetType: 'note',
+        dropPosition: 'before',
+        targetParentId: note.folderId,
+        targetPosition: Math.max(0, note.position),
+      });
+    } else {
+      // Reordenar DEPOIS da nota
+      setDropTarget({
+        targetId: note.id,
+        targetType: 'note',
+        dropPosition: 'after',
+        targetParentId: note.folderId,
+        targetPosition: note.position + 1,
+      });
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Limpa apenas se sair do elemento
+    const related = e.relatedTarget as Node | null;
+    if (!related || !(e.currentTarget as HTMLElement).contains(related)) {
+      setDropTarget(null);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!draggingItem || !dropTarget) {
+      setDraggingItem(null);
+      setDropTarget(null);
+      return;
+    }
+
+    const { type, id } = draggingItem;
+    const { targetParentId, targetPosition, dropPosition } = dropTarget;
+
+    // Verificação estrita contra ciclos se for pasta
+    if (type === 'folder') {
+      if (wouldCreateCycle(id, targetParentId, folders)) {
+        setDraggingItem(null);
+        setDropTarget(null);
         return;
       }
     }
 
-    setDragOverFolderId(folderId);
-  };
+    // Executa movimentação
+    onMoveItem(type, id, targetParentId, targetPosition);
 
-  const handleDragLeaveFolder = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOverFolderId(null);
-  };
-
-  const handleDropOnFolder = (e: React.DragEvent, targetFolderId: string | null) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOverFolderId(null);
-
-    if (!draggingItem) return;
-
-    if (draggingItem.type === 'folder') {
-      if (wouldCreateCycle(draggingItem.id, targetFolderId, folders)) {
-        setDraggingItem(null);
-        return;
-      }
-      onMoveItem('folder', draggingItem.id, targetFolderId, 0);
-    } else {
-      onMoveItem('note', draggingItem.id, targetFolderId, 0);
+    // Se soltou dentro de uma pasta, abre a pasta para mostrar o item
+    if (dropPosition === 'inside' && dropTarget.targetId) {
+      setOpenFolderIds((prev) => new Set(prev).add(dropTarget.targetId));
     }
 
     setDraggingItem(null);
+    setDropTarget(null);
+  };
+
+  // Drop na raiz da sidebar
+  const handleDropOnRoot = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!draggingItem) return;
+
+    const { type, id } = draggingItem;
+    onMoveItem(type, id, null, folders.length + notes.length);
+
+    setDraggingItem(null);
+    setDropTarget(null);
+  };
+
+  // Touch Drag Support para Mobile
+  const handleTouchStart = (type: 'folder' | 'note', id: string, e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+
+    touchTimerRef.current = setTimeout(() => {
+      setDraggingItem({ type, id });
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(40);
+      }
+    }, 350);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartPosRef.current) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+    const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+
+    if (dx > 10 || dy > 10) {
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+        touchTimerRef.current = null;
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+    touchStartPosRef.current = null;
   };
 
   // Constrói e filtra a árvore
@@ -318,27 +492,40 @@ export function SidebarNavigation({
   // Extrai tags dinâmicas de todas as notas
   const uniqueTags = extractAllUniqueTags(notes);
 
-  // Renderização Recursiva de Pasta (SEM seleção visual de fundo)
+  // Renderização Recursiva de Pasta (Com linha de inserção e destaque ao entrar)
   const renderFolderNode = (folder: TreeFolderNode) => {
     const isOpen = isFiltering || openFolderIds.has(folder.id);
     const isEditing = editingItemId === folder.id && editingItemType === 'folder';
-    const isDragOver = dragOverFolderId === folder.id;
     const isSmart = folder.isSmart || (folder.smartTags && folder.smartTags.length > 0);
     const iconColor = folder.color || (isOpen ? '#68594d' : '#7f756e');
 
+    const isCurrentDropTarget = dropTarget?.targetId === folder.id && dropTarget?.targetType === 'folder';
+    const isDropBefore = isCurrentDropTarget && dropTarget?.dropPosition === 'before';
+    const isDropAfter = isCurrentDropTarget && dropTarget?.dropPosition === 'after';
+    const isDropInside = isCurrentDropTarget && dropTarget?.dropPosition === 'inside';
+
     return (
-      <div key={folder.id} className="space-y-0.5 select-none">
+      <div key={folder.id} className="space-y-0.5 select-none relative">
+        {/* Linha de Inserção Horizontal ANTES da Pasta */}
+        {isDropBefore && (
+          <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
+        )}
+
         <div
           id={`folder-item-${folder.id}`}
           draggable={!isEditing}
           onDragStart={(e) => handleDragStart(e, 'folder', folder.id)}
-          onDragOver={(e) => handleDragOverFolder(e, folder.id)}
-          onDragLeave={handleDragLeaveFolder}
-          onDrop={(e) => handleDropOnFolder(e, folder.id)}
+          onDragEnd={handleDragEnd}
+          onDragOver={(e) => handleDragOverFolder(e, folder)}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onTouchStart={(e) => handleTouchStart('folder', folder.id, e)}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           onClick={(e) => toggleFolder(folder.id, e)}
           style={{ paddingLeft: `${folder.depth * 16 + 12}px` }}
-          className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative ${
-            isDragOver
+          className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-all relative ${
+            isDropInside
               ? 'bg-[#d7c3b0]/70 border-2 border-dashed border-[#68594d]'
               : 'text-[#4e453f] hover:bg-[#e4e2dd]/70'
           }`}
@@ -403,6 +590,11 @@ export function SidebarNavigation({
           </div>
         </div>
 
+        {/* Linha de Inserção Horizontal DEPOIS da Pasta */}
+        {isDropAfter && (
+          <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
+        )}
+
         {/* Filhos da Pasta */}
         {isOpen && (
           <div className="space-y-0.5">
@@ -414,66 +606,88 @@ export function SidebarNavigation({
     );
   };
 
-  // Renderização de Item de Nota (Mantém seleção visual ativa na nota selecionada)
+  // Renderização de Item de Nota (Com linha de inserção para reordenar)
   const renderNoteNode = (note: TreeNodeItem) => {
     const isActive = activeNoteId === note.id;
     const isEditing = editingItemId === note.id && editingItemType === 'note';
 
-    return (
-      <div
-        key={note.id}
-        id={`note-item-${note.id}`}
-        draggable={!isEditing}
-        onDragStart={(e) => handleDragStart(e, 'note', note.id)}
-        onClick={() => {
-          onSelectNote(note.id);
-          if (onCloseMobile) onCloseMobile();
-        }}
-        style={{ paddingLeft: `${note.depth * 16 + 12}px` }}
-        className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative ${
-          isActive
-            ? 'bg-[#f4dfcb] text-[#1b1c19] font-medium shadow-2xs'
-            : 'text-[#4e453f] hover:bg-[#e4e2dd]/60'
-        }`}
-      >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <FileText
-            className={`w-4 h-4 shrink-0 ${
-              isActive ? 'text-[#68594d] stroke-[2]' : 'text-[#7f756e] stroke-[1.5]'
-            }`}
-          />
+    const isCurrentDropTarget = dropTarget?.targetId === note.id && dropTarget?.targetType === 'note';
+    const isDropBefore = isCurrentDropTarget && dropTarget?.dropPosition === 'before';
+    const isDropAfter = isCurrentDropTarget && dropTarget?.dropPosition === 'after';
 
-          {isEditing ? (
-            <input
-              ref={editInputRef}
-              type="text"
-              value={editingValue}
-              onChange={(e) => setEditingValue(e.target.value)}
-              onBlur={handleSaveRename}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSaveRename();
-                if (e.key === 'Escape') setEditingItemId(null);
-              }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full bg-white px-1.5 py-0.5 text-xs font-sans-ui rounded border border-[#68594d] focus:outline-none"
+    return (
+      <div key={note.id} className="relative space-y-0.5 select-none">
+        {/* Linha de Inserção Horizontal ANTES da Nota */}
+        {isDropBefore && (
+          <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
+        )}
+
+        <div
+          id={`note-item-${note.id}`}
+          draggable={!isEditing}
+          onDragStart={(e) => handleDragStart(e, 'note', note.id)}
+          onDragEnd={handleDragEnd}
+          onDragOver={(e) => handleDragOverNote(e, note)}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onTouchStart={(e) => handleTouchStart('note', note.id, e)}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onClick={() => {
+            onSelectNote(note.id);
+            if (onCloseMobile) onCloseMobile();
+          }}
+          style={{ paddingLeft: `${note.depth * 16 + 12}px` }}
+          className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative ${
+            isActive
+              ? 'bg-[#f4dfcb] text-[#1b1c19] font-medium shadow-2xs'
+              : 'text-[#4e453f] hover:bg-[#e4e2dd]/60'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <FileText
+              className={`w-4 h-4 shrink-0 ${
+                isActive ? 'text-[#68594d] stroke-[2]' : 'text-[#7f756e] stroke-[1.5]'
+              }`}
             />
-          ) : (
-            <span className="font-sans-ui truncate text-xs sm:text-sm">
-              {note.title || 'Sem título'}
-            </span>
-          )}
+
+            {isEditing ? (
+              <input
+                ref={editInputRef}
+                type="text"
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onBlur={handleSaveRename}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveRename();
+                  if (e.key === 'Escape') setEditingItemId(null);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full bg-white px-1.5 py-0.5 text-xs font-sans-ui rounded border border-[#68594d] focus:outline-none"
+              />
+            ) : (
+              <span className="font-sans-ui truncate text-xs sm:text-sm">
+                {note.title || 'Sem título'}
+              </span>
+            )}
+          </div>
+
+          {/* Menu Horizontal ... */}
+          <button
+            id={`note-menu-btn-${note.id}`}
+            onClick={(e) => handleOpenMenu(e, note.id, 'note')}
+            className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity"
+            title="Opções da Nota"
+            aria-label="Opções da Nota"
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
         </div>
 
-        {/* Menu Horizontal ... */}
-        <button
-          id={`note-menu-btn-${note.id}`}
-          onClick={(e) => handleOpenMenu(e, note.id, 'note')}
-          className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity"
-          title="Opções da Nota"
-          aria-label="Opções da Nota"
-        >
-          <MoreHorizontal className="w-4 h-4" />
-        </button>
+        {/* Linha de Inserção Horizontal DEPOIS da Nota */}
+        {isDropAfter && (
+          <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
+        )}
       </div>
     );
   };
@@ -535,7 +749,7 @@ export function SidebarNavigation({
         onDragOver={(e) => {
           e.preventDefault();
         }}
-        onDrop={(e) => handleDropOnFolder(e, null)}
+        onDrop={handleDropOnRoot}
         className="flex-1 overflow-y-auto my-3 space-y-1 py-1 pr-1"
       >
         {isFiltering && (
@@ -548,120 +762,109 @@ export function SidebarNavigation({
                 setSearchQuery('');
                 setActiveTag(null);
               }}
-              className="text-[#68594d] font-medium hover:underline"
+              className="text-[#68594d] hover:underline"
             >
               Limpar
             </button>
           </div>
         )}
 
-        {!hasResults ? (
-          <div className="text-center py-8 text-xs font-sans-ui text-[#7f756e]">
-            Nenhum item encontrado
+        {/* Pastas e Subpastas */}
+        {filteredFolders.map((folder) => renderFolderNode(folder))}
+
+        {/* Notas Soltas na Raiz */}
+        {filteredNotes.map((note) => renderNoteNode(note))}
+
+        {!hasResults && (
+          <div className="p-4 text-center text-xs text-[#7f756e] font-sans-ui">
+            Nenhuma nota ou pasta encontrada.
           </div>
-        ) : (
-          <>
-            {filteredFolders.map((folder) => renderFolderNode(folder))}
-            {filteredNotes.map((note) => renderNoteNode(note))}
-          </>
         )}
       </div>
 
-      {/* Bottom Section: Ações de Criação, Tags e Usuário */}
-      <div className="space-y-3 pt-2 border-t border-[#eae8e3]">
-        {/* Botões de Ação de Criação */}
-        <div className="grid grid-cols-2 gap-1.5">
-          <button
-            id="sidebar-new-folder-btn"
-            onClick={handleTriggerCreateFolder}
-            className="flex items-center justify-center gap-1.5 px-2.5 py-2 text-xs text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#e4e2dd]/70 rounded-xl transition-colors cursor-pointer border border-[#e4e2dd]/60 font-sans-ui font-medium"
-            title="Nova Pasta (cria dentro da pasta atual)"
-          >
-            <FolderPlus className="w-3.5 h-3.5 text-[#68594d] stroke-[1.75]" />
-            <span>Nova Pasta</span>
-          </button>
-          <button
-            id="sidebar-new-note-btn"
-            onClick={handleTriggerCreateNote}
-            className="flex items-center justify-center gap-1.5 px-2.5 py-2 text-xs text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#e4e2dd]/70 rounded-xl transition-colors cursor-pointer border border-[#e4e2dd]/60 font-sans-ui font-medium"
-            title="Nova Nota (cria dentro da pasta atual)"
-          >
-            <FilePlus className="w-3.5 h-3.5 text-[#68594d] stroke-[1.75]" />
-            <span>Nova Nota</span>
-          </button>
-        </div>
-
-        {/* Seção Dinâmica de Etiquetas */}
-        {uniqueTags.length > 0 && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between px-1">
-              <div className="flex items-center gap-1.5">
-                <Tag className="w-3 h-3 text-[#7f756e]" />
-                <h3 className="font-sans-ui text-xs font-semibold text-[#4e453f]">
-                  Etiquetas
-                </h3>
-              </div>
-              {activeTag && (
-                <button
-                  onClick={() => setActiveTag(null)}
-                  className="text-[10px] font-sans-ui text-[#7f756e] hover:text-[#1b1c19] underline cursor-pointer"
-                >
-                  Limpar
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto px-1">
-              {uniqueTags.map((tag) => (
+      {/* Tags Globais Extraídas Dinamicamente */}
+      {uniqueTags.length > 0 && !searchQuery && (
+        <div className="py-2 border-t border-[#eae8e3]">
+          <div className="flex items-center gap-1.5 px-1 mb-1.5 text-xs text-[#7f756e] font-sans-ui font-medium">
+            <Tag className="w-3 h-3 text-[#68594d]" />
+            <span>Etiquetas</span>
+          </div>
+          <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto py-0.5">
+            {uniqueTags.map((tag) => {
+              const isSelected = activeTag?.toLowerCase() === tag.toLowerCase();
+              return (
                 <button
                   key={tag}
-                  id={`tag-badge-${tag.replace('#', '')}`}
-                  onClick={() => setActiveTag(activeTag === tag ? null : tag)}
-                  className={`px-2 py-0.5 rounded-full text-[11px] font-sans-ui font-medium transition-all cursor-pointer ${
-                    activeTag === tag
-                      ? 'bg-[#68594d] text-white'
-                      : 'bg-[#eae8e3] text-[#4e453f] hover:bg-[#d7c3b0]'
+                  id={`tag-pill-${tag.replace('#', '')}`}
+                  onClick={() => setActiveTag(isSelected ? null : tag)}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-sans-ui font-medium transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-[#68594d] text-white shadow-2xs'
+                      : 'bg-[#eae8e3] text-[#4e453f] hover:bg-[#dcd9d2]'
                   }`}
                 >
                   {tag}
                 </button>
-              ))}
-            </div>
+              );
+            })}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* User Session & Logout */}
-        <div className="pt-2 border-t border-[#d1c4bc]/40 flex items-center justify-between px-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded-full bg-[#e4e2dd] text-[#68594d] flex items-center justify-center shrink-0">
-              <User className="w-3.5 h-3.5" />
-            </div>
-            <span
-              className="font-sans-ui text-xs text-[#4e453f] truncate max-w-[120px]"
-              title={userEmail || 'Usuário'}
-            >
-              {userEmail || 'Anotado!'}
-            </span>
+      {/* Bottom Action Footer */}
+      <div className="pt-2 border-t border-[#eae8e3] space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          {/* Botão Nova Pasta (Sempre na raiz) */}
+          <button
+            id="sidebar-create-folder-btn"
+            onClick={handleTriggerCreateFolder}
+            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#eae8e3] hover:bg-[#e0ded8] text-[#4e453f] hover:text-[#1b1c19] text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer"
+          >
+            <FolderPlus className="w-4 h-4 text-[#68594d]" />
+            <span>Pasta</span>
+          </button>
+
+          {/* Botão Nova Nota (Sempre na raiz) */}
+          <button
+            id="sidebar-create-note-btn"
+            onClick={handleTriggerCreateNote}
+            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#68594d] hover:bg-[#53463c] text-white text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer shadow-2xs"
+          >
+            <FilePlus className="w-4 h-4" />
+            <span>Nota</span>
+          </button>
+        </div>
+
+        {/* User Info & Logout */}
+        <div className="flex items-center justify-between px-1 pt-1 text-xs text-[#7f756e]">
+          <div className="flex items-center gap-1.5 truncate max-w-[170px]" title={userEmail || ''}>
+            <User className="w-3.5 h-3.5 shrink-0 text-[#68594d]" />
+            <span className="truncate font-sans-ui">{userEmail || 'Conta'}</span>
           </div>
 
           <button
             id="sidebar-logout-btn"
             onClick={handleLogout}
-            className="p-1.5 text-[#7f756e] hover:text-[#ba1a1a] hover:bg-[#e4e2dd]/60 rounded-lg transition-colors cursor-pointer"
-            title="Encerrar Sessão (Sair)"
-            aria-label="Encerrar Sessão"
+            className="p-1 hover:bg-[#eae8e3] hover:text-[#ba1a1a] rounded transition-colors cursor-pointer"
+            title="Sair da Conta"
+            aria-label="Sair da Conta"
           >
             <LogOut className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* Menu Flutuante de Opções (...) */}
-      {menuOpenId && menuPosition && menuItemType && (
+      {/* Menu Contextual Flutuante (...) */}
+      {menuOpenId && menuPosition && (
         <div
-          id="context-action-menu"
-          style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
+          id="item-context-menu"
+          style={{
+            position: 'fixed',
+            top: `${menuPosition.top}px`,
+            left: `${menuPosition.left}px`,
+          }}
+          className="bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[155px] font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-50 bg-white border border-[#e4e2dd] rounded-xl shadow-lg p-1 min-w-[170px] flex flex-col text-xs font-sans-ui animate-in fade-in zoom-in-95 duration-100"
         >
           {/* Opção 1: Renomear */}
           <button
@@ -671,7 +874,7 @@ export function SidebarNavigation({
                 menuItemType === 'folder'
                   ? folders.find((f) => f.id === menuOpenId)?.name || ''
                   : notes.find((n) => n.id === menuOpenId)?.title || '';
-              startRenaming(menuOpenId, menuItemType, currentName);
+              startRenaming(menuOpenId, menuItemType!, currentName);
             }}
             className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
             title="Renomear"
@@ -680,10 +883,10 @@ export function SidebarNavigation({
             <span>Renomear</span>
           </button>
 
-          {/* Opções específicas para PASTAS */}
+          {/* Opções exclusivas para PASTAS */}
           {menuItemType === 'folder' && (
             <>
-              {/* Opção 2: Pasta inteligente */}
+              {/* Opção 2: Pasta inteligente (com Ícone de Estrelas) */}
               <button
                 id="context-menu-smart-folder-btn"
                 onClick={() => {
@@ -691,12 +894,11 @@ export function SidebarNavigation({
                   setSmartConfigFolderId(menuOpenId);
                   setSmartConfigTags(targetFolder?.smart_tags || []);
                   setMenuOpenId(null);
-                  setShowColorSubmenu(false);
                 }}
                 className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
-                title="Pasta inteligente"
+                title="Configurar Pasta Inteligente"
               >
-                <Sparkles className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
+                <Sparkles className="w-3.5 h-3.5 text-[#eab308] shrink-0 fill-[#eab308]" />
                 <span>Pasta inteligente</span>
               </button>
 
@@ -791,7 +993,11 @@ export function SidebarNavigation({
           {/* Opção 4 (ou 2 para notas): Excluir */}
           <button
             id="context-menu-delete-btn"
-            onClick={() => promptDelete(menuOpenId, menuItemType)}
+            onClick={() => {
+              if (menuOpenId && menuItemType) {
+                promptDelete(menuOpenId, menuItemType);
+              }
+            }}
             className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#ba1a1a] hover:bg-[#fceded] transition-colors cursor-pointer text-left"
             title="Excluir"
           >

@@ -105,14 +105,21 @@
   outline: none;
   min-height: 480px;
   height: auto;
-  font-family: var(--font-source-serif), "Source Serif 4", Georgia, serif;
+  font-family: var(--font-manrope), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: #1b1c19;
-  font-size: 1.0625rem;
+  font-size: 0.9375rem; /* ~15px base mobile */
+}
+
+@media (min-width: 640px) {
+  .ProseMirror {
+    font-size: 1rem; /* 16px desktop/tablet */
+  }
 }
 
 .ProseMirror p {
-  margin-bottom: 0.85rem;
-  line-height: 1.75;
+  margin-top: 0;
+  margin-bottom: 0.25rem;
+  line-height: 1.45;
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
@@ -127,101 +134,104 @@
 
 .ProseMirror h1 {
   font-family: var(--font-source-serif), Georgia, serif;
-  font-size: 1.875rem;
+  font-size: 1.65rem;
   font-weight: 700;
   color: #1b1c19;
-  margin-top: 1.75rem;
-  margin-bottom: 0.75rem;
-  line-height: 1.25;
+  margin-top: 1rem;
+  margin-bottom: 0.25rem;
+  line-height: 1.2;
 }
 
 .ProseMirror h2 {
   font-family: var(--font-source-serif), Georgia, serif;
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   font-weight: 700;
   color: #1b1c19;
-  margin-top: 1.5rem;
-  margin-bottom: 0.5rem;
-  line-height: 1.3;
+  margin-top: 0.8rem;
+  margin-bottom: 0.2rem;
+  line-height: 1.25;
 }
 
 .ProseMirror h3 {
   font-family: var(--font-source-serif), Georgia, serif;
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 600;
   color: #1b1c19;
-  margin-top: 1.25rem;
-  margin-bottom: 0.5rem;
+  margin-top: 0.65rem;
+  margin-bottom: 0.15rem;
+  line-height: 1.3;
 }
 
 /* Listas com marcadores (Bullets) */
 .ProseMirror ul:not([data-type="taskList"]) {
   list-style-type: disc;
-  padding-left: 1.75rem;
-  margin-bottom: 0.85rem;
+  padding-left: 1.25rem;
+  margin-top: 0.1rem;
+  margin-bottom: 0.25rem;
 }
 
 .ProseMirror ul:not([data-type="taskList"]) ul {
   list-style-type: circle;
-  margin-top: 0.25rem;
+  margin-top: 0.05rem;
 }
 
 /* Listas numeradas (Ordered) */
 .ProseMirror ol {
   list-style-type: decimal;
-  padding-left: 1.75rem;
-  margin-bottom: 0.85rem;
+  padding-left: 1.25rem;
+  margin-top: 0.1rem;
+  margin-bottom: 0.25rem;
 }
 
 .ProseMirror ol ol {
   list-style-type: lower-alpha;
-  margin-top: 0.25rem;
+  margin-top: 0.05rem;
 }
 
 .ProseMirror li {
-  margin-bottom: 0.35rem;
-  line-height: 1.65;
+  margin-bottom: 0.075rem;
+  line-height: 1.45;
 }
 
 .ProseMirror li > p {
   margin-bottom: 0;
 }
 
-/* Checklist / Task List Redonda Minimalista (○ vazia desmarcada, ✓ check marcada) */
+/* Checklist / Task List Redonda Minimalista (○ vazia desmarcada, 🟡✓ preenchida com amarelo pastel e check quando marcada) */
 .ProseMirror ul[data-type="taskList"] {
   list-style: none;
   padding-left: 0;
-  margin-top: 0.35rem;
-  margin-bottom: 0.5rem;
+  margin-top: 0.1rem;
+  margin-bottom: 0.25rem;
 }
 
 .ProseMirror ul[data-type="taskList"] li {
   display: flex;
   align-items: flex-start;
-  gap: 0.55rem;
-  margin-bottom: 0.2rem;
-  line-height: 1.7;
+  gap: 0.45rem;
+  margin-bottom: 0.075rem;
+  line-height: 1.45;
 }
 
 .ProseMirror ul[data-type="taskList"] li > label {
   user-select: none;
-  margin-top: 0.28rem;
+  margin-top: 0.15rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 1.125rem;
+  height: 1.125rem;
 }
 
 .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
   -webkit-appearance: none;
   appearance: none;
-  width: 1.15rem;
-  height: 1.15rem;
-  border: 1.6px solid #7f756e;
-  border-radius: 9999px; /* Círculo perfeito quando desmarcado */
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 1.5px solid #8d8076;
+  border-radius: 9999px; /* Círculo limpo quando desmarcado (○) */
   background-color: transparent;
   outline: none;
   cursor: pointer;
@@ -230,7 +240,7 @@
   justify-content: center;
   margin: 0;
   padding: 0;
-  transition: border-color 0.15s ease;
+  transition: all 0.15s ease;
   position: relative;
   box-sizing: border-box;
 }
@@ -239,23 +249,24 @@
   border-color: #68594d;
 }
 
-/* Quando concluído: substitui o círculo por um símbolo de check ✓ sem preenchimento */
+/* Quando marcado: Círculo preenchido com AMARELO PASTEL e símbolo de check ✓ */
 .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
-  border: none !important;
-  background-color: transparent !important;
-  border-radius: 0 !important;
+  border: 1.5px solid #ca8a04 !important;
+  background-color: #fef08a !important; /* Amarelo pastel do Design System */
+  border-radius: 9999px !important;
 }
 
 .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked::before {
   content: "✓";
-  font-family: var(--font-manrope), system-ui, -apple-system, sans-serif;
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: #68594d;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #713f12; /* Café escuro para excelente contraste */
   line-height: 1;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  transform: translateY(-0.5px);
 }
 
 .ProseMirror ul[data-type="taskList"] li > div {
@@ -266,16 +277,16 @@
 .ProseMirror ul[data-type="taskList"] li p {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
-  line-height: 1.7;
+  line-height: 1.45 !important;
 }
 
 .ProseMirror ul[data-type="taskList"] li > div > p {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
-  line-height: 1.7;
+  line-height: 1.45 !important;
 }
 
-/* NENHUM line-through ao marcar */
+/* NENHUM line-through ou alteração de opacidade ou cor ao marcar - texto permanece perfeitamente legível */
 .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div,
 .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > p,
 .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div > p,
@@ -288,14 +299,14 @@
 /* Citações */
 .ProseMirror blockquote {
   border-left: 3px solid #68594d;
-  padding-left: 1.25rem;
-  margin: 1rem 0;
+  padding-left: 1rem;
+  margin: 0.75rem 0;
   color: #4e453f;
   font-style: italic;
 }
 
 /* ==========================================================================
-   Bloco de Alternância Minimalista (Toggle / Details) - Papyrus & Ink
+   Bloco de Alternância Minimalista (Toggle / Details) - Suporte a Aninhamento
    ========================================================================== */
 .tiptap-toggle-wrapper {
   background-color: transparent !important;
@@ -304,17 +315,20 @@
 }
 
 .tiptap-toggle-summary {
-  font-family: var(--font-source-serif), Georgia, serif;
+  font-family: inherit;
   color: #1b1c19;
 }
 
-.tiptap-toggle-wrapper[data-open="false"] .tiptap-toggle-content {
+/* Regra estrita de filhos diretos para permitir Toggles aninhados com estados 100% independentes */
+.tiptap-toggle-wrapper[data-open="false"] > .tiptap-toggle-content-container > .tiptap-toggle-content,
+.tiptap-toggle-wrapper[data-open="false"] > .tiptap-toggle-content {
   display: none !important;
 }
 
-.tiptap-toggle-wrapper[data-open="true"] .tiptap-toggle-content {
+.tiptap-toggle-wrapper[data-open="true"] > .tiptap-toggle-content-container > .tiptap-toggle-content,
+.tiptap-toggle-wrapper[data-open="true"] > .tiptap-toggle-content {
   display: block !important;
-  animation: toggleContentReveal 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: toggleContentReveal 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes toggleContentReveal {

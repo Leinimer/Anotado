@@ -5,7 +5,7 @@ import { NodeViewWrapper, NodeViewContent, NodeViewProps } from '@tiptap/react';
 import { ChevronRight, Trash2 } from 'lucide-react';
 
 export function ToggleNodeView({ node, updateAttributes, deleteNode }: NodeViewProps) {
-  const isOpen = node.attrs.open ?? true;
+  const isOpen = node.attrs.open !== false;
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -22,7 +22,7 @@ export function ToggleNodeView({ node, updateAttributes, deleteNode }: NodeViewP
   return (
     <NodeViewWrapper
       as="div"
-      className="tiptap-toggle-wrapper group/toggle relative my-3.5 pl-6 sm:pl-7 select-none transition-all"
+      className="tiptap-toggle-wrapper group/toggle relative my-1.5 pl-6 sm:pl-7 transition-all"
       data-open={isOpen ? 'true' : 'false'}
     >
       {/* Botão de Excluir Toggle (Lixeira à esquerda no hover ou acessível no mobile) */}
@@ -41,18 +41,16 @@ export function ToggleNodeView({ node, updateAttributes, deleteNode }: NodeViewP
         </button>
       </div>
 
-      {/* Botão Independente da Seta (Área de toque confortável, seta e alça de arrasto) */}
+      {/* Botão Independente da Seta (Alternar aberto/fechado perfeitamente a cada clique) */}
       <div
         contentEditable={false}
-        data-drag-handle
-        draggable="true"
-        className="absolute left-0 top-0.5 flex items-center justify-center z-20 cursor-grab active:cursor-grabbing"
+        className="absolute left-0 top-0.5 flex items-center justify-center z-20"
       >
         <button
           type="button"
           onClick={handleToggleClick}
           className="p-1 -m-0.5 text-[#7f756e] hover:text-[#68594d] hover:bg-[#eae8e3] rounded-lg transition-colors cursor-pointer flex items-center justify-center"
-          title={isOpen ? 'Recolher Bloco (ou segure para arrastar)' : 'Expandir Bloco (ou segure para arrastar)'}
+          title={isOpen ? 'Recolher Bloco' : 'Expandir Bloco'}
           aria-label={isOpen ? 'Recolher Bloco' : 'Expandir Bloco'}
         >
           <ChevronRight

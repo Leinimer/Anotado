@@ -25,7 +25,14 @@ export const ToggleDetails = Node.create({
     return {
       open: {
         default: true,
-        parseHTML: (element) => element.getAttribute('data-open') !== 'false' && element.hasAttribute('open'),
+        parseHTML: (element) => {
+          const dataOpen = element.getAttribute('data-open');
+          if (dataOpen === 'true') return true;
+          if (dataOpen === 'false') return false;
+          if (element.hasAttribute('open')) return true;
+          if (element.tagName.toLowerCase() === 'details') return element.hasAttribute('open');
+          return true;
+        },
         renderHTML: (attributes) => ({
           'data-open': attributes.open ? 'true' : 'false',
         }),

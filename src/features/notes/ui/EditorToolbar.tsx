@@ -13,16 +13,16 @@ import {
   AlignCenter,
   AlignRight,
   AlignJustify,
-  List,
+  List as ListIcon,
   ListOrdered,
-  CheckSquare,
+  Minus,
   ChevronRight,
   Undo,
   Redo,
   Image as ImageIcon,
   FileText,
   Youtube as YoutubeIcon,
-  Plus,
+  Paperclip,
   Trash2,
   ChevronDown,
   X,
@@ -52,12 +52,16 @@ const FONT_SIZES = [
   '36px',
   '40px',
   '48px',
+  '56px',
+  '64px',
   '72px',
 ] as const;
 
 export function EditorToolbar({ editor }: EditorToolbarProps) {
+  const [showStyleMenu, setShowStyleMenu] = useState(false);
   const [showHighlightPicker, setShowHighlightPicker] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showListMenu, setShowListMenu] = useState(false);
   const [showAddFileMenu, setShowAddFileMenu] = useState(false);
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -73,9 +77,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     const updateKeyboardPosition = () => {
       if (window.visualViewport) {
         const vv = window.visualViewport;
-        // Distância entre a parte inferior da janela visível e o fim da tela
         const offset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
-        // Se a diferença for significativa (> 60px), o teclado virtual está aberto no mobile/tablet
         if (offset > 60) {
           setKeyboardBottomOffset(offset);
         } else {
@@ -103,12 +105,16 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   // Coordenadas calculadas para os popovers flutuantes livres
   const [popoverCoords, setPopoverCoords] = useState<{ bottom: number; left: number } | null>(null);
 
-  const highlightBtnRef = useRef<HTMLButtonElement>(null);
+  const styleBtnRef = useRef<HTMLButtonElement>(null);
   const colorBtnRef = useRef<HTMLButtonElement>(null);
+  const highlightBtnRef = useRef<HTMLButtonElement>(null);
+  const listBtnRef = useRef<HTMLButtonElement>(null);
   const addFileBtnRef = useRef<HTMLButtonElement>(null);
 
-  const highlightPopoverRef = useRef<HTMLDivElement>(null);
+  const stylePopoverRef = useRef<HTMLDivElement>(null);
   const colorPopoverRef = useRef<HTMLDivElement>(null);
+  const highlightPopoverRef = useRef<HTMLDivElement>(null);
+  const listPopoverRef = useRef<HTMLDivElement>(null);
   const addFilePopoverRef = useRef<HTMLDivElement>(null);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -141,12 +147,12 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
       if (
-        highlightPopoverRef.current &&
-        !highlightPopoverRef.current.contains(target) &&
-        highlightBtnRef.current &&
-        !highlightBtnRef.current.contains(target)
+        stylePopoverRef.current &&
+        !stylePopoverRef.current.contains(target) &&
+        styleBtnRef.current &&
+        !styleBtnRef.current.contains(target)
       ) {
-        setShowHighlightPicker(false);
+        setShowStyleMenu(false);
       }
       if (
         colorPopoverRef.current &&
@@ -155,6 +161,22 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
         !colorBtnRef.current.contains(target)
       ) {
         setShowColorPicker(false);
+      }
+      if (
+        highlightPopoverRef.current &&
+        !highlightPopoverRef.current.contains(target) &&
+        highlightBtnRef.current &&
+        !highlightBtnRef.current.contains(target)
+      ) {
+        setShowHighlightPicker(false);
+      }
+      if (
+        listPopoverRef.current &&
+        !listPopoverRef.current.contains(target) &&
+        listBtnRef.current &&
+        !listBtnRef.current.contains(target)
+      ) {
+        setShowListMenu(false);
       }
       if (
         addFilePopoverRef.current &&
@@ -176,6 +198,49 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     return null;
   }
 
+  // Paleta de Estilos de Texto Estruturados (Título, Cabeçalho, Subtítulo, Corpo)
+  const textStyles = [
+    {
+      id: 'title',
+      label: 'Título',
+      previewClass: 'font-serif-note font-bold text-xl sm:text-2xl text-[#1b1c19] tracking-tight leading-tight',
+      isActive: () => editor.isActive('heading', { level: 1 }),
+      action: () => editor.chain().focus().setHeading({ level: 1 }).run(),
+    },
+    {
+      id: 'heading',
+      label: 'Cabeçalho',
+      previewClass: 'font-serif-note font-bold text-base sm:text-lg text-[#1b1c19] leading-snug',
+      isActive: () => editor.isActive('heading', { level: 2 }),
+      action: () => editor.chain().focus().setHeading({ level: 2 }).run(),
+    },
+    {
+      id: 'subtitle',
+      label: 'Subtítulo',
+      previewClass: 'font-serif-note font-semibold text-sm sm:text-base text-[#4e453f] leading-snug',
+      isActive: () => editor.isActive('heading', { level: 3 }),
+      action: () => editor.chain().focus().setHeading({ level: 3 }).run(),
+    },
+    {
+      id: 'body',
+      label: 'Corpo',
+      previewClass: 'font-serif-note font-normal text-xs sm:text-sm text-[#1b1c19] leading-normal',
+      isActive: () => editor.isActive('paragraph') && !editor.isActive('heading'),
+      action: () => editor.chain().focus().setParagraph().run(),
+    },
+  ];
+
+  // Paleta de Cores do Texto (Tons Clássicos de Tinta e Editoriais)
+  const textColors = [
+    { label: 'Sépia Clássica', color: '#68594d' },
+    { label: 'Café Profundo', color: '#4a3728' },
+    { label: 'Carmim Nobre', color: '#ba1a1a' },
+    { label: 'Azul Noite', color: '#1e3a8a' },
+    { label: 'Verde Floresta', color: '#14532d' },
+    { label: 'Terracota', color: '#ea580c' },
+    { label: 'Cinza Grafite', color: '#64748b' },
+  ];
+
   // Paleta de Marca-Texto (Pastéis Suaves)
   const highlightPastels = [
     { label: 'Amarelo Suave', color: '#fef08a' },
@@ -186,31 +251,21 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     { label: 'Laranja Pêssego', color: '#fed7aa' },
   ];
 
-  // Paleta de Cores do Texto (Tons Clássicos de Tinta e Editoriais)
-  const textColors = [
-    { label: 'Tinta Padrão', color: '#1b1c19' },
-    { label: 'Sépia Clássica', color: '#68594d' },
-    { label: 'Café Profundo', color: '#4a3728' },
-    { label: 'Carmim Nobre', color: '#ba1a1a' },
-    { label: 'Azul Noite', color: '#1e3a8a' },
-    { label: 'Verde Floresta', color: '#14532d' },
-    { label: 'Terracota', color: '#ea580c' },
-    { label: 'Cinza Grafite', color: '#64748b' },
-  ];
-
   // Disparadores de Popover com cálculo de posição acima da toolbar
-  const toggleHighlightPicker = () => {
-    if (!showHighlightPicker && highlightBtnRef.current) {
-      const rect = highlightBtnRef.current.getBoundingClientRect();
+  const toggleStyleMenu = () => {
+    if (!showStyleMenu && styleBtnRef.current) {
+      const rect = styleBtnRef.current.getBoundingClientRect();
       setPopoverCoords({
         bottom: window.innerHeight - rect.top + 8,
         left: rect.left + rect.width / 2,
       });
-      setShowHighlightPicker(true);
+      setShowStyleMenu(true);
       setShowColorPicker(false);
+      setShowHighlightPicker(false);
+      setShowListMenu(false);
       setShowAddFileMenu(false);
     } else {
-      setShowHighlightPicker(false);
+      setShowStyleMenu(false);
     }
   };
 
@@ -222,10 +277,46 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
         left: rect.left + rect.width / 2,
       });
       setShowColorPicker(true);
+      setShowStyleMenu(false);
       setShowHighlightPicker(false);
+      setShowListMenu(false);
       setShowAddFileMenu(false);
     } else {
       setShowColorPicker(false);
+    }
+  };
+
+  const toggleHighlightPicker = () => {
+    if (!showHighlightPicker && highlightBtnRef.current) {
+      const rect = highlightBtnRef.current.getBoundingClientRect();
+      setPopoverCoords({
+        bottom: window.innerHeight - rect.top + 8,
+        left: rect.left + rect.width / 2,
+      });
+      setShowHighlightPicker(true);
+      setShowStyleMenu(false);
+      setShowColorPicker(false);
+      setShowListMenu(false);
+      setShowAddFileMenu(false);
+    } else {
+      setShowHighlightPicker(false);
+    }
+  };
+
+  const toggleListMenu = () => {
+    if (!showListMenu && listBtnRef.current) {
+      const rect = listBtnRef.current.getBoundingClientRect();
+      setPopoverCoords({
+        bottom: window.innerHeight - rect.top + 8,
+        left: rect.left + rect.width / 2,
+      });
+      setShowListMenu(true);
+      setShowStyleMenu(false);
+      setShowColorPicker(false);
+      setShowHighlightPicker(false);
+      setShowAddFileMenu(false);
+    } else {
+      setShowListMenu(false);
     }
   };
 
@@ -237,8 +328,10 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
         left: rect.left + rect.width / 2,
       });
       setShowAddFileMenu(true);
-      setShowHighlightPicker(false);
+      setShowStyleMenu(false);
       setShowColorPicker(false);
+      setShowHighlightPicker(false);
+      setShowListMenu(false);
     } else {
       setShowAddFileMenu(false);
     }
@@ -249,14 +342,14 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     const currentSize = editor.getAttributes('textStyle').fontSize || '16px';
     const currentIndex = FONT_SIZES.indexOf(currentSize as (typeof FONT_SIZES)[number]);
     const nextIndex =
-      currentIndex === -1 ? 6 : Math.min(currentIndex + 1, FONT_SIZES.length - 1);
+      currentIndex === -1 ? 7 : Math.min(currentIndex + 1, FONT_SIZES.length - 1);
     editor.chain().focus().setMark('textStyle', { fontSize: FONT_SIZES[nextIndex] }).run();
   };
 
   const handleDecreaseFontSize = () => {
     const currentSize = editor.getAttributes('textStyle').fontSize || '16px';
     const currentIndex = FONT_SIZES.indexOf(currentSize as (typeof FONT_SIZES)[number]);
-    const prevIndex = currentIndex === -1 ? 4 : Math.max(0, currentIndex - 1);
+    const prevIndex = currentIndex === -1 ? 5 : Math.max(0, currentIndex - 1);
     editor.chain().focus().setMark('textStyle', { fontSize: FONT_SIZES[prevIndex] }).run();
   };
 
@@ -318,20 +411,21 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
   const isInsideToggle = editor.isActive('toggleDetails');
 
+  // Estilo padrão uniforme para os botões da toolbar (sem estado ativo permanente)
+  const neutralBtnClass =
+    'min-w-[38px] min-h-[38px] sm:min-w-[40px] sm:min-h-[40px] p-2 rounded-xl flex items-center justify-center text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] active:bg-[#e4e2dd] active:scale-95 transition-all cursor-pointer';
+
   return (
-    <div
-      id="editor-floating-dock-container"
+    <footer
+      id="editor-toolbar-footer-container"
       style={
         keyboardBottomOffset > 0
           ? {
               position: 'fixed',
-              bottom: `${keyboardBottomOffset + 10}px`,
+              bottom: `${keyboardBottomOffset}px`,
               left: 0,
               right: 0,
-              zIndex: 50,
-              paddingLeft: '8px',
-              paddingRight: '8px',
-              transition: 'bottom 0.15s cubic-bezier(0.2, 0, 0, 1)',
+              zIndex: 9999,
             }
           : undefined
       }
@@ -361,17 +455,17 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           onChange={handleDocUpload}
         />
 
-        {/* Grupo 0: Desfazer / Refazer (Undo / Redo) */}
-        <div className="flex items-center gap-1 shrink-0">
+        {/* 1. HISTÓRICO — [ Desfazer | Refazer ] */}
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
           <button
             id="toolbar-btn-undo"
             type="button"
             disabled={!editor.can().undo()}
             onClick={() => editor.chain().focus().undo().run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+            className={`min-w-[38px] min-h-[38px] sm:min-w-[40px] sm:min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.can().undo()
                 ? 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                : 'text-[#d1c4bc] cursor-not-allowed opacity-50'
+                : 'text-[#d1c4bc] cursor-not-allowed opacity-40'
             }`}
             title="Desfazer (Ctrl+Z)"
             aria-label="Desfazer"
@@ -384,10 +478,10 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             type="button"
             disabled={!editor.can().redo()}
             onClick={() => editor.chain().focus().redo().run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+            className={`min-w-[38px] min-h-[38px] sm:min-w-[40px] sm:min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.can().redo()
                 ? 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                : 'text-[#d1c4bc] cursor-not-allowed opacity-50'
+                : 'text-[#d1c4bc] cursor-not-allowed opacity-40'
             }`}
             title="Refazer (Ctrl+Shift+Z)"
             aria-label="Refazer"
@@ -398,17 +492,13 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
         <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
-        {/* Grupo 1: Formatação Básica (B, I, U, S) */}
-        <div className="flex items-center gap-1 shrink-0">
+        {/* 2. FORMATAÇÃO — [ B | I | U | S | A | A↓ | A↑ ] */}
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
           <button
             id="toolbar-btn-bold"
             type="button"
             onClick={() => editor.chain().focus().toggleBold().run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive('bold')
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
+            className={neutralBtnClass}
             title="Negrito (Ctrl+B)"
             aria-label="Negrito"
           >
@@ -419,11 +509,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-btn-italic"
             type="button"
             onClick={() => editor.chain().focus().toggleItalic().run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive('italic')
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
+            className={neutralBtnClass}
             title="Itálico (Ctrl+I)"
             aria-label="Itálico"
           >
@@ -434,11 +520,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-btn-underline"
             type="button"
             onClick={() => editor.chain().focus().toggleUnderline().run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive('underline')
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
+            className={neutralBtnClass}
             title="Sublinhado (Ctrl+U)"
             aria-label="Sublinhado"
           >
@@ -449,64 +531,37 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-btn-strike"
             type="button"
             onClick={() => editor.chain().focus().toggleStrike().run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive('strike')
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
+            className={neutralBtnClass}
             title="Tachado"
             aria-label="Tachado"
           >
             <Strikethrough className="w-4.5 h-4.5" />
           </button>
-        </div>
 
-        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
-
-        {/* Grupo 2: Marca-texto e Cor da Fonte */}
-        <div className="flex items-center gap-1 shrink-0">
-          {/* Marca-Texto (Highlight) */}
+          {/* Botão A (Estilos: Título, Cabeçalho, Subtítulo, Corpo) */}
           <button
-            ref={highlightBtnRef}
-            id="toolbar-btn-highlight"
+            ref={styleBtnRef}
+            id="toolbar-btn-text-styles"
             type="button"
-            onClick={toggleHighlightPicker}
-            className={`min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 ${
-              editor.isActive('highlight')
-                ? 'bg-[#fef08a] text-[#1b1c19] ring-1 ring-[#eab308]'
+            onClick={toggleStyleMenu}
+            className={`min-w-[40px] min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-0.5 transition-all cursor-pointer active:scale-95 ${
+              showStyleMenu
+                ? 'bg-[#f0eee9] text-[#1b1c19]'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
             }`}
-            title="Marca-texto"
-            aria-label="Marca-texto"
+            title="Estilos de Texto (Título, Cabeçalho, Subtítulo, Corpo)"
+            aria-label="Estilos de Texto"
           >
-            <Highlighter className="w-4.5 h-4.5" />
+            <span className="font-serif-note font-bold text-base sm:text-lg leading-none">A</span>
             <ChevronDown className="w-3 h-3 text-[#7f756e]" />
           </button>
 
-          {/* Cor da Fonte (Text Color) */}
-          <button
-            ref={colorBtnRef}
-            id="toolbar-btn-color"
-            type="button"
-            onClick={toggleColorPicker}
-            className="min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-all cursor-pointer active:scale-95"
-            title="Cor do Texto"
-            aria-label="Cor do Texto"
-          >
-            <Palette className="w-4.5 h-4.5" />
-            <ChevronDown className="w-3 h-3 text-[#7f756e]" />
-          </button>
-        </div>
-
-        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
-
-        {/* Grupo 3: Tamanho da Fonte com Escala Ampla (A↓ / A↑) */}
-        <div className="flex items-center gap-1 shrink-0">
+          {/* Tamanho da Fonte (A↓ / A↑) */}
           <button
             id="toolbar-btn-decrease-fontsize"
             type="button"
             onClick={handleDecreaseFontSize}
-            className="min-w-[40px] min-h-[40px] px-2.5 py-1.5 text-xs font-sans-ui font-bold text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95"
+            className="min-w-[38px] min-h-[38px] sm:min-w-[40px] sm:min-h-[40px] px-2 text-xs font-sans-ui font-bold text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] active:bg-[#e4e2dd] rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95"
             title="Diminuir tamanho da fonte (A↓)"
             aria-label="Diminuir tamanho da fonte"
           >
@@ -516,7 +571,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-btn-increase-fontsize"
             type="button"
             onClick={handleIncreaseFontSize}
-            className="min-w-[40px] min-h-[40px] px-2.5 py-1.5 text-xs font-sans-ui font-bold text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95"
+            className="min-w-[38px] min-h-[38px] sm:min-w-[40px] sm:min-h-[40px] px-2 text-xs font-sans-ui font-bold text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] active:bg-[#e4e2dd] rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95"
             title="Aumentar tamanho da fonte (A↑)"
             aria-label="Aumentar tamanho da fonte"
           >
@@ -526,17 +581,54 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
         <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
-        {/* Grupo 4: Alinhamento */}
-        <div className="flex items-center gap-1 shrink-0">
+        {/* 3. CORES — [ Cor do texto | Marca-texto ] */}
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+          {/* Cor do Texto (Text Color) */}
+          <button
+            ref={colorBtnRef}
+            id="toolbar-btn-color"
+            type="button"
+            onClick={toggleColorPicker}
+            className={`min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 ${
+              showColorPicker
+                ? 'bg-[#f0eee9] text-[#1b1c19]'
+                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
+            }`}
+            title="Cor do Texto"
+            aria-label="Cor do Texto"
+          >
+            <Palette className="w-4.5 h-4.5" />
+            <ChevronDown className="w-3 h-3 text-[#7f756e]" />
+          </button>
+
+          {/* Marca-Texto (Highlight) */}
+          <button
+            ref={highlightBtnRef}
+            id="toolbar-btn-highlight"
+            type="button"
+            onClick={toggleHighlightPicker}
+            className={`min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 ${
+              showHighlightPicker
+                ? 'bg-[#f0eee9] text-[#1b1c19]'
+                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
+            }`}
+            title="Marca-texto"
+            aria-label="Marca-texto"
+          >
+            <Highlighter className="w-4.5 h-4.5" />
+            <ChevronDown className="w-3 h-3 text-[#7f756e]" />
+          </button>
+        </div>
+
+        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
+
+        {/* 4. ALINHAMENTOS — [ Esquerda | Centralizar | Direita | Justificar ] */}
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
           <button
             id="toolbar-align-left"
             type="button"
             onClick={() => editor.chain().focus().setTextAlign('left').run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive({ textAlign: 'left' })
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
+            className={neutralBtnClass}
             title="Alinhar à Esquerda"
             aria-label="Alinhar à Esquerda"
           >
@@ -547,11 +639,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-align-center"
             type="button"
             onClick={() => editor.chain().focus().setTextAlign('center').run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive({ textAlign: 'center' })
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
+            className={neutralBtnClass}
             title="Centralizar"
             aria-label="Centralizar"
           >
@@ -562,11 +650,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-align-right"
             type="button"
             onClick={() => editor.chain().focus().setTextAlign('right').run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive({ textAlign: 'right' })
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
+            className={neutralBtnClass}
             title="Alinhar à Direita"
             aria-label="Alinhar à Direita"
           >
@@ -577,11 +661,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-align-justify"
             type="button"
             onClick={() => editor.chain().focus().setTextAlign('justify').run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive({ textAlign: 'justify' })
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
+            className={neutralBtnClass}
             title="Justificar"
             aria-label="Justificar"
           >
@@ -591,76 +671,64 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
         <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
-        {/* Grupo 5: Listas e Checklists */}
-        <div className="flex items-center gap-1 shrink-0">
-          {/* Lista com Marcadores */}
+        {/* 5. LISTAS / ESTRUTURA — [ Listas | Toggle | Checklist ] */}
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+          {/* Botão ÚNICO: Listas (Abre popover com Marcadores, Numerada, Traços) */}
           <button
-            id="toolbar-bullet-list"
+            ref={listBtnRef}
+            id="toolbar-btn-lists"
             type="button"
-            onClick={() => editor.chain().focus().toggleBulletList().run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive('bulletList')
-                ? 'bg-[#68594d] text-white shadow-2xs'
+            onClick={toggleListMenu}
+            className={`min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 ${
+              showListMenu
+                ? 'bg-[#f0eee9] text-[#1b1c19]'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
             }`}
-            title="Lista com Marcadores"
-            aria-label="Lista com Marcadores"
+            title="Listas (Marcadores, Numerada, Traços)"
+            aria-label="Listas"
           >
-            <List className="w-4.5 h-4.5" />
+            <ListIcon className="w-4.5 h-4.5" />
+            <ChevronDown className="w-3 h-3 text-[#7f756e]" />
           </button>
 
-          {/* Lista Numerada */}
-          <button
-            id="toolbar-ordered-list"
-            type="button"
-            onClick={() => editor.chain().focus().toggleOrderedList().run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive('orderedList')
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
-            title="Lista Numerada"
-            aria-label="Lista Numerada"
-          >
-            <ListOrdered className="w-4.5 h-4.5" />
-          </button>
-
-          {/* Checklist / Task List */}
-          <button
-            id="toolbar-task-list"
-            type="button"
-            onClick={() => editor.chain().focus().toggleTaskList().run()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              editor.isActive('taskList')
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
-            title="Lista de Tarefas (Checklist)"
-            aria-label="Lista de Tarefas"
-          >
-            <CheckSquare className="w-4.5 h-4.5" />
-          </button>
-        </div>
-
-        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
-
-        {/* Grupo 6: Toggle / Details */}
-        <div className="flex items-center gap-1 shrink-0">
+          {/* Bloco de Alternância (Toggle) */}
           <button
             id="toolbar-toggle-details"
             type="button"
             onClick={() => editor.commands.setToggleDetails()}
-            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-              isInsideToggle
-                ? 'bg-[#68594d] text-white shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
+            className={neutralBtnClass}
             title="Bloco de Alternância (Toggle / Recolhível)"
             aria-label="Bloco de Alternância"
           >
             <ChevronRight className="w-4.5 h-4.5" />
           </button>
 
+          {/* Checklist (Ícone fiel à bolinha da nota) */}
+          <button
+            id="toolbar-task-list"
+            type="button"
+            onClick={() => editor.chain().focus().toggleTaskList().run()}
+            className={neutralBtnClass}
+            title="Lista de Tarefas (Checklist)"
+            aria-label="Lista de Tarefas"
+          >
+            <svg
+              className="w-4.5 h-4.5"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+            >
+              <circle cx="10" cy="10" r="7.5" strokeWidth="1.75" />
+              <path
+                d="M7 10.2L9 12.2L13.5 7.8"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+
+          {/* Excluir Toggle quando cursor estiver dentro dele */}
           {isInsideToggle && (
             <button
               id="toolbar-delete-toggle-btn"
@@ -677,89 +745,70 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
         <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
-        {/* Grupo 7: Menu Unificado "+ Arquivo" */}
+        {/* 6. ANEXO — [ 📎 ] */}
         <button
           ref={addFileBtnRef}
           id="toolbar-btn-add-file"
           type="button"
           disabled={isUploading}
           onClick={toggleAddFileMenu}
-          className="min-h-[40px] flex items-center gap-1.5 px-3.5 py-1.5 bg-[#68594d] text-white hover:bg-[#574a40] rounded-xl text-xs font-sans-ui font-medium transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
-          title="Adicionar Arquivo (Imagem, PDF, YouTube)"
+          className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0 ${
+            showAddFileMenu
+              ? 'bg-[#f0eee9] text-[#1b1c19]'
+              : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
+          }`}
+          title="Anexar ou Inserir Mídia (Imagem, PDF/Documento, Vídeo)"
+          aria-label="Anexar ou Inserir Mídia"
         >
           {isUploading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader2 className="w-4.5 h-4.5 animate-spin text-[#68594d]" />
           ) : (
-            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <Paperclip className="w-4.5 h-4.5 stroke-[2.25]" />
           )}
-          <span>Arquivo</span>
-          <ChevronDown className="w-3.5 h-3.5 text-white/80" />
         </button>
       </nav>
 
-      {/* POPOVER FLUTUANTE 1: MARCA-TEXTO (Renderizado fixo ACIMA da toolbar) */}
-      {showHighlightPicker && popoverCoords && (
+      {/* POPOVER FLUTUANTE: ESTILOS DE TEXTO */}
+      {showStyleMenu && popoverCoords && (
         <div
-          ref={highlightPopoverRef}
-          id="toolbar-highlight-popover"
+          ref={stylePopoverRef}
+          id="toolbar-style-menu-popover"
           style={{
             position: 'fixed',
             bottom: `${popoverCoords.bottom}px`,
-            left: `clamp(140px, ${popoverCoords.left}px, calc(100vw - 140px))`,
+            left: `clamp(110px, ${popoverCoords.left}px, calc(100vw - 110px))`,
             transform: 'translateX(-50%)',
           }}
-          className="bg-white border border-[#e4e2dd] p-2 rounded-xl shadow-xl flex items-center gap-1.5 z-50 animate-in fade-in zoom-in-95"
+          className="bg-white border border-[#e4e2dd] p-1.5 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[200px] z-50 animate-in fade-in zoom-in-95 font-sans-ui"
         >
-          {highlightPastels.map((h) => (
-            <button
-              key={h.color}
-              type="button"
-              title={h.label}
-              onClick={() => {
-                editor.chain().focus().toggleHighlight({ color: h.color }).run();
-                setShowHighlightPicker(false);
-              }}
-              className="w-5 h-5 rounded-full border border-black/15 transition-transform hover:scale-125 cursor-pointer shadow-2xs"
-              style={{ backgroundColor: h.color }}
-            />
-          ))}
-
-          {/* Opção Multicolor / Personalizada */}
-          <label
-            title="Cor personalizada (Multicolor)"
-            className="w-5 h-5 rounded-full flex items-center justify-center cursor-pointer border border-[#d1c4bc] bg-conic-gradient hover:scale-125 transition-transform overflow-hidden relative"
-            style={{
-              background:
-                'conic-gradient(from 0deg, red, yellow, green, cyan, blue, magenta, red)',
-            }}
-          >
-            <input
-              type="color"
-              onChange={(e) => {
-                editor.chain().focus().toggleHighlight({ color: e.target.value }).run();
-                setShowHighlightPicker(false);
-              }}
-              className="opacity-0 absolute inset-0 cursor-pointer w-full h-full"
-            />
-          </label>
-
-          <div className="h-4 w-[1px] bg-[#e4e2dd]" />
-
-          <button
-            type="button"
-            title="Remover marca-texto"
-            onClick={() => {
-              editor.chain().focus().unsetHighlight().run();
-              setShowHighlightPicker(false);
-            }}
-            className="px-1.5 py-0.5 text-[11px] text-[#ba1a1a] hover:bg-[#fceded] rounded font-sans-ui transition-colors cursor-pointer"
-          >
-            Limpar
-          </button>
+          {textStyles.map((style) => {
+            const active = style.isActive();
+            return (
+              <button
+                key={style.id}
+                id={`style-opt-${style.id}`}
+                type="button"
+                onClick={() => {
+                  style.action();
+                  setShowStyleMenu(false);
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-colors cursor-pointer text-left ${
+                  active
+                    ? 'bg-[#f0eee9] text-[#1b1c19]'
+                    : 'hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19]'
+                }`}
+              >
+                <span className={style.previewClass}>{style.label}</span>
+                {active && (
+                  <span className="text-[#68594d] font-bold text-xs ml-3 shrink-0">✓</span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
 
-      {/* POPOVER FLUTUANTE 2: COR DO TEXTO (Renderizado fixo ACIMA da toolbar) */}
+      {/* POPOVER FLUTUANTE: COR DO TEXTO */}
       {showColorPicker && popoverCoords && (
         <div
           ref={colorPopoverRef}
@@ -772,150 +821,225 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           }}
           className="bg-white border border-[#e4e2dd] p-2 rounded-xl shadow-xl flex items-center gap-1.5 z-50 animate-in fade-in zoom-in-95"
         >
-          {textColors.map((c) => (
-            <button
-              key={c.color}
-              type="button"
-              title={c.label}
-              onClick={() => {
-                editor.chain().focus().setColor(c.color).run();
-                setShowColorPicker(false);
-              }}
-              className="w-5 h-5 rounded-full border border-black/15 transition-transform hover:scale-125 cursor-pointer shadow-2xs"
-              style={{ backgroundColor: c.color }}
-            />
-          ))}
-
-          {/* Opção Multicolor / Personalizada */}
-          <label
-            title="Cor personalizada (Multicolor)"
-            className="w-5 h-5 rounded-full flex items-center justify-center cursor-pointer border border-[#d1c4bc] hover:scale-125 transition-transform overflow-hidden relative"
-            style={{
-              background:
-                'conic-gradient(from 0deg, red, yellow, green, cyan, blue, magenta, red)',
-            }}
-          >
-            <input
-              type="color"
-              onChange={(e) => {
-                editor.chain().focus().setColor(e.target.value).run();
-                setShowColorPicker(false);
-              }}
-              className="opacity-0 absolute inset-0 cursor-pointer w-full h-full"
-            />
-          </label>
-
-          <div className="h-4 w-[1px] bg-[#e4e2dd]" />
-
+          {/* Opção 1: Cor Padrão (Círculo Vazio ○) */}
           <button
             type="button"
-            title="Cor padrão"
+            id="color-opt-default"
             onClick={() => {
               editor.chain().focus().unsetColor().run();
               setShowColorPicker(false);
             }}
-            className="px-1.5 py-0.5 text-[11px] text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#f0eee9] rounded font-sans-ui transition-colors cursor-pointer"
+            className="w-7 h-7 rounded-full border-2 border-dashed border-[#7f756e]/50 hover:border-[#1b1c19] flex items-center justify-center transition-transform hover:scale-110 cursor-pointer"
+            title="Cor Padrão (Sem cor personalizada)"
+            aria-label="Cor Padrão"
           >
-            Padrão
+            <span className="text-[10px] text-[#7f756e] font-bold leading-none">○</span>
           </button>
+
+          {/* Cores Editoriais */}
+          {textColors.map((c) => (
+            <button
+              key={c.color}
+              id={`color-opt-${c.color.replace('#', '')}`}
+              type="button"
+              onClick={() => {
+                editor.chain().focus().setColor(c.color).run();
+                setShowColorPicker(false);
+              }}
+              className="w-7 h-7 rounded-full border border-black/10 transition-transform hover:scale-110 cursor-pointer shadow-2xs"
+              style={{ backgroundColor: c.color }}
+              title={c.label}
+              aria-label={c.label}
+            />
+          ))}
         </div>
       )}
 
-      {/* POPOVER FLUTUANTE 3: + ARQUIVO (Renderizado fixo ACIMA da toolbar) */}
-      {showAddFileMenu && popoverCoords && (
+      {/* POPOVER FLUTUANTE: MARCA-TEXTO */}
+      {showHighlightPicker && popoverCoords && (
         <div
-          ref={addFilePopoverRef}
-          id="toolbar-add-file-dropdown"
+          ref={highlightPopoverRef}
+          id="toolbar-highlight-popover"
+          style={{
+            position: 'fixed',
+            bottom: `${popoverCoords.bottom}px`,
+            left: `clamp(140px, ${popoverCoords.left}px, calc(100vw - 140px))`,
+            transform: 'translateX(-50%)',
+          }}
+          className="bg-white border border-[#e4e2dd] p-2 rounded-xl shadow-xl flex items-center gap-1.5 z-50 animate-in fade-in zoom-in-95"
+        >
+          {/* Opção 1: Sem marca-texto (Círculo Vazio ○) */}
+          <button
+            type="button"
+            id="highlight-opt-none"
+            onClick={() => {
+              editor.chain().focus().unsetHighlight().run();
+              setShowHighlightPicker(false);
+            }}
+            className="w-7 h-7 rounded-full border-2 border-dashed border-[#7f756e]/50 hover:border-[#1b1c19] flex items-center justify-center transition-transform hover:scale-110 cursor-pointer"
+            title="Sem Marca-texto (Remover destaque)"
+            aria-label="Sem Marca-texto"
+          >
+            <span className="text-[10px] text-[#7f756e] font-bold leading-none">○</span>
+          </button>
+
+          {/* Cores Pastéis */}
+          {highlightPastels.map((h) => (
+            <button
+              key={h.color}
+              id={`highlight-opt-${h.color.replace('#', '')}`}
+              type="button"
+              onClick={() => {
+                editor.chain().focus().setHighlight({ color: h.color }).run();
+                setShowHighlightPicker(false);
+              }}
+              className="w-7 h-7 rounded-full border border-black/10 transition-transform hover:scale-110 cursor-pointer shadow-2xs"
+              style={{ backgroundColor: h.color }}
+              title={h.label}
+              aria-label={h.label}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* POPOVER FLUTUANTE: LISTAS (Marcadores •, Numerada 1., Traços —) */}
+      {showListMenu && popoverCoords && (
+        <div
+          ref={listPopoverRef}
+          id="toolbar-list-menu-popover"
           style={{
             position: 'fixed',
             bottom: `${popoverCoords.bottom}px`,
             left: `clamp(110px, ${popoverCoords.left}px, calc(100vw - 110px))`,
             transform: 'translateX(-50%)',
           }}
-          className="bg-white border border-[#e4e2dd] p-1.5 rounded-xl shadow-xl flex flex-col gap-1 min-w-[190px] z-50 animate-in fade-in zoom-in-95 font-sans-ui"
+          className="bg-white border border-[#e4e2dd] p-1.5 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[210px] z-50 animate-in fade-in zoom-in-95 font-sans-ui"
         >
-          {/* Opção 1: Imagem */}
+          {/* Opção 1: Marcadores • */}
           <button
             type="button"
+            id="list-opt-bullet"
             onClick={() => {
-              setShowAddFileMenu(false);
-              imageInputRef.current?.click();
+              editor.chain().focus().toggleBulletList().run();
+              setShowListMenu(false);
             }}
-            className="flex items-center gap-2.5 px-3 py-2 text-xs text-[#1b1c19] hover:bg-[#f0eee9] rounded-lg transition-colors cursor-pointer text-left"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
           >
-            <div className="w-6 h-6 rounded-md bg-[#68594d]/10 text-[#68594d] flex items-center justify-center shrink-0">
-              <ImageIcon className="w-3.5 h-3.5" />
-            </div>
-            <div>
-              <span className="font-medium block">Imagem</span>
-              <span className="text-[10px] text-[#7f756e] block">
-                Upload do computador
-              </span>
-            </div>
+            <span className="w-6 h-6 rounded-lg bg-[#f0eee9] flex items-center justify-center text-sm font-bold text-[#1b1c19] shrink-0">
+              •
+            </span>
+            <span className="text-xs sm:text-sm font-medium">Lista de marcadores</span>
           </button>
 
-          {/* Opção 2: Documento / PDF */}
+          {/* Opção 2: Numerada 1. */}
           <button
             type="button"
+            id="list-opt-ordered"
             onClick={() => {
-              setShowAddFileMenu(false);
-              docInputRef.current?.click();
+              editor.chain().focus().toggleOrderedList().run();
+              setShowListMenu(false);
             }}
-            className="flex items-center gap-2.5 px-3 py-2 text-xs text-[#1b1c19] hover:bg-[#f0eee9] rounded-lg transition-colors cursor-pointer text-left"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
           >
-            <div className="w-6 h-6 rounded-md bg-[#ba1a1a]/10 text-[#ba1a1a] flex items-center justify-center shrink-0">
-              <FileText className="w-3.5 h-3.5" />
-            </div>
-            <div>
-              <span className="font-medium block">Documento / PDF</span>
-              <span className="text-[10px] text-[#7f756e] block">
-                Anexar arquivo
-              </span>
-            </div>
+            <span className="w-6 h-6 rounded-lg bg-[#f0eee9] flex items-center justify-center text-xs font-bold text-[#1b1c19] shrink-0">
+              1.
+            </span>
+            <span className="text-xs sm:text-sm font-medium">Lista numerada</span>
           </button>
 
-          <div className="h-[1px] bg-[#e4e2dd] my-0.5" />
-
-          {/* Opção 3: YouTube */}
+          {/* Opção 3: Traços / Linha — */}
           <button
             type="button"
+            id="list-opt-divider"
             onClick={() => {
-              setShowAddFileMenu(false);
-              setShowYoutubeModal(true);
+              editor.chain().focus().setHorizontalRule().run();
+              setShowListMenu(false);
             }}
-            className="flex items-center gap-2.5 px-3 py-2 text-xs text-[#1b1c19] hover:bg-[#f0eee9] rounded-lg transition-colors cursor-pointer text-left"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
           >
-            <div className="w-6 h-6 rounded-md bg-[#ba1a1a]/10 text-[#ba1a1a] flex items-center justify-center shrink-0">
-              <YoutubeIcon className="w-3.5 h-3.5" />
-            </div>
-            <div>
-              <span className="font-medium block">Vídeo do YouTube</span>
-              <span className="text-[10px] text-[#7f756e] block">
-                Incorporar por link
-              </span>
-            </div>
+            <span className="w-6 h-6 rounded-lg bg-[#f0eee9] flex items-center justify-center text-sm font-bold text-[#1b1c19] shrink-0">
+              —
+            </span>
+            <span className="text-xs sm:text-sm font-medium">Lista de traços</span>
           </button>
         </div>
       )}
 
-      {/* Popover / Modal Compacto para Link do YouTube */}
+      {/* POPOVER FLUTUANTE: ANEXO / MÍDIA */}
+      {showAddFileMenu && popoverCoords && (
+        <div
+          ref={addFilePopoverRef}
+          id="toolbar-add-file-popover"
+          style={{
+            position: 'fixed',
+            bottom: `${popoverCoords.bottom}px`,
+            left: `clamp(130px, ${popoverCoords.left}px, calc(100vw - 130px))`,
+            transform: 'translateX(-50%)',
+          }}
+          className="bg-white border border-[#e4e2dd] p-1.5 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[210px] z-50 animate-in fade-in zoom-in-95 font-sans-ui"
+        >
+          <button
+            type="button"
+            id="file-opt-image"
+            onClick={() => {
+              imageInputRef.current?.click();
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19] transition-colors cursor-pointer text-left text-xs sm:text-sm"
+          >
+            <ImageIcon className="w-4 h-4 text-[#68594d]" />
+            <span>Inserir Imagem</span>
+          </button>
+
+          <button
+            type="button"
+            id="file-opt-doc"
+            onClick={() => {
+              docInputRef.current?.click();
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19] transition-colors cursor-pointer text-left text-xs sm:text-sm"
+          >
+            <FileText className="w-4 h-4 text-[#68594d]" />
+            <span>Inserir PDF / Arquivo</span>
+          </button>
+
+          <button
+            type="button"
+            id="file-opt-youtube"
+            onClick={() => {
+              setShowAddFileMenu(false);
+              setShowYoutubeModal(true);
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19] transition-colors cursor-pointer text-left text-xs sm:text-sm"
+          >
+            <YoutubeIcon className="w-4 h-4 text-[#ba1a1a]" />
+            <span>Inserir Vídeo do YouTube</span>
+          </button>
+        </div>
+      )}
+
+      {/* MODAL DE INSERÇÃO DE VÍDEO DO YOUTUBE */}
       {showYoutubeModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div
+          id="youtube-insert-modal-backdrop"
+          className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
+          onClick={() => setShowYoutubeModal(false)}
+        >
           <div
+            id="youtube-insert-modal"
+            className="bg-white border border-[#e4e2dd] p-5 rounded-2xl shadow-2xl max-w-md w-full font-sans-ui space-y-4"
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#fbf9f4] border border-[#e4e2dd] rounded-2xl p-5 max-w-md w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95 font-sans-ui"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <YoutubeIcon className="w-5 h-5 text-[#ba1a1a]" />
-                <h3 className="font-serif-note font-bold text-lg text-[#1b1c19]">
+                <h3 className="font-semibold text-sm sm:text-base text-[#1b1c19]">
                   Inserir Vídeo do YouTube
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowYoutubeModal(false)}
-                className="text-[#7f756e] hover:text-[#1b1c19] p-1 rounded-lg"
+                className="p-1 text-[#7f756e] hover:text-[#1b1c19] rounded-lg hover:bg-[#eae8e3]"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -923,30 +1047,31 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
             <form onSubmit={handleYoutubeSubmit} className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-[#4e453f] mb-1">
-                  Cole o link do vídeo do YouTube:
+                <label className="block text-xs text-[#7f756e] mb-1 font-medium">
+                  URL ou Link do Vídeo
                 </label>
                 <input
                   type="url"
-                  required
                   placeholder="https://www.youtube.com/watch?v=..."
                   value={youtubeUrl}
                   onChange={(e) => setYoutubeUrl(e.target.value)}
-                  className="w-full bg-white border border-[#d1c4bc] rounded-xl px-3.5 py-2 text-sm text-[#1b1c19] focus:outline-none focus:border-[#68594d]"
+                  autoFocus
+                  required
+                  className="w-full bg-[#fbf9f4] border border-[#e4e2dd] focus:border-[#68594d] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#1b1c19] focus:outline-none"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-1">
+              <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowYoutubeModal(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-medium text-[#4e453f] hover:bg-[#e4e2dd] transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs text-[#7f756e] hover:text-[#1b1c19] rounded-xl hover:bg-[#f0eee9] font-medium"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl text-xs font-medium bg-[#68594d] text-white hover:bg-[#574a40] transition-colors cursor-pointer shadow-xs"
+                  className="px-4 py-1.5 text-xs bg-[#68594d] hover:bg-[#574a40] text-white rounded-xl font-medium shadow-xs"
                 >
                   Inserir Vídeo
                 </button>
@@ -955,6 +1080,6 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           </div>
         </div>
       )}
-    </div>
+    </footer>
   );
 }

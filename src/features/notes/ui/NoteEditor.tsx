@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import { Bold, Highlighter, Underline as UnderlineIcon } from 'lucide-react';
@@ -19,6 +19,8 @@ export function NoteEditor({
   onEditorReady,
   editable = true,
 }: NoteEditorProps) {
+  const lastEmittedContentRef = useRef<string>(content ?? '');
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: defaultEditorExtensions,
@@ -28,13 +30,14 @@ export function NoteEditor({
       attributes: {
         id: 'tiptap-note-content-editable',
         class:
-          'focus:outline-none min-h-[420px] text-[#1b1c19] font-serif-note text-base sm:text-lg leading-relaxed selection:bg-[#f4dfcb] selection:text-[#1b1c19]',
+          'focus:outline-none min-h-[420px] text-[#1b1c19] font-serif-note text-base sm:text-lg leading-normal selection:bg-[#f4dfcb] selection:text-[#1b1c19]',
       },
     },
     onUpdate: ({ editor }) => {
       // Extrai Markdown real usando a extensão de markdown do Tiptap
       const storageRecord = editor.storage as unknown as Record<string, { getMarkdown?: () => string }>;
       const markdown = storageRecord?.markdown?.getMarkdown ? storageRecord.markdown.getMarkdown() : editor.getHTML();
+      lastEmittedContentRef.current = markdown;
       onChange(markdown);
     },
   });
@@ -46,13 +49,18 @@ export function NoteEditor({
     }
   }, [editor, onEditorReady]);
 
-  // Atualiza o conteúdo quando uma nota diferente é carregada
+  // Atualiza o conteúdo apenas quando for genuinamente diferente (ex: troca de nota externa)
   useEffect(() => {
     if (!editor) return;
 
     const targetContent = content ?? '';
 
-    // Atualiza o editor caso o conteúdo seja diferente e o usuário não esteja focado
+    // Se o conteúdo recebido é o mesmo que o editor acabou de emitir pelo autosave, não recria o documento
+    if (targetContent === lastEmittedContentRef.current) {
+      return;
+    }
+
+    lastEmittedContentRef.current = targetContent;
     if (!editor.isFocused) {
       editor.commands.setContent(targetContent, { emitUpdate: false });
     }
