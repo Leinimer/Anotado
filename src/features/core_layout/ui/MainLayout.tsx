@@ -16,7 +16,11 @@ import {
   createNote,
   updateNoteTitle,
   updateNoteContent,
+  updateNoteTags,
   deleteNote,
+  archiveNote,
+  unarchiveNote,
+  archiveFolderNotes,
   moveItem,
 } from '@/src/features/notes/api/notes-api';
 
@@ -28,6 +32,7 @@ export function MainLayout() {
   const [userId, setUserId] = useState<string>('local-user');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
+
 
   // 1. Carregamento inicial do Supabase e ouvinte de autenticação
   useEffect(() => {
@@ -221,6 +226,23 @@ export function MainLayout() {
     [userId]
   );
 
+  const handleUpdateNoteTags = useCallback(
+    async (noteId: string, newTags: string[]) => {
+      setNotes((prev) =>
+        prev.map((n) =>
+          n.id === noteId ? { ...n, tags: newTags, updated_at: new Date().toISOString() } : n
+        )
+      );
+      const res = await updateNoteTags(userId, noteId, newTags);
+      if (res.success && res.tags) {
+        setNotes((prev) =>
+          prev.map((n) => (n.id === noteId ? { ...n, tags: res.tags } : n))
+        );
+      }
+    },
+    [userId]
+  );
+
   const handleDeleteNote = useCallback(
     async (noteId: string) => {
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
@@ -230,6 +252,85 @@ export function MainLayout() {
       await deleteNote(userId, noteId);
     },
     [userId, activeNoteId]
+  );
+
+  const handleArchiveNote = useCallback(
+    async (noteId: string) => {
+      setNotes((prev) =>
+        prev.map((n) =>
+          n.id === noteId
+            ? {
+                ...n,
+                is_archived: true,
+                previous_folder_id: n.folder_id,
+                folder_id: null,
+                updated_at: new Date().toISOString(),
+              }
+            : n
+        )
+      );
+      await archiveNote(userId, noteId);
+    },
+    [userId]
+  );
+
+  const handleUnarchiveNote = useCallback(
+    async (noteId: string) => {
+      const targetNote = notes.find((n) => n.id === noteId);
+      const prevFolderId = targetNote?.previous_folder_id ?? null;
+      const folderStillExists = prevFolderId ? folders.some((f) => f.id === prevFolderId) : false;
+      const destinationFolderId = folderStillExists ? prevFolderId : null;
+
+      setNotes((prev) =>
+        prev.map((n) =>
+          n.id === noteId
+            ? {
+                ...n,
+                is_archived: false,
+                folder_id: destinationFolderId,
+                previous_folder_id: null,
+                updated_at: new Date().toISOString(),
+              }
+            : n
+        )
+      );
+      await unarchiveNote(userId, noteId, folders);
+    },
+    [userId, notes, folders]
+  );
+
+  const handleArchiveFolderNotes = useCallback(
+    async (folderId: string) => {
+      const folderIdsToArchive = new Set<string>([folderId]);
+      let added = true;
+      while (added) {
+        added = false;
+        for (const folder of folders) {
+          if (folder.parent_id && folderIdsToArchive.has(folder.parent_id) && !folderIdsToArchive.has(folder.id)) {
+            folderIdsToArchive.add(folder.id);
+            added = true;
+          }
+        }
+      }
+
+      setNotes((prev) =>
+        prev.map((n) => {
+          if (n.folder_id && folderIdsToArchive.has(n.folder_id) && !n.is_archived) {
+            return {
+              ...n,
+              is_archived: true,
+              previous_folder_id: n.folder_id,
+              folder_id: null,
+              updated_at: new Date().toISOString(),
+            };
+          }
+          return n;
+        })
+      );
+
+      await archiveFolderNotes(userId, folderId, folders);
+    },
+    [userId, folders]
   );
 
   const handleMoveItem = useCallback(
@@ -284,6 +385,9 @@ export function MainLayout() {
             onRenameNote={handleUpdateTitle}
             onDeleteFolder={handleDeleteFolder}
             onDeleteNote={handleDeleteNote}
+            onArchiveNote={handleArchiveNote}
+            onUnarchiveNote={handleUnarchiveNote}
+            onArchiveFolderNotes={handleArchiveFolderNotes}
             onUpdateFolderColor={handleUpdateFolderColor}
             onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
             onMoveItem={handleMoveItem}
@@ -320,6 +424,9 @@ export function MainLayout() {
                 onRenameNote={handleUpdateTitle}
                 onDeleteFolder={handleDeleteFolder}
                 onDeleteNote={handleDeleteNote}
+                onArchiveNote={handleArchiveNote}
+                onUnarchiveNote={handleUnarchiveNote}
+                onArchiveFolderNotes={handleArchiveFolderNotes}
                 onUpdateFolderColor={handleUpdateFolderColor}
                 onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
                 onMoveItem={handleMoveItem}
@@ -329,12 +436,14 @@ export function MainLayout() {
           </div>
         )}
 
+
         {/* Main Note Canvas */}
         <NoteCanvas
           key={activeNote?.id || 'empty'}
           activeNote={activeNote}
           onUpdateTitle={(noteId, newTitle) => handleUpdateTitle(noteId, newTitle)}
           onUpdateContent={(noteId, newContent) => handleUpdateContent(noteId, newContent)}
+          onUpdateTags={(noteId, newTags) => handleUpdateNoteTags(noteId, newTags)}
           onDeleteNote={(noteId) => handleDeleteNote(noteId)}
           onCreateNewNote={() => handleCreateNote()}
           onOpenMobileMenu={() => setMobileSidebarOpen(true)}

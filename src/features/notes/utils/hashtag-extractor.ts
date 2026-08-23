@@ -64,17 +64,35 @@ export function extractHashtagsFromText(rawText: string): string[] {
 }
 
 /**
- * Agrega todas as tags únicas existentes em um array de notas.
+ * Agrega todas as tags únicas existentes em um array de notas,
+ * unificando tanto as tags explícitas da nota (note.tags) quanto as hashtags no corpo do texto.
  */
 export function extractAllUniqueTags(notes: Note[]): string[] {
-  const map = new Map<string, string>(); // lower -> original
+  const map = new Map<string, string>(); // lower -> '#Original'
 
   for (const note of notes) {
-    const noteTags = extractHashtagsFromText(note.content);
-    for (const tag of noteTags) {
-      const lower = tag.toLowerCase();
-      if (!map.has(lower)) {
-        map.set(lower, tag);
+    // 1. Tags explícitas gerenciadas na barra de tags
+    if (Array.isArray(note.tags)) {
+      for (const rawTag of note.tags) {
+        const clean = (rawTag || '').replace(/^#+/, '').trim();
+        if (clean) {
+          const lower = clean.toLowerCase();
+          if (!map.has(lower)) {
+            map.set(lower, `#${clean}`);
+          }
+        }
+      }
+    }
+
+    // 2. Hashtags no corpo do texto (Markdown/HTML)
+    const noteContentTags = extractHashtagsFromText(note.content);
+    for (const rawTag of noteContentTags) {
+      const clean = (rawTag || '').replace(/^#+/, '').trim();
+      if (clean) {
+        const lower = clean.toLowerCase();
+        if (!map.has(lower)) {
+          map.set(lower, `#${clean}`);
+        }
       }
     }
   }
@@ -83,11 +101,21 @@ export function extractAllUniqueTags(notes: Note[]): string[] {
 }
 
 /**
- * Verifica se uma nota contém uma tag específica (case-insensitive).
+ * Verifica se uma nota contém uma tag específica (case-insensitive),
+ * checando tanto as tags explícitas quanto as hashtags do texto.
  */
 export function noteHasTag(note: Note, targetTag: string): boolean {
   if (!targetTag) return true;
+  const cleanTarget = targetTag.replace(/^#+/, '').trim().toLowerCase();
+  if (!cleanTarget) return true;
+
+  // 1. Tags explícitas
+  if (Array.isArray(note.tags)) {
+    const hasExplicit = note.tags.some((t) => (t || '').replace(/^#+/, '').trim().toLowerCase() === cleanTarget);
+    if (hasExplicit) return true;
+  }
+
+  // 2. Hashtags no texto
   const tags = extractHashtagsFromText(note.content);
-  const normalizedTarget = targetTag.toLowerCase();
-  return tags.some((t) => t.toLowerCase() === normalizedTarget);
+  return tags.some((t) => (t || '').replace(/^#+/, '').trim().toLowerCase() === cleanTarget);
 }

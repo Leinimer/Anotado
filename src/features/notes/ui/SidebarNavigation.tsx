@@ -20,9 +20,22 @@ import {
   AlertTriangle,
   Sparkles,
   Palette,
+  Archive,
+  ArchiveRestore,
+  Type,
+  AlignLeft,
+  Hash,
+  Check,
 } from 'lucide-react';
 import { createClient } from '@/src/features/auth/api/supabase-client';
-import { Folder as FolderType, Note as NoteType, TreeFolderNode, TreeNodeItem } from '../types';
+import {
+  Folder as FolderType,
+  Note as NoteType,
+  SearchMode,
+  SYSTEM_ARCHIVE_FOLDER_ID,
+  TreeFolderNode,
+  TreeNodeItem,
+} from '../types';
 import { extractAllUniqueTags } from '../utils/hashtag-extractor';
 import { buildFolderTree, filterTree, wouldCreateCycle } from '../utils/tree-builder';
 
@@ -35,6 +48,15 @@ const FOLDER_PRESET_COLORS = [
   { id: 'pink', label: 'Rosa', color: '#db2777', hex: '#db2777' },
   { id: 'red', label: 'Vermelho', color: '#dc2626', hex: '#dc2626' },
   { id: 'purple', label: 'Roxo', color: '#9333ea', hex: '#9333ea' },
+];
+
+const SEARCH_MODES = [
+  { id: 'all' as SearchMode, label: 'Tudo', desc: 'Títulos, conteúdo, tags e pastas', icon: Sparkles },
+  { id: 'title' as SearchMode, label: 'Títulos', desc: 'Somente títulos de notas', icon: Type },
+  { id: 'content' as SearchMode, label: 'Conteúdo', desc: 'Texto interno das notas', icon: AlignLeft },
+  { id: 'tags' as SearchMode, label: 'Tags', desc: 'Etiquetas e #hashtags', icon: Hash },
+  { id: 'folders' as SearchMode, label: 'Pastas', desc: 'Somente nomes de pastas', icon: Folder },
+  { id: 'archived' as SearchMode, label: 'Arquivadas', desc: 'Somente notas arquivadas', icon: Archive },
 ];
 
 interface DropTargetInfo {
@@ -58,6 +80,9 @@ interface SidebarNavigationProps {
   onRenameNote: (noteId: string, newTitle: string) => void;
   onDeleteFolder: (folderId: string) => void;
   onDeleteNote: (noteId: string) => void;
+  onArchiveNote?: (noteId: string) => void;
+  onUnarchiveNote?: (noteId: string) => void;
+  onArchiveFolderNotes?: (folderId: string) => void;
   onUpdateFolderColor?: (folderId: string, color: string | null) => void;
   onUpdateFolderSmartConfig?: (folderId: string, isSmart: boolean, smartTags: string[]) => void;
   onMoveItem: (
@@ -82,20 +107,29 @@ export function SidebarNavigation({
   onRenameNote,
   onDeleteFolder,
   onDeleteNote,
+  onArchiveNote,
+  onUnarchiveNote,
+  onArchiveFolderNotes,
   onUpdateFolderColor,
   onUpdateFolderSmartConfig,
   onMoveItem,
   onCloseMobile,
 }: SidebarNavigationProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<SearchMode>('all');
+  const [showSearchModeMenu, setShowSearchModeMenu] = useState(false);
+  const searchModeMenuRef = useRef<HTMLDivElement>(null);
+
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2']));
+  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2', SYSTEM_ARCHIVE_FOLDER_ID]));
 
   // Estado para menu flutuante de opções (...)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [menuItemType, setMenuItemType] = useState<'folder' | 'note' | null>(null);
+  const [menuNoteIsArchived, setMenuNoteIsArchived] = useState(false);
   const [showColorSubmenu, setShowColorSubmenu] = useState(false);
   const colorSubmenuTimerRef = useRef<NodeJS.Timeout | null>(null);
   const customColorInputRef = useRef<HTMLInputElement>(null);
@@ -138,6 +172,14 @@ export function SidebarNavigation({
     });
   }, []);
 
+  // Debounce para busca
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 200);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
   // Foco no input de edição ao iniciar renomeação
   useEffect(() => {
     if (editingItemId && editInputRef.current) {
@@ -146,22 +188,25 @@ export function SidebarNavigation({
     }
   }, [editingItemId]);
 
-  // Fecha menu de contexto ao clicar fora
+  // Fecha menu de contexto e menu de busca ao clicar fora
   useEffect(() => {
-    const handleClickOutside = () => {
-      setMenuOpenId(null);
-      setMenuPosition(null);
-      setShowColorSubmenu(false);
-      if (colorSubmenuTimerRef.current) {
-        clearTimeout(colorSubmenuTimerRef.current);
-        colorSubmenuTimerRef.current = null;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuOpenId) {
+        setMenuOpenId(null);
+        setMenuPosition(null);
+        setShowColorSubmenu(false);
+        if (colorSubmenuTimerRef.current) {
+          clearTimeout(colorSubmenuTimerRef.current);
+          colorSubmenuTimerRef.current = null;
+        }
+      }
+      if (showSearchModeMenu && searchModeMenuRef.current && !searchModeMenuRef.current.contains(e.target as Node)) {
+        setShowSearchModeMenu(false);
       }
     };
-    if (menuOpenId) {
-      window.addEventListener('click', handleClickOutside);
-      return () => window.removeEventListener('click', handleClickOutside);
-    }
-  }, [menuOpenId]);
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
+  }, [menuOpenId, showSearchModeMenu]);
 
   // Limpeza de timer do submenu de cores no unmount
   useEffect(() => {
@@ -253,7 +298,8 @@ export function SidebarNavigation({
   const handleOpenMenu = (
     e: React.MouseEvent,
     id: string,
-    type: 'folder' | 'note'
+    type: 'folder' | 'note',
+    isArchived = false
   ) => {
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -263,6 +309,7 @@ export function SidebarNavigation({
     });
     setMenuOpenId(id);
     setMenuItemType(type);
+    setMenuNoteIsArchived(isArchived);
     setShowColorSubmenu(false);
     if (colorSubmenuTimerRef.current) {
       clearTimeout(colorSubmenuTimerRef.current);
@@ -306,10 +353,15 @@ export function SidebarNavigation({
   };
 
   // ==========================================
-  // DRAG & DROP INTELIGENTE (REORDENAR VS ENTRAR)
+  // DRAG & DROP INTELIGENTE (REORDENAR VS ENTRAR VS ARQUIVAR)
   // ==========================================
   const handleDragStart = (e: React.DragEvent, type: 'folder' | 'note', id: string) => {
     e.stopPropagation();
+    // Bloqueia arrastar pasta de sistema "Notas arquivadas"
+    if (type === 'folder' && id === SYSTEM_ARCHIVE_FOLDER_ID) {
+      e.preventDefault();
+      return;
+    }
     setDraggingItem({ type, id });
     e.dataTransfer.setData('text/plain', JSON.stringify({ type, id }));
     e.dataTransfer.effectAllowed = 'move';
@@ -328,6 +380,22 @@ export function SidebarNavigation({
     e.preventDefault();
     e.stopPropagation();
     if (!draggingItem) return;
+
+    // Se a pasta for "Notas arquivadas"
+    if (folder.id === SYSTEM_ARCHIVE_FOLDER_ID) {
+      if (draggingItem.type === 'note') {
+        setDropTarget({
+          targetId: folder.id,
+          targetType: 'folder',
+          dropPosition: 'inside',
+          targetParentId: null,
+          targetPosition: 0,
+        });
+      } else {
+        setDropTarget(null);
+      }
+      return;
+    }
 
     // Se estiver arrastando a própria pasta
     if (draggingItem.type === 'folder' && draggingItem.id === folder.id) {
@@ -372,7 +440,6 @@ export function SidebarNavigation({
           targetPosition: folder.subfolders.length + folder.notes.length,
         });
       } else {
-        // Fallback para reordenar depois
         setDropTarget({
           targetId: folder.id,
           targetType: 'folder',
@@ -408,7 +475,7 @@ export function SidebarNavigation({
         targetId: note.id,
         targetType: 'note',
         dropPosition: 'before',
-        targetParentId: note.folderId,
+        targetParentId: note.folderId === SYSTEM_ARCHIVE_FOLDER_ID ? null : note.folderId,
         targetPosition: Math.max(0, note.position),
       });
     } else {
@@ -417,7 +484,7 @@ export function SidebarNavigation({
         targetId: note.id,
         targetType: 'note',
         dropPosition: 'after',
-        targetParentId: note.folderId,
+        targetParentId: note.folderId === SYSTEM_ARCHIVE_FOLDER_ID ? null : note.folderId,
         targetPosition: note.position + 1,
       });
     }
@@ -426,7 +493,6 @@ export function SidebarNavigation({
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // Limpa apenas se sair do elemento
     const related = e.relatedTarget as Node | null;
     if (!related || !(e.currentTarget as HTMLElement).contains(related)) {
       setDropTarget(null);
@@ -444,7 +510,17 @@ export function SidebarNavigation({
     }
 
     const { type, id } = draggingItem;
-    const { targetParentId, targetPosition, dropPosition } = dropTarget;
+    const { targetId, targetParentId, targetPosition, dropPosition } = dropTarget;
+
+    // Caso Especial: Soltar nota dentro da pasta "Notas arquivadas"
+    if (targetId === SYSTEM_ARCHIVE_FOLDER_ID && type === 'note') {
+      if (onArchiveNote) {
+        onArchiveNote(id);
+      }
+      setDraggingItem(null);
+      setDropTarget(null);
+      return;
+    }
 
     // Verificação estrita contra ciclos se for pasta
     if (type === 'folder') {
@@ -455,8 +531,17 @@ export function SidebarNavigation({
       }
     }
 
-    // Executa movimentação
-    onMoveItem(type, id, targetParentId, targetPosition);
+    // Se estiver arrastando uma nota que estava arquivada para fora, desarquiva e move
+    const isArchivedNote = notes.find((n) => n.id === id)?.is_archived;
+    if (isArchivedNote && type === 'note') {
+      if (onUnarchiveNote) {
+        onUnarchiveNote(id);
+      }
+      onMoveItem(type, id, targetParentId, targetPosition);
+    } else {
+      // Movimentação normal
+      onMoveItem(type, id, targetParentId, targetPosition);
+    }
 
     // Se soltou dentro de uma pasta, abre a pasta para mostrar o item
     if (dropPosition === 'inside' && dropTarget.targetId) {
@@ -475,6 +560,12 @@ export function SidebarNavigation({
     if (!draggingItem) return;
 
     const { type, id } = draggingItem;
+    const isArchivedNote = notes.find((n) => n.id === id)?.is_archived;
+    if (isArchivedNote && type === 'note') {
+      if (onUnarchiveNote) {
+        onUnarchiveNote(id);
+      }
+    }
     onMoveItem(type, id, null, folders.length + notes.length);
 
     setDraggingItem(null);
@@ -483,6 +574,7 @@ export function SidebarNavigation({
 
   // Touch Drag Support para Mobile
   const handleTouchStart = (type: 'folder' | 'note', id: string, e: React.TouchEvent) => {
+    if (type === 'folder' && id === SYSTEM_ARCHIVE_FOLDER_ID) return;
     const touch = e.touches[0];
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
 
@@ -516,25 +608,58 @@ export function SidebarNavigation({
     touchStartPosRef.current = null;
   };
 
-  // Constrói e filtra a árvore
-  const { folders: rawTreeFolders, rootNotes: rawRootNotes } = buildFolderTree(folders, notes);
-  const isFiltering = searchQuery.trim().length > 0 || activeTag !== null;
-  const { filteredFolders, filteredNotes, hasResults } = filterTree(
+  // Constrói e filtra a árvore de pastas e notas
+  const { folders: rawTreeFolders, rootNotes: rawRootNotes, archivedFolder: rawArchivedFolder } = buildFolderTree(
+    folders,
+    notes
+  );
+
+  const isFiltering = debouncedSearchQuery.trim().length > 0 || activeTag !== null || searchMode !== 'all';
+  const {
+    filteredFolders,
+    filteredNotes,
+    filteredArchivedFolder,
+    hasResults,
+  } = filterTree(
     rawTreeFolders,
     rawRootNotes,
-    searchQuery,
-    activeTag
+    rawArchivedFolder,
+    debouncedSearchQuery,
+    activeTag,
+    searchMode
   );
 
   // Extrai tags dinâmicas de todas as notas
   const uniqueTags = extractAllUniqueTags(notes);
 
+  // Placeholder dinâmico de acordo com o modo de busca
+  const getSearchPlaceholder = () => {
+    switch (searchMode) {
+      case 'title':
+        return 'Buscar por título...';
+      case 'content':
+        return 'Buscar por conteúdo...';
+      case 'tags':
+        return 'Buscar por tag (#exemplo)...';
+      case 'folders':
+        return 'Buscar pastas...';
+      case 'archived':
+        return 'Buscar em arquivadas...';
+      case 'all':
+      default:
+        return 'Buscar tudo...';
+    }
+  };
+
   // Renderização Recursiva de Pasta (Com linha de inserção e destaque ao entrar)
   const renderFolderNode = (folder: TreeFolderNode) => {
+    const isSystemArchive = folder.id === SYSTEM_ARCHIVE_FOLDER_ID || folder.isSystem;
     const isOpen = isFiltering || openFolderIds.has(folder.id);
     const isEditing = editingItemId === folder.id && editingItemType === 'folder';
     const isSmart = folder.isSmart || (folder.smartTags && folder.smartTags.length > 0);
-    const iconColor = folder.color || (isOpen ? '#68594d' : '#7f756e');
+    const iconColor = isSystemArchive
+      ? '#8c6b4f'
+      : folder.color || (isOpen ? '#68594d' : '#7f756e');
 
     const isCurrentDropTarget = dropTarget?.targetId === folder.id && dropTarget?.targetType === 'folder';
     const isDropBefore = isCurrentDropTarget && dropTarget?.dropPosition === 'before';
@@ -544,13 +669,13 @@ export function SidebarNavigation({
     return (
       <div key={folder.id} className="space-y-0.5 select-none relative">
         {/* Linha de Inserção Horizontal ANTES da Pasta */}
-        {isDropBefore && (
+        {isDropBefore && !isSystemArchive && (
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
         )}
 
         <div
           id={`folder-item-${folder.id}`}
-          draggable={!isEditing}
+          draggable={!isEditing && !isSystemArchive}
           onDragStart={(e) => handleDragStart(e, 'folder', folder.id)}
           onDragEnd={handleDragEnd}
           onDragOver={(e) => handleDragOverFolder(e, folder)}
@@ -564,12 +689,19 @@ export function SidebarNavigation({
           className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-all relative ${
             isDropInside
               ? 'bg-[#d7c3b0]/70 border-2 border-dashed border-[#68594d]'
+              : isSystemArchive
+              ? 'text-[#5e4b3e] hover:bg-[#f0ece5]'
               : 'text-[#4e453f] hover:bg-[#e4e2dd]/70'
           }`}
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <div className="relative shrink-0 flex items-center justify-center">
-              {isOpen ? (
+              {isSystemArchive ? (
+                <Archive
+                  className="w-4 h-4 shrink-0 stroke-[1.75]"
+                  style={{ color: iconColor }}
+                />
+              ) : isOpen ? (
                 <FolderOpen
                   className="w-4 h-4 shrink-0 stroke-[1.75]"
                   style={{ color: iconColor }}
@@ -585,7 +717,7 @@ export function SidebarNavigation({
               )}
             </div>
 
-            {isEditing ? (
+            {isEditing && !isSystemArchive ? (
               <input
                 ref={editInputRef}
                 type="text"
@@ -600,23 +732,32 @@ export function SidebarNavigation({
                 className="w-full bg-white px-1.5 py-0.5 text-xs font-sans-ui rounded border border-[#68594d] focus:outline-none"
               />
             ) : (
-              <span className="font-sans-ui font-medium truncate text-xs sm:text-sm text-[#3b332d]">
-                {folder.name}
-              </span>
+              <div className="flex items-center gap-1.5 truncate">
+                <span className={`font-sans-ui truncate text-xs sm:text-sm ${isSystemArchive ? 'font-semibold text-[#5e4b3e]' : 'font-medium text-[#3b332d]'}`}>
+                  {folder.name}
+                </span>
+                {isSystemArchive && folder.notes.length > 0 && (
+                  <span className="text-[10px] text-[#8c6b4f] bg-[#e8ded3] px-1.5 py-0.2 rounded-full font-medium">
+                    {folder.notes.length}
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            {/* Menu ... */}
-            <button
-              id={`folder-menu-btn-${folder.id}`}
-              onClick={(e) => handleOpenMenu(e, folder.id, 'folder')}
-              className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity"
-              title="Opções da Pasta"
-              aria-label="Opções da Pasta"
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </button>
+            {/* Menu ... (Não exibido para a pasta de sistema Notas Arquivadas) */}
+            {!isSystemArchive && (
+              <button
+                id={`folder-menu-btn-${folder.id}`}
+                onClick={(e) => handleOpenMenu(e, folder.id, 'folder')}
+                className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity"
+                title="Opções da Pasta"
+                aria-label="Opções da Pasta"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+            )}
 
             {/* Seta indicador */}
             {isOpen ? (
@@ -628,7 +769,7 @@ export function SidebarNavigation({
         </div>
 
         {/* Linha de Inserção Horizontal DEPOIS da Pasta */}
-        {isDropAfter && (
+        {isDropAfter && !isSystemArchive && (
           <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
         )}
 
@@ -647,6 +788,7 @@ export function SidebarNavigation({
   const renderNoteNode = (note: TreeNodeItem) => {
     const isActive = activeNoteId === note.id;
     const isEditing = editingItemId === note.id && editingItemType === 'note';
+    const isArchived = Boolean(note.isArchived);
 
     const isCurrentDropTarget = dropTarget?.targetId === note.id && dropTarget?.targetType === 'note';
     const isDropBefore = isCurrentDropTarget && dropTarget?.dropPosition === 'before';
@@ -682,11 +824,19 @@ export function SidebarNavigation({
           }`}
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <FileText
-              className={`w-4 h-4 shrink-0 ${
-                isActive ? 'text-[#68594d] stroke-[2]' : 'text-[#7f756e] stroke-[1.5]'
-              }`}
-            />
+            {isArchived ? (
+              <Archive
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  isActive ? 'text-[#8c6b4f] stroke-[2]' : 'text-[#a1968e] stroke-[1.5]'
+                }`}
+              />
+            ) : (
+              <FileText
+                className={`w-4 h-4 shrink-0 ${
+                  isActive ? 'text-[#68594d] stroke-[2]' : 'text-[#7f756e] stroke-[1.5]'
+                }`}
+              />
+            )}
 
             {isEditing ? (
               <input
@@ -712,7 +862,7 @@ export function SidebarNavigation({
           {/* Menu Horizontal ... */}
           <button
             id={`note-menu-btn-${note.id}`}
-            onClick={(e) => handleOpenMenu(e, note.id, 'note')}
+            onClick={(e) => handleOpenMenu(e, note.id, 'note', isArchived)}
             className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity"
             title="Opções da Nota"
             aria-label="Opções da Nota"
@@ -734,7 +884,7 @@ export function SidebarNavigation({
       id="sidebar-navigation-container"
       className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0"
     >
-      {/* Top Header: Brand & Close Button (Mobile) */}
+      {/* Top Header: Brand & Search Bar */}
       <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
@@ -758,24 +908,103 @@ export function SidebarNavigation({
           )}
         </div>
 
-        {/* Search Bar */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-[#7f756e] absolute left-3 top-1/2 -translate-y-1/2" />
+        {/* Search Bar with Mode Selector */}
+        <div className="relative" ref={searchModeMenuRef}>
+          {/* Botão Interativo da Lupa para abrir Menu de Busca */}
+          <button
+            type="button"
+            id="sidebar-search-mode-trigger-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowSearchModeMenu((prev) => !prev);
+            }}
+            className={`absolute left-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors cursor-pointer flex items-center justify-center ${
+              searchMode !== 'all'
+                ? 'bg-[#68594d] text-white'
+                : 'text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#e4e2dd]'
+            }`}
+            title="Escolher tipo de busca"
+            aria-label="Escolher tipo de busca"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </button>
+
           <input
             id="sidebar-search-input"
             type="text"
-            placeholder="Buscar notas ou tags..."
+            placeholder={getSearchPlaceholder()}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#f0eee9] text-xs font-sans-ui text-[#1b1c19] placeholder-[#7f756e] rounded-xl pl-9 pr-8 py-2 border border-transparent focus:border-[#68594d] focus:bg-white focus:outline-none transition-colors"
+            className={`w-full bg-[#f0eee9] text-xs font-sans-ui text-[#1b1c19] placeholder-[#7f756e] rounded-xl pl-9 pr-8 py-2 border transition-all ${
+              searchMode !== 'all'
+                ? 'border-[#68594d]/40 focus:border-[#68594d] bg-white'
+                : 'border-transparent focus:border-[#68594d] focus:bg-white'
+            } focus:outline-none`}
           />
+
           {searchQuery && (
             <button
+              id="sidebar-clear-search-btn"
               onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#7f756e] hover:text-[#1b1c19]"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#7f756e] hover:text-[#1b1c19] p-0.5 rounded cursor-pointer"
+              title="Limpar busca"
             >
               <X className="w-3.5 h-3.5" />
             </button>
+          )}
+
+          {/* Menu Dropdown de Seleção de Tipo de Busca */}
+          {showSearchModeMenu && (
+            <div
+              id="search-mode-dropdown"
+              className="absolute left-0 top-full mt-1.5 w-64 bg-white border border-[#e4e2dd] rounded-2xl shadow-xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 font-sans-ui"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-2 py-1.5 text-[11px] font-semibold text-[#7f756e] uppercase tracking-wider border-b border-[#f0eee9] mb-1">
+                Tipo de Busca
+              </div>
+
+              <div className="space-y-0.5">
+                {SEARCH_MODES.map((mode) => {
+                  const Icon = mode.icon;
+                  const isSelected = searchMode === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      id={`search-mode-option-${mode.id}`}
+                      onClick={() => {
+                        setSearchMode(mode.id);
+                        setShowSearchModeMenu(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#f4dfcb] text-[#1b1c19] font-medium'
+                          : 'hover:bg-[#f0eee9] text-[#4e453f]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Icon
+                          className={`w-4 h-4 shrink-0 ${
+                            isSelected ? 'text-[#68594d]' : 'text-[#7f756e]'
+                          }`}
+                        />
+                        <div className="truncate">
+                          <div className="text-xs">{mode.label}</div>
+                          <div className="text-[10px] text-[#7f756e] font-normal truncate">
+                            {mode.desc}
+                          </div>
+                        </div>
+                      </div>
+
+                      {isSelected && (
+                        <Check className="w-3.5 h-3.5 text-[#68594d] shrink-0 ml-1" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -790,27 +1019,35 @@ export function SidebarNavigation({
         className="flex-1 overflow-y-auto my-3 space-y-1 py-1 pr-1"
       >
         {isFiltering && (
-          <div className="px-2 py-1 flex items-center justify-between text-[11px] font-sans-ui text-[#7f756e]">
-            <span>
-              {activeTag ? `Filtro: ${activeTag}` : `Buscando "${searchQuery}"`}
+          <div className="px-2 py-1 flex items-center justify-between text-[11px] font-sans-ui text-[#7f756e] bg-[#f0eee9]/60 rounded-lg mb-1">
+            <span className="truncate">
+              {activeTag
+                ? `Filtro: ${activeTag}`
+                : searchMode !== 'all'
+                ? `Busca em ${SEARCH_MODES.find((m) => m.id === searchMode)?.label || searchMode}${searchQuery ? `: "${searchQuery}"` : ''}`
+                : `Buscando "${searchQuery}"`}
             </span>
             <button
               onClick={() => {
                 setSearchQuery('');
                 setActiveTag(null);
+                setSearchMode('all');
               }}
-              className="text-[#68594d] hover:underline"
+              className="text-[#68594d] hover:underline shrink-0 ml-1 font-medium cursor-pointer"
             >
               Limpar
             </button>
           </div>
         )}
 
-        {/* Pastas e Subpastas */}
+        {/* Pastas e Subpastas Normais */}
         {filteredFolders.map((folder) => renderFolderNode(folder))}
 
         {/* Notas Soltas na Raiz */}
         {filteredNotes.map((note) => renderNoteNode(note))}
+
+        {/* Pasta Especial do Sistema: "Notas arquivadas" */}
+        {filteredArchivedFolder && renderFolderNode(filteredArchivedFolder)}
 
         {!hasResults && (
           <div className="p-4 text-center text-xs text-[#7f756e] font-sans-ui">
@@ -900,7 +1137,7 @@ export function SidebarNavigation({
             top: `${menuPosition.top}px`,
             left: `${menuPosition.left}px`,
           }}
-          className="bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[155px] font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
+          className="bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[170px] font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Opção 1: Renomear */}
@@ -920,10 +1157,63 @@ export function SidebarNavigation({
             <span>Renomear</span>
           </button>
 
+          {/* Opções para NOTAS: Arquivar / Desarquivar */}
+          {menuItemType === 'note' && (
+            <>
+              {menuNoteIsArchived ? (
+                <button
+                  id="context-menu-unarchive-note-btn"
+                  onClick={() => {
+                    if (onUnarchiveNote && menuOpenId) {
+                      onUnarchiveNote(menuOpenId);
+                    }
+                    setMenuOpenId(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+                  title="Desarquivar nota"
+                >
+                  <ArchiveRestore className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
+                  <span>Desarquivar</span>
+                </button>
+              ) : (
+                <button
+                  id="context-menu-archive-note-btn"
+                  onClick={() => {
+                    if (onArchiveNote && menuOpenId) {
+                      onArchiveNote(menuOpenId);
+                    }
+                    setMenuOpenId(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+                  title="Arquivar nota"
+                >
+                  <Archive className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
+                  <span>Arquivar</span>
+                </button>
+              )}
+            </>
+          )}
+
           {/* Opções exclusivas para PASTAS */}
           {menuItemType === 'folder' && (
             <>
-              {/* Opção 2: Pasta inteligente (com Ícone de Estrelas) */}
+              {/* Opção Arquivar Pasta / Arquivar todas as notas da pasta */}
+              <button
+                id="context-menu-archive-folder-btn"
+                onClick={() => {
+                  if (onArchiveFolderNotes && menuOpenId) {
+                    onArchiveFolderNotes(menuOpenId);
+                  }
+                  setMenuOpenId(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+                title="Arquivar todas as notas desta pasta"
+              >
+                <Archive className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
+                <span>Arquivar notas</span>
+              </button>
+
+              {/* Opção: Pasta inteligente */}
               <button
                 id="context-menu-smart-folder-btn"
                 onClick={() => {
@@ -939,7 +1229,7 @@ export function SidebarNavigation({
                 <span>Pasta inteligente</span>
               </button>
 
-              {/* Opção 3: Cor da pasta > (com Submenu Lateral) */}
+              {/* Opção: Cor da pasta > (com Submenu Lateral) */}
               <div
                 className="relative"
                 onMouseEnter={handleMouseEnterColorOption}
@@ -1046,7 +1336,7 @@ export function SidebarNavigation({
 
           <div className="h-[1px] bg-[#e4e2dd] my-1" />
 
-          {/* Opção 4 (ou 2 para notas): Excluir */}
+          {/* Opção: Excluir */}
           <button
             id="context-menu-delete-btn"
             onClick={() => {

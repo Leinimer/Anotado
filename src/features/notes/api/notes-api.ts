@@ -5,6 +5,10 @@ import {
   writeNoteMarkdown,
   deleteNoteMarkdown,
 } from './notes-storage-api';
+import {
+  parseMarkdownWithTags,
+  serializeMarkdownWithTags,
+} from '../utils/markdown-tags';
 
 const LOCAL_STORAGE_KEY_FOLDERS = 'anotado_local_folders';
 const LOCAL_STORAGE_KEY_NOTES = 'anotado_local_notes';
@@ -51,6 +55,7 @@ export const INITIAL_DEMO_NOTES: Omit<Note, 'user_id'>[] = [
     folder_id: 'pasta-2',
     title: 'texto 1',
     content: 'Primeira nota de rascunho com apontamentos iniciais.\n\n#Estudo #Nota',
+    tags: ['estudo', 'nota'],
     position: 0,
     created_at: '2026-08-20T10:05:00Z',
     updated_at: '2026-08-20T10:05:00Z',
@@ -76,6 +81,7 @@ Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu 
 - Closing statement.
 
 #Nota #Estudo #Livro`,
+    tags: ['nota', 'estudo', 'livro'],
     position: 1,
     created_at: '2026-08-20T10:06:00Z',
     updated_at: '2026-08-20T10:06:00Z',
@@ -374,10 +380,11 @@ export async function deleteFolder(userId: string, folderId: string): Promise<bo
  */
 export async function createNote(
   userId: string,
-  noteData: { title: string; folderId: string | null; position: number; content?: string }
+  noteData: { title: string; folderId: string | null; position: number; content?: string; tags?: string[] }
 ): Promise<Note> {
   const noteId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `note-${Date.now()}`;
   const initialContent = noteData.content ?? '';
+  const initialTags = normalizeTags(noteData.tags || []);
 
   const newNote: Note = {
     id: noteId,
@@ -386,6 +393,9 @@ export async function createNote(
     title: noteData.title || 'Nova nota',
     content: initialContent,
     position: noteData.position,
+    tags: initialTags,
+    is_archived: false,
+    previous_folder_id: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -406,12 +416,15 @@ export async function createNote(
           title: newNote.title,
           content: newNote.content,
           position: newNote.position,
+          tags: newNote.tags,
+          is_archived: false,
+          previous_folder_id: null,
         })
         .select()
         .single();
 
       if (!error && data) {
-        return { ...(data as Note), content: initialContent };
+        return { ...(data as Note), content: initialContent, tags: (data as any).tags || initialTags };
       }
     } catch (err) {
       console.warn('Fallback local para criação de nota:', err);
@@ -423,6 +436,202 @@ export async function createNote(
   saveLocalData(userId, current.folders, [...current.notes, newNote]);
   return newNote;
 }
+
+/**
+ * Arquiva uma nota individual:
+ * Salva previous_folder_id com o folder_id atual, define is_archived = true e folder_id = null.
+ * O arquivo Markdown no Storage permanece intacto com o mesmo note_id.
+ */
+export async function archiveNote(userId: string, noteId: string): Promise<boolean> {
+  const current = getLocalData(userId);
+  const targetNote = current.notes.find((n) => n.id === noteId);
+  const previousFolderId = targetNote ? targetNote.folder_id : null;
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('notes')
+        .update({
+          is_archived: true,
+          previous_folder_id: previousFolderId,
+          folder_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', noteId)
+        .eq('user_id', userId);
+
+      if (!error) {
+        const updatedNotes = current.notes.map((n) =>
+          n.id === noteId
+            ? {
+                ...n,
+                is_archived: true,
+                previous_folder_id: n.folder_id,
+                folder_id: null,
+                updated_at: new Date().toISOString(),
+              }
+            : n
+        );
+        saveLocalData(userId, current.folders, updatedNotes);
+        return true;
+      }
+    } catch (err) {
+      console.warn('Fallback local para arquivar nota:', err);
+    }
+  }
+
+  // Fallback local
+  const updatedNotes = current.notes.map((n) =>
+    n.id === noteId
+      ? {
+          ...n,
+          is_archived: true,
+          previous_folder_id: n.folder_id,
+          folder_id: null,
+          updated_at: new Date().toISOString(),
+        }
+      : n
+  );
+  saveLocalData(userId, current.folders, updatedNotes);
+  return true;
+}
+
+/**
+ * Desarquiva uma nota individual:
+ * Restaura para previous_folder_id se a pasta ainda existir na lista de pastas do usuário;
+ * caso contrário, restaura para a raiz (folder_id = null).
+ */
+export async function unarchiveNote(
+  userId: string,
+  noteId: string,
+  existingFolders: Folder[]
+): Promise<boolean> {
+  const current = getLocalData(userId);
+  const targetNote = current.notes.find((n) => n.id === noteId);
+  const previousFolderId = targetNote?.previous_folder_id ?? null;
+
+  // Verifica se a pasta anterior ainda existe
+  const folderStillExists = previousFolderId
+    ? existingFolders.some((f) => f.id === previousFolderId)
+    : false;
+  const destinationFolderId = folderStillExists ? previousFolderId : null;
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('notes')
+        .update({
+          is_archived: false,
+          folder_id: destinationFolderId,
+          previous_folder_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', noteId)
+        .eq('user_id', userId);
+
+      if (!error) {
+        const updatedNotes = current.notes.map((n) =>
+          n.id === noteId
+            ? {
+                ...n,
+                is_archived: false,
+                folder_id: destinationFolderId,
+                previous_folder_id: null,
+                updated_at: new Date().toISOString(),
+              }
+            : n
+        );
+        saveLocalData(userId, current.folders, updatedNotes);
+        return true;
+      }
+    } catch (err) {
+      console.warn('Fallback local para desarquivar nota:', err);
+    }
+  }
+
+  // Fallback local
+  const updatedNotes = current.notes.map((n) =>
+    n.id === noteId
+      ? {
+          ...n,
+          is_archived: false,
+          folder_id: destinationFolderId,
+          previous_folder_id: null,
+          updated_at: new Date().toISOString(),
+        }
+      : n
+  );
+  saveLocalData(userId, current.folders, updatedNotes);
+  return true;
+}
+
+/**
+ * Arquiva todas as notas contidas em uma pasta e em todas as suas subpastas recursivamente.
+ */
+export async function archiveFolderNotes(
+  userId: string,
+  folderId: string,
+  allFolders: Folder[]
+): Promise<boolean> {
+  // Coleta IDs da pasta e de todas as suas subpastas recursivamente
+  const folderIdsToArchive = new Set<string>([folderId]);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const folder of allFolders) {
+      if (folder.parent_id && folderIdsToArchive.has(folder.parent_id) && !folderIdsToArchive.has(folder.id)) {
+        folderIdsToArchive.add(folder.id);
+        added = true;
+      }
+    }
+  }
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      // Tenta executar via RPC atômica
+      const { error: rpcError } = await supabase.rpc('archive_folder_notes', {
+        p_folder_id: folderId,
+        p_user_id: userId,
+      });
+
+      if (rpcError) {
+        // Fallback para update in
+        const idArray = Array.from(folderIdsToArchive);
+        await supabase
+          .from('notes')
+          .update({
+            is_archived: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', userId)
+          .in('folder_id', idArray);
+      }
+    } catch (err) {
+      console.warn('Exceção ao arquivar notas da pasta no Supabase:', err);
+    }
+  }
+
+  // Atualiza cache local
+  const current = getLocalData(userId);
+  const updatedNotes = current.notes.map((n) => {
+    if (n.folder_id && folderIdsToArchive.has(n.folder_id) && !n.is_archived) {
+      return {
+        ...n,
+        is_archived: true,
+        previous_folder_id: n.folder_id,
+        folder_id: null,
+        updated_at: new Date().toISOString(),
+      };
+    }
+    return n;
+  });
+  saveLocalData(userId, current.folders, updatedNotes);
+  return true;
+}
+
 
 /**
  * Atualiza o título de uma nota nos metadados.
@@ -578,3 +787,91 @@ export async function moveItem(
   }
   return true;
 }
+
+/**
+ * Normaliza um array de tags:
+ * - Remove espaços e caracteres de controle
+ * - Remove o símbolo '#' inicial para armazenamento consistente
+ * - Remove entradas vazias
+ * - Remove duplicatas ignorando maiúsculas/minúsculas
+ */
+export function normalizeTags(rawTags: string[]): string[] {
+  if (!Array.isArray(rawTags)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const raw of rawTags) {
+    if (!raw || typeof raw !== 'string') continue;
+    const clean = raw.trim().replace(/\s+/g, '').replace(/^#+/, '');
+    if (!clean) continue;
+    const lower = clean.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      result.push(clean);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Atualiza o conjunto de tags explícitas de uma nota nos metadados do Supabase e no cache local.
+ * Sincroniza com as buscas e árvore de pastas inteligentes.
+ */
+export async function updateNoteTags(
+  userId: string,
+  noteId: string,
+  rawTags: string[]
+): Promise<{ success: boolean; tags: string[] }> {
+  const cleanTags = normalizeTags(rawTags);
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+
+      // 1. Atualiza a coluna tags na tabela notes
+      const { error: noteUpdateError } = await supabase
+        .from('notes')
+        .update({
+          tags: cleanTags,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', noteId)
+        .eq('user_id', userId);
+
+      if (!noteUpdateError) {
+        // 2. Sincronização com tabela de tags se configurada
+        try {
+          for (const tagName of cleanTags) {
+            await supabase
+              .from('tags')
+              .upsert(
+                { user_id: userId, name: tagName.toLowerCase() },
+                { onConflict: 'user_id,name' }
+              );
+          }
+        } catch {
+          // Ignora silenciosamente se tabelas normalizadas adicionais não estiverem criadas
+        }
+      }
+    } catch (err) {
+      console.warn('Fallback local para atualização de tags da nota:', err);
+    }
+  }
+
+  // Fallback e atualização no cache local
+  const current = getLocalData(userId);
+  const updatedNotes = current.notes.map((n) =>
+    n.id === noteId
+      ? {
+          ...n,
+          tags: cleanTags,
+          updated_at: new Date().toISOString(),
+        }
+      : n
+  );
+  saveLocalData(userId, current.folders, updatedNotes);
+
+  return { success: true, tags: cleanTags };
+}
+

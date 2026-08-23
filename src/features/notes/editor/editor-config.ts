@@ -1,5 +1,6 @@
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
+import Subscript from '@tiptap/extension-subscript';
 import Highlight from '@tiptap/extension-highlight';
 import { TextStyle } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
@@ -33,6 +34,7 @@ export const defaultEditorExtensions = [
     },
   }),
   Underline,
+  Subscript,
   Highlight.configure({
     multicolor: true,
   }),

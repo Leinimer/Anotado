@@ -12,11 +12,13 @@ import { Editor } from '@tiptap/react';
 import { Note as NoteType } from '../types';
 import { NoteEditor } from './NoteEditor';
 import { EditorToolbar } from './EditorToolbar';
+import { NoteTagsBar } from './NoteTagsBar';
 
 interface NoteCanvasProps {
   activeNote: NoteType | null;
   onUpdateTitle: (noteId: string, newTitle: string) => void;
   onUpdateContent: (noteId: string, newContent: string) => void;
+  onUpdateTags: (noteId: string, newTags: string[]) => void;
   onDeleteNote: (noteId: string) => void;
   onCreateNewNote: () => void;
   onOpenMobileMenu?: () => void;
@@ -27,6 +29,7 @@ export function NoteCanvas({
   activeNote,
   onUpdateTitle,
   onUpdateContent,
+  onUpdateTags,
   onDeleteNote,
   onCreateNewNote,
   onOpenMobileMenu,
@@ -113,13 +116,13 @@ export function NoteCanvas({
       id="main-note-workspace"
       className="flex-1 flex flex-col h-full overflow-hidden bg-[#fbf9f4]"
     >
-      {/* Top Header Bar (Apenas título centralizado com a folha e menu mobile) */}
+      {/* Top Header Bar (Título centralizado) */}
       <header
         id="note-header-bar"
-        className="w-full px-4 sm:px-8 py-3.5 sm:py-4 relative flex items-center justify-center border-b border-[#eae8e3]/80 shrink-0 select-none bg-[#fbf9f4]/90 backdrop-blur-xs z-10"
+        className="w-full px-4 sm:px-8 pt-3 sm:pt-3.5 pb-3 relative flex flex-col items-center justify-center border-b border-[#eae8e3]/80 shrink-0 select-none bg-[#fbf9f4]/90 backdrop-blur-xs z-10"
       >
         {onOpenMobileMenu && (
-          <div className="absolute left-4 sm:left-6 flex items-center md:hidden">
+          <div className="absolute left-4 sm:left-6 top-3 sm:top-3.5 flex items-center md:hidden">
             <button
               id="header-mobile-menu-btn"
               onClick={onOpenMobileMenu}
@@ -163,10 +166,18 @@ export function NoteCanvas({
         </div>
       </header>
 
+      {/* Região de Gerenciamento de Tags (Abaixo da linha divisória do título e acima do corpo da nota) */}
+      <div id="note-tags-section-wrapper" className="w-full shrink-0 pt-2 pb-1 bg-[#fbf9f4]">
+        <NoteTagsBar
+          tags={activeNote.tags || []}
+          onUpdateTags={(newTags) => onUpdateTags(activeNote.id, newTags)}
+        />
+      </div>
+
       {/* Note Canvas Sheet Area (Papyrus & Ink) */}
       <div
         id="note-scroll-container"
-        className="flex-1 overflow-y-auto px-3 sm:px-6 md:px-12 py-6 sm:py-8 flex justify-center items-start"
+        className="flex-1 overflow-y-auto px-3 sm:px-6 md:px-12 py-4 sm:py-6 flex justify-center items-start"
       >
         <article
           id="note-paper-sheet"
