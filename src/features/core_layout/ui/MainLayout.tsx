@@ -27,9 +27,9 @@ import {
 export function MainLayout() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
-  const [activeNoteId, setActiveNoteId] = useState<string | null>('texto-2');
-  const [activeFolderId, setActiveFolderId] = useState<string | null>('pasta-2');
-  const [userId, setUserId] = useState<string>('local-user');
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
 
@@ -45,40 +45,44 @@ export function MainLayout() {
       const currentUserId = data?.user?.id || 'demo-user';
       setUserId(currentUserId);
 
-      // Carrega pastas e notas reais
-      const { folders: fetchedFolders, notes: fetchedNotes } = await fetchFoldersAndNotes(currentUserId);
-      if (!isMounted) return;
+      // Carrega pastas e notas reais diretamente do Supabase
+      try {
+        const { folders: fetchedFolders, notes: fetchedNotes } = await fetchFoldersAndNotes(currentUserId);
+        if (!isMounted) return;
 
-      setFolders(fetchedFolders);
-      setNotes(fetchedNotes);
+        setFolders(fetchedFolders);
+        setNotes(fetchedNotes);
 
-      // Se houver notas, seleciona a primeira ou a padrão
-      if (fetchedNotes.length > 0) {
-        const exists = fetchedNotes.some((n) => n.id === 'texto-2');
-        const initialSelectedId = exists ? 'texto-2' : fetchedNotes[0].id;
-        setActiveNoteId(initialSelectedId);
+        // Se houver notas ativas, seleciona a primeira não arquivada
+        const unarchivedNotes = fetchedNotes.filter((n) => !n.is_archived);
+        if (unarchivedNotes.length > 0) {
+          const initialSelectedId = unarchivedNotes[0].id;
+          setActiveNoteId(initialSelectedId);
 
-        // Carrega o Markdown correspondente do Storage
-        const selectedNote = fetchedNotes.find((n) => n.id === initialSelectedId);
-        if (selectedNote) {
-          fetchNoteContent(currentUserId, selectedNote).then(({ content, tags }) => {
-            if (isMounted) {
-              setNotes((prev) =>
-                prev.map((n) =>
-                  n.id === selectedNote.id
-                    ? {
-                        ...n,
-                        content: content !== undefined ? content : n.content,
-                        tags: tags && tags.length > 0 ? tags : n.tags,
-                      }
-                    : n
-                )
-              );
-            }
-          });
+          // Carrega o Markdown correspondente do Storage
+          const selectedNote = unarchivedNotes[0];
+          if (selectedNote) {
+            fetchNoteContent(currentUserId, selectedNote).then(({ content, tags }) => {
+              if (isMounted) {
+                setNotes((prev) =>
+                  prev.map((n) =>
+                    n.id === selectedNote.id
+                      ? {
+                          ...n,
+                          content: content !== undefined ? content : n.content,
+                          tags: tags && tags.length > 0 ? tags : n.tags,
+                        }
+                      : n
+                  )
+                );
+              }
+            });
+          }
+        } else {
+          setActiveNoteId(null);
         }
-      } else {
-        setActiveNoteId(null);
+      } catch (err) {
+        console.error('[MainLayout] Erro ao carregar dados do Supabase:', err);
       }
     });
 

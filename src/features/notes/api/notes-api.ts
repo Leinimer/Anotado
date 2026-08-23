@@ -129,6 +129,111 @@ function saveLocalData(userId: string, folders: Folder[], notes: Note[]) {
 }
 
 /**
+ * Normaliza um array de tags:
+ * - Remove espaços e caracteres de controle
+ * - Remove o símbolo '#' inicial para armazenamento consistente
+ * - Remove entradas vazias
+ * - Remove duplicatas ignorando maiúsculas/minúsculas
+ */
+export function normalizeTags(rawTags: string[]): string[] {
+  if (!Array.isArray(rawTags)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const raw of rawTags) {
+    if (!raw || typeof raw !== 'string') continue;
+    const clean = raw.trim().replace(/\s+/g, '').replace(/^#+/, '');
+    if (!clean) continue;
+    const lower = clean.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      result.push(clean);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Sincroniza as tags de uma nota com as tabelas normalizadas public.tags e public.note_tags.
+ */
+async function syncTagsAndNoteRelations(
+  supabase: any,
+  userId: string,
+  noteId: string,
+  cleanTags: string[]
+): Promise<void> {
+  if (!supabase || !userId || !noteId) return;
+
+  try {
+    if (cleanTags.length === 0) {
+      // Se não há tags, remove todas as associações dessa nota
+      const { error: delErr } = await supabase
+        .from('note_tags')
+        .delete()
+        .eq('note_id', noteId)
+        .eq('user_id', userId);
+      if (delErr) {
+        console.warn('[DB NoteTags] Aviso ao remover note_tags:', delErr.message);
+      }
+      return;
+    }
+
+    // 1. Insere/garante que as tags existam em public.tags para este usuário
+    const tagRows = cleanTags.map((name) => ({
+      user_id: userId,
+      name: name.toLowerCase(),
+    }));
+
+    const { error: tagUpsertErr } = await supabase
+      .from('tags')
+      .upsert(tagRows, { onConflict: 'user_id,name' });
+
+    if (tagUpsertErr) {
+      console.warn('[DB Tags] Aviso ao cadastrar catálogo de tags:', tagUpsertErr.message);
+    }
+
+    // 2. Busca os IDs das tags normalizadas pertencentes ao usuário
+    const { data: userTags, error: fetchTagsErr } = await supabase
+      .from('tags')
+      .select('id, name')
+      .eq('user_id', userId)
+      .in(
+        'name',
+        cleanTags.map((t) => t.toLowerCase())
+      );
+
+    if (!fetchTagsErr && userTags && userTags.length > 0) {
+      const activeTagIds = new Set(userTags.map((t: any) => t.id));
+
+      // 3. Remove relacionamentos note_tags que não fazem mais parte das tags atuais
+      await supabase
+        .from('note_tags')
+        .delete()
+        .eq('note_id', noteId)
+        .eq('user_id', userId);
+
+      // 4. Insere os novos relacionamentos em public.note_tags
+      const noteTagRecords = Array.from(activeTagIds).map((tagId) => ({
+        note_id: noteId,
+        tag_id: tagId,
+        user_id: userId,
+      }));
+
+      const { error: noteTagInsertErr } = await supabase
+        .from('note_tags')
+        .insert(noteTagRecords);
+
+      if (noteTagInsertErr) {
+        console.warn('[DB NoteTags] Aviso ao vincular note_tags:', noteTagInsertErr.message);
+      }
+    }
+  } catch (err) {
+    console.warn('[DB Tags Sync] Exceção ao sincronizar tabelas de tags/note_tags:', err);
+  }
+}
+
+/**
  * Busca todas as pastas e metadados de notas do usuário autenticado no Supabase.
  */
 export async function fetchFoldersAndNotes(userId: string): Promise<{ folders: Folder[]; notes: Note[] }> {
@@ -154,46 +259,46 @@ export async function fetchFoldersAndNotes(userId: string): Promise<{ folders: F
         .order('created_at', { ascending: true }),
     ]);
 
-    // Se as tabelas existirem e responderem sem erro
-    if (!foldersRes.error && !notesRes.error) {
-      const folders = (foldersRes.data || []) as Folder[];
-      const notes = (notesRes.data || []).map((n: any) => {
-        let noteTags: string[] = [];
-        if (Array.isArray(n.tags)) {
-          noteTags = normalizeTags(n.tags);
-        } else if (typeof n.tags === 'string') {
-          try {
-            const parsed = JSON.parse(n.tags);
-            noteTags = Array.isArray(parsed) ? normalizeTags(parsed) : [];
-          } catch {
-            noteTags = normalizeTags(n.tags.split(','));
-          }
-        }
-        // Se a coluna content possuir hashtags (caso já gravado no DB), consolida no índice
-        if (n.content && typeof n.content === 'string') {
-          const bodyTags = extractHashtagsFromText(n.content);
-          if (bodyTags.length > 0) {
-            noteTags = normalizeTags([...noteTags, ...bodyTags]);
-          }
-        }
-        return {
-          ...n,
-          tags: noteTags,
-        };
-      }) as Note[];
-
-      // Salva em cache e retorna os dados reais do usuário autenticado
-      saveLocalData(userId, folders, notes);
-      return { folders, notes };
-    } else {
-      console.warn(
-        'Tabelas de folders/notes não encontradas no Supabase. Utilizando cache local resiliente.',
-        foldersRes.error || notesRes.error
-      );
-      return getLocalData(userId);
+    if (foldersRes.error) {
+      console.error('[Supabase DB] Erro ao carregar pastas:', foldersRes.error);
+      throw foldersRes.error;
     }
+    if (notesRes.error) {
+      console.error('[Supabase DB] Erro ao carregar notas:', notesRes.error);
+      throw notesRes.error;
+    }
+
+    const folders = (foldersRes.data || []) as Folder[];
+    const notes = (notesRes.data || []).map((n: any) => {
+      let noteTags: string[] = [];
+      if (Array.isArray(n.tags)) {
+        noteTags = normalizeTags(n.tags);
+      } else if (typeof n.tags === 'string') {
+        try {
+          const parsed = JSON.parse(n.tags);
+          noteTags = Array.isArray(parsed) ? normalizeTags(parsed) : [];
+        } catch {
+          noteTags = normalizeTags(n.tags.split(','));
+        }
+      }
+      // Se a coluna content possuir hashtags (caso já gravado no DB), consolida no índice
+      if (n.content && typeof n.content === 'string') {
+        const bodyTags = extractHashtagsFromText(n.content);
+        if (bodyTags.length > 0) {
+          noteTags = normalizeTags([...noteTags, ...bodyTags]);
+        }
+      }
+      return {
+        ...n,
+        tags: noteTags,
+      };
+    }) as Note[];
+
+    // Sincroniza cache local e retorna dados reais do usuário autenticado
+    saveLocalData(userId, folders, notes);
+    return { folders, notes };
   } catch (err) {
-    console.warn('Erro ao conectar com Supabase folders/notes:', err);
+    console.error('[Supabase DB] Erro na consulta de pastas/notas:', err);
     return getLocalData(userId);
   }
 }
@@ -244,29 +349,32 @@ export async function createFolder(
   };
 
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('folders')
-        .insert({
-          id: newFolder.id,
-          user_id: userId,
-          name: newFolder.name,
-          parent_id: newFolder.parent_id,
-          position: newFolder.position,
-        })
-        .select()
-        .single();
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('folders')
+      .insert({
+        id: newFolder.id,
+        user_id: userId,
+        name: newFolder.name,
+        parent_id: newFolder.parent_id,
+        position: newFolder.position,
+      })
+      .select()
+      .single();
 
-      if (!error && data) {
-        return data as Folder;
-      }
-    } catch (err) {
-      console.warn('Fallback local para criação de pasta:', err);
+    if (error) {
+      console.error('[Supabase DB] Erro ao criar pasta:', error);
+      throw error;
+    }
+
+    if (data) {
+      const current = getLocalData(userId);
+      saveLocalData(userId, [...current.folders.filter(f => f.id !== newFolder.id), data as Folder], current.notes);
+      return data as Folder;
     }
   }
 
-  // Fallback local
+  // Fallback local caso Supabase não esteja configurado
   const current = getLocalData(userId);
   saveLocalData(userId, [...current.folders, newFolder], current.notes);
   return newFolder;
@@ -277,21 +385,20 @@ export async function createFolder(
  */
 export async function renameFolder(userId: string, folderId: string, newName: string): Promise<boolean> {
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('folders')
-        .update({ name: newName, updated_at: new Date().toISOString() })
-        .eq('id', folderId)
-        .eq('user_id', userId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('folders')
+      .update({ name: newName, updated_at: new Date().toISOString() })
+      .eq('id', folderId)
+      .eq('user_id', userId);
 
-      if (!error) return true;
-    } catch (err) {
-      console.warn('Fallback local para renomear pasta:', err);
+    if (error) {
+      console.error('[Supabase DB] Erro ao renomear pasta:', error);
+      throw error;
     }
   }
 
-  // Fallback local
+  // Atualização no cache local
   const current = getLocalData(userId);
   const updatedFolders = current.folders.map((f) =>
     f.id === folderId ? { ...f, name: newName, updated_at: new Date().toISOString() } : f
@@ -309,21 +416,20 @@ export async function updateFolderColor(
   color: string | null
 ): Promise<boolean> {
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('folders')
-        .update({ color: color, updated_at: new Date().toISOString() })
-        .eq('id', folderId)
-        .eq('user_id', userId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('folders')
+      .update({ color: color, updated_at: new Date().toISOString() })
+      .eq('id', folderId)
+      .eq('user_id', userId);
 
-      if (!error) return true;
-    } catch (err) {
-      console.warn('Fallback local para atualizar cor da pasta:', err);
+    if (error) {
+      console.error('[Supabase DB] Erro ao atualizar cor da pasta:', error);
+      throw error;
     }
   }
 
-  // Fallback local
+  // Atualização no cache local
   const current = getLocalData(userId);
   const updatedFolders = current.folders.map((f) =>
     f.id === folderId ? { ...f, color: color, updated_at: new Date().toISOString() } : f
@@ -342,25 +448,24 @@ export async function updateFolderSmartConfig(
   smartTags: string[]
 ): Promise<boolean> {
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('folders')
-        .update({
-          is_smart: isSmart,
-          smart_tags: smartTags,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', folderId)
-        .eq('user_id', userId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('folders')
+      .update({
+        is_smart: isSmart,
+        smart_tags: smartTags,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', folderId)
+      .eq('user_id', userId);
 
-      if (!error) return true;
-    } catch (err) {
-      console.warn('Fallback local para atualizar configuração de pasta inteligente:', err);
+    if (error) {
+      console.error('[Supabase DB] Erro ao atualizar configuração inteligente da pasta:', error);
+      throw error;
     }
   }
 
-  // Fallback local
+  // Atualização no cache local
   const current = getLocalData(userId);
   const updatedFolders = current.folders.map((f) =>
     f.id === folderId
@@ -381,21 +486,20 @@ export async function updateFolderSmartConfig(
  */
 export async function deleteFolder(userId: string, folderId: string): Promise<boolean> {
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('folders')
-        .delete()
-        .eq('id', folderId)
-        .eq('user_id', userId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('folders')
+      .delete()
+      .eq('id', folderId)
+      .eq('user_id', userId);
 
-      if (!error) return true;
-    } catch (err) {
-      console.warn('Fallback local para exclusão de pasta:', err);
+    if (error) {
+      console.error('[Supabase DB] Erro ao excluir pasta:', error);
+      throw error;
     }
   }
 
-  // Fallback local
+  // Atualização no cache local
   const current = getLocalData(userId);
   const updatedFolders = current.folders.filter((f) => f.id !== folderId && f.parent_id !== folderId);
   const updatedNotes = current.notes.filter((n) => n.folder_id !== folderId);
@@ -405,6 +509,7 @@ export async function deleteFolder(userId: string, folderId: string): Promise<bo
 
 /**
  * Cria uma nova nota no Supabase Storage (como arquivo .md) e grava metadados na tabela notes.
+ * Confirma o registro através do Supabase antes de retornar.
  */
 export async function createNote(
   userId: string,
@@ -430,41 +535,54 @@ export async function createNote(
 
   // 1. Grava o arquivo Markdown individual no Supabase Storage com as tags
   const fullMarkdown = serializeMarkdownWithTags(initialContent, initialTags);
-  await writeNoteMarkdown(userId, noteId, fullMarkdown);
+  const storageSuccess = await writeNoteMarkdown(userId, noteId, fullMarkdown);
+  if (!storageSuccess) {
+    console.error('[Storage] Falha ao gravar arquivo .md inicial da nota no bucket');
+  }
 
   // 2. Grava os metadados na tabela notes
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('notes')
-        .insert({
-          id: newNote.id,
-          user_id: userId,
-          folder_id: newNote.folder_id,
-          title: newNote.title,
-          content: newNote.content,
-          position: newNote.position,
-          tags: newNote.tags,
-          is_archived: false,
-          previous_folder_id: null,
-        })
-        .select()
-        .single();
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('notes')
+      .insert({
+        id: newNote.id,
+        user_id: userId,
+        folder_id: newNote.folder_id,
+        title: newNote.title,
+        content: newNote.content,
+        position: newNote.position,
+        tags: newNote.tags,
+        is_archived: false,
+        previous_folder_id: null,
+      })
+      .select()
+      .single();
 
-      if (!error && data) {
-        return {
-          ...(data as Note),
-          content: initialContent,
-          tags: Array.isArray((data as any).tags) ? normalizeTags((data as any).tags) : initialTags,
-        };
+    if (error) {
+      console.error('[Supabase DB] Erro fatal ao inserir nota em public.notes:', error);
+      throw error;
+    }
+
+    if (data) {
+      // Sincroniza tabelas tags e note_tags se existirem tags
+      if (initialTags.length > 0) {
+        await syncTagsAndNoteRelations(supabase, userId, noteId, initialTags);
       }
-    } catch (err) {
-      console.warn('Fallback local para criação de nota:', err);
+
+      const confirmedNote: Note = {
+        ...(data as Note),
+        content: initialContent,
+        tags: Array.isArray((data as any).tags) ? normalizeTags((data as any).tags) : initialTags,
+      };
+
+      const current = getLocalData(userId);
+      saveLocalData(userId, current.folders, [...current.notes.filter(n => n.id !== noteId), confirmedNote]);
+      return confirmedNote;
     }
   }
 
-  // Fallback local
+  // Fallback local se Supabase não estiver configurado
   const current = getLocalData(userId);
   saveLocalData(userId, current.folders, [...current.notes, newNote]);
   return newNote;
@@ -481,40 +599,25 @@ export async function archiveNote(userId: string, noteId: string): Promise<boole
   const previousFolderId = targetNote ? targetNote.folder_id : null;
 
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('notes')
-        .update({
-          is_archived: true,
-          previous_folder_id: previousFolderId,
-          folder_id: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', noteId)
-        .eq('user_id', userId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('notes')
+      .update({
+        is_archived: true,
+        previous_folder_id: previousFolderId,
+        folder_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', noteId)
+      .eq('user_id', userId);
 
-      if (!error) {
-        const updatedNotes = current.notes.map((n) =>
-          n.id === noteId
-            ? {
-                ...n,
-                is_archived: true,
-                previous_folder_id: n.folder_id,
-                folder_id: null,
-                updated_at: new Date().toISOString(),
-              }
-            : n
-        );
-        saveLocalData(userId, current.folders, updatedNotes);
-        return true;
-      }
-    } catch (err) {
-      console.warn('Fallback local para arquivar nota:', err);
+    if (error) {
+      console.error('[Supabase DB] Erro ao arquivar nota:', error);
+      throw error;
     }
   }
 
-  // Fallback local
+  // Atualização no cache local
   const updatedNotes = current.notes.map((n) =>
     n.id === noteId
       ? {
@@ -551,40 +654,25 @@ export async function unarchiveNote(
   const destinationFolderId = folderStillExists ? previousFolderId : null;
 
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('notes')
-        .update({
-          is_archived: false,
-          folder_id: destinationFolderId,
-          previous_folder_id: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', noteId)
-        .eq('user_id', userId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('notes')
+      .update({
+        is_archived: false,
+        folder_id: destinationFolderId,
+        previous_folder_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', noteId)
+      .eq('user_id', userId);
 
-      if (!error) {
-        const updatedNotes = current.notes.map((n) =>
-          n.id === noteId
-            ? {
-                ...n,
-                is_archived: false,
-                folder_id: destinationFolderId,
-                previous_folder_id: null,
-                updated_at: new Date().toISOString(),
-              }
-            : n
-        );
-        saveLocalData(userId, current.folders, updatedNotes);
-        return true;
-      }
-    } catch (err) {
-      console.warn('Fallback local para desarquivar nota:', err);
+    if (error) {
+      console.error('[Supabase DB] Erro ao desarquivar nota:', error);
+      throw error;
     }
   }
 
-  // Fallback local
+  // Atualização no cache local
   const updatedNotes = current.notes.map((n) =>
     n.id === noteId
       ? {
@@ -622,28 +710,29 @@ export async function archiveFolderNotes(
   }
 
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      // Tenta executar via RPC atômica
-      const { error: rpcError } = await supabase.rpc('archive_folder_notes', {
-        p_folder_id: folderId,
-        p_user_id: userId,
-      });
+    const supabase = createClient();
+    // Tenta executar via RPC atômica
+    const { error: rpcError } = await supabase.rpc('archive_folder_notes', {
+      p_folder_id: folderId,
+      p_user_id: userId,
+    });
 
-      if (rpcError) {
-        // Fallback para update in
-        const idArray = Array.from(folderIdsToArchive);
-        await supabase
-          .from('notes')
-          .update({
-            is_archived: true,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('user_id', userId)
-          .in('folder_id', idArray);
+    if (rpcError) {
+      // Fallback para update in direto
+      const idArray = Array.from(folderIdsToArchive);
+      const { error: batchErr } = await supabase
+        .from('notes')
+        .update({
+          is_archived: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', userId)
+        .in('folder_id', idArray);
+
+      if (batchErr) {
+        console.error('[Supabase DB] Erro ao arquivar notas em lote:', batchErr);
+        throw batchErr;
       }
-    } catch (err) {
-      console.warn('Exceção ao arquivar notas da pasta no Supabase:', err);
     }
   }
 
@@ -665,28 +754,26 @@ export async function archiveFolderNotes(
   return true;
 }
 
-
 /**
  * Atualiza o título de uma nota nos metadados.
  * O arquivo no Storage permanece com seu ID estável ({note_id}.md).
  */
 export async function updateNoteTitle(userId: string, noteId: string, newTitle: string): Promise<boolean> {
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('notes')
-        .update({ title: newTitle, updated_at: new Date().toISOString() })
-        .eq('id', noteId)
-        .eq('user_id', userId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('notes')
+      .update({ title: newTitle, updated_at: new Date().toISOString() })
+      .eq('id', noteId)
+      .eq('user_id', userId);
 
-      if (!error) return true;
-    } catch (err) {
-      console.warn('Fallback local para atualizar título:', err);
+    if (error) {
+      console.error('[Supabase DB] Erro ao atualizar título da nota:', error);
+      throw error;
     }
   }
 
-  // Fallback local
+  // Atualização no cache local
   const current = getLocalData(userId);
   const updatedNotes = current.notes.map((n) =>
     n.id === noteId ? { ...n, title: newTitle, updated_at: new Date().toISOString() } : n
@@ -697,7 +784,7 @@ export async function updateNoteTitle(userId: string, noteId: string, newTitle: 
 
 /**
  * Atualiza o conteúdo de uma nota diretamente como arquivo Markdown (.md) no Supabase Storage.
- * Preserva as tags associadas à nota no cabeçalho do arquivo Markdown.
+ * Preserva as tags associadas à nota no cabeçalho do arquivo Markdown e sincroniza com o banco.
  */
 export async function updateNoteContent(
   userId: string,
@@ -722,23 +809,27 @@ export async function updateNoteContent(
 
   // 3. Atualiza timestamp, conteúdo e coluna tags na tabela notes
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      await supabase
-        .from('notes')
-        .update({
-          content: newMarkdownContent,
-          tags: combinedTags,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', noteId)
-        .eq('user_id', userId);
-    } catch (err) {
-      console.warn('Erro ao atualizar nota no banco:', err);
+    const supabase = createClient();
+    const { error: updateErr } = await supabase
+      .from('notes')
+      .update({
+        content: newMarkdownContent,
+        tags: combinedTags,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', noteId)
+      .eq('user_id', userId);
+
+    if (updateErr) {
+      console.error('[Supabase DB] Erro ao atualizar conteúdo da nota:', updateErr);
+      throw updateErr;
     }
+
+    // Sincroniza tabelas tags e note_tags
+    await syncTagsAndNoteRelations(supabase, userId, noteId, combinedTags);
   }
 
-  // Fallback local
+  // Atualização no cache local
   const current = getLocalData(userId);
   const updatedNotes = current.notes.map((n) =>
     n.id === noteId ? { ...n, content: newMarkdownContent, tags: combinedTags, updated_at: new Date().toISOString() } : n
@@ -757,21 +848,20 @@ export async function deleteNote(userId: string, noteId: string): Promise<boolea
 
   // 2. Remove da tabela notes
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('notes')
-        .delete()
-        .eq('id', noteId)
-        .eq('user_id', userId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('notes')
+      .delete()
+      .eq('id', noteId)
+      .eq('user_id', userId);
 
-      if (!error) return true;
-    } catch (err) {
-      console.warn('Fallback local para excluir nota:', err);
+    if (error) {
+      console.error('[Supabase DB] Erro ao excluir nota:', error);
+      throw error;
     }
   }
 
-  // Fallback local
+  // Atualização no cache local
   const current = getLocalData(userId);
   const updatedNotes = current.notes.filter((n) => n.id !== noteId);
   saveLocalData(userId, current.folders, updatedNotes);
@@ -790,37 +880,41 @@ export async function moveItem(
   newPosition: number
 ): Promise<boolean> {
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
-      if (itemType === 'folder') {
-        const { error } = await supabase
-          .from('folders')
-          .update({
-            parent_id: newParentId,
-            position: newPosition,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', itemId)
-          .eq('user_id', userId);
-        if (!error) return true;
-      } else {
-        const { error } = await supabase
-          .from('notes')
-          .update({
-            folder_id: newParentId,
-            position: newPosition,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', itemId)
-          .eq('user_id', userId);
-        if (!error) return true;
+    const supabase = createClient();
+    if (itemType === 'folder') {
+      const { error } = await supabase
+        .from('folders')
+        .update({
+          parent_id: newParentId,
+          position: newPosition,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('[Supabase DB] Erro ao mover pasta:', error);
+        throw error;
       }
-    } catch (err) {
-      console.warn('Fallback local para mover item:', err);
+    } else {
+      const { error } = await supabase
+        .from('notes')
+        .update({
+          folder_id: newParentId,
+          position: newPosition,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('[Supabase DB] Erro ao mover nota:', error);
+        throw error;
+      }
     }
   }
 
-  // Fallback local
+  // Atualização no cache local
   const current = getLocalData(userId);
   if (itemType === 'folder') {
     const updatedFolders = current.folders.map((f) =>
@@ -837,35 +931,8 @@ export async function moveItem(
 }
 
 /**
- * Normaliza um array de tags:
- * - Remove espaços e caracteres de controle
- * - Remove o símbolo '#' inicial para armazenamento consistente
- * - Remove entradas vazias
- * - Remove duplicatas ignorando maiúsculas/minúsculas
- */
-export function normalizeTags(rawTags: string[]): string[] {
-  if (!Array.isArray(rawTags)) return [];
-  const seen = new Set<string>();
-  const result: string[] = [];
-
-  for (const raw of rawTags) {
-    if (!raw || typeof raw !== 'string') continue;
-    const clean = raw.trim().replace(/\s+/g, '').replace(/^#+/, '');
-    if (!clean) continue;
-    const lower = clean.toLowerCase();
-    if (!seen.has(lower)) {
-      seen.add(lower);
-      result.push(clean);
-    }
-  }
-
-  return result;
-}
-
-/**
  * Atualiza o conjunto de tags explícitas de uma nota nos metadados do Supabase,
- * no arquivo .md no Supabase Storage e no cache local.
- * Sincroniza com as buscas e árvore de pastas inteligentes.
+ * no arquivo .md no Supabase Storage e nas tabelas normalizadas tags e note_tags.
  */
 export async function updateNoteTags(
   userId: string,
@@ -889,42 +956,28 @@ export async function updateNoteTags(
 
   // 3. Atualiza os metadados no Supabase DB
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = createClient();
+    const supabase = createClient();
 
-      // Atualiza a coluna tags na tabela notes
-      const { error: noteUpdateError } = await supabase
-        .from('notes')
-        .update({
-          tags: cleanTags,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', noteId)
-        .eq('user_id', userId);
+    // Atualiza a coluna tags na tabela notes
+    const { error: noteUpdateError } = await supabase
+      .from('notes')
+      .update({
+        tags: cleanTags,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', noteId)
+      .eq('user_id', userId);
 
-      if (!noteUpdateError) {
-        // Sincronização com tabela de tags se configurada
-        try {
-          for (const tagName of cleanTags) {
-            await supabase
-              .from('tags')
-              .upsert(
-                { user_id: userId, name: tagName.toLowerCase() },
-                { onConflict: 'user_id,name' }
-              );
-          }
-        } catch {
-          // Ignora silenciosamente se tabelas normalizadas adicionais não estiverem criadas
-        }
-      } else {
-        console.warn('Erro ao atualizar tags da nota no Supabase:', noteUpdateError);
-      }
-    } catch (err) {
-      console.warn('Fallback local para atualização de tags da nota:', err);
+    if (noteUpdateError) {
+      console.error('[Supabase DB] Erro ao atualizar tags da nota:', noteUpdateError);
+      throw noteUpdateError;
     }
+
+    // Sincroniza tabelas normalizadas tags e note_tags
+    await syncTagsAndNoteRelations(supabase, userId, noteId, cleanTags);
   }
 
-  // 4. Fallback e atualização no cache local
+  // 4. Atualização no cache local
   const current = getLocalData(userId);
   const updatedNotes = current.notes.map((n) =>
     n.id === noteId
