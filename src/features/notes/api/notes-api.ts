@@ -267,6 +267,82 @@ export async function renameFolder(userId: string, folderId: string, newName: st
 }
 
 /**
+ * Atualiza a cor visual de uma pasta no Supabase e no cache local.
+ */
+export async function updateFolderColor(
+  userId: string,
+  folderId: string,
+  color: string | null
+): Promise<boolean> {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('folders')
+        .update({ color: color, updated_at: new Date().toISOString() })
+        .eq('id', folderId)
+        .eq('user_id', userId);
+
+      if (!error) return true;
+    } catch (err) {
+      console.warn('Fallback local para atualizar cor da pasta:', err);
+    }
+  }
+
+  // Fallback local
+  const current = getLocalData(userId);
+  const updatedFolders = current.folders.map((f) =>
+    f.id === folderId ? { ...f, color: color, updated_at: new Date().toISOString() } : f
+  );
+  saveLocalData(userId, updatedFolders, current.notes);
+  return true;
+}
+
+/**
+ * Atualiza a configuração de Pasta Inteligente (tags dinâmicas) no Supabase e no cache local.
+ */
+export async function updateFolderSmartConfig(
+  userId: string,
+  folderId: string,
+  isSmart: boolean,
+  smartTags: string[]
+): Promise<boolean> {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('folders')
+        .update({
+          is_smart: isSmart,
+          smart_tags: smartTags,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', folderId)
+        .eq('user_id', userId);
+
+      if (!error) return true;
+    } catch (err) {
+      console.warn('Fallback local para atualizar configuração de pasta inteligente:', err);
+    }
+  }
+
+  // Fallback local
+  const current = getLocalData(userId);
+  const updatedFolders = current.folders.map((f) =>
+    f.id === folderId
+      ? {
+          ...f,
+          is_smart: isSmart,
+          smart_tags: smartTags,
+          updated_at: new Date().toISOString(),
+        }
+      : f
+  );
+  saveLocalData(userId, updatedFolders, current.notes);
+  return true;
+}
+
+/**
  * Exclui uma pasta no Supabase e no cache local.
  */
 export async function deleteFolder(userId: string, folderId: string): Promise<boolean> {

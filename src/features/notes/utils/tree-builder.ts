@@ -21,12 +21,35 @@ export function buildFolderTree(
     .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
 
   const treeFolders: TreeFolderNode[] = childFolders.map((folder) => {
-    const { folders: subfolders, rootNotes: folderNotes } = buildFolderTree(
+    const { folders: subfolders, rootNotes: recursiveNotes } = buildFolderTree(
       folders,
       notes,
       folder.id,
       depth + 1
     );
+
+    const isSmartFolder = Boolean(folder.is_smart && folder.smart_tags && folder.smart_tags.length > 0);
+
+    let folderNotes: TreeNodeItem[];
+    if (isSmartFolder) {
+      // Pasta Inteligente: visualização dinâmica das notas com qualquer uma das tags configuradas (OR)
+      const matchingNotes = notes
+        .filter((n) => folder.smart_tags!.some((tag) => noteHasTag(n, tag)))
+        .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
+
+      folderNotes = matchingNotes.map((note) => ({
+        type: 'note',
+        id: note.id,
+        title: note.title,
+        content: note.content,
+        folderId: note.folder_id, // Preserva a pasta física de origem!
+        position: note.position,
+        depth: depth + 1,
+        isFromSmartFolder: true,
+      }));
+    } else {
+      folderNotes = recursiveNotes;
+    }
 
     return {
       type: 'folder',
@@ -34,6 +57,9 @@ export function buildFolderTree(
       name: folder.name,
       parentId: folder.parent_id,
       position: folder.position,
+      color: folder.color,
+      isSmart: folder.is_smart,
+      smartTags: folder.smart_tags,
       subfolders,
       notes: folderNotes,
       depth,

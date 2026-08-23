@@ -18,11 +18,24 @@ import {
   Edit2,
   Trash2,
   AlertTriangle,
+  Sparkles,
+  Palette,
 } from 'lucide-react';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import { Folder as FolderType, Note as NoteType, TreeFolderNode, TreeNodeItem } from '../types';
 import { extractAllUniqueTags } from '../utils/hashtag-extractor';
 import { buildFolderTree, filterTree, wouldCreateCycle } from '../utils/tree-builder';
+
+const FOLDER_PRESET_COLORS = [
+  { id: 'default', label: 'Padrão / Neutro', color: null, hex: '#7f756e' },
+  { id: 'yellow', label: 'Amarelo', color: '#eab308', hex: '#eab308' },
+  { id: 'green', label: 'Verde', color: '#16a34a', hex: '#16a34a' },
+  { id: 'mint', label: 'Menta', color: '#0d9488', hex: '#0d9488' },
+  { id: 'blue', label: 'Azul', color: '#2563eb', hex: '#2563eb' },
+  { id: 'pink', label: 'Rosa', color: '#db2777', hex: '#db2777' },
+  { id: 'red', label: 'Vermelho', color: '#dc2626', hex: '#dc2626' },
+  { id: 'purple', label: 'Roxo', color: '#9333ea', hex: '#9333ea' },
+];
 
 interface SidebarNavigationProps {
   folders: FolderType[];
@@ -37,6 +50,8 @@ interface SidebarNavigationProps {
   onRenameNote: (noteId: string, newTitle: string) => void;
   onDeleteFolder: (folderId: string) => void;
   onDeleteNote: (noteId: string) => void;
+  onUpdateFolderColor?: (folderId: string, color: string | null) => void;
+  onUpdateFolderSmartConfig?: (folderId: string, isSmart: boolean, smartTags: string[]) => void;
   onMoveItem: (
     itemType: 'folder' | 'note',
     itemId: string,
@@ -59,6 +74,8 @@ export function SidebarNavigation({
   onRenameNote,
   onDeleteFolder,
   onDeleteNote,
+  onUpdateFolderColor,
+  onUpdateFolderSmartConfig,
   onMoveItem,
   onCloseMobile,
 }: SidebarNavigationProps) {
@@ -67,10 +84,16 @@ export function SidebarNavigation({
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2']));
 
-  // Estado para menu horizontal de opções (...)
+  // Estado para menu flutuante de opções (...)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [menuItemType, setMenuItemType] = useState<'folder' | 'note' | null>(null);
+  const [showColorSubmenu, setShowColorSubmenu] = useState(false);
+  const customColorInputRef = useRef<HTMLInputElement>(null);
+
+  // Estado para popover de configuração de Pasta Inteligente
+  const [smartConfigFolderId, setSmartConfigFolderId] = useState<string | null>(null);
+  const [smartConfigTags, setSmartConfigTags] = useState<string[]>([]);
 
   // Estado para renomeação inline
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -300,6 +323,8 @@ export function SidebarNavigation({
     const isOpen = isFiltering || openFolderIds.has(folder.id);
     const isEditing = editingItemId === folder.id && editingItemType === 'folder';
     const isDragOver = dragOverFolderId === folder.id;
+    const isSmart = folder.isSmart || (folder.smartTags && folder.smartTags.length > 0);
+    const iconColor = folder.color || (isOpen ? '#68594d' : '#7f756e');
 
     return (
       <div key={folder.id} className="space-y-0.5 select-none">
@@ -319,11 +344,22 @@ export function SidebarNavigation({
           }`}
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            {isOpen ? (
-              <FolderOpen className="w-4 h-4 text-[#68594d] shrink-0 stroke-[1.75]" />
-            ) : (
-              <Folder className="w-4 h-4 text-[#7f756e] shrink-0 stroke-[1.5]" />
-            )}
+            <div className="relative shrink-0 flex items-center justify-center">
+              {isOpen ? (
+                <FolderOpen
+                  className="w-4 h-4 shrink-0 stroke-[1.75]"
+                  style={{ color: iconColor }}
+                />
+              ) : (
+                <Folder
+                  className="w-4 h-4 shrink-0 stroke-[1.5]"
+                  style={{ color: iconColor }}
+                />
+              )}
+              {isSmart && (
+                <Sparkles className="w-2.5 h-2.5 absolute -top-1 -right-1 text-[#eab308] fill-[#eab308]" />
+              )}
+            </div>
 
             {isEditing ? (
               <input
@@ -347,7 +383,7 @@ export function SidebarNavigation({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            {/* Menu Horizontal ... */}
+            {/* Menu ... */}
             <button
               id={`folder-menu-btn-${folder.id}`}
               onClick={(e) => handleOpenMenu(e, folder.id, 'folder')}
@@ -619,14 +655,15 @@ export function SidebarNavigation({
         </div>
       </div>
 
-      {/* Menu Horizontal Flutuante de Opções (...) */}
+      {/* Menu Flutuante de Opções (...) */}
       {menuOpenId && menuPosition && menuItemType && (
         <div
           id="context-action-menu"
           style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-50 bg-white border border-[#e4e2dd] rounded-xl shadow-lg p-1 flex items-center gap-1 text-xs font-sans-ui animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-50 bg-white border border-[#e4e2dd] rounded-xl shadow-lg p-1 min-w-[170px] flex flex-col text-xs font-sans-ui animate-in fade-in zoom-in-95 duration-100"
         >
+          {/* Opção 1: Renomear */}
           <button
             id="context-menu-rename-btn"
             onClick={() => {
@@ -636,22 +673,243 @@ export function SidebarNavigation({
                   : notes.find((n) => n.id === menuOpenId)?.title || '';
               startRenaming(menuOpenId, menuItemType, currentName);
             }}
-            className="px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer"
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
             title="Renomear"
           >
-            <Edit2 className="w-3.5 h-3.5 text-[#7f756e]" />
+            <Edit2 className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
             <span>Renomear</span>
           </button>
-          <div className="h-4 w-[1px] bg-[#e4e2dd]" />
+
+          {/* Opções específicas para PASTAS */}
+          {menuItemType === 'folder' && (
+            <>
+              {/* Opção 2: Pasta inteligente */}
+              <button
+                id="context-menu-smart-folder-btn"
+                onClick={() => {
+                  const targetFolder = folders.find((f) => f.id === menuOpenId);
+                  setSmartConfigFolderId(menuOpenId);
+                  setSmartConfigTags(targetFolder?.smart_tags || []);
+                  setMenuOpenId(null);
+                  setShowColorSubmenu(false);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+                title="Pasta inteligente"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
+                <span>Pasta inteligente</span>
+              </button>
+
+              {/* Opção 3: Cor da pasta > (com Submenu Lateral) */}
+              <div
+                className="relative"
+                onMouseEnter={() => setShowColorSubmenu(true)}
+                onMouseLeave={() => setShowColorSubmenu(false)}
+              >
+                <button
+                  id="context-menu-folder-color-btn"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowColorSubmenu((prev) => !prev);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+                  title="Cor da pasta"
+                >
+                  <div className="flex items-center gap-2">
+                    <Palette className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
+                    <span>Cor da pasta</span>
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
+                </button>
+
+                {/* Submenu Lateral de Cores */}
+                {showColorSubmenu && (
+                  <div
+                    id="folder-color-lateral-submenu"
+                    className="absolute left-full top-0 ml-1 bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-60 min-w-[135px] animate-in fade-in slide-in-from-left-2 duration-100"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {FOLDER_PRESET_COLORS.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          if (onUpdateFolderColor && menuOpenId) {
+                            onUpdateFolderColor(menuOpenId, c.color);
+                          }
+                          setMenuOpenId(null);
+                          setShowColorSubmenu(false);
+                        }}
+                        className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] text-[#4e453f] text-xs transition-colors cursor-pointer text-left"
+                      >
+                        <span
+                          className="w-3 h-3 rounded-full border border-black/10 shrink-0 block"
+                          style={{ backgroundColor: c.hex }}
+                        />
+                        <span>{c.label}</span>
+                      </button>
+                    ))}
+
+                    {/* Opção 🌈 Seletor de Cor Personalizado */}
+                    <div className="pt-1 mt-0.5 border-t border-[#e4e2dd]">
+                      <button
+                        type="button"
+                        id="folder-custom-color-btn"
+                        onClick={() => {
+                          if (customColorInputRef.current) {
+                            customColorInputRef.current.click();
+                          }
+                        }}
+                        className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] text-[#4e453f] text-xs transition-colors cursor-pointer text-left"
+                      >
+                        <span className="text-xs">🌈</span>
+                        <span>Personalizada</span>
+                      </button>
+                      <input
+                        ref={customColorInputRef}
+                        type="color"
+                        className="sr-only"
+                        onChange={(e) => {
+                          const hexColor = e.target.value;
+                          if (onUpdateFolderColor && menuOpenId) {
+                            onUpdateFolderColor(menuOpenId, hexColor);
+                          }
+                          setMenuOpenId(null);
+                          setShowColorSubmenu(false);
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          <div className="h-[1px] bg-[#e4e2dd] my-1" />
+
+          {/* Opção 4 (ou 2 para notas): Excluir */}
           <button
             id="context-menu-delete-btn"
             onClick={() => promptDelete(menuOpenId, menuItemType)}
-            className="px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-[#ba1a1a] hover:bg-[#fceded] transition-colors cursor-pointer"
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#ba1a1a] hover:bg-[#fceded] transition-colors cursor-pointer text-left"
             title="Excluir"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-3.5 h-3.5 shrink-0" />
             <span>Excluir</span>
           </button>
+        </div>
+      )}
+
+      {/* Popover Contextual de Configuração de Pasta Inteligente */}
+      {smartConfigFolderId && (
+        <div
+          className="fixed inset-0 z-50 bg-black/30 backdrop-blur-2xs flex items-center justify-center p-4"
+          onClick={() => setSmartConfigFolderId(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#fbf9f4] border border-[#e4e2dd] rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-[#eae8e3]">
+              <div className="flex items-center gap-2 text-[#1b1c19]">
+                <Sparkles className="w-4 h-4 text-[#68594d]" />
+                <h3 className="font-serif-note font-bold text-base">Pasta inteligente</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSmartConfigFolderId(null)}
+                className="p-1 text-[#7f756e] hover:text-[#1b1c19] rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-sans-ui text-xs text-[#4e453f] font-medium">
+                Mostrar notas com as etiquetas:
+              </p>
+
+              {uniqueTags.length === 0 ? (
+                <div className="p-3 bg-[#f0eee9] rounded-xl text-center text-xs text-[#7f756e] font-sans-ui leading-relaxed">
+                  Nenhuma etiqueta (<span className="font-semibold text-[#1b1c19]">#hashtag</span>) encontrada nas suas notas ainda. Adicione tags como <span className="font-medium">#tributario</span> no texto de uma nota para selecioná-la aqui.
+                </div>
+              ) : (
+                <div className="max-h-48 overflow-y-auto space-y-1 p-1 bg-white/70 rounded-xl border border-[#eae8e3]">
+                  {uniqueTags.map((tag) => {
+                    const isChecked = smartConfigTags.some(
+                      (t) => t.toLowerCase() === tag.toLowerCase()
+                    );
+                    return (
+                      <label
+                        key={tag}
+                        className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-[#f0eee9] cursor-pointer text-xs font-sans-ui text-[#1b1c19] transition-colors select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSmartConfigTags((prev) => [...prev, tag]);
+                            } else {
+                              setSmartConfigTags((prev) =>
+                                prev.filter((t) => t.toLowerCase() !== tag.toLowerCase())
+                              );
+                            }
+                          }}
+                          className="w-4 h-4 rounded border-[#68594d] text-[#68594d] focus:ring-[#68594d] accent-[#68594d] cursor-pointer"
+                        />
+                        <span className="font-medium text-[#3b332d]">{tag}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-[#eae8e3]">
+              {smartConfigTags.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onUpdateFolderSmartConfig && smartConfigFolderId) {
+                      onUpdateFolderSmartConfig(smartConfigFolderId, false, []);
+                    }
+                    setSmartConfigFolderId(null);
+                  }}
+                  className="px-3 py-1.5 text-xs text-[#ba1a1a] hover:bg-[#fceded] rounded-xl transition-colors cursor-pointer font-sans-ui font-medium"
+                >
+                  Desativar
+                </button>
+              ) : (
+                <div />
+              )}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSmartConfigFolderId(null)}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-sans-ui font-medium text-[#4e453f] hover:bg-[#e4e2dd] transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  id="apply-smart-folder-btn"
+                  onClick={() => {
+                    if (onUpdateFolderSmartConfig && smartConfigFolderId) {
+                      const isSmart = smartConfigTags.length > 0;
+                      onUpdateFolderSmartConfig(smartConfigFolderId, isSmart, smartConfigTags);
+                    }
+                    setSmartConfigFolderId(null);
+                  }}
+                  className="px-4 py-1.5 rounded-xl text-xs font-sans-ui font-medium bg-[#68594d] text-white hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
+                >
+                  Aplicar
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

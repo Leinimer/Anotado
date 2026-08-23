@@ -10,6 +10,8 @@ import {
   fetchNoteContent,
   createFolder,
   renameFolder,
+  updateFolderColor,
+  updateFolderSmartConfig,
   deleteFolder,
   createNote,
   updateNoteTitle,
@@ -133,13 +135,43 @@ export function MainLayout() {
     [userId]
   );
 
+  const handleUpdateFolderColor = useCallback(
+    async (folderId: string, color: string | null) => {
+      setFolders((prev) =>
+        prev.map((f) => (f.id === folderId ? { ...f, color, updated_at: new Date().toISOString() } : f))
+      );
+      await updateFolderColor(userId, folderId, color);
+    },
+    [userId]
+  );
+
+  const handleUpdateFolderSmartConfig = useCallback(
+    async (folderId: string, isSmart: boolean, smartTags: string[]) => {
+      setFolders((prev) =>
+        prev.map((f) =>
+          f.id === folderId
+            ? { ...f, is_smart: isSmart, smart_tags: smartTags, updated_at: new Date().toISOString() }
+            : f
+        )
+      );
+      await updateFolderSmartConfig(userId, folderId, isSmart, smartTags);
+    },
+    [userId]
+  );
+
   const handleDeleteFolder = useCallback(
     async (folderId: string) => {
-      setFolders((prev) => prev.filter((f) => f.id !== folderId && f.parent_id !== folderId));
-      setNotes((prev) => prev.filter((n) => n.folder_id !== folderId));
+      const targetFolder = folders.find((f) => f.id === folderId);
+      const isSmart = targetFolder?.is_smart;
 
-      // Se a nota ativa estava dentro da pasta excluída, limpa a seleção
-      if (activeNote && activeNote.folder_id === folderId) {
+      setFolders((prev) => prev.filter((f) => f.id !== folderId && f.parent_id !== folderId));
+      // Se NÃO for pasta inteligente, exclui as notas contidas fisicamente
+      if (!isSmart) {
+        setNotes((prev) => prev.filter((n) => n.folder_id !== folderId));
+      }
+
+      // Se a nota ativa estava dentro da pasta física excluída, limpa a seleção
+      if (!isSmart && activeNote && activeNote.folder_id === folderId) {
         setActiveNoteId(null);
       }
       if (activeFolderId === folderId) {
@@ -148,7 +180,7 @@ export function MainLayout() {
 
       await deleteFolder(userId, folderId);
     },
-    [userId, activeNote, activeFolderId]
+    [userId, activeNote, activeFolderId, folders]
   );
 
   // Handlers de Notas (com persistência em Markdown no Supabase Storage)
@@ -252,6 +284,8 @@ export function MainLayout() {
             onRenameNote={handleUpdateTitle}
             onDeleteFolder={handleDeleteFolder}
             onDeleteNote={handleDeleteNote}
+            onUpdateFolderColor={handleUpdateFolderColor}
+            onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
             onMoveItem={handleMoveItem}
           />
         </div>
@@ -286,6 +320,8 @@ export function MainLayout() {
                 onRenameNote={handleUpdateTitle}
                 onDeleteFolder={handleDeleteFolder}
                 onDeleteNote={handleDeleteNote}
+                onUpdateFolderColor={handleUpdateFolderColor}
+                onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
                 onMoveItem={handleMoveItem}
                 onCloseMobile={() => setMobileSidebarOpen(false)}
               />

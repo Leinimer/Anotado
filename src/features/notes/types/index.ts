@@ -4,6 +4,9 @@ export interface Folder {
   name: string;
   parent_id: string | null;
   position: number;
+  color?: string | null;
+  is_smart?: boolean;
+  smart_tags?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +28,9 @@ export interface TreeFolderNode {
   name: string;
   parentId: string | null;
   position: number;
+  color?: string | null;
+  isSmart?: boolean;
+  smartTags?: string[];
   subfolders: TreeFolderNode[];
   notes: TreeNodeItem[];
   depth: number;
@@ -38,6 +44,7 @@ export interface TreeNodeItem {
   folderId: string | null;
   position: number;
   depth: number;
+  isFromSmartFolder?: boolean;
 }
 
 export type TreeItem = TreeFolderNode | TreeNodeItem;

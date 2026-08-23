@@ -1,16 +1,24 @@
 -- Migration: Create folders, notes, and notes storage bucket with individual RLS policies
 -- Created: 2026-08-22
 
--- 1. Create folders table
+-- 1. Create folders table (with color and smart folder support)
 CREATE TABLE IF NOT EXISTS public.folders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL DEFAULT 'Nova pasta',
     parent_id UUID REFERENCES public.folders(id) ON DELETE CASCADE,
     position INTEGER NOT NULL DEFAULT 0,
+    color TEXT DEFAULT NULL,
+    is_smart BOOLEAN NOT NULL DEFAULT FALSE,
+    smart_tags TEXT[] NOT NULL DEFAULT '{}'::text[],
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+
+-- Ensure columns exist if table was already created earlier
+ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS color TEXT DEFAULT NULL;
+ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS is_smart BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS smart_tags TEXT[] NOT NULL DEFAULT '{}'::text[];
 
 -- 2. Create notes metadata table
 CREATE TABLE IF NOT EXISTS public.notes (
