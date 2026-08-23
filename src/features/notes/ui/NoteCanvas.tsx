@@ -113,36 +113,26 @@ export function NoteCanvas({
       id="main-note-workspace"
       className="flex-1 flex flex-col h-full overflow-hidden bg-[#fbf9f4]"
     >
-      {/* Top Header Bar */}
+      {/* Top Header Bar (Apenas título centralizado com a folha e menu mobile) */}
       <header
         id="note-header-bar"
-        className="w-full px-4 sm:px-8 py-3.5 sm:py-4 flex items-center justify-between border-b border-[#eae8e3]/80 shrink-0 select-none bg-[#fbf9f4]/90 backdrop-blur-xs z-10"
+        className="w-full px-4 sm:px-8 py-3.5 sm:py-4 relative flex items-center justify-center border-b border-[#eae8e3]/80 shrink-0 select-none bg-[#fbf9f4]/90 backdrop-blur-xs z-10"
       >
-        <div className="flex items-center gap-2 sm:gap-3">
-          {onOpenMobileMenu && (
+        {onOpenMobileMenu && (
+          <div className="absolute left-4 sm:left-6 flex items-center md:hidden">
             <button
               id="header-mobile-menu-btn"
               onClick={onOpenMobileMenu}
-              className="p-2 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg md:hidden transition-colors cursor-pointer"
+              className="p-2 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg transition-colors cursor-pointer"
               aria-label="Abrir Menu Lateral"
             >
               <Menu className="w-5 h-5" />
             </button>
-          )}
+          </div>
+        )}
 
-          <button
-            id="header-trash-btn"
-            onClick={() => setShowDeleteConfirm(true)}
-            className="p-2 text-[#7f756e] hover:text-[#ba1a1a] hover:bg-[#eae8e3] rounded-lg transition-colors cursor-pointer"
-            title="Excluir Nota"
-            aria-label="Excluir Nota"
-          >
-            <Trash2 className="w-5 h-5 stroke-[1.75]" />
-          </button>
-        </div>
-
-        {/* Note Title (Clique direto para editar - sem botão de lápis) */}
-        <div className="flex-1 text-center px-2 min-w-0">
+        {/* Note Title (Centralizado horizontalmente em relação à folha) */}
+        <div className="w-full max-w-[850px] mx-auto text-center px-8 min-w-0">
           {isEditingTitle ? (
             <input
               ref={titleInputRef}
@@ -158,7 +148,7 @@ export function NoteCanvas({
                 }
               }}
               onChange={(e) => setLocalTitle(e.target.value)}
-              className="font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] bg-transparent text-center border-b border-[#68594d] focus:outline-none w-full max-w-md"
+              className="font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] bg-transparent text-center border-b border-[#68594d] focus:outline-none w-full max-w-lg mx-auto"
             />
           ) : (
             <h1
@@ -170,18 +160,6 @@ export function NoteCanvas({
               {localTitle || 'Sem título'}
             </h1>
           )}
-        </div>
-
-        <div className="flex items-center gap-1 sm:gap-2">
-          <button
-            id="header-new-note-btn"
-            onClick={onCreateNewNote}
-            className="p-2 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg transition-colors cursor-pointer"
-            title="Nova Nota"
-            aria-label="Nova Nota"
-          >
-            <FilePlus className="w-5 h-5 stroke-[1.75]" />
-          </button>
         </div>
       </header>
 

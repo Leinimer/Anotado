@@ -18,6 +18,8 @@ export const ToggleDetails = Node.create({
   content: 'summary detailsContent',
   defining: true,
   isolating: false,
+  draggable: true,
+  selectable: true,
 
   addAttributes() {
     return {

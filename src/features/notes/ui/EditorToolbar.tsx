@@ -64,6 +64,41 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [, setSelectionUpdate] = useState(0);
+  const [keyboardBottomOffset, setKeyboardBottomOffset] = useState<number>(0);
+
+  // Monitora a abertura/fechamento do teclado virtual mobile via visualViewport
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const updateKeyboardPosition = () => {
+      if (window.visualViewport) {
+        const vv = window.visualViewport;
+        // Distância entre a parte inferior da janela visível e o fim da tela
+        const offset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+        // Se a diferença for significativa (> 60px), o teclado virtual está aberto no mobile/tablet
+        if (offset > 60) {
+          setKeyboardBottomOffset(offset);
+        } else {
+          setKeyboardBottomOffset(0);
+        }
+      }
+    };
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', updateKeyboardPosition);
+      window.visualViewport.addEventListener('scroll', updateKeyboardPosition);
+    }
+
+    window.addEventListener('resize', updateKeyboardPosition);
+
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', updateKeyboardPosition);
+        window.visualViewport.removeEventListener('scroll', updateKeyboardPosition);
+      }
+      window.removeEventListener('resize', updateKeyboardPosition);
+    };
+  }, []);
 
   // Coordenadas calculadas para os popovers flutuantes livres
   const [popoverCoords, setPopoverCoords] = useState<{ bottom: number; left: number } | null>(null);
@@ -286,7 +321,23 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   return (
     <div
       id="editor-floating-dock-container"
-      className="w-full flex justify-center px-2 sm:px-4 py-2 shrink-0 select-none z-30 max-w-full overflow-hidden"
+      style={
+        keyboardBottomOffset > 0
+          ? {
+              position: 'fixed',
+              bottom: `${keyboardBottomOffset + 10}px`,
+              left: 0,
+              right: 0,
+              zIndex: 50,
+              paddingLeft: '8px',
+              paddingRight: '8px',
+              transition: 'bottom 0.15s cubic-bezier(0.2, 0, 0, 1)',
+            }
+          : undefined
+      }
+      className={`w-full flex justify-center px-2 sm:px-4 py-2 shrink-0 select-none z-30 max-w-full overflow-hidden ${
+        keyboardBottomOffset > 0 ? 'pointer-events-auto shadow-2xl' : ''
+      }`}
     >
       {/* Dock Flutuante Centralizado Minimalista Papyrus & Ink */}
       <nav

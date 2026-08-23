@@ -1,4 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core';
+import { ReactNodeViewRenderer } from '@tiptap/react';
+import { DocumentNodeView } from './DocumentNodeView';
 
 export interface DocumentAttachmentOptions {
   HTMLAttributes: Record<string, any>;
@@ -12,6 +14,7 @@ declare module '@tiptap/core' {
         name: string;
         size?: number;
         type?: string;
+        width?: string;
       }) => ReturnType;
     };
   }
@@ -68,6 +71,21 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
         renderHTML: (attributes) => ({
           'data-type': attributes.type,
         }),
+      },
+      width: {
+        default: null,
+        parseHTML: (element) =>
+          element.getAttribute('data-width') ||
+          element.getAttribute('width') ||
+          element.style.width ||
+          null,
+        renderHTML: (attributes) => {
+          if (!attributes.width) return {};
+          return {
+            'data-width': attributes.width,
+            style: `width: ${typeof attributes.width === 'number' ? `${attributes.width}px` : attributes.width}; max-width: 100%;`,
+          };
+        },
       },
     };
   },
@@ -138,6 +156,10 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
         ],
       ],
     ];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(DocumentNodeView);
   },
 
   addCommands() {

@@ -41,16 +41,18 @@ export function ToggleNodeView({ node, updateAttributes, deleteNode }: NodeViewP
         </button>
       </div>
 
-      {/* Botão Independente da Seta (Área de toque confortável e seta maior) */}
+      {/* Botão Independente da Seta (Área de toque confortável, seta e alça de arrasto) */}
       <div
         contentEditable={false}
-        className="absolute left-0 top-0.5 flex items-center justify-center z-20"
+        data-drag-handle
+        draggable="true"
+        className="absolute left-0 top-0.5 flex items-center justify-center z-20 cursor-grab active:cursor-grabbing"
       >
         <button
           type="button"
           onClick={handleToggleClick}
           className="p-1 -m-0.5 text-[#7f756e] hover:text-[#68594d] hover:bg-[#eae8e3] rounded-lg transition-colors cursor-pointer flex items-center justify-center"
-          title={isOpen ? 'Recolher Bloco' : 'Expandir Bloco'}
+          title={isOpen ? 'Recolher Bloco (ou segure para arrastar)' : 'Expandir Bloco (ou segure para arrastar)'}
           aria-label={isOpen ? 'Recolher Bloco' : 'Expandir Bloco'}
         >
           <ChevronRight
