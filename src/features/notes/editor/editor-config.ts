@@ -10,7 +10,7 @@ import { Markdown } from 'tiptap-markdown';
 
 import { FontSize } from './extensions/font-size';
 import { CustomImage } from './extensions/custom-image';
-import { ToggleDetails, Summary, DetailsContent } from './extensions/toggle-details';
+import { Details, DetailsSummary, DetailsContent } from './extensions/toggle-details';
 import { CustomYoutube } from './extensions/custom-youtube';
 import { DocumentAttachment } from './extensions/document-attachment';
 
@@ -55,8 +55,8 @@ export const defaultEditorExtensions = [
   }),
   CustomYoutube,
   DocumentAttachment,
-  ToggleDetails,
-  Summary,
+  Details,
+  DetailsSummary,
   DetailsContent,
   Markdown.configure({
     html: true,

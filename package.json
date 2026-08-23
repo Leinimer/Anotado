@@ -18,6 +18,7 @@
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
     "@tiptap/extension-color": "^3.30.2",
+    "@tiptap/extension-details": "^3.30.2",
     "@tiptap/extension-highlight": "^3.30.2",
     "@tiptap/extension-image": "^3.30.2",
     "@tiptap/extension-task-item": "^3.30.2",

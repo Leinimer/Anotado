@@ -249,10 +249,10 @@
   border-color: #68594d;
 }
 
-/* Quando marcado: Círculo preenchido com AMARELO PASTEL e símbolo de check ✓ */
+/* Quando marcado: Círculo preenchido 100% com AMARELO DOURADO (#E7B515) e símbolo de check ✓ BRANCO */
 .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
-  border: 1.5px solid #ca8a04 !important;
-  background-color: #fef08a !important; /* Amarelo pastel do Design System */
+  border: 1.5px solid #E7B515 !important;
+  background-color: #E7B515 !important; /* 100% preenchido com amarelo dourado */
   border-radius: 9999px !important;
 }
 
@@ -261,7 +261,7 @@
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 0.75rem;
   font-weight: 800;
-  color: #713f12; /* Café escuro para excelente contraste */
+  color: #ffffff !important; /* Check BRANCO puro centralizado */
   line-height: 1;
   display: flex;
   align-items: center;
@@ -306,35 +306,150 @@
 }
 
 /* ==========================================================================
-   Bloco de Alternância Minimalista (Toggle / Details) - Suporte a Aninhamento
+   Bloco de Alternância Minimalista (Toggle / Details) Notion-Like
    ========================================================================== */
-.tiptap-toggle-wrapper {
+div[data-type="details"],
+details.tiptap-details-node,
+.tiptap-details-node {
+  position: relative;
+  margin-top: 0.35rem;
+  margin-bottom: 0.35rem;
+  padding-left: 1.6rem;
   background-color: transparent !important;
   border: none !important;
   box-shadow: none !important;
 }
 
-.tiptap-toggle-summary {
-  font-family: inherit;
+/* Container de Controles (Lixeira na margem esquerda + Seta/Drag Handle) */
+.tiptap-details-controls {
+  position: absolute;
+  left: -1.55rem;
+  top: 0.15rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: 10;
+}
+
+/* Botão da Seta (Chevron + Drag Handle) */
+div[data-type="details"] > button,
+.tiptap-details-toggle-btn {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 0.375rem;
+  color: #7f756e;
+  cursor: grab;
+  padding: 0;
+  margin: 0;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tiptap-details-toggle-btn:active {
+  cursor: grabbing;
+}
+
+div[data-type="details"] > button:hover,
+.tiptap-details-toggle-btn:hover {
+  background-color: #eae8e3;
   color: #1b1c19;
 }
 
-/* Regra estrita de filhos diretos para permitir Toggles aninhados com estados 100% independentes */
-.tiptap-toggle-wrapper[data-open="false"] > .tiptap-toggle-content-container > .tiptap-toggle-content,
-.tiptap-toggle-wrapper[data-open="false"] > .tiptap-toggle-content {
+/* Botão da Lixeira Contextual */
+.tiptap-details-delete-btn {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 0.375rem;
+  color: #ba1a1a;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+/* Exibição da Lixeira no Hover (Desktop) e no Foco/Toque (Mobile) */
+.tiptap-details-node:hover .tiptap-details-delete-btn,
+.tiptap-details-node:focus-within .tiptap-details-delete-btn,
+.tiptap-details-controls:hover .tiptap-details-delete-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tiptap-details-delete-btn:hover {
+  background-color: #fee2e2;
+  color: #ba1a1a;
+}
+
+/* Título / Summary */
+summary,
+.tiptap-details-summary,
+div[data-type="details"] summary {
+  list-style: none;
+  outline: none;
+  font-family: inherit;
+  font-weight: 600;
+  color: #1b1c19;
+  font-size: 1rem;
+  line-height: 1.5;
+  padding: 0.125rem 0;
+  cursor: text;
+  display: block;
+  min-height: 1.5rem;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Conteúdo do Toggle (DetailsContent) */
+div[data-type="detailsContent"],
+.tiptap-details-content {
+  margin-top: 0.25rem;
+  padding-left: 1rem;
+  border-left: 2px solid #e4e2dd;
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+}
+
+/* Suporte Estrito a Toggles Aninhados Independentes via seletor direto */
+.tiptap-details-node[data-open="false"] > .tiptap-details-inner > div[data-type="detailsContent"],
+.tiptap-details-node[data-open="false"] > div[data-type="detailsContent"],
+div[data-type="details"][data-open="false"] > .tiptap-details-inner > div[data-type="detailsContent"],
+div[data-type="details"][data-open="false"] > div[data-type="detailsContent"],
+details[data-open="false"] > div[data-type="detailsContent"],
+details:not([open]) > div[data-type="detailsContent"] {
   display: none !important;
 }
 
-.tiptap-toggle-wrapper[data-open="true"] > .tiptap-toggle-content-container > .tiptap-toggle-content,
-.tiptap-toggle-wrapper[data-open="true"] > .tiptap-toggle-content {
+.tiptap-details-node[data-open="true"] > .tiptap-details-inner > div[data-type="detailsContent"],
+.tiptap-details-node[data-open="true"] > div[data-type="detailsContent"],
+div[data-type="details"][data-open="true"] > .tiptap-details-inner > div[data-type="detailsContent"],
+div[data-type="details"][data-open="true"] > div[data-type="detailsContent"],
+details[data-open="true"] > div[data-type="detailsContent"],
+details[open] > div[data-type="detailsContent"] {
   display: block !important;
-  animation: toggleContentReveal 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: detailsContentReveal 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@keyframes toggleContentReveal {
+@keyframes detailsContentReveal {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-3px);
   }
   to {
     opacity: 1;

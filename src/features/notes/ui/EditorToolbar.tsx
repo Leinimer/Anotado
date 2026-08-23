@@ -23,7 +23,6 @@ import {
   FileText,
   Youtube as YoutubeIcon,
   Paperclip,
-  Trash2,
   ChevronDown,
   X,
   Loader2,
@@ -409,8 +408,6 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     setShowYoutubeModal(false);
   };
 
-  const isInsideToggle = editor.isActive('toggleDetails');
-
   // Estilo padrão uniforme para os botões da toolbar (sem estado ativo permanente)
   const neutralBtnClass =
     'min-w-[38px] min-h-[38px] sm:min-w-[40px] sm:min-h-[40px] p-2 rounded-xl flex items-center justify-center text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] active:bg-[#e4e2dd] active:scale-95 transition-all cursor-pointer';
@@ -695,7 +692,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           <button
             id="toolbar-toggle-details"
             type="button"
-            onClick={() => editor.commands.setToggleDetails()}
+            onClick={() => editor.commands.setDetails()}
             className={neutralBtnClass}
             title="Bloco de Alternância (Toggle / Recolhível)"
             aria-label="Bloco de Alternância"
@@ -727,20 +724,6 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
               />
             </svg>
           </button>
-
-          {/* Excluir Toggle quando cursor estiver dentro dele */}
-          {isInsideToggle && (
-            <button
-              id="toolbar-delete-toggle-btn"
-              type="button"
-              onClick={() => editor.commands.deleteToggleDetails()}
-              className="min-w-[40px] min-h-[40px] p-2 text-[#ba1a1a] hover:bg-[#fceded] rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95"
-              title="Excluir Toggle atual"
-              aria-label="Excluir Toggle"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
         </div>
 
         <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
