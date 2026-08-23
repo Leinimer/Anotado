@@ -9,6 +9,7 @@ import {
   parseMarkdownWithTags,
   serializeMarkdownWithTags,
 } from '../utils/markdown-tags';
+import { extractHashtagsFromText } from '../utils/hashtag-extractor';
 
 const LOCAL_STORAGE_KEY_FOLDERS = 'anotado_local_folders';
 const LOCAL_STORAGE_KEY_NOTES = 'anotado_local_notes';
@@ -166,6 +167,13 @@ export async function fetchFoldersAndNotes(userId: string): Promise<{ folders: F
             noteTags = Array.isArray(parsed) ? normalizeTags(parsed) : [];
           } catch {
             noteTags = normalizeTags(n.tags.split(','));
+          }
+        }
+        // Se a coluna content possuir hashtags (caso já gravado no DB), consolida no índice
+        if (n.content && typeof n.content === 'string') {
+          const bodyTags = extractHashtagsFromText(n.content);
+          if (bodyTags.length > 0) {
+            noteTags = normalizeTags([...noteTags, ...bodyTags]);
           }
         }
         return {
@@ -696,20 +704,23 @@ export async function updateNoteContent(
   noteId: string,
   newMarkdownContent: string,
   currentTags?: string[]
-): Promise<boolean> {
-  // 1. Determina as tags da nota para manter o .md sincronizado
-  let tagsToSerialize = currentTags;
-  if (!tagsToSerialize) {
+): Promise<{ success: boolean; tags: string[] }> {
+  // 1. Extrai hashtags do corpo e combina com as tags explícitas existentes
+  let baseTags = currentTags;
+  if (!baseTags) {
     const current = getLocalData(userId);
     const existing = current.notes.find((n) => n.id === noteId);
-    tagsToSerialize = existing?.tags || [];
+    baseTags = existing?.tags || [];
   }
-  const fullMarkdown = serializeMarkdownWithTags(newMarkdownContent, tagsToSerialize);
+  const bodyHashtags = extractHashtagsFromText(newMarkdownContent);
+  const combinedTags = normalizeTags([...(baseTags || []), ...bodyHashtags]);
+
+  const fullMarkdown = serializeMarkdownWithTags(newMarkdownContent, combinedTags);
 
   // 2. Grava no Supabase Storage
   const storageSuccess = await writeNoteMarkdown(userId, noteId, fullMarkdown);
 
-  // 3. Atualiza timestamp e metadados na tabela
+  // 3. Atualiza timestamp, conteúdo e coluna tags na tabela notes
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -717,23 +728,24 @@ export async function updateNoteContent(
         .from('notes')
         .update({
           content: newMarkdownContent,
+          tags: combinedTags,
           updated_at: new Date().toISOString(),
         })
         .eq('id', noteId)
         .eq('user_id', userId);
     } catch (err) {
-      console.warn('Erro ao atualizar timestamp da nota no banco:', err);
+      console.warn('Erro ao atualizar nota no banco:', err);
     }
   }
 
   // Fallback local
   const current = getLocalData(userId);
   const updatedNotes = current.notes.map((n) =>
-    n.id === noteId ? { ...n, content: newMarkdownContent, updated_at: new Date().toISOString() } : n
+    n.id === noteId ? { ...n, content: newMarkdownContent, tags: combinedTags, updated_at: new Date().toISOString() } : n
   );
   saveLocalData(userId, current.folders, updatedNotes);
 
-  return storageSuccess;
+  return { success: storageSuccess, tags: combinedTags };
 }
 
 /**

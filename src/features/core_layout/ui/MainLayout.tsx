@@ -233,10 +233,19 @@ export function MainLayout() {
   const handleUpdateContent = useCallback(
     async (noteId: string, newContent: string) => {
       const currentNote = notes.find((n) => n.id === noteId);
+      const res = await updateNoteContent(userId, noteId, newContent, currentNote?.tags);
       setNotes((prev) =>
-        prev.map((n) => (n.id === noteId ? { ...n, content: newContent, updated_at: new Date().toISOString() } : n))
+        prev.map((n) =>
+          n.id === noteId
+            ? {
+                ...n,
+                content: newContent,
+                tags: res.tags || n.tags,
+                updated_at: new Date().toISOString(),
+              }
+            : n
+        )
       );
-      await updateNoteContent(userId, noteId, newContent, currentNote?.tags);
     },
     [userId, notes]
   );
