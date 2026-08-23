@@ -7,6 +7,7 @@ import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supa
 import { Folder, Note } from '@/src/features/notes/types';
 import {
   fetchFoldersAndNotes,
+  fetchNoteContent,
   createFolder,
   renameFolder,
   deleteFolder,
@@ -23,7 +24,6 @@ export function MainLayout() {
   const [activeNoteId, setActiveNoteId] = useState<string | null>('texto-2');
   const [activeFolderId, setActiveFolderId] = useState<string | null>('pasta-2');
   const [userId, setUserId] = useState<string>('local-user');
-  const [isLoading, setIsLoading] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
 
@@ -32,28 +32,39 @@ export function MainLayout() {
     let isMounted = true;
     const supabase = createClient();
 
-    // Obtém o usuário atual
-    supabase.auth.getUser().then(({ data }) => {
+    // Obtém o usuário autenticado atual
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!isMounted) return;
       const currentUserId = data?.user?.id || 'demo-user';
       setUserId(currentUserId);
 
       // Carrega pastas e notas reais
-      fetchFoldersAndNotes(currentUserId).then(({ folders: fetchedFolders, notes: fetchedNotes }) => {
-        if (!isMounted) return;
-        setFolders(fetchedFolders);
-        setNotes(fetchedNotes);
+      const { folders: fetchedFolders, notes: fetchedNotes } = await fetchFoldersAndNotes(currentUserId);
+      if (!isMounted) return;
 
-        // Se houver notas, seleciona a primeira nota ou mantém a ativa se existir
-        if (fetchedNotes.length > 0) {
-          const exists = fetchedNotes.some((n) => n.id === 'texto-2');
-          setActiveNoteId(exists ? 'texto-2' : fetchedNotes[0].id);
-        } else {
-          setActiveNoteId(null);
+      setFolders(fetchedFolders);
+      setNotes(fetchedNotes);
+
+      // Se houver notas, seleciona a primeira ou a padrão
+      if (fetchedNotes.length > 0) {
+        const exists = fetchedNotes.some((n) => n.id === 'texto-2');
+        const initialSelectedId = exists ? 'texto-2' : fetchedNotes[0].id;
+        setActiveNoteId(initialSelectedId);
+
+        // Carrega o Markdown correspondente do Storage
+        const selectedNote = fetchedNotes.find((n) => n.id === initialSelectedId);
+        if (selectedNote) {
+          fetchNoteContent(currentUserId, selectedNote).then((content) => {
+            if (isMounted && content !== undefined) {
+              setNotes((prev) =>
+                prev.map((n) => (n.id === selectedNote.id ? { ...n, content } : n))
+              );
+            }
+          });
         }
-
-        setIsLoading(false);
-      });
+      } else {
+        setActiveNoteId(null);
+      }
     });
 
     if (isSupabaseConfigured()) {
@@ -74,27 +85,43 @@ export function MainLayout() {
     }
   }, []);
 
+  // Carrega o conteúdo do arquivo Markdown no Storage ao selecionar uma nota
+  const handleSelectNote = useCallback(
+    async (noteId: string) => {
+      setIsNewNoteJustCreated(false);
+      setActiveNoteId(noteId);
+
+      const targetNote = notes.find((n) => n.id === noteId);
+      if (targetNote) {
+        const mdContent = await fetchNoteContent(userId, targetNote);
+        if (mdContent !== undefined) {
+          setNotes((prev) =>
+            prev.map((n) => (n.id === noteId ? { ...n, content: mdContent } : n))
+          );
+        }
+      }
+    },
+    [notes, userId]
+  );
+
   // Nota ativa selecionada atualmente
   const activeNote = useMemo(() => {
     return notes.find((n) => n.id === activeNoteId) || null;
   }, [notes, activeNoteId]);
 
   // Handlers de Pastas
-  const handleCreateFolder = useCallback(
-    async () => {
-      // Toda nova pasta nasce SEMPRE na raiz (parent_id: null)
-      const position = folders.filter((f) => f.parent_id === null).length;
-      const newFolder = await createFolder(userId, {
-        name: 'Nova pasta',
-        parentId: null,
-        position,
-      });
+  const handleCreateFolder = useCallback(async () => {
+    // Toda nova pasta nasce SEMPRE na raiz (parent_id: null)
+    const position = folders.filter((f) => f.parent_id === null).length;
+    const newFolder = await createFolder(userId, {
+      name: 'Nova pasta',
+      parentId: null,
+      position,
+    });
 
-      setFolders((prev) => [...prev, newFolder]);
-      return newFolder.id;
-    },
-    [userId, folders]
-  );
+    setFolders((prev) => [...prev, newFolder]);
+    return newFolder.id;
+  }, [userId, folders]);
 
   const handleRenameFolder = useCallback(
     async (folderId: string, newName: string) => {
@@ -124,26 +151,23 @@ export function MainLayout() {
     [userId, activeNote, activeFolderId]
   );
 
-  // Handlers de Notas
-  const handleCreateNote = useCallback(
-    async () => {
-      // Toda nova nota nasce SEMPRE na raiz (folder_id: null)
-      const position = notes.filter((n) => n.folder_id === null).length;
+  // Handlers de Notas (com persistência em Markdown no Supabase Storage)
+  const handleCreateNote = useCallback(async () => {
+    // Toda nova nota nasce SEMPRE na raiz (folder_id: null)
+    const position = notes.filter((n) => n.folder_id === null).length;
 
-      const newNote = await createNote(userId, {
-        title: 'Nova nota',
-        folderId: null,
-        position,
-        content: '',
-      });
+    const newNote = await createNote(userId, {
+      title: 'Nova nota',
+      folderId: null,
+      position,
+      content: '',
+    });
 
-      setNotes((prev) => [...prev, newNote]);
-      setIsNewNoteJustCreated(true);
-      setActiveNoteId(newNote.id);
-      return newNote.id;
-    },
-    [userId, notes]
-  );
+    setNotes((prev) => [...prev, newNote]);
+    setIsNewNoteJustCreated(true);
+    setActiveNoteId(newNote.id);
+    return newNote.id;
+  }, [userId, notes]);
 
   const handleUpdateTitle = useCallback(
     async (noteId: string, newTitle: string) => {
@@ -220,10 +244,7 @@ export function MainLayout() {
             notes={notes}
             activeNoteId={activeNoteId}
             activeFolderId={activeFolderId}
-            onSelectNote={(id) => {
-              setIsNewNoteJustCreated(false);
-              setActiveNoteId(id);
-            }}
+            onSelectNote={handleSelectNote}
             onSelectFolder={(id) => setActiveFolderId(id)}
             onCreateFolder={handleCreateFolder}
             onCreateNote={handleCreateNote}
@@ -255,8 +276,7 @@ export function MainLayout() {
                 activeNoteId={activeNoteId}
                 activeFolderId={activeFolderId}
                 onSelectNote={(id) => {
-                  setIsNewNoteJustCreated(false);
-                  setActiveNoteId(id);
+                  handleSelectNote(id);
                   setMobileSidebarOpen(false);
                 }}
                 onSelectFolder={(id) => setActiveFolderId(id)}

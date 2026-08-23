@@ -6,7 +6,7 @@ import { defaultEditorExtensions } from '../editor/editor-config';
 
 interface NoteEditorProps {
   content: string;
-  onChange: (htmlContent: string) => void;
+  onChange: (markdownContent: string) => void;
   onEditorReady?: (editor: Editor | null) => void;
   editable?: boolean;
 }
@@ -20,7 +20,7 @@ export function NoteEditor({
   const editor = useEditor({
     immediatelyRender: false,
     extensions: defaultEditorExtensions,
-    content: content || '<p></p>',
+    content: content || '',
     editable,
     editorProps: {
       attributes: {
@@ -30,8 +30,10 @@ export function NoteEditor({
       },
     },
     onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      onChange(html);
+      // Extrai Markdown real usando a extensão de markdown do Tiptap
+      const storageRecord = editor.storage as unknown as Record<string, { getMarkdown?: () => string }>;
+      const markdown = storageRecord?.markdown?.getMarkdown ? storageRecord.markdown.getMarkdown() : editor.getHTML();
+      onChange(markdown);
     },
   });
 
@@ -46,11 +48,10 @@ export function NoteEditor({
   useEffect(() => {
     if (!editor) return;
 
-    const currentHTML = editor.getHTML();
-    const targetContent = content || '<p></p>';
+    const targetContent = content ?? '';
 
-    // Atualiza apenas se o conteúdo for diferente para evitar resetar o cursor durante digitação
-    if (currentHTML !== targetContent && !editor.isFocused) {
+    // Atualiza o editor caso o conteúdo seja diferente e o usuário não esteja focado
+    if (!editor.isFocused) {
       editor.commands.setContent(targetContent, { emitUpdate: false });
     }
   }, [content, editor]);

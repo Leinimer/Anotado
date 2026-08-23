@@ -1,10 +1,15 @@
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { Folder, Note } from '../types';
+import {
+  readNoteMarkdown,
+  writeNoteMarkdown,
+  deleteNoteMarkdown,
+} from './notes-storage-api';
 
 const LOCAL_STORAGE_KEY_FOLDERS = 'anotado_local_folders';
 const LOCAL_STORAGE_KEY_NOTES = 'anotado_local_notes';
 
-// Seed inicial caso o usuário seja novo e o banco esteja vazio
+// Seed inicial elegante para demonstração e novos usuários
 export const INITIAL_DEMO_FOLDERS: Omit<Folder, 'user_id'>[] = [
   {
     id: 'pasta-1',
@@ -58,13 +63,13 @@ export const INITIAL_DEMO_NOTES: Omit<Note, 'user_id'>[] = [
 
 Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
 
-[ ] First item to consider in this thought process.
-[ ] Second item, building upon the previous idea.
+- [ ] First item to consider in this thought process.
+- [ ] Second item, building upon the previous idea.
 
 1. Main point number one.
 2. Main point number two, containing sub-points:
-   a. Detail expanding on point two.
-   b. Another supporting detail for context.
+   - Detail expanding on point two.
+   - Another supporting detail for context.
 
 - Final thought bullet point.
 - Conclusion remark.
@@ -117,7 +122,7 @@ function saveLocalData(userId: string, folders: Folder[], notes: Note[]) {
 }
 
 /**
- * Busca todas as pastas e notas do usuário autenticado no Supabase com fallback gracioso.
+ * Busca todas as pastas e metadados de notas do usuário autenticado no Supabase.
  */
 export async function fetchFoldersAndNotes(userId: string): Promise<{ folders: Folder[]; notes: Note[] }> {
   if (!isSupabaseConfigured()) {
@@ -144,30 +149,47 @@ export async function fetchFoldersAndNotes(userId: string): Promise<{ folders: F
 
     // Se as tabelas existirem e responderem sem erro
     if (!foldersRes.error && !notesRes.error) {
-      let folders = (foldersRes.data || []) as Folder[];
-      let notes = (notesRes.data || []) as Note[];
+      const folders = (foldersRes.data || []) as Folder[];
+      const notes = (notesRes.data || []) as Note[];
 
-      // Se o banco estiver completamente vazio para o usuário, inicializa com os dados iniciais elegantes
       if (folders.length === 0 && notes.length === 0) {
-        const seedFolders = INITIAL_DEMO_FOLDERS.map((f) => ({
-          ...f,
-          id: undefined,
-          user_id: userId,
-        }));
-        // Vamos apenas usar os dados locais ou vazios conforme requisito
         return getLocalData(userId);
       }
 
       saveLocalData(userId, folders, notes);
       return { folders, notes };
     } else {
-      console.warn('Tabelas de folders/notes não encontradas ou inacessíveis no Supabase. Utilizando cache local resiliente.', foldersRes.error || notesRes.error);
+      console.warn(
+        'Tabelas de folders/notes não encontradas no Supabase. Utilizando cache local resiliente.',
+        foldersRes.error || notesRes.error
+      );
       return getLocalData(userId);
     }
   } catch (err) {
     console.warn('Erro ao conectar com Supabase folders/notes:', err);
     return getLocalData(userId);
   }
+}
+
+/**
+ * Carrega o conteúdo Markdown de uma nota específica a partir do Supabase Storage.
+ * Caso o arquivo ainda não exista no Storage mas esteja na tabela (migração), grava no Storage.
+ */
+export async function fetchNoteContent(userId: string, note: Note): Promise<string> {
+  if (!userId || !note) return '';
+
+  const storageContent = await readNoteMarkdown(userId, note.id);
+  if (storageContent !== null) {
+    return storageContent;
+  }
+
+  // Se não foi encontrado no Storage, utiliza o conteúdo existente e sincroniza com o Storage
+  const initialContent = note.content || '';
+  if (initialContent) {
+    await writeNoteMarkdown(userId, note.id, initialContent);
+  }
+
+  return initialContent;
 }
 
 /**
@@ -237,7 +259,9 @@ export async function renameFolder(userId: string, folderId: string, newName: st
 
   // Fallback local
   const current = getLocalData(userId);
-  const updatedFolders = current.folders.map((f) => (f.id === folderId ? { ...f, name: newName, updated_at: new Date().toISOString() } : f));
+  const updatedFolders = current.folders.map((f) =>
+    f.id === folderId ? { ...f, name: newName, updated_at: new Date().toISOString() } : f
+  );
   saveLocalData(userId, updatedFolders, current.notes);
   return true;
 }
@@ -270,23 +294,30 @@ export async function deleteFolder(userId: string, folderId: string): Promise<bo
 }
 
 /**
- * Cria uma nova nota no Supabase e no cache local.
+ * Cria uma nova nota no Supabase Storage (como arquivo .md) e grava metadados na tabela notes.
  */
 export async function createNote(
   userId: string,
   noteData: { title: string; folderId: string | null; position: number; content?: string }
 ): Promise<Note> {
+  const noteId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `note-${Date.now()}`;
+  const initialContent = noteData.content ?? '';
+
   const newNote: Note = {
-    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `note-${Date.now()}`,
+    id: noteId,
     user_id: userId,
     folder_id: noteData.folderId,
     title: noteData.title || 'Nova nota',
-    content: noteData.content || '',
+    content: initialContent,
     position: noteData.position,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
 
+  // 1. Grava o arquivo Markdown individual no Supabase Storage
+  await writeNoteMarkdown(userId, noteId, initialContent);
+
+  // 2. Grava os metadados na tabela notes
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -304,7 +335,7 @@ export async function createNote(
         .single();
 
       if (!error && data) {
-        return data as Note;
+        return { ...(data as Note), content: initialContent };
       }
     } catch (err) {
       console.warn('Fallback local para criação de nota:', err);
@@ -318,7 +349,8 @@ export async function createNote(
 }
 
 /**
- * Atualiza o título de uma nota.
+ * Atualiza o título de uma nota nos metadados.
+ * O arquivo no Storage permanece com seu ID estável ({note_id}.md).
  */
 export async function updateNoteTitle(userId: string, noteId: string, newTitle: string): Promise<boolean> {
   if (isSupabaseConfigured()) {
@@ -338,41 +370,59 @@ export async function updateNoteTitle(userId: string, noteId: string, newTitle: 
 
   // Fallback local
   const current = getLocalData(userId);
-  const updatedNotes = current.notes.map((n) => (n.id === noteId ? { ...n, title: newTitle, updated_at: new Date().toISOString() } : n));
+  const updatedNotes = current.notes.map((n) =>
+    n.id === noteId ? { ...n, title: newTitle, updated_at: new Date().toISOString() } : n
+  );
   saveLocalData(userId, current.folders, updatedNotes);
   return true;
 }
 
 /**
- * Atualiza o conteúdo de uma nota.
+ * Atualiza o conteúdo de uma nota diretamente como arquivo Markdown (.md) no Supabase Storage.
  */
-export async function updateNoteContent(userId: string, noteId: string, newContent: string): Promise<boolean> {
+export async function updateNoteContent(
+  userId: string,
+  noteId: string,
+  newMarkdownContent: string
+): Promise<boolean> {
+  // 1. Grava no Supabase Storage
+  const storageSuccess = await writeNoteMarkdown(userId, noteId, newMarkdownContent);
+
+  // 2. Atualiza timestamp e metadados na tabela
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
-      const { error } = await supabase
+      await supabase
         .from('notes')
-        .update({ content: newContent, updated_at: new Date().toISOString() })
+        .update({
+          content: newMarkdownContent,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', noteId)
         .eq('user_id', userId);
-
-      if (!error) return true;
     } catch (err) {
-      console.warn('Fallback local para atualizar conteúdo:', err);
+      console.warn('Erro ao atualizar timestamp da nota no banco:', err);
     }
   }
 
   // Fallback local
   const current = getLocalData(userId);
-  const updatedNotes = current.notes.map((n) => (n.id === noteId ? { ...n, content: newContent, updated_at: new Date().toISOString() } : n));
+  const updatedNotes = current.notes.map((n) =>
+    n.id === noteId ? { ...n, content: newMarkdownContent, updated_at: new Date().toISOString() } : n
+  );
   saveLocalData(userId, current.folders, updatedNotes);
-  return true;
+
+  return storageSuccess;
 }
 
 /**
- * Exclui uma nota.
+ * Exclui uma nota da tabela e remove o arquivo .md correspondente do Supabase Storage.
  */
 export async function deleteNote(userId: string, noteId: string): Promise<boolean> {
+  // 1. Remove o arquivo Markdown do Supabase Storage
+  await deleteNoteMarkdown(userId, noteId);
+
+  // 2. Remove da tabela notes
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -397,6 +447,7 @@ export async function deleteNote(userId: string, noteId: string): Promise<boolea
 
 /**
  * Move/reordena pasta ou nota.
+ * O arquivo no Storage permanece inalterado.
  */
 export async function moveItem(
   userId: string,
