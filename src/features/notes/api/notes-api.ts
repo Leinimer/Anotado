@@ -156,7 +156,23 @@ export async function fetchFoldersAndNotes(userId: string): Promise<{ folders: F
     // Se as tabelas existirem e responderem sem erro
     if (!foldersRes.error && !notesRes.error) {
       const folders = (foldersRes.data || []) as Folder[];
-      const notes = (notesRes.data || []) as Note[];
+      const notes = (notesRes.data || []).map((n: any) => {
+        let noteTags: string[] = [];
+        if (Array.isArray(n.tags)) {
+          noteTags = normalizeTags(n.tags);
+        } else if (typeof n.tags === 'string') {
+          try {
+            const parsed = JSON.parse(n.tags);
+            noteTags = Array.isArray(parsed) ? normalizeTags(parsed) : [];
+          } catch {
+            noteTags = normalizeTags(n.tags.split(','));
+          }
+        }
+        return {
+          ...n,
+          tags: noteTags,
+        };
+      }) as Note[];
 
       if (folders.length === 0 && notes.length === 0) {
         return getLocalData(userId);
@@ -179,23 +195,30 @@ export async function fetchFoldersAndNotes(userId: string): Promise<{ folders: F
 
 /**
  * Carrega o conteúdo Markdown de uma nota específica a partir do Supabase Storage.
- * Caso o arquivo ainda não exista no Storage mas esteja na tabela (migração), grava no Storage.
+ * Sincroniza as tags contidas no .md com a nota se necessário, retornando o corpo limpo para o editor.
  */
-export async function fetchNoteContent(userId: string, note: Note): Promise<string> {
-  if (!userId || !note) return '';
+export async function fetchNoteContent(
+  userId: string,
+  note: Note
+): Promise<{ content: string; tags?: string[] }> {
+  if (!userId || !note) return { content: '', tags: [] };
 
   const storageContent = await readNoteMarkdown(userId, note.id);
   if (storageContent !== null) {
-    return storageContent;
+    const { tags: extractedTags, body } = parseMarkdownWithTags(storageContent);
+    // Se a nota não possuía tags na tabela mas o arquivo .md possuía, retorna para sincronizar
+    const noteHasExplicitTags = Array.isArray(note.tags) && note.tags.length > 0;
+    const finalTags = noteHasExplicitTags ? note.tags : extractedTags;
+    return { content: body, tags: finalTags };
   }
 
   // Se não foi encontrado no Storage, utiliza o conteúdo existente e sincroniza com o Storage
   const initialContent = note.content || '';
-  if (initialContent) {
-    await writeNoteMarkdown(userId, note.id, initialContent);
-  }
+  const noteTags = Array.isArray(note.tags) ? note.tags : [];
+  const fullMarkdown = serializeMarkdownWithTags(initialContent, noteTags);
+  await writeNoteMarkdown(userId, note.id, fullMarkdown);
 
-  return initialContent;
+  return { content: initialContent, tags: noteTags };
 }
 
 /**
@@ -400,8 +423,9 @@ export async function createNote(
     updated_at: new Date().toISOString(),
   };
 
-  // 1. Grava o arquivo Markdown individual no Supabase Storage
-  await writeNoteMarkdown(userId, noteId, initialContent);
+  // 1. Grava o arquivo Markdown individual no Supabase Storage com as tags
+  const fullMarkdown = serializeMarkdownWithTags(initialContent, initialTags);
+  await writeNoteMarkdown(userId, noteId, fullMarkdown);
 
   // 2. Grava os metadados na tabela notes
   if (isSupabaseConfigured()) {
@@ -424,7 +448,11 @@ export async function createNote(
         .single();
 
       if (!error && data) {
-        return { ...(data as Note), content: initialContent, tags: (data as any).tags || initialTags };
+        return {
+          ...(data as Note),
+          content: initialContent,
+          tags: Array.isArray((data as any).tags) ? normalizeTags((data as any).tags) : initialTags,
+        };
       }
     } catch (err) {
       console.warn('Fallback local para criação de nota:', err);
@@ -664,16 +692,27 @@ export async function updateNoteTitle(userId: string, noteId: string, newTitle: 
 
 /**
  * Atualiza o conteúdo de uma nota diretamente como arquivo Markdown (.md) no Supabase Storage.
+ * Preserva as tags associadas à nota no cabeçalho do arquivo Markdown.
  */
 export async function updateNoteContent(
   userId: string,
   noteId: string,
-  newMarkdownContent: string
+  newMarkdownContent: string,
+  currentTags?: string[]
 ): Promise<boolean> {
-  // 1. Grava no Supabase Storage
-  const storageSuccess = await writeNoteMarkdown(userId, noteId, newMarkdownContent);
+  // 1. Determina as tags da nota para manter o .md sincronizado
+  let tagsToSerialize = currentTags;
+  if (!tagsToSerialize) {
+    const current = getLocalData(userId);
+    const existing = current.notes.find((n) => n.id === noteId);
+    tagsToSerialize = existing?.tags || [];
+  }
+  const fullMarkdown = serializeMarkdownWithTags(newMarkdownContent, tagsToSerialize);
 
-  // 2. Atualiza timestamp e metadados na tabela
+  // 2. Grava no Supabase Storage
+  const storageSuccess = await writeNoteMarkdown(userId, noteId, fullMarkdown);
+
+  // 3. Atualiza timestamp e metadados na tabela
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -815,21 +854,36 @@ export function normalizeTags(rawTags: string[]): string[] {
 }
 
 /**
- * Atualiza o conjunto de tags explícitas de uma nota nos metadados do Supabase e no cache local.
+ * Atualiza o conjunto de tags explícitas de uma nota nos metadados do Supabase,
+ * no arquivo .md no Supabase Storage e no cache local.
  * Sincroniza com as buscas e árvore de pastas inteligentes.
  */
 export async function updateNoteTags(
   userId: string,
   noteId: string,
-  rawTags: string[]
+  rawTags: string[],
+  currentBodyContent?: string
 ): Promise<{ success: boolean; tags: string[] }> {
   const cleanTags = normalizeTags(rawTags);
 
+  // 1. Determina o corpo da nota para sincronizar o arquivo .md no Storage
+  let bodyContent = currentBodyContent;
+  if (bodyContent === undefined) {
+    const current = getLocalData(userId);
+    const existing = current.notes.find((n) => n.id === noteId);
+    bodyContent = existing?.content || '';
+  }
+
+  // 2. Grava o arquivo Markdown atualizado com a linha de tags no Supabase Storage
+  const fullMarkdown = serializeMarkdownWithTags(bodyContent, cleanTags);
+  await writeNoteMarkdown(userId, noteId, fullMarkdown);
+
+  // 3. Atualiza os metadados no Supabase DB
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
 
-      // 1. Atualiza a coluna tags na tabela notes
+      // Atualiza a coluna tags na tabela notes
       const { error: noteUpdateError } = await supabase
         .from('notes')
         .update({
@@ -840,7 +894,7 @@ export async function updateNoteTags(
         .eq('user_id', userId);
 
       if (!noteUpdateError) {
-        // 2. Sincronização com tabela de tags se configurada
+        // Sincronização com tabela de tags se configurada
         try {
           for (const tagName of cleanTags) {
             await supabase
@@ -853,13 +907,15 @@ export async function updateNoteTags(
         } catch {
           // Ignora silenciosamente se tabelas normalizadas adicionais não estiverem criadas
         }
+      } else {
+        console.warn('Erro ao atualizar tags da nota no Supabase:', noteUpdateError);
       }
     } catch (err) {
       console.warn('Fallback local para atualização de tags da nota:', err);
     }
   }
 
-  // Fallback e atualização no cache local
+  // 4. Fallback e atualização no cache local
   const current = getLocalData(userId);
   const updatedNotes = current.notes.map((n) =>
     n.id === noteId

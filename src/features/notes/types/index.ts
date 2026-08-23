@@ -23,7 +23,7 @@ export interface Note {
   title: string;
   content: string;
   position: number;
-  tags?: string[];
+  tags: string[];
   is_archived?: boolean;
   previous_folder_id?: string | null;
   created_at: string;
@@ -53,7 +53,7 @@ export interface TreeNodeItem {
   folderId: string | null;
   position: number;
   depth: number;
-  tags?: string[];
+  tags: string[];
   isFromSmartFolder?: boolean;
   isArchived?: boolean;
   previousFolderId?: string | null;

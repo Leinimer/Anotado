@@ -61,10 +61,18 @@ export function MainLayout() {
         // Carrega o Markdown correspondente do Storage
         const selectedNote = fetchedNotes.find((n) => n.id === initialSelectedId);
         if (selectedNote) {
-          fetchNoteContent(currentUserId, selectedNote).then((content) => {
-            if (isMounted && content !== undefined) {
+          fetchNoteContent(currentUserId, selectedNote).then(({ content, tags }) => {
+            if (isMounted) {
               setNotes((prev) =>
-                prev.map((n) => (n.id === selectedNote.id ? { ...n, content } : n))
+                prev.map((n) =>
+                  n.id === selectedNote.id
+                    ? {
+                        ...n,
+                        content: content !== undefined ? content : n.content,
+                        tags: tags && tags.length > 0 ? tags : n.tags,
+                      }
+                    : n
+                )
               );
             }
           });
@@ -100,12 +108,18 @@ export function MainLayout() {
 
       const targetNote = notes.find((n) => n.id === noteId);
       if (targetNote) {
-        const mdContent = await fetchNoteContent(userId, targetNote);
-        if (mdContent !== undefined) {
-          setNotes((prev) =>
-            prev.map((n) => (n.id === noteId ? { ...n, content: mdContent } : n))
-          );
-        }
+        const { content, tags } = await fetchNoteContent(userId, targetNote);
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === noteId
+              ? {
+                  ...n,
+                  content: content !== undefined ? content : n.content,
+                  tags: tags && tags.length > 0 ? tags : n.tags,
+                }
+              : n
+          )
+        );
       }
     },
     [notes, userId]
@@ -218,29 +232,31 @@ export function MainLayout() {
 
   const handleUpdateContent = useCallback(
     async (noteId: string, newContent: string) => {
+      const currentNote = notes.find((n) => n.id === noteId);
       setNotes((prev) =>
         prev.map((n) => (n.id === noteId ? { ...n, content: newContent, updated_at: new Date().toISOString() } : n))
       );
-      await updateNoteContent(userId, noteId, newContent);
+      await updateNoteContent(userId, noteId, newContent, currentNote?.tags);
     },
-    [userId]
+    [userId, notes]
   );
 
   const handleUpdateNoteTags = useCallback(
     async (noteId: string, newTags: string[]) => {
+      const currentNote = notes.find((n) => n.id === noteId);
       setNotes((prev) =>
         prev.map((n) =>
           n.id === noteId ? { ...n, tags: newTags, updated_at: new Date().toISOString() } : n
         )
       );
-      const res = await updateNoteTags(userId, noteId, newTags);
+      const res = await updateNoteTags(userId, noteId, newTags, currentNote?.content);
       if (res.success && res.tags) {
         setNotes((prev) =>
           prev.map((n) => (n.id === noteId ? { ...n, tags: res.tags } : n))
         );
       }
     },
-    [userId]
+    [userId, notes]
   );
 
   const handleDeleteNote = useCallback(

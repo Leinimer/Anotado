@@ -123,7 +123,7 @@ export function SidebarNavigation({
 
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2', SYSTEM_ARCHIVE_FOLDER_ID]));
+  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2']));
 
   // Estado para menu flutuante de opções (...)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -1016,7 +1016,7 @@ export function SidebarNavigation({
           <input
             id="sidebar-search-input"
             type="text"
-            placeholder={getSearchPlaceholder()}
+            placeholder="Buscar..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className={`w-full bg-[#f0eee9] text-xs font-sans-ui text-[#1b1c19] placeholder-[#7f756e] rounded-xl pl-9 pr-8 py-2 border transition-all ${
