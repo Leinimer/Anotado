@@ -174,10 +174,7 @@ export async function fetchFoldersAndNotes(userId: string): Promise<{ folders: F
         };
       }) as Note[];
 
-      if (folders.length === 0 && notes.length === 0) {
-        return getLocalData(userId);
-      }
-
+      // Salva em cache e retorna os dados reais do usuário autenticado
       saveLocalData(userId, folders, notes);
       return { folders, notes };
     } else {
@@ -929,5 +926,64 @@ export async function updateNoteTags(
   saveLocalData(userId, current.folders, updatedNotes);
 
   return { success: true, tags: cleanTags };
+}
+
+/**
+ * Consulta de alta performance para obter todas as tags únicas pertencentes ao usuário autenticado.
+ * Executa uma única query otimizada na coluna tags da tabela public.notes, com deduplicação e normalização.
+ */
+export async function fetchUserTags(userId: string): Promise<string[]> {
+  if (!userId) return [];
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('notes')
+        .select('tags')
+        .eq('user_id', userId);
+
+      if (!error && data) {
+        const tagMap = new Map<string, string>();
+        for (const row of data) {
+          if (Array.isArray(row.tags)) {
+            for (const rawTag of row.tags) {
+              const clean = (rawTag || '').replace(/^#+/, '').trim();
+              if (clean) {
+                const lower = clean.toLowerCase();
+                if (!tagMap.has(lower)) {
+                  tagMap.set(lower, `#${clean}`);
+                }
+              }
+            }
+          }
+        }
+        return Array.from(tagMap.values()).sort((a, b) =>
+          a.localeCompare(b, undefined, { sensitivity: 'base' })
+        );
+      }
+    } catch (err) {
+      console.warn('Fallback local para busca de tags:', err);
+    }
+  }
+
+  const { notes } = getLocalData(userId);
+  const tagMap = new Map<string, string>();
+  for (const n of notes) {
+    if (Array.isArray(n.tags)) {
+      for (const rawTag of n.tags) {
+        const clean = (rawTag || '').replace(/^#+/, '').trim();
+        if (clean) {
+          const lower = clean.toLowerCase();
+          if (!tagMap.has(lower)) {
+            tagMap.set(lower, `#${clean}`);
+          }
+        }
+      }
+    }
+  }
+  return Array.from(tagMap.values()).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' })
+  );
 }
 
