@@ -188,7 +188,7 @@ export function SidebarNavigation({
     }
   }, [editingItemId]);
 
-  // Fecha menu de contexto e menu de busca ao clicar fora
+  // Fecha menu de contexto e menu de busca ao clicar fora ou ao pressionar Escape
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuOpenId) {
@@ -204,9 +204,33 @@ export function SidebarNavigation({
         setShowSearchModeMenu(false);
       }
     };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (menuOpenId) {
+          setMenuOpenId(null);
+          setMenuPosition(null);
+          setShowColorSubmenu(false);
+        }
+        if (confirmDelete) {
+          setConfirmDelete(null);
+        }
+        if (smartConfigFolderId) {
+          setSmartConfigFolderId(null);
+        }
+        if (showSearchModeMenu) {
+          setShowSearchModeMenu(false);
+        }
+      }
+    };
+
     window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
-  }, [menuOpenId, showSearchModeMenu]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('click', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuOpenId, showSearchModeMenu, confirmDelete, smartConfigFolderId]);
 
   // Limpeza de timer do submenu de cores no unmount
   useEffect(() => {
@@ -294,7 +318,7 @@ export function SidebarNavigation({
     }
   };
 
-  // Abre menu horizontal de opções ...
+  // Abre menu contextual ao clicar no botão ...
   const handleOpenMenu = (
     e: React.MouseEvent,
     id: string,
@@ -303,10 +327,58 @@ export function SidebarNavigation({
   ) => {
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setMenuPosition({
-      top: rect.bottom + 4,
-      left: Math.max(12, Math.min(rect.left - 60, window.innerWidth - 180)),
-    });
+    const menuWidth = 175;
+    const menuHeight = type === 'folder' ? 220 : 130;
+    const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
+    const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
+
+    let left = Math.max(12, Math.min(rect.left - 60, windowWidth - menuWidth - 12));
+    let top = rect.bottom + 4;
+
+    if (top + menuHeight > windowHeight - 10) {
+      top = Math.max(10, rect.top - menuHeight - 4);
+    }
+
+    setMenuPosition({ top, left });
+    setMenuOpenId(id);
+    setMenuItemType(type);
+    setMenuNoteIsArchived(isArchived);
+    setShowColorSubmenu(false);
+    if (colorSubmenuTimerRef.current) {
+      clearTimeout(colorSubmenuTimerRef.current);
+      colorSubmenuTimerRef.current = null;
+    }
+  };
+
+  // Abre menu contextual ao clicar com o botão direito do mouse
+  const handleContextMenu = (
+    e: React.MouseEvent,
+    id: string,
+    type: 'folder' | 'note',
+    isArchived = false
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const menuWidth = 175;
+    const menuHeight = type === 'folder' ? 220 : 130;
+    const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
+    const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
+
+    let left = e.clientX;
+    let top = e.clientY;
+
+    // Ajuste de borda direita
+    if (left + menuWidth > windowWidth - 12) {
+      left = Math.max(12, left - menuWidth);
+    }
+
+    // Ajuste de borda inferior
+    if (top + menuHeight > windowHeight - 12) {
+      top = Math.max(10, top - menuHeight);
+    }
+
+    setMenuPosition({ top, left });
     setMenuOpenId(id);
     setMenuItemType(type);
     setMenuNoteIsArchived(isArchived);
@@ -657,6 +729,7 @@ export function SidebarNavigation({
     const isOpen = isFiltering || openFolderIds.has(folder.id);
     const isEditing = editingItemId === folder.id && editingItemType === 'folder';
     const isSmart = folder.isSmart || (folder.smartTags && folder.smartTags.length > 0);
+    const isMenuOpenForThisFolder = menuOpenId === folder.id;
     const iconColor = isSystemArchive
       ? '#8c6b4f'
       : folder.color || (isOpen ? '#68594d' : '#7f756e');
@@ -685,10 +758,17 @@ export function SidebarNavigation({
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
           onClick={(e) => toggleFolder(folder.id, e)}
+          onContextMenu={(e) => {
+            if (!isSystemArchive) {
+              handleContextMenu(e, folder.id, 'folder');
+            }
+          }}
           style={{ paddingLeft: `${folder.depth * 16 + 12}px` }}
           className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-all relative ${
             isDropInside
               ? 'bg-[#d7c3b0]/70 border-2 border-dashed border-[#68594d]'
+              : isMenuOpenForThisFolder
+              ? 'bg-[#e4e2dd]/90 text-[#1b1c19]'
               : isSystemArchive
               ? 'text-[#5e4b3e] hover:bg-[#f0ece5]'
               : 'text-[#4e453f] hover:bg-[#e4e2dd]/70'
@@ -789,6 +869,7 @@ export function SidebarNavigation({
     const isActive = activeNoteId === note.id;
     const isEditing = editingItemId === note.id && editingItemType === 'note';
     const isArchived = Boolean(note.isArchived);
+    const isMenuOpenForThisNote = menuOpenId === note.id;
 
     const isCurrentDropTarget = dropTarget?.targetId === note.id && dropTarget?.targetType === 'note';
     const isDropBefore = isCurrentDropTarget && dropTarget?.dropPosition === 'before';
@@ -816,10 +897,13 @@ export function SidebarNavigation({
             onSelectNote(note.id);
             if (onCloseMobile) onCloseMobile();
           }}
+          onContextMenu={(e) => handleContextMenu(e, note.id, 'note', isArchived)}
           style={{ paddingLeft: `${note.depth * 16 + 12}px` }}
           className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative ${
             isActive
               ? 'bg-[#f4dfcb] text-[#1b1c19] font-medium shadow-2xs'
+              : isMenuOpenForThisNote
+              ? 'bg-[#e4e2dd]/80 text-[#1b1c19]'
               : 'text-[#4e453f] hover:bg-[#e4e2dd]/60'
           }`}
         >
@@ -1197,38 +1281,6 @@ export function SidebarNavigation({
           {/* Opções exclusivas para PASTAS */}
           {menuItemType === 'folder' && (
             <>
-              {/* Opção Arquivar Pasta / Arquivar todas as notas da pasta */}
-              <button
-                id="context-menu-archive-folder-btn"
-                onClick={() => {
-                  if (onArchiveFolderNotes && menuOpenId) {
-                    onArchiveFolderNotes(menuOpenId);
-                  }
-                  setMenuOpenId(null);
-                }}
-                className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
-                title="Arquivar todas as notas desta pasta"
-              >
-                <Archive className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
-                <span>Arquivar notas</span>
-              </button>
-
-              {/* Opção: Pasta inteligente */}
-              <button
-                id="context-menu-smart-folder-btn"
-                onClick={() => {
-                  const targetFolder = folders.find((f) => f.id === menuOpenId);
-                  setSmartConfigFolderId(menuOpenId);
-                  setSmartConfigTags(targetFolder?.smart_tags || []);
-                  setMenuOpenId(null);
-                }}
-                className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
-                title="Configurar Pasta Inteligente"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-[#eab308] shrink-0 fill-[#eab308]" />
-                <span>Pasta inteligente</span>
-              </button>
-
               {/* Opção: Cor da pasta > (com Submenu Lateral) */}
               <div
                 className="relative"
@@ -1265,7 +1317,7 @@ export function SidebarNavigation({
                     onClick={(e) => e.stopPropagation()}
                     className={`absolute top-0 z-60 min-w-[140px] bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 ${
                       menuPosition &&
-                      menuPosition.left + 160 + 150 > (typeof window !== 'undefined' ? window.innerWidth : 1000)
+                      menuPosition.left + 175 + 145 > (typeof window !== 'undefined' ? window.innerWidth : 1000)
                         ? 'right-full mr-1.5 before:absolute before:-right-3 before:top-0 before:bottom-0 before:w-4 before:content-[""]'
                         : 'left-full ml-1.5 before:absolute before:-left-3 before:top-0 before:bottom-0 before:w-4 before:content-[""]'
                     }`}
@@ -1331,6 +1383,38 @@ export function SidebarNavigation({
                   </div>
                 )}
               </div>
+
+              {/* Opção: Pasta inteligente */}
+              <button
+                id="context-menu-smart-folder-btn"
+                onClick={() => {
+                  const targetFolder = folders.find((f) => f.id === menuOpenId);
+                  setSmartConfigFolderId(menuOpenId);
+                  setSmartConfigTags(targetFolder?.smart_tags || []);
+                  setMenuOpenId(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+                title="Configurar Pasta Inteligente"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#eab308] shrink-0 fill-[#eab308]" />
+                <span>Pasta inteligente</span>
+              </button>
+
+              {/* Opção Arquivar Pasta / Arquivar todas as notas da pasta */}
+              <button
+                id="context-menu-archive-folder-btn"
+                onClick={() => {
+                  if (onArchiveFolderNotes && menuOpenId) {
+                    onArchiveFolderNotes(menuOpenId);
+                  }
+                  setMenuOpenId(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+                title="Arquivar todas as notas desta pasta"
+              >
+                <Archive className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
+                <span>Arquivar</span>
+              </button>
             </>
           )}
 

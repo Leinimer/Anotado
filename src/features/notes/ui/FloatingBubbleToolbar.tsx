@@ -7,7 +7,7 @@ import {
   Bold,
   Italic,
   Underline as UnderlineIcon,
-  Subscript as SubscriptIcon,
+  Strikethrough,
   ChevronDown,
   ArrowDown,
   ArrowUp,
@@ -41,6 +41,7 @@ const FONT_SIZES = [
 
 export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
   const [showStyleMenu, setShowStyleMenu] = useState(false);
+  const [dropdownPlacement, setDropdownPlacement] = useState<'top' | 'bottom'>('top');
   const styleBtnRef = useRef<HTMLButtonElement>(null);
   const styleMenuRef = useRef<HTMLDivElement>(null);
 
@@ -79,6 +80,21 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
     editor.chain().focus().setMark('textStyle', { fontSize: FONT_SIZES[prevIndex] }).run();
   };
 
+  const handleToggleStyleMenu = () => {
+    if (!showStyleMenu && styleBtnRef.current) {
+      const rect = styleBtnRef.current.getBoundingClientRect();
+      // Se estiver muito próximo ao topo da tela, abre para baixo
+      if (rect.top < 180) {
+        setDropdownPlacement('bottom');
+      } else {
+        setDropdownPlacement('top');
+      }
+      setShowStyleMenu(true);
+    } else {
+      setShowStyleMenu(false);
+    }
+  };
+
   // Paleta de Estilos de Texto Estruturados (reutilizando a lógica existente do app)
   const textStyles = [
     {
@@ -114,6 +130,20 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
   return (
     <BubbleMenu
       editor={editor}
+      appendTo={() => (typeof document !== 'undefined' ? document.body : (null as unknown as HTMLElement))}
+      updateDelay={50}
+      options={{
+        strategy: 'fixed',
+        placement: 'top',
+        offset: 8,
+        flip: {
+          fallbackPlacements: ['bottom', 'top-start', 'bottom-start', 'top-end', 'bottom-end'],
+          padding: 8,
+        },
+        shift: {
+          padding: 8,
+        },
+      }}
       shouldShow={({ editor, from, to, state }) => {
         // Exibe somente se houver texto selecionado (seleção não colapsada)
         if (!editor.isEditable) return false;
@@ -132,7 +162,8 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
     >
       <div
         id="editor-floating-bubble-menu"
-        className="bg-[#ffffff]/95 backdrop-blur-md border border-[#e4e2dd] shadow-xl rounded-2xl p-1 sm:p-1.5 flex items-center gap-0.5 sm:gap-1 z-50 text-[#4e453f] animate-in fade-in zoom-in-95 select-none"
+        className="bg-[#ffffff]/98 backdrop-blur-md border border-[#e4e2dd] shadow-2xl rounded-2xl p-1 sm:p-1.5 flex items-center gap-0.5 sm:gap-1 text-[#4e453f] select-none pointer-events-auto"
+        style={{ zIndex: 99999 }}
       >
         {/* 1. Negrito [B] */}
         <button
@@ -191,23 +222,23 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
           <UnderlineIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.25]" />
         </button>
 
-        {/* 4. Subscrito [Subscript / X₂] */}
+        {/* 4. Tachado [S] */}
         <button
           type="button"
-          id="bubble-btn-subscript"
+          id="bubble-btn-strike"
           onMouseDown={(e) => {
             e.preventDefault();
-            editor.chain().focus().toggleSubscript().run();
+            editor.chain().focus().toggleStrike().run();
           }}
           className={`min-w-[32px] min-h-[32px] sm:min-w-[34px] sm:min-h-[34px] p-1.5 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
-            editor.isActive('subscript')
+            editor.isActive('strike')
               ? 'bg-[#68594d] text-white shadow-2xs'
               : 'hover:bg-[#f0eee9] text-[#4e453f] hover:text-[#1b1c19]'
           }`}
-          title="Subscrito"
-          aria-label="Subscrito"
+          title="Tachado"
+          aria-label="Tachado"
         >
-          <SubscriptIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.25]" />
+          <Strikethrough className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.25]" />
         </button>
 
         {/* Separador Visual */}
@@ -221,7 +252,7 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
             id="bubble-btn-style-menu"
             onMouseDown={(e) => {
               e.preventDefault();
-              setShowStyleMenu((prev) => !prev);
+              handleToggleStyleMenu();
             }}
             className={`min-w-[32px] min-h-[32px] sm:min-w-[36px] sm:min-h-[34px] px-1.5 py-1 rounded-xl flex items-center gap-0.5 transition-all cursor-pointer active:scale-95 ${
               showStyleMenu
@@ -239,7 +270,12 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
             <div
               ref={styleMenuRef}
               id="bubble-style-dropdown"
-              className="absolute bottom-full left-0 mb-2 w-40 bg-white/95 backdrop-blur-md border border-[#e4e2dd] rounded-2xl shadow-xl p-1.5 flex flex-col gap-1 z-60 animate-in fade-in zoom-in-95 duration-100"
+              className={`absolute left-0 w-40 bg-white/98 backdrop-blur-md border border-[#e4e2dd] rounded-2xl shadow-2xl p-1.5 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-100 ${
+                dropdownPlacement === 'bottom'
+                  ? 'top-full mt-2'
+                  : 'bottom-full mb-2'
+              }`}
+              style={{ zIndex: 100000 }}
             >
               {textStyles.map((st) => {
                 const active = st.isActive();

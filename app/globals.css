@@ -474,6 +474,18 @@ details[open] > div[data-type="detailsContent"] {
   -webkit-user-select: none;
 }
 
+/* Linha Horizontal / Divisória Editorial (Papyrus & Ink) */
+.ProseMirror hr,
+.ProseMirror .editorial-hr {
+  border: none;
+  border-top: 1px solid #e4e2dd;
+  margin-top: 1.25rem;
+  margin-bottom: 1.25rem;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: default;
+}
+
 /* Document Cards */
 .ProseMirror .tiptap-document-card {
   user-select: none;
