@@ -147,9 +147,8 @@ export function LoginForm({ onSuccess, onSwitchToApp }: LoginFormProps) {
           if (error) throw error;
 
           if (data?.user || data?.session) {
-            setSuccessMessage('Autenticado com sucesso! Redirecionando...');
             if (onSuccess) onSuccess();
-            // Redireciona com full page navigation para garantir envio limpo de cookies de sessão SSR
+            // Redireciona imediatamente para a página principal
             if (typeof window !== 'undefined') {
               window.location.href = '/';
             } else {
@@ -158,14 +157,13 @@ export function LoginForm({ onSuccess, onSwitchToApp }: LoginFormProps) {
           }
         } else {
           // Fallback para ambiente sem chaves de Supabase ativas
-          setSuccessMessage('Autenticado com sucesso!');
-          setTimeout(() => {
-            if (onSuccess) onSuccess();
-            if (onSwitchToApp) onSwitchToApp();
-            if (typeof window !== 'undefined') {
-              window.location.href = '/';
-            }
-          }, 600);
+          if (onSuccess) onSuccess();
+          if (onSwitchToApp) onSwitchToApp();
+          if (typeof window !== 'undefined') {
+            window.location.href = '/';
+          } else {
+            router.push('/');
+          }
         }
       }
     } catch (err: any) {
@@ -191,7 +189,7 @@ export function LoginForm({ onSuccess, onSwitchToApp }: LoginFormProps) {
             id="auth-brand-title"
             className="font-serif-note text-3xl sm:text-4xl font-semibold text-[#68594d] tracking-tight"
           >
-            Digital Tactility
+            Anotado!
           </h1>
           <p
             id="auth-brand-subtitle"
@@ -199,7 +197,7 @@ export function LoginForm({ onSuccess, onSwitchToApp }: LoginFormProps) {
           >
             {isSignUp
               ? 'Criar sua conta'
-              : 'A quiet space for writing.'}
+              : 'Um espaço para escrever.'}
           </p>
         </header>
 

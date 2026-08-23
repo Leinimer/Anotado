@@ -84,8 +84,20 @@ export function NoteCanvas({
     return (
       <main
         id="main-note-workspace"
-        className="flex-1 flex flex-col h-full bg-[#fbf9f4] items-center justify-center p-6 text-center select-none"
+        className="flex-1 flex flex-col h-full bg-[#fbf9f4] items-center justify-center p-6 text-center select-none relative"
       >
+        {onOpenMobileMenu && (
+          <div className="absolute left-4 top-3.5 flex items-center md:hidden">
+            <button
+              id="empty-state-mobile-menu-btn"
+              onClick={onOpenMobileMenu}
+              className="p-2 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg transition-colors cursor-pointer"
+              aria-label="Abrir Menu Lateral"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          </div>
+        )}
         <div className="max-w-md space-y-4">
           <div className="w-16 h-16 rounded-full bg-[#e4e2dd] text-[#68594d] mx-auto flex items-center justify-center">
             <FileText className="w-8 h-8 stroke-[1.5]" />

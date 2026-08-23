@@ -52,35 +52,7 @@ export function MainLayout() {
 
         setFolders(fetchedFolders);
         setNotes(fetchedNotes);
-
-        // Se houver notas ativas, seleciona a primeira não arquivada
-        const unarchivedNotes = fetchedNotes.filter((n) => !n.is_archived);
-        if (unarchivedNotes.length > 0) {
-          const initialSelectedId = unarchivedNotes[0].id;
-          setActiveNoteId(initialSelectedId);
-
-          // Carrega o Markdown correspondente do Storage
-          const selectedNote = unarchivedNotes[0];
-          if (selectedNote) {
-            fetchNoteContent(currentUserId, selectedNote).then(({ content, tags }) => {
-              if (isMounted) {
-                setNotes((prev) =>
-                  prev.map((n) =>
-                    n.id === selectedNote.id
-                      ? {
-                          ...n,
-                          content: content !== undefined ? content : n.content,
-                          tags: tags && tags.length > 0 ? tags : n.tags,
-                        }
-                      : n
-                  )
-                );
-              }
-            });
-          }
-        } else {
-          setActiveNoteId(null);
-        }
+        setActiveNoteId(null);
       } catch (err) {
         console.error('[MainLayout] Erro ao carregar dados do Supabase:', err);
       }
