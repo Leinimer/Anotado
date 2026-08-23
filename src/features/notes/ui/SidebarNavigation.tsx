@@ -97,6 +97,7 @@ export function SidebarNavigation({
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [menuItemType, setMenuItemType] = useState<'folder' | 'note' | null>(null);
   const [showColorSubmenu, setShowColorSubmenu] = useState(false);
+  const colorSubmenuTimerRef = useRef<NodeJS.Timeout | null>(null);
   const customColorInputRef = useRef<HTMLInputElement>(null);
 
   // Estado para popover de configuração de Pasta Inteligente
@@ -150,12 +151,43 @@ export function SidebarNavigation({
     const handleClickOutside = () => {
       setMenuOpenId(null);
       setMenuPosition(null);
+      setShowColorSubmenu(false);
+      if (colorSubmenuTimerRef.current) {
+        clearTimeout(colorSubmenuTimerRef.current);
+        colorSubmenuTimerRef.current = null;
+      }
     };
     if (menuOpenId) {
       window.addEventListener('click', handleClickOutside);
       return () => window.removeEventListener('click', handleClickOutside);
     }
   }, [menuOpenId]);
+
+  // Limpeza de timer do submenu de cores no unmount
+  useEffect(() => {
+    return () => {
+      if (colorSubmenuTimerRef.current) {
+        clearTimeout(colorSubmenuTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleMouseEnterColorOption = () => {
+    if (colorSubmenuTimerRef.current) {
+      clearTimeout(colorSubmenuTimerRef.current);
+      colorSubmenuTimerRef.current = null;
+    }
+    setShowColorSubmenu(true);
+  };
+
+  const handleMouseLeaveColorOption = () => {
+    if (colorSubmenuTimerRef.current) {
+      clearTimeout(colorSubmenuTimerRef.current);
+    }
+    colorSubmenuTimerRef.current = setTimeout(() => {
+      setShowColorSubmenu(false);
+    }, 250);
+  };
 
   const handleLogout = async () => {
     const supabase = createClient();
@@ -231,6 +263,11 @@ export function SidebarNavigation({
     });
     setMenuOpenId(id);
     setMenuItemType(type);
+    setShowColorSubmenu(false);
+    if (colorSubmenuTimerRef.current) {
+      clearTimeout(colorSubmenuTimerRef.current);
+      colorSubmenuTimerRef.current = null;
+    }
   };
 
   // Inicia confirmação de exclusão
@@ -905,14 +942,18 @@ export function SidebarNavigation({
               {/* Opção 3: Cor da pasta > (com Submenu Lateral) */}
               <div
                 className="relative"
-                onMouseEnter={() => setShowColorSubmenu(true)}
-                onMouseLeave={() => setShowColorSubmenu(false)}
+                onMouseEnter={handleMouseEnterColorOption}
+                onMouseLeave={handleMouseLeaveColorOption}
               >
                 <button
                   id="context-menu-folder-color-btn"
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (colorSubmenuTimerRef.current) {
+                      clearTimeout(colorSubmenuTimerRef.current);
+                      colorSubmenuTimerRef.current = null;
+                    }
                     setShowColorSubmenu((prev) => !prev);
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
@@ -925,12 +966,19 @@ export function SidebarNavigation({
                   <ChevronRight className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
                 </button>
 
-                {/* Submenu Lateral de Cores */}
+                {/* Submenu Lateral de Cores com Hover Bridge Contínua e Detecção de Borda */}
                 {showColorSubmenu && (
                   <div
                     id="folder-color-lateral-submenu"
-                    className="absolute left-full top-0 ml-1 bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-60 min-w-[135px] animate-in fade-in slide-in-from-left-2 duration-100"
+                    onMouseEnter={handleMouseEnterColorOption}
+                    onMouseLeave={handleMouseLeaveColorOption}
                     onClick={(e) => e.stopPropagation()}
+                    className={`absolute top-0 z-60 min-w-[140px] bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 ${
+                      menuPosition &&
+                      menuPosition.left + 160 + 150 > (typeof window !== 'undefined' ? window.innerWidth : 1000)
+                        ? 'right-full mr-1.5 before:absolute before:-right-3 before:top-0 before:bottom-0 before:w-4 before:content-[""]'
+                        : 'left-full ml-1.5 before:absolute before:-left-3 before:top-0 before:bottom-0 before:w-4 before:content-[""]'
+                    }`}
                   >
                     {FOLDER_PRESET_COLORS.map((c) => (
                       <button
@@ -942,6 +990,10 @@ export function SidebarNavigation({
                           }
                           setMenuOpenId(null);
                           setShowColorSubmenu(false);
+                          if (colorSubmenuTimerRef.current) {
+                            clearTimeout(colorSubmenuTimerRef.current);
+                            colorSubmenuTimerRef.current = null;
+                          }
                         }}
                         className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] text-[#4e453f] text-xs transition-colors cursor-pointer text-left"
                       >
@@ -979,6 +1031,10 @@ export function SidebarNavigation({
                           }
                           setMenuOpenId(null);
                           setShowColorSubmenu(false);
+                          if (colorSubmenuTimerRef.current) {
+                            clearTimeout(colorSubmenuTimerRef.current);
+                            colorSubmenuTimerRef.current = null;
+                          }
                         }}
                       />
                     </div>
