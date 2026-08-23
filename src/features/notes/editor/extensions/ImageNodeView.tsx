@@ -4,39 +4,39 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
 import { Trash2 } from 'lucide-react';
 
-export function YoutubeNodeView(props: NodeViewProps) {
+export function ImageNodeView(props: NodeViewProps) {
   const { node, updateAttributes, deleteNode, selected } = props;
   const src = node.attrs.src;
-  const initialWidthAttr = node.attrs.width || '100%';
+  const alt = node.attrs.alt || '';
+  const title = node.attrs.title || '';
+  const initialWidthAttr = node.attrs.width;
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const iframeWrapperRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   const [isLocalSelected, setIsLocalSelected] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [resizingWidth, setResizingWidth] = useState<number | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<number>(1);
 
   const isSelected = selected || isLocalSelected || isResizing;
 
+  // Largura exibida: durante o arraste usa a largura em tempo real, caso contrário usa o atributo persistido
   const currentDisplayWidth =
     resizingWidth !== null
       ? `${resizingWidth}px`
-      : initialWidthAttr || '100%';
+      : initialWidthAttr || 'auto';
 
-  // Normaliza o embed URL
-  const getEmbedUrl = (url: string) => {
-    if (!url) return '';
-    if (url.includes('embed/')) return url;
-
-    // Suporte para links youtube.com/watch?v=ID ou youtu.be/ID
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-    return match && match[2].length === 11
-      ? `https://www.youtube-nocookie.com/embed/${match[2]}`
-      : url;
+  // Calcula e memoriza a proporção original da imagem ao carregar
+  const handleImageLoad = () => {
+    if (imgRef.current) {
+      const naturalW = imgRef.current.naturalWidth;
+      const naturalH = imgRef.current.naturalHeight;
+      if (naturalW && naturalH) {
+        setAspectRatio(naturalW / naturalH);
+      }
+    }
   };
-
-  const embedUrl = getEmbedUrl(src);
 
   // Fecha a seleção ao clicar fora
   useEffect(() => {
@@ -60,19 +60,19 @@ export function YoutubeNodeView(props: NodeViewProps) {
       e.preventDefault();
       e.stopPropagation();
 
-      if (!iframeWrapperRef.current) return;
+      if (!imgRef.current) return;
 
       setIsResizing(true);
       setIsLocalSelected(true);
 
       const startX = e.clientX;
       const startY = e.clientY;
-      const startWidth = iframeWrapperRef.current.offsetWidth || 500;
-      const aspectRatio = 16 / 9; // Proporção padrão 16:9 de vídeos do YouTube
+      const startWidth = imgRef.current.offsetWidth || 300;
+      const startHeight = imgRef.current.offsetHeight || (startWidth / (aspectRatio || 1));
+      const currentRatio = aspectRatio || (startWidth / startHeight) || 1;
 
-      // Obtém a largura máxima disponível da folha
-      const editorElement =
-        containerRef.current?.closest('.ProseMirror') || containerRef.current?.parentElement;
+      // Obtém a largura máxima disponível da folha (note container)
+      const editorElement = containerRef.current?.closest('.ProseMirror') || containerRef.current?.parentElement;
       const maxContainerWidth = editorElement ? editorElement.clientWidth - 24 : 800;
 
       let latestCalculatedWidth = startWidth;
@@ -93,32 +93,32 @@ export function YoutubeNodeView(props: NodeViewProps) {
             break;
           case 'bottom-right': {
             const widthFromX = startWidth + deltaX;
-            const widthFromY = startWidth + deltaY * aspectRatio;
+            const widthFromY = startWidth + (deltaY * currentRatio);
             calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
             break;
           }
           case 'bottom-left': {
             const widthFromX = startWidth - deltaX;
-            const widthFromY = startWidth + deltaY * aspectRatio;
+            const widthFromY = startWidth + (deltaY * currentRatio);
             calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
             break;
           }
           case 'top-right': {
             const widthFromX = startWidth + deltaX;
-            const widthFromY = startWidth - deltaY * aspectRatio;
+            const widthFromY = startWidth - (deltaY * currentRatio);
             calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
             break;
           }
           case 'top-left': {
             const widthFromX = startWidth - deltaX;
-            const widthFromY = startWidth - deltaY * aspectRatio;
+            const widthFromY = startWidth - (deltaY * currentRatio);
             calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
             break;
           }
         }
 
-        // Limites de tamanho: mínimo 200px, máximo largura total da folha
-        const clampedWidth = Math.min(Math.max(calculatedWidth, 200), maxContainerWidth);
+        // Limites de tamanho: mínimo 70px, máximo a largura total da folha
+        const clampedWidth = Math.min(Math.max(calculatedWidth, 70), maxContainerWidth);
         latestCalculatedWidth = clampedWidth;
         setResizingWidth(Math.round(clampedWidth));
       };
@@ -130,7 +130,7 @@ export function YoutubeNodeView(props: NodeViewProps) {
         setIsResizing(false);
         setResizingWidth(null);
 
-        // Persiste as dimensões nos atributos do node
+        // Persiste as dimensões no documento da nota
         updateAttributes({
           width: `${Math.round(latestCalculatedWidth)}px`,
         });
@@ -139,35 +139,34 @@ export function YoutubeNodeView(props: NodeViewProps) {
       window.addEventListener('pointermove', handlePointerMove, { passive: false });
       window.addEventListener('pointerup', handlePointerUp, { passive: false });
     },
-    [updateAttributes]
+    [aspectRatio, updateAttributes]
   );
 
   return (
     <NodeViewWrapper
       as="div"
       ref={containerRef}
-      className="youtube-block-wrapper my-6 relative flex justify-center max-w-full select-none"
+      className="image-node-view-wrapper my-5 relative flex justify-center max-w-full select-none"
       onClick={() => setIsLocalSelected(true)}
     >
       <div
-        ref={iframeWrapperRef}
         className={`relative inline-block max-w-full transition-shadow duration-150 ${
-          isSelected ? 'ring-2 ring-[#68594d] ring-offset-2 ring-offset-white rounded-2xl' : ''
+          isSelected ? 'ring-2 ring-[#68594d] ring-offset-2 ring-offset-white rounded-xl' : ''
         }`}
         style={{
           width: currentDisplayWidth,
           maxWidth: '100%',
         }}
       >
-        {/* Barra Flutuante de Ações Rápidas (Aparece ao selecionar) */}
+        {/* Barra Flutuante de Informação e Ações Rápidas (Aparece ao selecionar) */}
         {isSelected && (
           <div
             className="absolute -top-10 left-1/2 -translate-x-1/2 bg-[#ffffff]/95 backdrop-blur-xs border border-[#e4e2dd] shadow-md rounded-xl px-2.5 py-1 flex items-center gap-2 z-30 text-xs font-sans-ui text-[#4e453f] animate-in fade-in zoom-in-95 pointer-events-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Indicador numérico de largura */}
+            {/* Indicador numérico de largura em tempo real */}
             <span className="font-mono text-[11px] font-medium text-[#68594d] px-1">
-              {resizingWidth ? `${Math.round(resizingWidth)}px` : initialWidthAttr || '100%'}
+              {resizingWidth ? `${Math.round(resizingWidth)}px` : initialWidthAttr || 'Auto'}
             </span>
 
             <div className="h-3 w-[1px] bg-[#e4e2dd]" />
@@ -176,9 +175,7 @@ export function YoutubeNodeView(props: NodeViewProps) {
             <button
               type="button"
               onClick={() => {
-                const parent =
-                  containerRef.current?.closest('.ProseMirror') ||
-                  containerRef.current?.parentElement;
+                const parent = containerRef.current?.closest('.ProseMirror') || containerRef.current?.parentElement;
                 const maxW = parent ? parent.clientWidth - 24 : 700;
                 const halfW = Math.round(maxW * 0.5);
                 updateAttributes({ width: `${halfW}px` });
@@ -191,24 +188,7 @@ export function YoutubeNodeView(props: NodeViewProps) {
             <button
               type="button"
               onClick={() => {
-                const parent =
-                  containerRef.current?.closest('.ProseMirror') ||
-                  containerRef.current?.parentElement;
-                const maxW = parent ? parent.clientWidth - 24 : 700;
-                const threeQuartersW = Math.round(maxW * 0.75);
-                updateAttributes({ width: `${threeQuartersW}px` });
-              }}
-              className="px-1.5 py-0.5 rounded text-[10px] font-medium hover:bg-[#f0eee9] text-[#4e453f] transition-colors cursor-pointer"
-              title="75% da folha"
-            >
-              75%
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const parent =
-                  containerRef.current?.closest('.ProseMirror') ||
-                  containerRef.current?.parentElement;
+                const parent = containerRef.current?.closest('.ProseMirror') || containerRef.current?.parentElement;
                 const maxW = parent ? parent.clientWidth - 24 : 700;
                 const fullW = Math.round(maxW);
                 updateAttributes({ width: `${fullW}px` });
@@ -221,7 +201,7 @@ export function YoutubeNodeView(props: NodeViewProps) {
 
             <div className="h-3 w-[1px] bg-[#e4e2dd]" />
 
-            {/* Excluir vídeo */}
+            {/* Excluir imagem */}
             <button
               type="button"
               onClick={(e) => {
@@ -229,37 +209,33 @@ export function YoutubeNodeView(props: NodeViewProps) {
                 deleteNode();
               }}
               className="p-1 text-[#ba1a1a] hover:bg-[#fceded] rounded-md transition-colors cursor-pointer"
-              title="Excluir Vídeo"
+              title="Excluir Imagem"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
-        {/* Container do Iframe com Proporção 16:9 Estrita */}
-        <div className="w-full relative rounded-2xl overflow-hidden shadow-xs border border-[#e4e2dd] bg-black/5">
-          <div className="relative pb-[56.25%] h-0 w-full">
-            <iframe
-              src={embedUrl}
-              title="YouTube video player"
-              frameBorder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              className="absolute top-0 left-0 w-full h-full rounded-2xl"
-            />
-            {/* Overlay transparente durante o arraste/seleção para não capturar ponteiro no iframe */}
-            {isResizing && <div className="absolute inset-0 z-10 bg-transparent" />}
-          </div>
-        </div>
+        {/* Imagem Real */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={imgRef}
+          src={src}
+          alt={alt}
+          title={title}
+          onLoad={handleImageLoad}
+          draggable={false}
+          className="rounded-xl block w-full h-auto object-contain border border-[#e4e2dd] shadow-xs pointer-events-auto"
+        />
 
-        {/* Handles de Redimensionamento Interativos */}
+        {/* Handles de Redimensionamento Interativos (Visíveis ao Selecionar) */}
         {isSelected && (
           <>
             {/* Quina Superior Esquerda */}
             <div
               onPointerDown={(e) => handleResizeStart(e, 'top-left')}
               className="absolute -top-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
-              title="Redimensionar proporção 16:9"
+              title="Redimensionar proporção"
             >
               <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
             </div>
@@ -268,7 +244,7 @@ export function YoutubeNodeView(props: NodeViewProps) {
             <div
               onPointerDown={(e) => handleResizeStart(e, 'top-right')}
               className="absolute -top-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
-              title="Redimensionar proporção 16:9"
+              title="Redimensionar proporção"
             >
               <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
             </div>
@@ -277,7 +253,7 @@ export function YoutubeNodeView(props: NodeViewProps) {
             <div
               onPointerDown={(e) => handleResizeStart(e, 'bottom-left')}
               className="absolute -bottom-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
-              title="Redimensionar proporção 16:9"
+              title="Redimensionar proporção"
             >
               <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
             </div>
@@ -286,7 +262,7 @@ export function YoutubeNodeView(props: NodeViewProps) {
             <div
               onPointerDown={(e) => handleResizeStart(e, 'bottom-right')}
               className="absolute -bottom-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
-              title="Redimensionar proporção 16:9"
+              title="Redimensionar proporção"
             >
               <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
             </div>

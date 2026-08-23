@@ -286,13 +286,13 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   return (
     <div
       id="editor-floating-dock-container"
-      className="w-full flex justify-center px-2 sm:px-4 py-2 shrink-0 select-none z-30"
+      className="w-full flex justify-center px-2 sm:px-4 py-2 shrink-0 select-none z-30 max-w-full overflow-hidden"
     >
       {/* Dock Flutuante Centralizado Minimalista Papyrus & Ink */}
       <nav
         id="editor-bottom-toolbar"
         aria-label="Barra de ferramentas de formatação"
-        className="max-w-full bg-[#ffffff]/95 backdrop-blur-md border border-[#e4e2dd] rounded-2xl shadow-lg px-2 sm:px-3 py-1.5 flex items-center gap-1 sm:gap-1.5 overflow-x-auto relative"
+        className="max-w-full bg-[#ffffff]/95 backdrop-blur-md border border-[#e4e2dd] rounded-2xl shadow-lg px-2 sm:px-3 py-1.5 sm:py-2 flex items-center gap-1 sm:gap-1.5 overflow-x-auto relative scrollbar-none"
       >
         {/* Hidden inputs para arquivos */}
         <input
@@ -311,13 +311,13 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
         />
 
         {/* Grupo 0: Desfazer / Refazer (Undo / Redo) */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             id="toolbar-btn-undo"
             type="button"
             disabled={!editor.can().undo()}
             onClick={() => editor.chain().focus().undo().run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.can().undo()
                 ? 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
                 : 'text-[#d1c4bc] cursor-not-allowed opacity-50'
@@ -325,7 +325,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Desfazer (Ctrl+Z)"
             aria-label="Desfazer"
           >
-            <Undo className="w-4 h-4" />
+            <Undo className="w-4.5 h-4.5" />
           </button>
 
           <button
@@ -333,7 +333,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             type="button"
             disabled={!editor.can().redo()}
             onClick={() => editor.chain().focus().redo().run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.can().redo()
                 ? 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
                 : 'text-[#d1c4bc] cursor-not-allowed opacity-50'
@@ -341,19 +341,19 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Refazer (Ctrl+Shift+Z)"
             aria-label="Refazer"
           >
-            <Redo className="w-4 h-4" />
+            <Redo className="w-4.5 h-4.5" />
           </button>
         </div>
 
-        <div className="h-4 w-[1px] bg-[#e4e2dd] mx-0.5" />
+        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
         {/* Grupo 1: Formatação Básica (B, I, U, S) */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             id="toolbar-btn-bold"
             type="button"
             onClick={() => editor.chain().focus().toggleBold().run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive('bold')
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -361,14 +361,14 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Negrito (Ctrl+B)"
             aria-label="Negrito"
           >
-            <Bold className="w-4 h-4" />
+            <Bold className="w-4.5 h-4.5" />
           </button>
 
           <button
             id="toolbar-btn-italic"
             type="button"
             onClick={() => editor.chain().focus().toggleItalic().run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive('italic')
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -376,14 +376,14 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Itálico (Ctrl+I)"
             aria-label="Itálico"
           >
-            <Italic className="w-4 h-4" />
+            <Italic className="w-4.5 h-4.5" />
           </button>
 
           <button
             id="toolbar-btn-underline"
             type="button"
             onClick={() => editor.chain().focus().toggleUnderline().run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive('underline')
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -391,14 +391,14 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Sublinhado (Ctrl+U)"
             aria-label="Sublinhado"
           >
-            <Underline className="w-4 h-4" />
+            <Underline className="w-4.5 h-4.5" />
           </button>
 
           <button
             id="toolbar-btn-strike"
             type="button"
             onClick={() => editor.chain().focus().toggleStrike().run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive('strike')
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -406,21 +406,21 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Tachado"
             aria-label="Tachado"
           >
-            <Strikethrough className="w-4 h-4" />
+            <Strikethrough className="w-4.5 h-4.5" />
           </button>
         </div>
 
-        <div className="h-4 w-[1px] bg-[#e4e2dd] mx-0.5" />
+        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
         {/* Grupo 2: Marca-texto e Cor da Fonte */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1 shrink-0">
           {/* Marca-Texto (Highlight) */}
           <button
             ref={highlightBtnRef}
             id="toolbar-btn-highlight"
             type="button"
             onClick={toggleHighlightPicker}
-            className={`p-1.5 rounded-lg flex items-center gap-0.5 transition-colors cursor-pointer ${
+            className={`min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 ${
               editor.isActive('highlight')
                 ? 'bg-[#fef08a] text-[#1b1c19] ring-1 ring-[#eab308]'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -428,8 +428,8 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Marca-texto"
             aria-label="Marca-texto"
           >
-            <Highlighter className="w-4 h-4" />
-            <ChevronDown className="w-2.5 h-2.5 text-[#7f756e]" />
+            <Highlighter className="w-4.5 h-4.5" />
+            <ChevronDown className="w-3 h-3 text-[#7f756e]" />
           </button>
 
           {/* Cor da Fonte (Text Color) */}
@@ -438,24 +438,24 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-btn-color"
             type="button"
             onClick={toggleColorPicker}
-            className="p-1.5 rounded-lg flex items-center gap-0.5 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer"
+            className="min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-all cursor-pointer active:scale-95"
             title="Cor do Texto"
             aria-label="Cor do Texto"
           >
-            <Palette className="w-4 h-4" />
-            <ChevronDown className="w-2.5 h-2.5 text-[#7f756e]" />
+            <Palette className="w-4.5 h-4.5" />
+            <ChevronDown className="w-3 h-3 text-[#7f756e]" />
           </button>
         </div>
 
-        <div className="h-4 w-[1px] bg-[#e4e2dd] mx-0.5" />
+        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
         {/* Grupo 3: Tamanho da Fonte com Escala Ampla (A↓ / A↑) */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             id="toolbar-btn-decrease-fontsize"
             type="button"
             onClick={handleDecreaseFontSize}
-            className="px-1.5 py-1 text-xs font-sans-ui font-bold text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-lg transition-colors cursor-pointer"
+            className="min-w-[40px] min-h-[40px] px-2.5 py-1.5 text-xs font-sans-ui font-bold text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95"
             title="Diminuir tamanho da fonte (A↓)"
             aria-label="Diminuir tamanho da fonte"
           >
@@ -465,7 +465,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-btn-increase-fontsize"
             type="button"
             onClick={handleIncreaseFontSize}
-            className="px-1.5 py-1 text-xs font-sans-ui font-bold text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-lg transition-colors cursor-pointer"
+            className="min-w-[40px] min-h-[40px] px-2.5 py-1.5 text-xs font-sans-ui font-bold text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95"
             title="Aumentar tamanho da fonte (A↑)"
             aria-label="Aumentar tamanho da fonte"
           >
@@ -473,15 +473,15 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           </button>
         </div>
 
-        <div className="h-4 w-[1px] bg-[#e4e2dd] mx-0.5" />
+        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
         {/* Grupo 4: Alinhamento */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             id="toolbar-align-left"
             type="button"
             onClick={() => editor.chain().focus().setTextAlign('left').run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive({ textAlign: 'left' })
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -489,14 +489,14 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Alinhar à Esquerda"
             aria-label="Alinhar à Esquerda"
           >
-            <AlignLeft className="w-4 h-4" />
+            <AlignLeft className="w-4.5 h-4.5" />
           </button>
 
           <button
             id="toolbar-align-center"
             type="button"
             onClick={() => editor.chain().focus().setTextAlign('center').run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive({ textAlign: 'center' })
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -504,14 +504,14 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Centralizar"
             aria-label="Centralizar"
           >
-            <AlignCenter className="w-4 h-4" />
+            <AlignCenter className="w-4.5 h-4.5" />
           </button>
 
           <button
             id="toolbar-align-right"
             type="button"
             onClick={() => editor.chain().focus().setTextAlign('right').run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive({ textAlign: 'right' })
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -519,14 +519,14 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Alinhar à Direita"
             aria-label="Alinhar à Direita"
           >
-            <AlignRight className="w-4 h-4" />
+            <AlignRight className="w-4.5 h-4.5" />
           </button>
 
           <button
             id="toolbar-align-justify"
             type="button"
             onClick={() => editor.chain().focus().setTextAlign('justify').run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive({ textAlign: 'justify' })
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -534,20 +534,20 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Justificar"
             aria-label="Justificar"
           >
-            <AlignJustify className="w-4 h-4" />
+            <AlignJustify className="w-4.5 h-4.5" />
           </button>
         </div>
 
-        <div className="h-4 w-[1px] bg-[#e4e2dd] mx-0.5" />
+        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
         {/* Grupo 5: Listas e Checklists */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1 shrink-0">
           {/* Lista com Marcadores */}
           <button
             id="toolbar-bullet-list"
             type="button"
             onClick={() => editor.chain().focus().toggleBulletList().run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive('bulletList')
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -555,7 +555,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Lista com Marcadores"
             aria-label="Lista com Marcadores"
           >
-            <List className="w-4 h-4" />
+            <List className="w-4.5 h-4.5" />
           </button>
 
           {/* Lista Numerada */}
@@ -563,7 +563,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-ordered-list"
             type="button"
             onClick={() => editor.chain().focus().toggleOrderedList().run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive('orderedList')
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -571,7 +571,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Lista Numerada"
             aria-label="Lista Numerada"
           >
-            <ListOrdered className="w-4 h-4" />
+            <ListOrdered className="w-4.5 h-4.5" />
           </button>
 
           {/* Checklist / Task List */}
@@ -579,7 +579,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             id="toolbar-task-list"
             type="button"
             onClick={() => editor.chain().focus().toggleTaskList().run()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               editor.isActive('taskList')
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -587,19 +587,19 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Lista de Tarefas (Checklist)"
             aria-label="Lista de Tarefas"
           >
-            <CheckSquare className="w-4 h-4" />
+            <CheckSquare className="w-4.5 h-4.5" />
           </button>
         </div>
 
-        <div className="h-4 w-[1px] bg-[#e4e2dd] mx-0.5" />
+        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
         {/* Grupo 6: Toggle / Details */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             id="toolbar-toggle-details"
             type="button"
             onClick={() => editor.commands.setToggleDetails()}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
               isInsideToggle
                 ? 'bg-[#68594d] text-white shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
@@ -607,7 +607,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             title="Bloco de Alternância (Toggle / Recolhível)"
             aria-label="Bloco de Alternância"
           >
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-4.5 h-4.5" />
           </button>
 
           {isInsideToggle && (
@@ -615,16 +615,16 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
               id="toolbar-delete-toggle-btn"
               type="button"
               onClick={() => editor.commands.deleteToggleDetails()}
-              className="p-1.5 text-[#ba1a1a] hover:bg-[#fceded] rounded-lg transition-colors cursor-pointer"
+              className="min-w-[40px] min-h-[40px] p-2 text-[#ba1a1a] hover:bg-[#fceded] rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95"
               title="Excluir Toggle atual"
               aria-label="Excluir Toggle"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-4 h-4" />
             </button>
           )}
         </div>
 
-        <div className="h-4 w-[1px] bg-[#e4e2dd] mx-0.5" />
+        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
         {/* Grupo 7: Menu Unificado "+ Arquivo" */}
         <button
@@ -633,16 +633,16 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           type="button"
           disabled={isUploading}
           onClick={toggleAddFileMenu}
-          className="flex items-center gap-1 px-2.5 py-1.5 bg-[#68594d] text-white hover:bg-[#574a40] rounded-xl text-xs font-sans-ui font-medium transition-all shadow-xs cursor-pointer"
+          className="min-h-[40px] flex items-center gap-1.5 px-3.5 py-1.5 bg-[#68594d] text-white hover:bg-[#574a40] rounded-xl text-xs font-sans-ui font-medium transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
           title="Adicionar Arquivo (Imagem, PDF, YouTube)"
         >
           {isUploading ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
-            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+            <Plus className="w-4 h-4 stroke-[2.5]" />
           )}
           <span>Arquivo</span>
-          <ChevronDown className="w-3 h-3 text-white/80" />
+          <ChevronDown className="w-3.5 h-3.5 text-white/80" />
         </button>
       </nav>
 

@@ -6,9 +6,9 @@ import Color from '@tiptap/extension-color';
 import TextAlign from '@tiptap/extension-text-align';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
-import Image from '@tiptap/extension-image';
 
 import { FontSize } from './extensions/font-size';
+import { CustomImage } from './extensions/custom-image';
 import { ToggleDetails, Summary, DetailsContent } from './extensions/toggle-details';
 import { CustomYoutube } from './extensions/custom-youtube';
 import { DocumentAttachment } from './extensions/document-attachment';
@@ -45,7 +45,7 @@ export const defaultEditorExtensions = [
   TaskItem.configure({
     nested: true,
   }),
-  Image.configure({
+  CustomImage.configure({
     inline: false,
     allowBase64: true,
     HTMLAttributes: {

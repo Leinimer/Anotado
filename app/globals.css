@@ -328,13 +328,21 @@
   }
 }
 
-/* Imagens */
+/* Imagens e Vídeos Redimensionáveis */
 .ProseMirror img {
   max-width: 100%;
   height: auto;
-  border-radius: 1rem;
-  margin: 1.25rem 0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border-radius: 0.75rem;
+}
+
+.image-node-view-wrapper img {
+  margin: 0 !important;
+}
+
+.image-node-view-wrapper,
+.youtube-block-wrapper {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Document Cards */
