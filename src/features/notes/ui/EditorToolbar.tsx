@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { uploadNoteFile } from '../api/storage-api';
 import { createClient } from '@/src/features/auth/api/supabase-client';
+import { useMobileKeyboardViewport } from '../hooks/useMobileKeyboardViewport';
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -67,39 +68,9 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [, setSelectionUpdate] = useState(0);
-  const [keyboardBottomOffset, setKeyboardBottomOffset] = useState<number>(0);
 
-  // Monitora a abertura/fechamento do teclado virtual mobile via visualViewport
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const updateKeyboardPosition = () => {
-      if (window.visualViewport) {
-        const vv = window.visualViewport;
-        const offset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
-        if (offset > 60) {
-          setKeyboardBottomOffset(offset);
-        } else {
-          setKeyboardBottomOffset(0);
-        }
-      }
-    };
-
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', updateKeyboardPosition);
-      window.visualViewport.addEventListener('scroll', updateKeyboardPosition);
-    }
-
-    window.addEventListener('resize', updateKeyboardPosition);
-
-    return () => {
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', updateKeyboardPosition);
-        window.visualViewport.removeEventListener('scroll', updateKeyboardPosition);
-      }
-      window.removeEventListener('resize', updateKeyboardPosition);
-    };
-  }, []);
+  const footerRef = useRef<HTMLElement>(null);
+  const { isKeyboardOpen, toolbarStyle } = useMobileKeyboardViewport(footerRef);
 
   // Coordenadas calculadas para os popovers flutuantes livres
   const [popoverCoords, setPopoverCoords] = useState<{ bottom: number; left: number } | null>(null);
@@ -414,20 +385,11 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
   return (
     <footer
+      ref={footerRef as React.RefObject<HTMLElement>}
       id="editor-toolbar-footer-container"
-      style={
-        keyboardBottomOffset > 0
-          ? {
-              position: 'fixed',
-              bottom: `${keyboardBottomOffset}px`,
-              left: 0,
-              right: 0,
-              zIndex: 9999,
-            }
-          : undefined
-      }
+      style={toolbarStyle}
       className={`w-full flex justify-center px-2 sm:px-4 py-2 shrink-0 select-none z-30 max-w-full overflow-hidden ${
-        keyboardBottomOffset > 0 ? 'pointer-events-auto shadow-2xl' : ''
+        isKeyboardOpen ? 'pointer-events-auto shadow-2xl' : ''
       }`}
     >
       {/* Dock Flutuante Centralizado Minimalista Papyrus & Ink */}
