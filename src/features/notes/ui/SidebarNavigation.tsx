@@ -13,6 +13,7 @@ import {
   Tag,
   X,
   LogOut,
+  Settings,
   User,
   MoreHorizontal,
   Edit2,
@@ -27,6 +28,7 @@ import {
   Hash,
   Check,
 } from 'lucide-react';
+import { SettingsModal } from './SettingsModal';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import {
   Folder as FolderType,
@@ -123,6 +125,8 @@ export function SidebarNavigation({
 
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('demo-user');
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2']));
 
   // Estado para menu flutuante de opções (...)
@@ -166,8 +170,9 @@ export function SidebarNavigation({
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data }) => {
-      if (data?.user?.email) {
-        setUserEmail(data.user.email);
+      if (data?.user) {
+        if (data.user.email) setUserEmail(data.user.email);
+        if (data.user.id) setUserId(data.user.id);
       }
     });
   }, []);
@@ -1193,22 +1198,36 @@ export function SidebarNavigation({
           </button>
         </div>
 
-        {/* User Info & Logout */}
+        {/* User Info & Settings & Logout */}
         <div className="flex items-center justify-between px-1 pt-1 text-xs text-[#7f756e]">
-          <div className="flex items-center gap-1.5 truncate max-w-[170px]" title={userEmail || ''}>
+          <div className="flex items-center gap-1.5 truncate max-w-[150px]" title={userEmail || ''}>
             <User className="w-3.5 h-3.5 shrink-0 text-[#68594d]" />
             <span className="truncate font-sans-ui">{userEmail || 'Conta'}</span>
           </div>
 
-          <button
-            id="sidebar-logout-btn"
-            onClick={handleLogout}
-            className="p-1 hover:bg-[#eae8e3] hover:text-[#ba1a1a] rounded transition-colors cursor-pointer"
-            title="Sair da Conta"
-            aria-label="Sair da Conta"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              id="sidebar-settings-btn"
+              type="button"
+              onClick={() => setShowSettingsModal(true)}
+              className="p-1 hover:bg-[#eae8e3] hover:text-[#1b1c19] rounded transition-colors cursor-pointer"
+              title="Configurações"
+              aria-label="Configurações"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              id="sidebar-logout-btn"
+              type="button"
+              onClick={handleLogout}
+              className="p-1 hover:bg-[#eae8e3] hover:text-[#ba1a1a] rounded transition-colors cursor-pointer"
+              title="Sair da Conta"
+              aria-label="Sair da Conta"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1592,6 +1611,14 @@ export function SidebarNavigation({
           </div>
         </div>
       )}
+      {/* Modal de Configurações da Aplicação */}
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        userId={userId}
+        notes={notes}
+        userEmail={userEmail || ''}
+      />
     </aside>
   );
 }
