@@ -15,6 +15,7 @@ declare module '@tiptap/core' {
         size?: number;
         type?: string;
         width?: string;
+        alignment?: 'left' | 'center' | 'right';
       }) => ReturnType;
     };
   }
@@ -70,6 +71,16 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
         parseHTML: (element) => element.getAttribute('data-type') || 'application/pdf',
         renderHTML: (attributes) => ({
           'data-type': attributes.type,
+        }),
+      },
+      alignment: {
+        default: 'left',
+        parseHTML: (element) =>
+          element.getAttribute('data-alignment') ||
+          element.getAttribute('data-align') ||
+          'left',
+        renderHTML: (attributes) => ({
+          'data-alignment': attributes.alignment || 'left',
         }),
       },
       width: {

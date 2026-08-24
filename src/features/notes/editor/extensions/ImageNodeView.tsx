@@ -2,14 +2,24 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
-import { Trash2 } from 'lucide-react';
+import {
+  Trash2,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react';
+import { moveNodeBlock } from '../utils/node-movement';
 
 export function ImageNodeView(props: NodeViewProps) {
-  const { node, updateAttributes, deleteNode, selected } = props;
+  const { node, updateAttributes, deleteNode, selected, editor, getPos } = props;
   const src = node.attrs.src;
   const alt = node.attrs.alt || '';
   const title = node.attrs.title || '';
   const initialWidthAttr = node.attrs.width;
+  const alignment = (node.attrs.alignment as 'left' | 'center' | 'right') || 'center';
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -20,6 +30,13 @@ export function ImageNodeView(props: NodeViewProps) {
   const [aspectRatio, setAspectRatio] = useState<number>(1);
 
   const isSelected = selected || isLocalSelected || isResizing;
+
+  const alignClass =
+    alignment === 'left'
+      ? 'justify-start'
+      : alignment === 'right'
+      ? 'justify-end'
+      : 'justify-center';
 
   // Largura exibida: durante o arraste usa a largura em tempo real, caso contrário usa o atributo persistido
   const currentDisplayWidth =
@@ -50,6 +67,10 @@ export function ImageNodeView(props: NodeViewProps) {
       document.removeEventListener('mousedown', handleDocumentClick);
     };
   }, []);
+
+  const handleMove = (direction: 'up' | 'down') => {
+    moveNodeBlock(editor as any, getPos as any, direction);
+  };
 
   // Inicia o redimensionamento por arraste (Pointer / Touch / Mouse unificado)
   const handleResizeStart = useCallback(
@@ -146,7 +167,7 @@ export function ImageNodeView(props: NodeViewProps) {
     <NodeViewWrapper
       as="div"
       ref={containerRef}
-      className="image-node-view-wrapper my-5 relative flex justify-center max-w-full select-none"
+      className={`image-node-view-wrapper my-5 relative flex ${alignClass} max-w-full select-none`}
       onClick={() => setIsLocalSelected(true)}
     >
       <div
@@ -161,21 +182,94 @@ export function ImageNodeView(props: NodeViewProps) {
         {/* Barra Flutuante de Informação e Ações Rápidas (Aparece ao selecionar) */}
         {isSelected && (
           <div
-            className="absolute -top-10 left-1/2 -translate-x-1/2 bg-[#ffffff]/95 backdrop-blur-xs border border-[#e4e2dd] shadow-md rounded-xl px-2.5 py-1 flex items-center gap-2 z-30 text-xs font-sans-ui text-[#4e453f] animate-in fade-in zoom-in-95 pointer-events-auto"
+            className="absolute -top-11 left-1/2 -translate-x-1/2 bg-[#ffffff]/98 backdrop-blur-xs border border-[#e4e2dd] shadow-lg rounded-xl px-2 py-1 flex items-center gap-1.5 z-30 text-xs font-sans-ui text-[#4e453f] animate-in fade-in zoom-in-95 pointer-events-auto"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Handle de Arraste (Drag & Drop nativo do ProseMirror) */}
+            <div
+              data-drag-handle
+              className="p-1 hover:bg-[#f0eee9] rounded-md text-[#68594d] cursor-grab active:cursor-grabbing flex items-center justify-center"
+              title="Segure e arraste para reposicionar no documento"
+            >
+              <GripVertical className="w-3.5 h-3.5" />
+            </div>
+
+            {/* Mover para Cima e para Baixo */}
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => handleMove('up')}
+                className="p-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer"
+                title="Mover bloco para cima"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMove('down')}
+                className="p-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer"
+                title="Mover bloco para baixo"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
+
+            {/* Controles de Alinhamento Horizontal */}
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => updateAttributes({ alignment: 'left' })}
+                className={`p-1 rounded-md transition-colors cursor-pointer ${
+                  alignment === 'left'
+                    ? 'bg-[#68594d] text-white shadow-2xs'
+                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
+                }`}
+                title="Alinhar à esquerda"
+              >
+                <AlignLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => updateAttributes({ alignment: 'center' })}
+                className={`p-1 rounded-md transition-colors cursor-pointer ${
+                  alignment === 'center'
+                    ? 'bg-[#68594d] text-white shadow-2xs'
+                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
+                }`}
+                title="Centralizar"
+              >
+                <AlignCenter className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => updateAttributes({ alignment: 'right' })}
+                className={`p-1 rounded-md transition-colors cursor-pointer ${
+                  alignment === 'right'
+                    ? 'bg-[#68594d] text-white shadow-2xs'
+                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
+                }`}
+                title="Alinhar à direita"
+              >
+                <AlignRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
+
             {/* Indicador numérico de largura em tempo real */}
             <span className="font-mono text-[11px] font-medium text-[#68594d] px-1">
               {resizingWidth ? `${Math.round(resizingWidth)}px` : initialWidthAttr || 'Auto'}
             </span>
 
-            <div className="h-3 w-[1px] bg-[#e4e2dd]" />
-
             {/* Presets rápidos */}
             <button
               type="button"
               onClick={() => {
-                const parent = containerRef.current?.closest('.ProseMirror') || containerRef.current?.parentElement;
+                const parent =
+                  containerRef.current?.closest('.ProseMirror') ||
+                  containerRef.current?.parentElement;
                 const maxW = parent ? parent.clientWidth - 24 : 700;
                 const halfW = Math.round(maxW * 0.5);
                 updateAttributes({ width: `${halfW}px` });
@@ -188,7 +282,9 @@ export function ImageNodeView(props: NodeViewProps) {
             <button
               type="button"
               onClick={() => {
-                const parent = containerRef.current?.closest('.ProseMirror') || containerRef.current?.parentElement;
+                const parent =
+                  containerRef.current?.closest('.ProseMirror') ||
+                  containerRef.current?.parentElement;
                 const maxW = parent ? parent.clientWidth - 24 : 700;
                 const fullW = Math.round(maxW);
                 updateAttributes({ width: `${fullW}px` });
@@ -199,7 +295,7 @@ export function ImageNodeView(props: NodeViewProps) {
               100%
             </button>
 
-            <div className="h-3 w-[1px] bg-[#e4e2dd]" />
+            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
 
             {/* Excluir imagem */}
             <button

@@ -9,7 +9,7 @@ export interface CustomYoutubeOptions {
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     customYoutube: {
-      setYoutubeVideo: (options: { src: string; width?: string }) => ReturnType;
+      setYoutubeVideo: (options: { src: string; width?: string; alignment?: 'left' | 'center' | 'right' }) => ReturnType;
     };
   }
 }
@@ -35,6 +35,16 @@ export const CustomYoutube = Node.create<CustomYoutubeOptions>({
         renderHTML: (attributes) => ({
           src: attributes.src,
           'data-youtube-video': attributes.src,
+        }),
+      },
+      alignment: {
+        default: 'center',
+        parseHTML: (element) =>
+          element.getAttribute('data-alignment') ||
+          element.getAttribute('data-align') ||
+          'center',
+        renderHTML: (attributes) => ({
+          'data-alignment': attributes.alignment || 'center',
         }),
       },
       width: {

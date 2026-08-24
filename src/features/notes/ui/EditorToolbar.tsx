@@ -24,12 +24,14 @@ import {
   Youtube as YoutubeIcon,
   Paperclip,
   ChevronDown,
+  Link as LinkIcon,
   X,
   Loader2,
 } from 'lucide-react';
 import { uploadNoteFile } from '../api/storage-api';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import { useMobileKeyboardViewport } from '../hooks/useMobileKeyboardViewport';
+import { normalizeUrl } from '../editor/utils/url-helper';
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -65,6 +67,9 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   const [showAddFileMenu, setShowAddFileMenu] = useState(false);
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [linkModalUrl, setLinkModalUrl] = useState('');
+  const [linkModalText, setLinkModalText] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [, setSelectionUpdate] = useState(0);
@@ -377,6 +382,58 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     editor.chain().focus().setYoutubeVideo({ src: url, width: '100%' }).run();
     setYoutubeUrl('');
     setShowYoutubeModal(false);
+  };
+
+  // Abrir Modal de Link
+  const handleOpenLinkModal = () => {
+    const { from, to, empty } = editor.state.selection;
+    const selectedText = empty ? '' : editor.state.doc.textBetween(from, to, ' ');
+    const currentLinkHref = editor.getAttributes('link').href || '';
+    setLinkModalText(selectedText || '');
+    setLinkModalUrl(currentLinkHref || '');
+    setShowAddFileMenu(false);
+    setShowLinkModal(true);
+  };
+
+  // Inserção / Aplicação de Link via Modal
+  const handleLinkSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = linkModalUrl.trim();
+    if (!url) return;
+
+    const normalized = normalizeUrl(url);
+    const displayText = linkModalText.trim() || url;
+
+    const { empty } = editor.state.selection;
+    if (!empty) {
+      if (linkModalText.trim()) {
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: 'text',
+            text: displayText,
+            marks: [{ type: 'link', attrs: { href: normalized } }],
+          })
+          .run();
+      } else {
+        editor.chain().focus().setLink({ href: normalized }).run();
+      }
+    } else {
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'text',
+          text: displayText,
+          marks: [{ type: 'link', attrs: { href: normalized } }],
+        })
+        .run();
+    }
+
+    setLinkModalUrl('');
+    setLinkModalText('');
+    setShowLinkModal(false);
   };
 
   // Estilo padrão uniforme para os botões da toolbar (sem estado ativo permanente)
@@ -959,6 +1016,16 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             <YoutubeIcon className="w-4 h-4 text-[#ba1a1a]" />
             <span>Inserir Vídeo do YouTube</span>
           </button>
+
+          <button
+            type="button"
+            id="file-opt-link"
+            onClick={handleOpenLinkModal}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19] transition-colors cursor-pointer text-left text-xs sm:text-sm"
+          >
+            <LinkIcon className="w-4 h-4 text-[#68594d]" />
+            <span>Inserir Link</span>
+          </button>
         </div>
       )}
 
@@ -1010,15 +1077,92 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
                 <button
                   type="button"
                   onClick={() => setShowYoutubeModal(false)}
-                  className="px-3.5 py-1.5 text-xs text-[#7f756e] hover:text-[#1b1c19] rounded-xl hover:bg-[#f0eee9] font-medium"
+                  className="px-3.5 py-1.5 text-xs text-[#7f756e] hover:text-[#1b1c19] rounded-xl hover:bg-[#f0eee9] font-medium cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-xs bg-[#68594d] hover:bg-[#574a40] text-white rounded-xl font-medium shadow-xs"
+                  className="px-4 py-1.5 text-xs bg-[#68594d] hover:bg-[#574a40] text-white rounded-xl font-medium shadow-xs cursor-pointer"
                 >
                   Inserir Vídeo
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE INSERÇÃO DE LINK */}
+      {showLinkModal && (
+        <div
+          id="link-insert-modal-backdrop"
+          className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
+          onClick={() => setShowLinkModal(false)}
+        >
+          <div
+            id="link-insert-modal"
+            className="bg-white border border-[#e4e2dd] p-5 rounded-2xl shadow-2xl max-w-md w-full font-sans-ui space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <LinkIcon className="w-5 h-5 text-[#68594d]" />
+                <h3 className="font-semibold text-sm sm:text-base text-[#1b1c19]">
+                  Inserir Link
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLinkModal(false)}
+                className="p-1 text-[#7f756e] hover:text-[#1b1c19] rounded-lg hover:bg-[#eae8e3] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleLinkSubmit} className="space-y-3">
+              <div>
+                <label className="block text-xs text-[#7f756e] mb-1 font-medium">
+                  URL / Endereço do Link *
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://exemplo.com ou google.com"
+                  value={linkModalUrl}
+                  onChange={(e) => setLinkModalUrl(e.target.value)}
+                  autoFocus
+                  required
+                  className="w-full bg-[#fbf9f4] border border-[#e4e2dd] focus:border-[#68594d] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#1b1c19] focus:outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-[#7f756e] mb-1 font-medium">
+                  Texto de Exibição (opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Abrir Site"
+                  value={linkModalText}
+                  onChange={(e) => setLinkModalText(e.target.value)}
+                  className="w-full bg-[#fbf9f4] border border-[#e4e2dd] focus:border-[#68594d] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#1b1c19] focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLinkModal(false)}
+                  className="px-3.5 py-1.5 text-xs text-[#7f756e] hover:text-[#1b1c19] rounded-xl hover:bg-[#f0eee9] font-medium cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 text-xs bg-[#68594d] hover:bg-[#574a40] text-white rounded-xl font-medium shadow-xs cursor-pointer"
+                >
+                  Inserir Link
                 </button>
               </div>
             </form>

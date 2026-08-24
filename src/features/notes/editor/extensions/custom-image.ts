@@ -16,6 +16,7 @@ declare module '@tiptap/core' {
         alt?: string;
         title?: string;
         width?: string | number;
+        alignment?: 'left' | 'center' | 'right';
       }) => ReturnType;
     };
   }
@@ -59,6 +60,19 @@ export const CustomImage = Node.create<CustomImageOptions>({
         renderHTML: (attributes) => ({
           title: attributes.title,
         }),
+      },
+      alignment: {
+        default: 'center',
+        parseHTML: (element) =>
+          element.getAttribute('data-alignment') ||
+          element.getAttribute('data-align') ||
+          element.getAttribute('align') ||
+          'center',
+        renderHTML: (attributes) => {
+          return {
+            'data-alignment': attributes.alignment || 'center',
+          };
+        },
       },
       width: {
         default: null,

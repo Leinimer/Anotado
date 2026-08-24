@@ -6,6 +6,7 @@ import Color from '@tiptap/extension-color';
 import TextAlign from '@tiptap/extension-text-align';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
+import Link from '@tiptap/extension-link';
 import { Markdown } from 'tiptap-markdown';
 import HorizontalRule from '@tiptap/extension-horizontal-rule';
 import { InputRule } from '@tiptap/core';
@@ -16,6 +17,18 @@ import { CustomImage } from './extensions/custom-image';
 import { Details, DetailsSummary, DetailsContent } from './extensions/toggle-details';
 import { CustomYoutube } from './extensions/custom-youtube';
 import { DocumentAttachment } from './extensions/document-attachment';
+
+export const CustomLink = Link.configure({
+  openOnClick: false,
+  autolink: true,
+  defaultProtocol: 'https',
+  protocols: ['http', 'https', 'mailto', 'tel'],
+  HTMLAttributes: {
+    class: 'editor-link text-[#68594d] underline underline-offset-2 decoration-[#68594d]/40 hover:decoration-[#68594d] cursor-pointer font-medium transition-colors',
+    target: '_blank',
+    rel: 'noopener noreferrer',
+  },
+});
 
 export const CustomHorizontalRule = HorizontalRule.extend({
   addInputRules() {
@@ -104,6 +117,7 @@ export const defaultEditorExtensions = [
   TaskItem.configure({
     nested: true,
   }),
+  CustomLink,
   CustomImage.configure({
     inline: false,
     allowBase64: true,
