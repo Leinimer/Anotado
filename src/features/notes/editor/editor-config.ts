@@ -9,8 +9,8 @@ import TaskItem from '@tiptap/extension-task-item';
 import Link from '@tiptap/extension-link';
 import { Markdown } from 'tiptap-markdown';
 import HorizontalRule from '@tiptap/extension-horizontal-rule';
-import { InputRule } from '@tiptap/core';
-import { TextSelection } from '@tiptap/pm/state';
+import { Extension, InputRule } from '@tiptap/core';
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 
 import { FontSize } from './extensions/font-size';
 import { CustomImage } from './extensions/custom-image';
@@ -18,7 +18,73 @@ import { Details, DetailsSummary, DetailsContent } from './extensions/toggle-det
 import { CustomYoutube } from './extensions/custom-youtube';
 import { DocumentAttachment } from './extensions/document-attachment';
 
-export const CustomLink = Link.configure({
+export const CustomLink = Link.extend({
+  inclusive: false,
+  addProseMirrorPlugins() {
+    return [
+      ...(this.parent?.() || []),
+      new Plugin({
+        key: new PluginKey('linkNonPropagation'),
+        props: {
+          handleKeyDown(view, event) {
+            if (event.key === ' ' || event.key === 'Spacebar') {
+              const { state } = view;
+              const { $from, empty } = state.selection;
+              const linkType = state.schema.marks.link;
+              if (linkType && empty) {
+                const marks = state.storedMarks || $from.marks();
+                const hasLink = marks.some((m) => m.type === linkType);
+                if (hasLink) {
+                  const nodeBefore = $from.nodeBefore;
+                  if (nodeBefore && nodeBefore.marks.some((m) => m.type === linkType)) {
+                    const tr = state.tr.insertText(' ', $from.pos);
+                    tr.removeStoredMark(linkType);
+                    view.dispatch(tr);
+                    return true;
+                  }
+                }
+              }
+            }
+            return false;
+          },
+          handleTextInput(view, from, to, text) {
+            if (text === ' ' || text === '\n' || text === '\t') {
+              const { state } = view;
+              const linkType = state.schema.marks.link;
+              if (linkType) {
+                const tr = state.tr.insertText(text, from, to);
+                tr.removeStoredMark(linkType);
+                view.dispatch(tr);
+                return true;
+              }
+            }
+            return false;
+          },
+        },
+        appendTransaction(transactions, oldState, newState) {
+          const linkType = newState.schema.marks.link;
+          if (!linkType) return null;
+
+          const { selection } = newState;
+          if (selection.empty) {
+            const { $from } = selection;
+            const hasStoredLink = (newState.storedMarks || []).some((m) => m.type === linkType);
+            const prevChar = $from.nodeBefore?.text?.slice(-1);
+
+            if (prevChar === ' ' || prevChar === '\n' || prevChar === '\t') {
+              if (hasStoredLink || $from.marks().some((m) => m.type === linkType)) {
+                const tr = newState.tr;
+                tr.removeStoredMark(linkType);
+                return tr;
+              }
+            }
+          }
+          return null;
+        },
+      }),
+    ];
+  },
+}).configure({
   openOnClick: false,
   autolink: true,
   defaultProtocol: 'https',
@@ -27,6 +93,24 @@ export const CustomLink = Link.configure({
     class: 'editor-link text-[#68594d] underline underline-offset-2 decoration-[#68594d]/40 hover:decoration-[#68594d] cursor-pointer font-medium transition-colors',
     target: '_blank',
     rel: 'noopener noreferrer',
+  },
+});
+
+/**
+ * Regra de input que transforma a sequência "->" em "→" automaticamente.
+ */
+export const ArrowTransformExtension = Extension.create({
+  name: 'arrowTransform',
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /->$/,
+        handler: ({ state, range }) => {
+          const { tr } = state;
+          tr.replaceWith(range.from, range.to, state.schema.text('→'));
+        },
+      }),
+    ];
   },
 });
 
@@ -103,6 +187,7 @@ export const defaultEditorExtensions = [
     },
   }),
   CustomHorizontalRule,
+  ArrowTransformExtension,
   Underline,
   Highlight.configure({
     multicolor: true,

@@ -2,6 +2,31 @@ import { Folder, Note, SearchMode, SYSTEM_ARCHIVE_FOLDER_ID, TreeFolderNode, Tre
 import { extractHashtagsFromText, noteHasTag, stripToPlainText } from './hashtag-extractor';
 
 /**
+ * Retorna a cor efetiva de uma pasta através de herança recursiva de seus ancestrais mais próximos.
+ * Se a pasta tiver cor própria, retorna ela. Senão, busca no pai mais próximo que tiver cor.
+ */
+export function getEffectiveFolderColor(
+  folderId: string,
+  allFolders: Folder[]
+): string | null {
+  let current = allFolders.find((f) => f.id === folderId);
+  const visited = new Set<string>();
+
+  while (current) {
+    if (visited.has(current.id)) break;
+    visited.add(current.id);
+
+    if (current.color) {
+      return current.color;
+    }
+    if (!current.parent_id) break;
+    current = allFolders.find((f) => f.id === current?.parent_id);
+  }
+
+  return null;
+}
+
+/**
  * Constrói a árvore hierárquica de pastas e notas a partir de listas planas,
  * segregando notas ativas da pasta especial do sistema "Notas arquivadas".
  */
@@ -59,6 +84,8 @@ export function buildFolderTree(
       folderNotes = recursiveNotes;
     }
 
+    const effectiveColor = getEffectiveFolderColor(folder.id, folders);
+
     return {
       type: 'folder',
       id: folder.id,
@@ -66,6 +93,7 @@ export function buildFolderTree(
       parentId: folder.parent_id,
       position: folder.position,
       color: folder.color,
+      effectiveColor,
       isSmart: folder.is_smart,
       smartTags: folder.smart_tags,
       isSystem: false,

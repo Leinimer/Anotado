@@ -37,6 +37,7 @@ export interface TreeFolderNode {
   parentId: string | null;
   position: number;
   color?: string | null;
+  effectiveColor?: string | null;
   isSmart?: boolean;
   smartTags?: string[];
   isSystem?: boolean;

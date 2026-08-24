@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Search,
   Folder,
@@ -29,6 +29,7 @@ import {
   Check,
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
+import { TagsModal } from './TagsModal';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import {
   Folder as FolderType,
@@ -156,6 +157,14 @@ export function SidebarNavigation({
     hasChildren?: boolean;
   } | null>(null);
 
+  // Estado para modal de todas as etiquetas e limitação visual de tags
+  const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
+  const tagsContainerRef = useRef<HTMLDivElement>(null);
+  const [hasTagsOverflow, setHasTagsOverflow] = useState(false);
+
+  // Extrai tags dinâmicas de todas as notas
+  const uniqueTags = useMemo(() => extractAllUniqueTags(notes), [notes]);
+
   // Drag & Drop State (Diferenciação precisa de 'before', 'after' e 'inside')
   const [draggingItem, setDraggingItem] = useState<{
     type: 'folder' | 'note';
@@ -192,6 +201,15 @@ export function SidebarNavigation({
       editInputRef.current.select();
     }
   }, [editingItemId]);
+
+  // Mede overflow de tags para limitar a 4 linhas visuais
+  useEffect(() => {
+    if (tagsContainerRef.current) {
+      const isOverflowing =
+        tagsContainerRef.current.scrollHeight > 108 || uniqueTags.length > 8;
+      setHasTagsOverflow(isOverflowing);
+    }
+  }, [uniqueTags]);
 
   // Fecha menu de contexto e menu de busca ao clicar fora ou ao pressionar Escape
   useEffect(() => {
@@ -285,8 +303,12 @@ export function SidebarNavigation({
     });
   };
 
+  const isCancellingRenameRef = useRef(false);
+  const lastClickRef = useRef<{ id: string; type: 'folder' | 'note'; time: number } | null>(null);
+
   // Inicia edição de nome
   const startRenaming = (id: string, type: 'folder' | 'note', initialName: string) => {
+    isCancellingRenameRef.current = false;
     setEditingItemId(id);
     setEditingItemType(type);
     setEditingValue(initialName);
@@ -294,6 +316,10 @@ export function SidebarNavigation({
   };
 
   const handleSaveRename = () => {
+    if (isCancellingRenameRef.current) {
+      isCancellingRenameRef.current = false;
+      return;
+    }
     if (!editingItemId || !editingItemType) return;
     const trimmed = editingValue.trim();
     if (trimmed) {
@@ -706,9 +732,6 @@ export function SidebarNavigation({
     searchMode
   );
 
-  // Extrai tags dinâmicas de todas as notas
-  const uniqueTags = extractAllUniqueTags(notes);
-
   // Placeholder dinâmico de acordo com o modo de busca
   const getSearchPlaceholder = () => {
     switch (searchMode) {
@@ -735,14 +758,36 @@ export function SidebarNavigation({
     const isEditing = editingItemId === folder.id && editingItemType === 'folder';
     const isSmart = folder.isSmart || (folder.smartTags && folder.smartTags.length > 0);
     const isMenuOpenForThisFolder = menuOpenId === folder.id;
+    const effectiveColor = folder.effectiveColor || folder.color;
     const iconColor = isSystemArchive
       ? '#8c6b4f'
-      : folder.color || (isOpen ? '#68594d' : '#7f756e');
+      : effectiveColor || (isOpen ? '#68594d' : '#7f756e');
 
     const isCurrentDropTarget = dropTarget?.targetId === folder.id && dropTarget?.targetType === 'folder';
     const isDropBefore = isCurrentDropTarget && dropTarget?.dropPosition === 'before';
     const isDropAfter = isCurrentDropTarget && dropTarget?.dropPosition === 'after';
     const isDropInside = isCurrentDropTarget && dropTarget?.dropPosition === 'inside';
+
+    const handleFolderClick = (e: React.MouseEvent) => {
+      if (isEditing) return;
+      const now = Date.now();
+      const last = lastClickRef.current;
+      if (last && last.id === folder.id && last.type === 'folder' && now - last.time < 350) {
+        lastClickRef.current = null;
+        if (!isSystemArchive) {
+          startRenaming(folder.id, 'folder', folder.name);
+          return;
+        }
+      }
+      lastClickRef.current = { id: folder.id, type: 'folder', time: now };
+      toggleFolder(folder.id, e);
+    };
+
+    const handleFolderDoubleClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isSystemArchive || isEditing) return;
+      startRenaming(folder.id, 'folder', folder.name);
+    };
 
     return (
       <div key={folder.id} className="space-y-0.5 select-none relative">
@@ -762,7 +807,8 @@ export function SidebarNavigation({
           onTouchStart={(e) => handleTouchStart('folder', folder.id, e)}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          onClick={(e) => toggleFolder(folder.id, e)}
+          onClick={handleFolderClick}
+          onDoubleClick={handleFolderDoubleClick}
           onContextMenu={(e) => {
             if (!isSystemArchive) {
               handleContextMenu(e, folder.id, 'folder');
@@ -811,9 +857,14 @@ export function SidebarNavigation({
                 onBlur={handleSaveRename}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleSaveRename();
-                  if (e.key === 'Escape') setEditingItemId(null);
+                  if (e.key === 'Escape') {
+                    isCancellingRenameRef.current = true;
+                    setEditingItemId(null);
+                    setEditingItemType(null);
+                  }
                 }}
                 onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
                 className="w-full bg-white px-1.5 py-0.5 text-xs font-sans-ui rounded border border-[#68594d] focus:outline-none"
               />
             ) : (
@@ -880,6 +931,26 @@ export function SidebarNavigation({
     const isDropBefore = isCurrentDropTarget && dropTarget?.dropPosition === 'before';
     const isDropAfter = isCurrentDropTarget && dropTarget?.dropPosition === 'after';
 
+    const handleNoteClick = (e: React.MouseEvent) => {
+      if (isEditing) return;
+      const now = Date.now();
+      const last = lastClickRef.current;
+      if (last && last.id === note.id && last.type === 'note' && now - last.time < 350) {
+        lastClickRef.current = null;
+        startRenaming(note.id, 'note', note.title || 'Sem título');
+        return;
+      }
+      lastClickRef.current = { id: note.id, type: 'note', time: now };
+      onSelectNote(note.id);
+      if (onCloseMobile) onCloseMobile();
+    };
+
+    const handleNoteDoubleClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isEditing) return;
+      startRenaming(note.id, 'note', note.title || 'Sem título');
+    };
+
     return (
       <div key={note.id} className="relative space-y-0.5 select-none">
         {/* Linha de Inserção Horizontal ANTES da Nota */}
@@ -898,10 +969,8 @@ export function SidebarNavigation({
           onTouchStart={(e) => handleTouchStart('note', note.id, e)}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          onClick={() => {
-            onSelectNote(note.id);
-            if (onCloseMobile) onCloseMobile();
-          }}
+          onClick={handleNoteClick}
+          onDoubleClick={handleNoteDoubleClick}
           onContextMenu={(e) => handleContextMenu(e, note.id, 'note', isArchived)}
           style={{ paddingLeft: `${note.depth * 16 + 12}px` }}
           className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative ${
@@ -936,9 +1005,14 @@ export function SidebarNavigation({
                 onBlur={handleSaveRename}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleSaveRename();
-                  if (e.key === 'Escape') setEditingItemId(null);
+                  if (e.key === 'Escape') {
+                    isCancellingRenameRef.current = true;
+                    setEditingItemId(null);
+                    setEditingItemType(null);
+                  }
                 }}
                 onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
                 className="w-full bg-white px-1.5 py-0.5 text-xs font-sans-ui rounded border border-[#68594d] focus:outline-none"
               />
             ) : (
@@ -973,15 +1047,15 @@ export function SidebarNavigation({
       id="sidebar-navigation-container"
       className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0"
     >
-      {/* Top Header: Brand & Search Bar */}
+      {/* Top Header: Brand Logo Centered in Sidebar & Search Bar */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
+        <div className="relative flex items-center justify-center py-1 px-1">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-[#68594d] text-white flex items-center justify-center font-serif-note font-bold text-sm shadow-xs">
               A
             </div>
-            <span className="font-serif-note font-bold text-base text-[#1b1c19] tracking-tight">
-              Anotado!
+            <span className="font-serif-note font-bold text-lg text-[#1b1c19] tracking-tight">
+              anotado!
             </span>
           </div>
 
@@ -989,7 +1063,7 @@ export function SidebarNavigation({
             <button
               id="sidebar-close-mobile-btn"
               onClick={onCloseMobile}
-              className="p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg md:hidden"
+              className="absolute right-0 top-1/2 -translate-y-1/2 p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg md:hidden cursor-pointer"
               aria-label="Fechar Menu Lateral"
             >
               <X className="w-4 h-4" />
@@ -1148,11 +1222,28 @@ export function SidebarNavigation({
       {/* Tags Globais Extraídas Dinamicamente */}
       {uniqueTags.length > 0 && !searchQuery && (
         <div className="py-2 border-t border-[#eae8e3]">
-          <div className="flex items-center gap-1.5 px-1 mb-1.5 text-xs text-[#7f756e] font-sans-ui font-medium">
-            <Tag className="w-3 h-3 text-[#68594d]" />
-            <span>Etiquetas</span>
+          <div className="flex items-center justify-between px-1 mb-1.5 text-xs text-[#7f756e] font-sans-ui font-medium">
+            <div className="flex items-center gap-1.5">
+              <Tag className="w-3 h-3 text-[#68594d]" />
+              <span>Etiquetas</span>
+            </div>
+            {hasTagsOverflow && (
+              <button
+                type="button"
+                id="sidebar-tags-view-all-link"
+                onClick={() => setIsTagsModalOpen(true)}
+                className="text-[11px] text-[#68594d] hover:text-[#1b1c19] hover:underline font-medium cursor-pointer"
+              >
+                Ver todas ({uniqueTags.length})
+              </button>
+            )}
           </div>
-          <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto py-0.5">
+          <div
+            ref={tagsContainerRef}
+            className={`flex flex-wrap gap-1 py-0.5 transition-all ${
+              hasTagsOverflow ? 'max-h-[104px] overflow-hidden' : 'max-h-36 overflow-y-auto'
+            }`}
+          >
             {uniqueTags.map((tag) => {
               const isSelected = activeTag?.toLowerCase() === tag.toLowerCase();
               return (
@@ -1171,6 +1262,17 @@ export function SidebarNavigation({
               );
             })}
           </div>
+
+          {hasTagsOverflow && (
+            <button
+              type="button"
+              id="sidebar-show-all-tags-btn"
+              onClick={() => setIsTagsModalOpen(true)}
+              className="w-full mt-1.5 py-1 px-2 text-[11px] font-sans-ui font-medium text-[#68594d] hover:text-[#1b1c19] hover:bg-[#eae8e3]/70 rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer border border-dashed border-[#d7c3b0]/70"
+            >
+              <span>Mostrar todas ({uniqueTags.length})</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1618,6 +1720,15 @@ export function SidebarNavigation({
         userId={userId}
         notes={notes}
         userEmail={userEmail || ''}
+      />
+
+      {/* Modal de Todas as Etiquetas */}
+      <TagsModal
+        isOpen={isTagsModalOpen}
+        onClose={() => setIsTagsModalOpen(false)}
+        tags={uniqueTags}
+        activeTag={activeTag}
+        onSelectTag={(tag) => setActiveTag(activeTag === tag ? null : tag)}
       />
     </aside>
   );

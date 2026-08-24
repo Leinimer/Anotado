@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ArrowDown,
   ArrowUp,
+  Unlink,
 } from 'lucide-react';
 
 interface FloatingBubbleToolbarProps {
@@ -405,6 +406,27 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
             style={{ backgroundColor: '#fecdd3' }}
           />
         </button>
+
+        {/* 11. Remover Link (visível somente quando a seleção contiver hyperlink) */}
+        {editor.isActive('link') && (
+          <>
+            <div className="h-4 w-[1px] bg-[#e4e2dd] mx-0.5" />
+            <button
+              type="button"
+              id="bubble-btn-unset-link"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                editor.chain().focus().unsetLink().run();
+              }}
+              className="min-h-[30px] sm:min-h-[32px] px-2 py-1 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer bg-[#ba1a1a]/10 hover:bg-[#ba1a1a]/20 text-[#ba1a1a] font-sans-ui text-xs font-medium active:scale-95 shadow-2xs"
+              title="Remover hiperlink do trecho selecionado"
+              aria-label="Remover link"
+            >
+              <Unlink className="w-3.5 h-3.5 stroke-[2]" />
+              <span>Remover link</span>
+            </button>
+          </>
+        )}
       </div>
     </BubbleMenu>
   );
