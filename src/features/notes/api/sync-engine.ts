@@ -21,6 +21,7 @@ import { networkMonitor } from './network-monitor';
 import { writeNoteMarkdown, deleteNoteMarkdown, readNoteMarkdown } from './notes-storage-api';
 import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
 import { serializeMarkdownWithTags, parseMarkdownWithTags } from '../utils/markdown-tags';
+import { saveQueue } from './save-queue';
 
 export type DataChangePayload = {
   userId: string;
@@ -38,6 +39,7 @@ class SyncEngine {
   private dataSubscribers: Set<DataSubscriber> = new Set();
   private lastKnownReachable: boolean = false;
   private realtimeChannel: any = null;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -49,21 +51,37 @@ class SyncEngine {
         const isNowOnline = state.isBackendReachable;
         this.lastKnownReachable = isNowOnline;
 
-        if (wasOffline && isNowOnline && !this.isProcessing && this.activeUserId) {
-          this.scheduleSync(300);
+        if (wasOffline && isNowOnline && this.activeUserId) {
+          console.log('[Realtime] RECONNECT');
+          this.setupRealtimeSubscription(this.activeUserId);
+          if (!this.isProcessing) {
+            this.scheduleSync(300);
+          }
         }
       });
 
       // 2. Quando a aba/janela ganha foco ou visibilidade
       window.addEventListener('focus', () => {
-        if (this.activeUserId && !this.isProcessing && navigator.onLine) {
-          this.scheduleSync(100);
+        if (this.activeUserId && navigator.onLine) {
+          if (!this.realtimeChannel) {
+            console.log('[Realtime] RECONNECT');
+            this.setupRealtimeSubscription(this.activeUserId);
+          }
+          if (!this.isProcessing) {
+            this.scheduleSync(100);
+          }
         }
       });
 
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && this.activeUserId && !this.isProcessing && navigator.onLine) {
-          this.scheduleSync(100);
+        if (document.visibilityState === 'visible' && this.activeUserId && navigator.onLine) {
+          if (!this.realtimeChannel) {
+            console.log('[Realtime] RECONNECT');
+            this.setupRealtimeSubscription(this.activeUserId);
+          }
+          if (!this.isProcessing) {
+            this.scheduleSync(100);
+          }
         }
       });
 
@@ -87,6 +105,41 @@ class SyncEngine {
   }
 
   /**
+   * Limpa canais de tempo real e encerra ouvintes ativos (usado no logout).
+   */
+  public cleanup() {
+    if (this.realtimeChannel) {
+      try {
+        const supabase = createClient();
+        supabase.removeChannel(this.realtimeChannel);
+      } catch (err) {
+        console.warn('[Realtime] Erro ao remover canal:', err);
+      }
+      this.realtimeChannel = null;
+    }
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    this.activeUserId = null;
+  }
+
+  /**
+   * Trata reconexão do Supabase Realtime com debounce e backoff.
+   */
+  private handleRealtimeReconnect(userId: string) {
+    if (this.reconnectTimeout) return;
+    console.log('[Realtime] RECONNECT');
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      if (this.activeUserId === userId && (typeof navigator === 'undefined' || navigator.onLine)) {
+        this.setupRealtimeSubscription(userId);
+        this.scheduleSync(100);
+      }
+    }, 2000);
+  }
+
+  /**
    * Configura o ouvinte em tempo real (Supabase Realtime) para notes e folders.
    * Permite que alterações feitas no celular apareçam instantaneamente no computador e vice-versa.
    */
@@ -105,7 +158,7 @@ class SyncEngine {
         this.realtimeChannel = null;
       }
 
-      const channelName = `realtime-sync-notes-${userId}`;
+      const channelName = `user-realtime-${userId}`;
       this.realtimeChannel = supabase
         .channel(channelName)
         .on(
@@ -117,7 +170,6 @@ class SyncEngine {
             filter: `user_id=eq.${userId}`,
           },
           async (payload: any) => {
-            console.log('[Realtime] Alteração remota recebida em NOTES:', payload.eventType, payload.new?.id || payload.old?.id);
             await this.handleRealtimeNoteChange(userId, payload);
           }
         )
@@ -130,12 +182,17 @@ class SyncEngine {
             filter: `user_id=eq.${userId}`,
           },
           async (payload: any) => {
-            console.log('[Realtime] Alteração remota recebida em FOLDERS:', payload.eventType, payload.new?.id || payload.old?.id);
             await this.handleRealtimeFolderChange(userId, payload);
           }
         )
         .subscribe((status: any) => {
-          console.log(`[Realtime] Canal (${channelName}) status:`, status);
+          if (status === 'SUBSCRIBED') {
+            console.log('[Realtime] CONNECTED');
+            console.log('[Realtime] SUBSCRIBED');
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.log(`[Realtime] RECONNECT (${status})`);
+            this.handleRealtimeReconnect(userId);
+          }
         });
     } catch (err) {
       console.warn('[Realtime] Falha ao configurar canal de tempo real:', err);
@@ -144,7 +201,12 @@ class SyncEngine {
 
   /**
    * Trata alterações recebidas em tempo real para a tabela 'notes'.
-   * Verifica se há mutações pendentes locais antes de aplicar no IndexedDB.
+   * 1. Valida user_id para segurança.
+   * 2. Verifica se há mutações pendentes locais (SyncQueue ou SaveQueue).
+   * 3. Compara versões / revisões.
+   * 4. Trata conflitos de forma não-destrutiva criando cópia de segurança se necessário.
+   * 5. Atualiza o IndexedDB com sync_status: 'synced' SEM reinserir na SyncQueue para evitar loops.
+   * 6. Notifica dataSubscribers e atualiza a UI.
    */
   private async handleRealtimeNoteChange(userId: string, payload: any) {
     try {
@@ -152,24 +214,82 @@ class SyncEngine {
       const noteId = (newRecord && newRecord.id) || (oldRecord && oldRecord.id);
       if (!noteId) return;
 
-      // 1. Verifica se existem mutações locais pendentes para este noteId na sync_queue
-      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
-      const hasPendingMutation = pendingQueue.some(
-        (item) => item.entity_type === 'note' && item.entity_id === noteId
-      );
-
-      if (hasPendingMutation) {
-        console.log(`[Realtime] Nota ${noteId} possui mutações locais pendentes. Preservando estado local.`);
+      // Segurança: garante que apenas dados do usuário ativo sejam processados
+      const recordUserId = (newRecord && newRecord.user_id) || (oldRecord && oldRecord.user_id);
+      if (recordUserId && recordUserId !== userId) {
+        console.warn(`[Realtime] Evento ignorado: user_id diferente do autenticado (${recordUserId} !== ${userId})`);
         return;
       }
 
+      console.log(`[Realtime] REMOTE CHANGE [${eventType}] noteId=${noteId}`);
+
+      // 1. Verifica se existem mutações locais pendentes para este noteId na sync_queue
+      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+      const hasPendingInSyncQueue = pendingQueue.some(
+        (item) => item.entity_type === 'note' && item.entity_id === noteId
+      );
+
+      // 2. Verifica se existem gravações ativas ou pendentes no SaveQueueManager
+      const hasPendingInSaveQueue = saveQueue.hasPendingSaveForNote(noteId);
+      const hasLocalPendingEdits = hasPendingInSyncQueue || hasPendingInSaveQueue;
+
+      const existingLocalNote = await indexedDBStorage.getNoteById(userId, noteId);
+
       if (eventType === 'DELETE') {
-        const existing = await indexedDBStorage.getNoteById(userId, noteId);
-        if (existing && existing.sync_status === 'synced') {
-          await indexedDBStorage.deleteNote(userId, noteId);
-          await this.notifyDataSubscribers(userId);
+        console.log(`[Realtime] DELETE noteId=${noteId}`);
+        if (hasLocalPendingEdits) {
+          console.log(`[Realtime] Nota ${noteId} possui mutações locais pendentes. Preservando estado local.`);
+          return;
         }
-      } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+
+        if (existingLocalNote) {
+          await indexedDBStorage.deleteNote(userId, noteId);
+          console.log(`[Realtime] INDEXEDDB UPDATE noteId=${noteId}`);
+          networkMonitor.notifyRemoteChange();
+          await this.notifyDataSubscribers(userId);
+          console.log('[Realtime] UI NOTIFIED');
+        }
+        return;
+      }
+
+      if (eventType === 'INSERT' || eventType === 'UPDATE') {
+        const isInsert = eventType === 'INSERT';
+        if (isInsert) {
+          console.log(`[Realtime] INSERT noteId=${noteId}`);
+        } else {
+          console.log(`[Realtime] UPDATE noteId=${noteId}`);
+        }
+
+        const remoteRevision = typeof newRecord.revision === 'number' ? newRecord.revision : 0;
+        const localRevision = (existingLocalNote && typeof existingLocalNote.revision === 'number') ? existingLocalNote.revision : 0;
+
+        // Se há mutação local pendente, analisa precedência
+        if (hasLocalPendingEdits) {
+          if (localRevision >= remoteRevision) {
+            console.log(`[Realtime] Nota ${noteId} possui mutações locais pendentes (${localRevision} >= ${remoteRevision}). Preservando estado local.`);
+            return;
+          }
+
+          // Se a versão remota é superior e há colisão de conteúdo, aciona resolução de conflito não-destrutiva
+          const localContent = existingLocalNote?.content || '';
+          const remoteContent = newRecord.content || '';
+          if (localContent.trim() !== remoteContent.trim()) {
+            console.warn(`[Realtime] CONFLICT noteId=${noteId}. Criando backup de conflito não-destrutivo.`);
+            await this.handleRealtimeConflict(userId, noteId, existingLocalNote, newRecord);
+            networkMonitor.notifyRemoteChange();
+            await this.notifyDataSubscribers(userId);
+            console.log('[Realtime] UI NOTIFIED');
+            return;
+          }
+        }
+
+        // Se a nota local já existe e possui revisão superior, não regride
+        if (existingLocalNote && localRevision > remoteRevision) {
+          console.log(`[Realtime] REMOTE CHANGE ignorada: versão local mais recente (${localRevision} > ${remoteRevision})`);
+          return;
+        }
+
+        // Processa tags normalizadas
         const rawTags = newRecord.tags;
         let noteTags: string[] = [];
         if (Array.isArray(rawTags)) {
@@ -182,18 +302,119 @@ class SyncEngine {
           }
         }
 
+        // Conteúdo da nota
+        let finalContent = newRecord.content;
+
+        // Se o conteúdo veio nulo ou ausente no payload da linha, lê o Markdown no Storage (.md)
+        if (finalContent === undefined || finalContent === null) {
+          try {
+            const storageMarkdown = await readNoteMarkdown(userId, noteId);
+            if (storageMarkdown !== null) {
+              const { tags: extractedTags, body } = parseMarkdownWithTags(storageMarkdown);
+              finalContent = body;
+              if (noteTags.length === 0 && extractedTags.length > 0) {
+                noteTags = extractedTags;
+              }
+            } else {
+              finalContent = existingLocalNote?.content || '';
+            }
+          } catch (err) {
+            console.warn(`[Realtime] Aviso ao carregar Markdown do Storage para nota ${noteId}:`, err);
+            finalContent = existingLocalNote?.content || '';
+          }
+        }
+
+        // Atualiza o IndexedDB diretamente com status 'synced' para EVITAR LOOPS
         await indexedDBStorage.putNote(userId, {
           ...newRecord,
+          content: finalContent ?? '',
           tags: noteTags,
           is_archived: Boolean(newRecord.is_archived),
           sync_status: 'synced',
+          revision: Math.max(remoteRevision, localRevision),
         });
 
-        console.log(`[Realtime] IndexedDB atualizado com alteração remota da nota ${noteId}`);
+        console.log(`[Realtime] INDEXEDDB UPDATE noteId=${noteId}`);
+        networkMonitor.notifyRemoteChange();
         await this.notifyDataSubscribers(userId);
+        console.log('[Realtime] UI NOTIFIED');
       }
     } catch (err) {
       console.error('[Realtime] Erro ao processar evento de nota remota:', err);
+    }
+  }
+
+  /**
+   * Resolução não-destrutiva de conflito em tempo real:
+   * Cria uma cópia local de segurança preservando o trabalho do usuário e atualiza a original com a remota.
+   */
+  private async handleRealtimeConflict(
+    userId: string,
+    noteId: string,
+    localNote: ExtendedNote | null | undefined,
+    remoteRecord: any
+  ) {
+    try {
+      const conflictNoteId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `note-conflict-${Date.now()}`;
+      const conflictTitle = `[Conflito] ${localNote?.title || remoteRecord?.title || 'Nota'} (Cópia Local)`;
+      const conflictContent = localNote?.content || '';
+      const conflictTags = localNote?.tags || [];
+
+      // Grava a cópia de segurança do conflito no IndexedDB
+      await indexedDBStorage.putNote(userId, {
+        id: conflictNoteId,
+        user_id: userId,
+        folder_id: localNote?.folder_id || remoteRecord?.folder_id || null,
+        title: conflictTitle,
+        content: conflictContent,
+        position: 0,
+        tags: conflictTags,
+        is_archived: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        sync_status: 'pending_sync',
+        revision: 1,
+      });
+
+      // Enfileira a cópia de conflito na SyncQueue para sincronizar com o Supabase
+      await indexedDBStorage.enqueueSyncItem(userId, {
+        action: 'CREATE_NOTE',
+        entity_type: 'note',
+        entity_id: conflictNoteId,
+        payload: {
+          noteId: conflictNoteId,
+          title: conflictTitle,
+          folderId: localNote?.folder_id || remoteRecord?.folder_id || null,
+          position: 0,
+          content: conflictContent,
+          tags: conflictTags,
+        },
+        revision: 1,
+      });
+
+      // Atualiza a nota principal com a versão remota convergente
+      const rawTags = remoteRecord.tags;
+      let remoteTags: string[] = [];
+      if (Array.isArray(rawTags)) {
+        remoteTags = normalizeTags(rawTags);
+      } else if (typeof rawTags === 'string') {
+        try {
+          remoteTags = normalizeTags(JSON.parse(rawTags));
+        } catch {
+          remoteTags = normalizeTags(rawTags.split(','));
+        }
+      }
+
+      await indexedDBStorage.putNote(userId, {
+        ...remoteRecord,
+        tags: remoteTags,
+        is_archived: Boolean(remoteRecord.is_archived),
+        sync_status: 'synced',
+      });
+
+      console.log(`[Realtime] CONFLICT resolvido com cópia de backup: ${conflictNoteId}`);
+    } catch (err) {
+      console.error('[Realtime] Erro ao tratar conflito em tempo real:', err);
     }
   }
 
@@ -207,6 +428,14 @@ class SyncEngine {
       const folderId = (newRecord && newRecord.id) || (oldRecord && oldRecord.id);
       if (!folderId) return;
 
+      const recordUserId = (newRecord && newRecord.user_id) || (oldRecord && oldRecord.user_id);
+      if (recordUserId && recordUserId !== userId) {
+        console.warn(`[Realtime] Evento de pasta ignorado: user_id diferente (${recordUserId} !== ${userId})`);
+        return;
+      }
+
+      console.log(`[Realtime] REMOTE CHANGE [${eventType}] folderId=${folderId}`);
+
       const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
       const hasPendingMutation = pendingQueue.some(
         (item) => item.entity_type === 'folder' && item.entity_id === folderId
@@ -218,19 +447,32 @@ class SyncEngine {
       }
 
       if (eventType === 'DELETE') {
+        console.log(`[Realtime] DELETE folderId=${folderId}`);
         const existing = await indexedDBStorage.getFolderById(userId, folderId);
-        if (existing && existing.sync_status === 'synced') {
+        if (existing) {
           await indexedDBStorage.deleteFolder(userId, folderId);
+          console.log(`[Realtime] INDEXEDDB UPDATE folderId=${folderId}`);
+          networkMonitor.notifyRemoteChange();
           await this.notifyDataSubscribers(userId);
+          console.log('[Realtime] UI NOTIFIED');
         }
       } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+        if (eventType === 'INSERT') {
+          console.log(`[Realtime] INSERT folderId=${folderId}`);
+        } else {
+          console.log(`[Realtime] UPDATE folderId=${folderId}`);
+        }
+
         await indexedDBStorage.putFolder(userId, {
           ...newRecord,
           is_smart: Boolean(newRecord.is_smart),
           sync_status: 'synced',
         });
-        console.log(`[Realtime] IndexedDB atualizado com alteração remota da pasta ${folderId}`);
+
+        console.log(`[Realtime] INDEXEDDB UPDATE folderId=${folderId}`);
+        networkMonitor.notifyRemoteChange();
         await this.notifyDataSubscribers(userId);
+        console.log('[Realtime] UI NOTIFIED');
       }
     } catch (err) {
       console.error('[Realtime] Erro ao processar evento de pasta remota:', err);
@@ -309,12 +551,32 @@ class SyncEngine {
 
     console.log('[SyncEngine] SYNC START');
 
-    // Verifica conectividade real antes de processar
+    // 1. Verifica conectividade real antes de processar
     const reachable = await networkMonitor.checkBackendReachability();
     if (!reachable) {
-      const count = await this.updatePendingCount(userId);
+      await this.updatePendingCount(userId);
       networkMonitor.setSyncing(false);
       return { success: false, processed: 0 };
+    }
+
+    const supabase = createClient();
+
+    // 2. Valida e renova sessão de autenticação ativa no Supabase antes do PUSH
+    let authenticatedUid: string | null = null;
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData?.user?.id) {
+        authenticatedUid = userData.user.id;
+      } else {
+        const { data: sessionData } = await supabase.auth.getSession();
+        authenticatedUid = sessionData?.session?.user?.id || null;
+      }
+    } catch (authErr) {
+      console.warn('[SyncEngine] Falha ao verificar autenticação para PUSH:', authErr);
+    }
+
+    if (userId !== 'demo-user' && authenticatedUid && authenticatedUid !== userId) {
+      console.warn(`[SyncEngine] PUSH pausado: usuário autenticado no Supabase (${authenticatedUid}) diverge do userId local (${userId}).`);
     }
 
     this.isProcessing = true;
@@ -342,9 +604,9 @@ class SyncEngine {
           await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'processing');
 
           try {
-            const itemSuccess = await this.executeQueueItem(userId, item);
+            const itemSuccess = await this.executeQueueItem(userId, item, authenticatedUid);
             if (itemSuccess) {
-              // Remove da fila somente após confirmação do Supabase
+              // Remove da fila SOMENTE após confirmação de sucesso no Supabase
               await indexedDBStorage.removeSyncQueueItem(userId, item.id);
               processedCount++;
             } else {
@@ -456,7 +718,11 @@ class SyncEngine {
   /**
    * Executa uma operação individual da fila.
    */
-  private async executeQueueItem(userId: string, item: SyncQueueItem): Promise<boolean> {
+  private async executeQueueItem(
+    userId: string,
+    item: SyncQueueItem,
+    authenticatedUid?: string | null
+  ): Promise<boolean> {
     if (!isSupabaseConfigured()) return false;
     const supabase = createClient();
 
@@ -466,8 +732,10 @@ class SyncEngine {
         const noteId = rawPayload.id || item.entity_id;
         const revision = item.revision || 1;
 
-        const pendingQueueBefore = await indexedDBStorage.getPendingSyncQueue(userId);
-        console.log(`[SyncEngine] CREATE_NOTE START noteId=${noteId} revision=${revision} queuePendingCount=${pendingQueueBefore.length}`);
+        console.log('[SyncEngine] CREATE_NOTE START');
+        console.log(`[SyncEngine] NOTE ID: ${noteId}`);
+        console.log(`[SyncEngine] USER ID: ${userId}`);
+        console.log(`[SyncEngine] AUTH USER ID: ${authenticatedUid || 'none'}`);
 
         // 1. Lê a versão viva e mais atualizada da nota no IndexedDB
         const localNote = await indexedDBStorage.getNoteById(userId, noteId);
@@ -476,20 +744,28 @@ class SyncEngine {
           ? effectiveNote.content
           : (rawPayload.content || '');
         const noteTags = normalizeTags(effectiveNote.tags || rawPayload.tags || []);
+        const noteTitle = effectiveNote.title || rawPayload.title || 'Nova nota';
 
-        console.log(`[SyncEngine] CREATE_NOTE LOCAL STATE noteId=${noteId} title="${effectiveNote.title}" hasLocalNote=${!!localNote}`);
-        console.log(`[SyncEngine] CREATE_NOTE CONTENT LENGTH noteId=${noteId} contentLength=${currentContent.length}`);
+        console.log(`[SyncEngine] TITLE: "${noteTitle}"`);
+        console.log(`[SyncEngine] CONTENT LENGTH: ${currentContent.length}`);
 
-        // 2. Resolve e faz upload de quaisquer anexos pendentes da nota
-        const { finalContent, uploadedCount } = await this.resolveAndUploadAttachmentsForNote(
-          supabase,
-          userId,
-          noteId,
-          currentContent
-        );
-        currentContent = finalContent;
-
-        console.log(`[SyncEngine] CREATE_NOTE ATTACHMENTS noteId=${noteId} attachmentCount=${uploadedCount}`);
+        // 2. Resolve e faz upload de quaisquer anexos pendentes da nota de forma segura
+        let uploadedCount = 0;
+        try {
+          const res = await this.resolveAndUploadAttachmentsForNote(
+            supabase,
+            userId,
+            noteId,
+            currentContent
+          );
+          currentContent = res.finalContent;
+          uploadedCount = res.uploadedCount;
+          if (uploadedCount > 0) {
+            console.log(`[SyncEngine] ATTACHMENTS UPLOADED: ${uploadedCount}`);
+          }
+        } catch (attErr) {
+          console.warn(`[SyncEngine] Aviso ao processar anexos da nota ${noteId}:`, attErr);
+        }
 
         // Atualiza o IndexedDB caso o conteúdo tenha sido transformado com URLs remotas
         if (localNote && localNote.content !== currentContent) {
@@ -498,17 +774,20 @@ class SyncEngine {
         }
 
         // 3. Grava .md canônico no Supabase Storage
-        console.log(`[SyncEngine] CREATE_NOTE STORAGE UPLOAD noteId=${noteId} contentLength=${currentContent.length}`);
-        const fullMarkdown = serializeMarkdownWithTags(currentContent, noteTags);
-        await writeNoteMarkdown(userId, noteId, fullMarkdown);
+        try {
+          const fullMarkdown = serializeMarkdownWithTags(currentContent, noteTags);
+          await writeNoteMarkdown(userId, noteId, fullMarkdown);
+        } catch (storageErr) {
+          console.warn(`[SyncEngine] Aviso ao gravar Markdown no Storage para nota ${noteId}:`, storageErr);
+        }
 
-        // 4. Grava na tabela notes com o conteúdo completo real
-        console.log(`[SyncEngine] CREATE_NOTE SUPABASE UPSERT noteId=${noteId}`);
-        const { error } = await supabase.from('notes').upsert({
+        // 4. Grava na tabela notes com o conteúdo completo real via UPSERT
+        console.log(`[SyncEngine] SUPABASE UPSERT START: ${noteId}`);
+        const { error: upsertError } = await supabase.from('notes').upsert({
           id: noteId,
           user_id: userId,
           folder_id: effectiveNote.folder_id || null,
-          title: effectiveNote.title || 'Nova nota',
+          title: noteTitle,
           content: currentContent,
           position: effectiveNote.position ?? 0,
           tags: noteTags,
@@ -518,8 +797,23 @@ class SyncEngine {
           updated_at: effectiveNote.updated_at || new Date().toISOString(),
         });
 
-        if (error) throw error;
-        await this.syncTagsWithSupabase(supabase, userId, noteId, noteTags);
+        if (upsertError) {
+          console.error('[SyncEngine] SUPABASE UPSERT ERROR:');
+          console.error(`[SyncEngine] CODE: ${upsertError.code || 'N/A'}`);
+          console.error(`[SyncEngine] MESSAGE: ${upsertError.message || 'N/A'}`);
+          console.error(`[SyncEngine] DETAILS: ${upsertError.details || 'N/A'}`);
+          console.error(`[SyncEngine] HINT: ${upsertError.hint || 'N/A'}`);
+          throw upsertError;
+        }
+
+        console.log(`[SyncEngine] SUPABASE UPSERT SUCCESS: ${noteId}`);
+
+        // Sincroniza tags associadas
+        try {
+          await this.syncTagsWithSupabase(supabase, userId, noteId, noteTags);
+        } catch (tagErr) {
+          console.warn('[SyncEngine] Aviso ao sincronizar tags:', tagErr);
+        }
 
         // 5. Verifica se existem operações posteriores pendentes para a mesma nota
         const remainingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
@@ -536,8 +830,6 @@ class SyncEngine {
           await indexedDBStorage.putNote(userId, localNote);
         }
 
-        console.log(`[SyncEngine] CREATE_NOTE FINAL CONTENT LENGTH noteId=${noteId} contentLength=${currentContent.length}`);
-        console.log(`[SyncEngine] CREATE_NOTE COMPLETE noteId=${noteId} revision=${revision} contentLength=${currentContent.length} attachmentCount=${uploadedCount} queuePendingCount=${remainingQueue.length}`);
         return true;
       }
 

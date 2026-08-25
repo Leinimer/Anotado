@@ -7,6 +7,7 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
+  Sparkles,
 } from 'lucide-react';
 import { networkMonitor, NetworkState } from '../api/network-monitor';
 import { syncEngine } from '../api/sync-engine';
@@ -35,6 +36,16 @@ export function SyncStatusIndicator({ userId, className = '' }: SyncStatusIndica
 
   // Definição visual conforme o estado
   const getStatusConfig = () => {
+    if (networkState.status === 'remote_change') {
+      return {
+        icon: Sparkles,
+        iconClass: 'text-[#0284c7] animate-pulse',
+        dotClass: 'bg-[#0284c7] animate-ping',
+        label: 'Alteração recebida',
+        tooltip: 'Alteração sincronizada em tempo real via Supabase Realtime',
+      };
+    }
+
     if (networkState.status === 'syncing') {
       return {
         icon: RefreshCw,
@@ -82,7 +93,9 @@ export function SyncStatusIndicator({ userId, className = '' }: SyncStatusIndica
   return (
     <div
       className={`relative inline-flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-medium tracking-tight select-none transition-colors duration-150 cursor-pointer ${
-        networkState.status === 'syncing'
+        networkState.status === 'remote_change'
+          ? 'bg-[#e0f2fe] text-[#0369a1]'
+          : networkState.status === 'syncing'
           ? 'bg-[#f0f9ff] text-[#0369a1]'
           : !networkState.isBackendReachable
           ? 'bg-[#fffbeb] text-[#92400e]'

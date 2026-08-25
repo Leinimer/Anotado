@@ -301,6 +301,14 @@ class SaveQueueManager {
   }
 
   /**
+   * Retorna se existem gravações ativas ou pendentes no momento para uma nota específica.
+   */
+  public hasPendingSaveForNote(noteId: string): boolean {
+    const state = this.queues.get(noteId);
+    return Boolean(state && (state.isSaving || state.pendingItem !== null));
+  }
+
+  /**
    * Retorna se existem gravações ativas ou pendentes no momento.
    */
   public hasPendingSaves(): boolean {

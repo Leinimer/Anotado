@@ -16,6 +16,7 @@ export type ConnectivityStatus =
   | 'syncing'
   | 'synced'
   | 'pending_sync'
+  | 'remote_change'
   | 'error';
 
 export interface NetworkState {
@@ -36,6 +37,7 @@ class NetworkMonitor {
   private listeners: Set<Listener> = new Set();
   private checkInterval: NodeJS.Timeout | null = null;
   private isCheckingProbe: boolean = false;
+  private remoteChangeTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -169,6 +171,28 @@ class NetworkMonitor {
   public updateStatus(status: ConnectivityStatus) {
     this.currentStatus = status;
     this.notify();
+  }
+
+  /**
+   * Notifica a chegada de uma alteração remota em tempo real.
+   * Apresenta temporariamente o status 'remote_change' ("Alteração recebida") e restaura para synced/pending_sync.
+   */
+  public notifyRemoteChange() {
+    if (this.remoteChangeTimeout) {
+      clearTimeout(this.remoteChangeTimeout);
+    }
+    this.updateStatus('remote_change');
+    this.remoteChangeTimeout = setTimeout(() => {
+      if (this.currentStatus === 'remote_change') {
+        if (this.pendingCount > 0) {
+          this.updateStatus('pending_sync');
+        } else if (this.isBackendReachable) {
+          this.updateStatus('synced');
+        } else {
+          this.updateStatus('offline');
+        }
+      }
+    }, 2500);
   }
 
   public getState(): NetworkState {

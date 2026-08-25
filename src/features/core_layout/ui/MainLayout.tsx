@@ -26,6 +26,7 @@ import {
   flushAllPendingSaves,
 } from '@/src/features/notes/api/notes-api';
 import { syncEngine } from '@/src/features/notes/api/sync-engine';
+import { saveQueue } from '@/src/features/notes/api/save-queue';
 import { perfProfiler } from '@/src/features/notes/editor/utils/media-optimizer';
 
 export function MainLayout() {
@@ -56,8 +57,16 @@ export function MainLayout() {
         const currentActiveId = activeNoteIdRef.current;
         return newNotes.map((n) => {
           const currentInState = prevNotes.find((p) => p.id === n.id);
-          // Se a nota remota foi atualizada pelo Realtime ou SyncEngine, aplica os novos dados
+          // Se a nota ativa foi atualizada pelo Realtime ou SyncEngine
           if (currentInState && currentInState.id === currentActiveId) {
+            // Se houver gravação em andamento ou pendente para a nota ativa, preserva o conteúdo local em edição
+            const isSavingOrPending = saveQueue.hasPendingSaveForNote(currentActiveId);
+            if (isSavingOrPending) {
+              return {
+                ...n,
+                content: currentInState.content,
+              };
+            }
             return {
               ...n,
               content: n.content !== undefined ? n.content : currentInState.content,
@@ -68,10 +77,46 @@ export function MainLayout() {
       });
     });
 
-    // Obtém o usuário autenticado atual
-    supabase.auth.getUser().then(async ({ data }: any) => {
+    // Obtém o usuário autenticado atual com suporte robusto a inicialização offline
+    const resolveUserAndLoad = async () => {
+      let currentUserId = 'demo-user';
+
+      // 1. Tenta getSession (lê do armazenamento local/cache do Supabase sem requisição de rede)
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user?.id) {
+          currentUserId = sessionData.session.user.id;
+        }
+      } catch (e) {
+        console.warn('[MainLayout] Aviso ao obter sessão local:', e);
+      }
+
+      // 2. Se não encontrou e estiver online, tenta getUser
+      if (currentUserId === 'demo-user' && navigator.onLine) {
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user?.id) {
+            currentUserId = userData.user.id;
+          }
+        } catch (e) {
+          console.warn('[MainLayout] Aviso ao verificar usuário online:', e);
+        }
+      }
+
+      // 3. Fallback para último userId autenticado gravado localmente
+      if (currentUserId === 'demo-user' && typeof window !== 'undefined') {
+        const cachedId = localStorage.getItem('anotado_last_auth_user_id');
+        if (cachedId && cachedId !== 'demo-user') {
+          currentUserId = cachedId;
+        }
+      }
+
       if (!isMounted) return;
-      const currentUserId = data?.user?.id || 'demo-user';
+
+      if (currentUserId !== 'demo-user' && typeof window !== 'undefined') {
+        localStorage.setItem('anotado_last_auth_user_id', currentUserId);
+      }
+
       setUserId(currentUserId);
       syncEngine.setActiveUser(currentUserId);
 
@@ -89,16 +134,32 @@ export function MainLayout() {
       } catch (err) {
         console.error('[MainLayout] Erro ao carregar dados do Supabase:', err);
       }
-    });
+    };
+
+    resolveUserAndLoad();
 
     let authUnsubscribe: (() => void) | undefined;
     if (isSupabaseConfigured()) {
       const {
         data: { subscription },
-      } = supabase.auth.onAuthStateChange((event: any) => {
+      } = supabase.auth.onAuthStateChange((event: any, session: any) => {
         if (event === 'SIGNED_OUT') {
           if (typeof window !== 'undefined') {
+            localStorage.removeItem('anotado_last_auth_user_id');
+          }
+          syncEngine.cleanup();
+          if (typeof window !== 'undefined') {
             window.location.replace('/login');
+          }
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          if (session?.user?.id) {
+            const newUid = session.user.id;
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('anotado_last_auth_user_id', newUid);
+            }
+            setUserId(newUid);
+            syncEngine.setActiveUser(newUid);
+            syncEngine.scheduleSync(100);
           }
         }
       });
@@ -108,6 +169,7 @@ export function MainLayout() {
     return () => {
       isMounted = false;
       unsubscribeSync();
+      syncEngine.cleanup();
       if (authUnsubscribe) authUnsubscribe();
     };
   }, []);

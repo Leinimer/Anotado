@@ -11,6 +11,7 @@ import {
   serializeMarkdownWithTags,
 } from '../utils/markdown-tags';
 import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
+import { generateUUID } from '../utils/uuid';
 import { indexedDBStorage, ExtendedFolder, ExtendedNote } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
 import { syncEngine } from './sync-engine';
@@ -329,7 +330,7 @@ export async function createFolder(
   userId: string,
   folderData: { name: string; parentId: string | null; position: number }
 ): Promise<Folder> {
-  const folderId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `folder-${Date.now()}`;
+  const folderId = generateUUID();
   const newFolder: ExtendedFolder = {
     id: folderId,
     user_id: userId,
@@ -499,7 +500,7 @@ export async function createNote(
   userId: string,
   noteData: { title: string; folderId: string | null; position: number; content?: string; tags?: string[] }
 ): Promise<Note> {
-  const noteId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `note-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const noteId = generateUUID();
   const initialContent = noteData.content ?? '';
   const initialTags = normalizeTags(noteData.tags || []);
 
@@ -519,8 +520,13 @@ export async function createNote(
     revision: 1,
   };
 
+  console.log('[OfflineCreate] NOTE CREATED');
+  console.log(`[OfflineCreate] NOTE ID: ${noteId}`);
+  console.log(`[OfflineCreate] USER ID: ${userId}`);
+
   // 1. Salva no IndexedDB
   await indexedDBStorage.putNote(userId, newNote);
+  console.log(`[OfflineCreate] INDEXEDDB SAVED: ${noteId}`);
 
   // 2. Enfileira na SyncQueue
   await indexedDBStorage.enqueueSyncItem(userId, {
@@ -530,6 +536,7 @@ export async function createNote(
     payload: newNote,
     revision: 1,
   });
+  console.log(`[OfflineCreate] SYNC QUEUE INSERTED: ${noteId}`);
 
   const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
   networkMonitor.updatePendingCount(pendingCount);

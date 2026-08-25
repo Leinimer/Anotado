@@ -510,7 +510,7 @@ class IndexedDBStorage {
       request.onsuccess = () => {
         const all = (request.result || []) as SyncQueueItem[];
         const pending = all
-          .filter((item) => item.status === 'pending' || item.status === 'processing')
+          .filter((item) => item.status === 'pending' || item.status === 'processing' || item.status === 'failed')
           .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
         resolve(pending);
       };
@@ -533,7 +533,7 @@ class IndexedDBStorage {
         const item = getReq.result as SyncQueueItem | undefined;
         if (item) {
           item.status = status;
-          item.attempts += 1;
+          item.attempts = (item.attempts || 0) + 1;
           if (lastError !== undefined) item.last_error = lastError;
           store.put(item);
         }
@@ -562,7 +562,7 @@ class IndexedDBStorage {
       const request = store.getAll();
       request.onsuccess = () => {
         const all = (request.result || []) as SyncQueueItem[];
-        const count = all.filter((i) => i.status === 'pending' || i.status === 'processing').length;
+        const count = all.filter((i) => i.status === 'pending' || i.status === 'processing' || i.status === 'failed').length;
         resolve(count);
       };
       request.onerror = () => reject(request.error);
