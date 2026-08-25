@@ -35,6 +35,7 @@ import { normalizeUrl } from '../editor/utils/url-helper';
 
 interface EditorToolbarProps {
   editor: Editor | null;
+  activeNoteId?: string | null;
 }
 
 const FONT_SIZES = [
@@ -59,7 +60,7 @@ const FONT_SIZES = [
   '72px',
 ] as const;
 
-export function EditorToolbar({ editor }: EditorToolbarProps) {
+export function EditorToolbar({ editor, activeNoteId }: EditorToolbarProps) {
   const [showStyleMenu, setShowStyleMenu] = useState(false);
   const [showHighlightPicker, setShowHighlightPicker] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -341,7 +342,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
         // 1. Upload do arquivo
         // 2. Aguarda conclusão do upload
         // 3. Obtém a referência definitiva
-        const result = await uploadNoteFile(userId, file);
+        const result = await uploadNoteFile(userId, file, activeNoteId || undefined);
         // 4. Insere a referência definitiva no documento
         editor.chain().focus().setImage({ src: result.url, alt: result.name }).run();
       }
@@ -361,7 +362,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     try {
       setIsUploading(true);
       setShowAddFileMenu(false);
-      const result = await uploadNoteFile(userId, file);
+      const result = await uploadNoteFile(userId, file, activeNoteId || undefined);
       editor
         .chain()
         .focus()

@@ -36,35 +36,42 @@ class SyncEngine {
   private periodicInterval: NodeJS.Timeout | null = null;
   private activeUserId: string | null = null;
   private dataSubscribers: Set<DataSubscriber> = new Set();
+  private lastKnownReachable: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
-      // 1. Quando o status de rede muda para online / backend reachable
+      this.lastKnownReachable = networkMonitor.getState().isBackendReachable;
+
+      // 1. Sincroniza APENAS em transição real de conectividade (OFFLINE -> ONLINE)
       networkMonitor.subscribe((state) => {
-        if (state.isBackendReachable && !this.isProcessing && this.activeUserId) {
+        const wasOffline = !this.lastKnownReachable;
+        const isNowOnline = state.isBackendReachable;
+        this.lastKnownReachable = isNowOnline;
+
+        if (wasOffline && isNowOnline && !this.isProcessing && this.activeUserId) {
           this.scheduleSync(300);
         }
       });
 
       // 2. Quando a aba/janela ganha foco ou visibilidade
       window.addEventListener('focus', () => {
-        if (this.activeUserId && !this.isProcessing) {
+        if (this.activeUserId && !this.isProcessing && navigator.onLine) {
           this.scheduleSync(100);
         }
       });
 
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && this.activeUserId && !this.isProcessing) {
+        if (document.visibilityState === 'visible' && this.activeUserId && !this.isProcessing && navigator.onLine) {
           this.scheduleSync(100);
         }
       });
 
-      // 3. Polling leve de background (a cada 20 segundos se online)
+      // 3. Polling leve de background (a cada 30 segundos se online e não estiver ocupado)
       this.periodicInterval = setInterval(() => {
         if (this.activeUserId && !this.isProcessing && navigator.onLine) {
           this.scheduleSync(0);
         }
-      }, 20000);
+      }, 30000);
     }
   }
 
@@ -510,9 +517,12 @@ class SyncEngine {
 
       case 'UPLOAD_ATTACHMENT': {
         const attachmentId = item.entity_id;
+        const noteId = item.payload?.noteId || null;
+        console.log(`[AttachmentSync] NOTE ${noteId || 'none'} ATTACHMENT ${attachmentId} SYNC PUSH START`);
+
         const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
         if (!attachment || !attachment.blob) {
-          // Se não há blob, remove da fila
+          console.log(`[AttachmentSync] NOTE ${noteId || 'none'} ATTACHMENT ${attachmentId} SKIPPED (NO BLOB)`);
           return true;
         }
 
@@ -539,24 +549,39 @@ class SyncEngine {
         const remoteUrl = publicUrlData?.publicUrl;
         if (!remoteUrl) throw new Error('Não foi possível obter URL pública da mídia');
 
+        console.log(`[AttachmentSync] NOTE ${noteId || attachment.note_id || 'none'} ATTACHMENT ${attachmentId} SYNC SUCCESS REMOTE_URL: ${remoteUrl}`);
+
         // 3. Atualiza anexo local no IndexedDB
         attachment.remote_url = remoteUrl;
         attachment.sync_status = 'synced';
+        if (noteId && !attachment.note_id) {
+          attachment.note_id = noteId;
+        }
         await indexedDBStorage.putAttachment(userId, attachment);
 
-        // 4. Se o anexo estiver associado a uma nota, substitui referências locais no Markdown
-        if (attachment.note_id) {
-          const note = await indexedDBStorage.getNoteById(userId, attachment.note_id);
+        // 4. Se o anexo estiver associado a uma nota, substitui referências locais no Markdown e atualiza
+        const targetNoteId = attachment.note_id || noteId;
+        if (targetNoteId) {
+          const note = await indexedDBStorage.getNoteById(userId, targetNoteId);
           if (note && note.content) {
-            const localRefRegex1 = new RegExp(`local-attachment://${attachmentId}`, 'g');
-            const localRefRegex2 = new RegExp(`data:image/[^"'\\]\\s]+`, 'g'); // Se foi salvo como data URL
-            let updatedContent = note.content.replace(localRefRegex1, remoteUrl);
+            let updatedContent = note.content;
 
+            // Substitui referências de esquema local
+            const localRefRegex = new RegExp(`local-attachment://${attachmentId}`, 'g');
+            updatedContent = updatedContent.replace(localRefRegex, remoteUrl);
+
+            // Substitui data_url exata se existir
             if (attachment.data_url && updatedContent.includes(attachment.data_url)) {
               updatedContent = updatedContent.split(attachment.data_url).join(remoteUrl);
             }
 
+            // Substitui referências por ID ou nome do arquivo caso haja blob: ou data:
+            const filenameEscaped = attachment.file_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const dataUrlRegex = new RegExp(`data:[^"'\\]\\s]+`, 'g');
+            const blobUrlRegex = new RegExp(`blob:[^"'\\]\\s]+`, 'g');
+
             if (updatedContent !== note.content) {
+              console.log(`[AttachmentSync] NOTE ${targetNoteId} REPLACED LOCAL REFS WITH REMOTE URL`);
               note.content = updatedContent;
               await indexedDBStorage.putNote(userId, note);
 

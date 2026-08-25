@@ -399,7 +399,7 @@ export function NoteCanvas({
       </div>
 
       {/* Barra de Ferramentas Rica no Rodapé */}
-      <EditorToolbar editor={editorInstance} />
+      <EditorToolbar editor={editorInstance} activeNoteId={activeNote.id} />
     </main>
   );
 }

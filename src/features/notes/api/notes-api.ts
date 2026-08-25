@@ -269,40 +269,57 @@ export async function fetchNoteContent(
   if (!userId || !note) return { content: '', tags: [] };
 
   // 1. Consulta IndexedDB
+  let localNoteContent: string | null = null;
+  let localTags: string[] | null = null;
   try {
     const localNote = await indexedDBStorage.getNoteById(userId, note.id);
-    if (localNote && localNote.content !== undefined && localNote.content !== null) {
-      const noteTags = Array.isArray(localNote.tags) ? localNote.tags : (note.tags || []);
-      return { content: localNote.content, tags: noteTags };
+    if (localNote) {
+      localTags = Array.isArray(localNote.tags) ? localNote.tags : null;
+      if (localNote.content !== undefined && localNote.content !== null) {
+        localNoteContent = localNote.content;
+      }
     }
   } catch (err) {
     console.warn('[NotesAPI] Erro ao buscar nota no IndexedDB:', err);
   }
 
-  // 2. Se online, tenta buscar do Supabase Storage
-  const storageContent = await readNoteMarkdown(userId, note.id);
-  if (storageContent !== null) {
-    const { tags: extractedTags, body } = parseMarkdownWithTags(storageContent);
-    const noteHasExplicitTags = Array.isArray(note.tags) && note.tags.length > 0;
-    const finalTags = noteHasExplicitTags ? note.tags : extractedTags;
-
-    // Atualiza IndexedDB local
-    try {
-      await indexedDBStorage.putNote(userId, {
-        ...note,
-        content: body,
-        tags: finalTags,
-        sync_status: 'synced',
-      });
-    } catch {}
-
-    return { content: body, tags: finalTags };
+  // Se temos conteúdo local robusto (não-vazio), retorna de imediato
+  if (localNoteContent !== null && localNoteContent.trim() !== '') {
+    const noteTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
+    return { content: localNoteContent, tags: noteTags };
   }
 
-  // 3. Fallback para o conteúdo existente
-  const initialContent = note.content || '';
-  const noteTags = Array.isArray(note.tags) ? note.tags : [];
-  return { content: initialContent, tags: noteTags };
+  // 2. Se o conteúdo local for vazio ou ausente, e estivermos online, busca a versão canônica completa do Supabase Storage (.md)
+  const isOnline = networkMonitor.getState().isBackendReachable;
+  if (isOnline && isSupabaseConfigured()) {
+    try {
+      const storageContent = await readNoteMarkdown(userId, note.id);
+      if (storageContent !== null && storageContent.trim() !== '') {
+        const { tags: extractedTags, body } = parseMarkdownWithTags(storageContent);
+        const noteHasExplicitTags = Array.isArray(note.tags) && note.tags.length > 0;
+        const finalTags = noteHasExplicitTags ? note.tags : extractedTags;
+
+        // Atualiza IndexedDB local com o documento canônico completo
+        try {
+          await indexedDBStorage.putNote(userId, {
+            ...note,
+            content: body,
+            tags: finalTags,
+            sync_status: 'synced',
+          });
+        } catch {}
+
+        return { content: body, tags: finalTags };
+      }
+    } catch (storageErr) {
+      console.warn('[NotesAPI] Erro ao buscar .md no Storage:', storageErr);
+    }
+  }
+
+  // 3. Fallback para o conteúdo existente local ou da nota
+  const fallbackContent = localNoteContent !== null ? localNoteContent : (note.content || '');
+  const fallbackTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
+  return { content: fallbackContent, tags: fallbackTags };
 }
 
 /**

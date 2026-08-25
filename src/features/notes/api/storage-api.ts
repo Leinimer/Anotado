@@ -70,6 +70,7 @@ export async function uploadNoteFile(
 
   // 3. Registra na SyncQueue persistente
   try {
+    console.log(`[AttachmentSync] NOTE ${noteId || 'none'} ATTACHMENT ${attachmentId} TYPE ${file.type || 'unknown'} UPLOAD START`);
     await indexedDBStorage.enqueueSyncItem(effectiveUserId, {
       id: `sync_att_${attachmentId}`,
       action: 'UPLOAD_ATTACHMENT',
@@ -79,7 +80,7 @@ export async function uploadNoteFile(
         attachmentId,
         fileName: file.name,
         fileType: file.type,
-        noteId,
+        noteId: noteId || null,
       },
       revision: 1,
     });
@@ -110,6 +111,7 @@ export async function uploadNoteFile(
           .getPublicUrl(filePath);
 
         if (publicUrlData?.publicUrl) {
+          console.log(`[AttachmentSync] NOTE ${noteId || 'none'} ATTACHMENT ${attachmentId} UPLOAD SUCCESS URL ${publicUrlData.publicUrl}`);
           // Atualiza anexo como sincronizado no IndexedDB
           localAttachment.remote_url = publicUrlData.publicUrl;
           localAttachment.sync_status = 'synced';
