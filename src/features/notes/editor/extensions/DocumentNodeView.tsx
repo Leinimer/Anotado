@@ -66,18 +66,66 @@ export function DocumentNodeView(props: NodeViewProps) {
     moveNodeBlock(editor as any, getPos as any, direction);
   };
 
-  // Fecha a seleção ao clicar fora
+  // Fecha a seleção ao clicar ou tocar fora
   useEffect(() => {
-    const handleDocumentClick = (e: MouseEvent) => {
+    const handleDocumentInteraction = (e: MouseEvent | TouchEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsLocalSelected(false);
       }
     };
-    document.addEventListener('mousedown', handleDocumentClick);
+    document.addEventListener('mousedown', handleDocumentInteraction);
+    document.addEventListener('touchstart', handleDocumentInteraction, { passive: true });
     return () => {
-      document.removeEventListener('mousedown', handleDocumentClick);
+      document.removeEventListener('mousedown', handleDocumentInteraction);
+      document.removeEventListener('touchstart', handleDocumentInteraction);
     };
   }, []);
+
+  // Handler de Long Press para Mobile / Tablet e Clique para Desktop
+  const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+
+    if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+    touchTimerRef.current = setTimeout(() => {
+      setIsLocalSelected(true);
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate(40);
+        } catch {
+          // ignore
+        }
+      }
+    }, 450); // 450ms long press threshold
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartPosRef.current || !touchTimerRef.current) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+    const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+    if (dx > 10 || dy > 10) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches) {
+      setIsLocalSelected(true);
+    }
+  };
 
   // Redimensionamento horizontal uniforme
   const handleResizeStart = useCallback(
@@ -149,7 +197,11 @@ export function DocumentNodeView(props: NodeViewProps) {
       as="div"
       ref={containerRef}
       className={`document-attachment-wrapper my-4 relative flex ${alignClass} max-w-full select-none`}
-      onClick={() => setIsLocalSelected(true)}
+      onClick={handleClick}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
     >
       <div
         ref={cardRef}

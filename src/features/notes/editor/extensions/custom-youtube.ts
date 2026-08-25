@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { ReactNodeViewRenderer } from '@tiptap/react';
-import { NodeSelection } from '@tiptap/pm/state';
+import { TextSelection, NodeSelection } from '@tiptap/pm/state';
 import { YoutubeNodeView } from './YoutubeNodeView';
 
 export interface CustomYoutubeOptions {
@@ -108,31 +108,45 @@ export const CustomYoutube = Node.create<CustomYoutubeOptions>({
           const node = type.create(options);
           if (!node) return false;
 
-          if (selection instanceof NodeSelection) {
-            // Se um nó de mídia já estiver selecionado, NÃO o substitui.
-            // Insere o novo vídeo do YouTube imediatamente após o nó selecionado.
-            const insertPos = selection.to;
-            tr.insert(insertPos, node);
+          // Determina a posição de inserção garantindo que nenhum nó de mídia selecionado seja substituído
+          let insertPos = selection.to;
+          if (!(selection instanceof NodeSelection)) {
+            // Se houver uma seleção de texto não-vazia, remove o texto selecionado primeiro
+            if (!selection.empty) {
+              tr.deleteSelection();
+              insertPos = tr.selection.from;
+            } else {
+              insertPos = selection.from;
+            }
+          }
+
+          // 1. Insere o nó de mídia (YouTube)
+          tr.insert(insertPos, node);
+          const afterMediaPos = insertPos + node.nodeSize;
+
+          // 2. Garante que exista um parágrafo vazio editável imediatamente após a mídia
+          const paragraphType = schema.nodes.paragraph;
+          if (paragraphType) {
+            const nextNode = tr.doc.nodeAt(afterMediaPos);
+            // Se o próximo bloco não for um parágrafo vazio, cria um novo parágrafo
+            if (!nextNode || nextNode.type.name !== 'paragraph' || nextNode.content.size > 0) {
+              const emptyParagraph = paragraphType.create();
+              tr.insert(afterMediaPos, emptyParagraph);
+            }
+
+            // 3. Posiciona a TextSelection / cursor no parágrafo seguinte (sem selecionar o vídeo)
             try {
-              const newSelection = NodeSelection.create(tr.doc, insertPos);
-              tr.setSelection(newSelection);
+              const textCursorPos = Math.min(afterMediaPos + 1, tr.doc.content.size);
+              const nextSelection = TextSelection.create(tr.doc, textCursorPos);
+              tr.setSelection(nextSelection);
             } catch {
               // fallback seguro
             }
-            if (dispatch) dispatch(tr.scrollIntoView());
-            return true;
           }
 
-          // Se for cursor de texto ou seleção comum
-          const from = selection.from;
-          tr.replaceSelectionWith(node);
-          try {
-            const newSelection = NodeSelection.create(tr.doc, from);
-            tr.setSelection(newSelection);
-          } catch {
-            // fallback seguro
+          if (dispatch) {
+            dispatch(tr.scrollIntoView());
           }
-          if (dispatch) dispatch(tr.scrollIntoView());
           return true;
         },
     };
