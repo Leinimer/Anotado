@@ -328,16 +328,23 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     editor.chain().focus().setMark('textStyle', { fontSize: FONT_SIZES[prevIndex] }).run();
   };
 
-  // Upload e inserção de imagem
+  // Upload e inserção de imagem (sequencial / estruturado para múltiplas imagens)
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
     try {
       setIsUploading(true);
       setShowAddFileMenu(false);
-      const result = await uploadNoteFile(userId, file);
-      editor.chain().focus().setImage({ src: result.url, alt: result.name }).run();
+      const fileList = Array.from(files);
+      for (const file of fileList) {
+        // 1. Upload do arquivo
+        // 2. Aguarda conclusão do upload
+        // 3. Obtém a referência definitiva
+        const result = await uploadNoteFile(userId, file);
+        // 4. Insere a referência definitiva no documento
+        editor.chain().focus().setImage({ src: result.url, alt: result.name }).run();
+      }
     } catch (err) {
       console.error('Erro ao fazer upload da imagem:', err);
     } finally {
@@ -460,6 +467,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           ref={imageInputRef}
           type="file"
           accept="image/*"
+          multiple
           className="hidden"
           onChange={handleImageUpload}
         />

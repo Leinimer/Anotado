@@ -1,6 +1,32 @@
 import { Note } from '../types';
 
 /**
+ * Normaliza um array de tags:
+ * - Remove espaços e caracteres de controle
+ * - Remove o símbolo '#' inicial para armazenamento consistente
+ * - Remove entradas vazias
+ * - Remove duplicatas ignorando maiúsculas/minúsculas
+ */
+export function normalizeTags(rawTags: string[]): string[] {
+  if (!Array.isArray(rawTags)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const raw of rawTags) {
+    if (!raw || typeof raw !== 'string') continue;
+    const clean = raw.trim().replace(/\s+/g, '').replace(/^#+/, '');
+    if (!clean) continue;
+    const lower = clean.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      result.push(clean);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Remove tags HTML ou faz parse de JSON estruturado para extrair texto legível.
  */
 export function stripToPlainText(content: string): string {

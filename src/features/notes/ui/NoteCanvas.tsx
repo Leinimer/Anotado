@@ -59,6 +59,48 @@ export function NoteCanvas({
 
   const titleInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastPendingContentRef = useRef<string | null>(null);
+  const activeNoteIdRef = useRef<string | null>(activeNote?.id || null);
+
+  useEffect(() => {
+    activeNoteIdRef.current = activeNote?.id || null;
+  }, [activeNote?.id]);
+
+  // Função central para forçar o envio do conteúdo pendente no debounce imediatamente
+  const flushPendingContent = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (lastPendingContentRef.current !== null && activeNoteIdRef.current) {
+      const contentToSave = lastPendingContentRef.current;
+      lastPendingContentRef.current = null;
+      onUpdateContent(activeNoteIdRef.current, contentToSave);
+    }
+  }, [onUpdateContent]);
+
+  // Flush ao desmontar ou trocar de nota
+  useEffect(() => {
+    return () => {
+      flushPendingContent();
+    };
+  }, [flushPendingContent]);
+
+  // Proteção auxiliar: flush imediato ao trocar de aba ou fechar janela
+  useEffect(() => {
+    const handleVisibilityOrPageHide = () => {
+      flushPendingContent();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityOrPageHide);
+    window.addEventListener('pagehide', handleVisibilityOrPageHide);
+    window.addEventListener('beforeunload', handleVisibilityOrPageHide);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrPageHide);
+      window.removeEventListener('pagehide', handleVisibilityOrPageHide);
+      window.removeEventListener('beforeunload', handleVisibilityOrPageHide);
+    };
+  }, [flushPendingContent]);
 
   // Foco no input do título ao iniciar edição
   useEffect(() => {
@@ -133,16 +175,20 @@ export function NoteCanvas({
     }
   }, [activeNote, localTitle, onUpdateTitle]);
 
-  // Handler de alteração no editor Tiptap com debounce de 400ms
+  // Handler de alteração no editor Tiptap com debounce de 400ms e rastreamento de pendência
   const handleEditorChange = useCallback(
     (htmlContent: string) => {
       if (!activeNote) return;
+
+      lastPendingContentRef.current = htmlContent;
 
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
 
       debounceTimerRef.current = setTimeout(() => {
+        debounceTimerRef.current = null;
+        lastPendingContentRef.current = null;
         onUpdateContent(activeNote.id, htmlContent);
       }, 400);
     },

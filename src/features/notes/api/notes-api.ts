@@ -5,11 +5,13 @@ import {
   writeNoteMarkdown,
   deleteNoteMarkdown,
 } from './notes-storage-api';
+import { saveQueue } from './save-queue';
 import {
   parseMarkdownWithTags,
   serializeMarkdownWithTags,
 } from '../utils/markdown-tags';
-import { extractHashtagsFromText } from '../utils/hashtag-extractor';
+import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
+export { normalizeTags };
 
 const LOCAL_STORAGE_KEY_FOLDERS = 'anotado_local_folders';
 const LOCAL_STORAGE_KEY_NOTES = 'anotado_local_notes';
@@ -126,32 +128,6 @@ function saveLocalData(userId: string, folders: Folder[], notes: Note[]) {
   } catch (err) {
     console.error('Falha ao salvar no local storage:', err);
   }
-}
-
-/**
- * Normaliza um array de tags:
- * - Remove espaços e caracteres de controle
- * - Remove o símbolo '#' inicial para armazenamento consistente
- * - Remove entradas vazias
- * - Remove duplicatas ignorando maiúsculas/minúsculas
- */
-export function normalizeTags(rawTags: string[]): string[] {
-  if (!Array.isArray(rawTags)) return [];
-  const seen = new Set<string>();
-  const result: string[] = [];
-
-  for (const raw of rawTags) {
-    if (!raw || typeof raw !== 'string') continue;
-    const clean = raw.trim().replace(/\s+/g, '').replace(/^#+/, '');
-    if (!clean) continue;
-    const lower = clean.toLowerCase();
-    if (!seen.has(lower)) {
-      seen.add(lower);
-      result.push(clean);
-    }
-  }
-
-  return result;
 }
 
 /**
@@ -783,15 +759,15 @@ export async function updateNoteTitle(userId: string, noteId: string, newTitle: 
 }
 
 /**
- * Atualiza o conteúdo de uma nota diretamente como arquivo Markdown (.md) no Supabase Storage.
- * Preserva as tags associadas à nota no cabeçalho do arquivo Markdown e sincroniza com o banco.
+ * Atualiza o conteúdo de uma nota utilizando a Fila de Persistência Serializada por nota.
+ * Garante ordem estrita (A -> C), controle de versão monotônico e previne race conditions.
  */
 export async function updateNoteContent(
   userId: string,
   noteId: string,
   newMarkdownContent: string,
   currentTags?: string[]
-): Promise<{ success: boolean; tags: string[] }> {
+): Promise<{ success: boolean; tags: string[]; version?: number }> {
   // 1. Extrai hashtags do corpo e combina com as tags explícitas existentes
   let baseTags = currentTags;
   if (!baseTags) {
@@ -802,41 +778,30 @@ export async function updateNoteContent(
   const bodyHashtags = extractHashtagsFromText(newMarkdownContent);
   const combinedTags = normalizeTags([...(baseTags || []), ...bodyHashtags]);
 
-  const fullMarkdown = serializeMarkdownWithTags(newMarkdownContent, combinedTags);
-
-  // 2. Grava no Supabase Storage
-  const storageSuccess = await writeNoteMarkdown(userId, noteId, fullMarkdown);
-
-  // 3. Atualiza timestamp, conteúdo e coluna tags na tabela notes
-  if (isSupabaseConfigured()) {
-    const supabase = createClient();
-    const { error: updateErr } = await supabase
-      .from('notes')
-      .update({
-        content: newMarkdownContent,
-        tags: combinedTags,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', noteId)
-      .eq('user_id', userId);
-
-    if (updateErr) {
-      console.error('[Supabase DB] Erro ao atualizar conteúdo da nota:', updateErr);
-      throw updateErr;
-    }
-
-    // Sincroniza tabelas tags e note_tags
-    await syncTagsAndNoteRelations(supabase, userId, noteId, combinedTags);
-  }
-
-  // Atualização no cache local
+  // 2. Atualização síncrona no cache local imediato
   const current = getLocalData(userId);
   const updatedNotes = current.notes.map((n) =>
     n.id === noteId ? { ...n, content: newMarkdownContent, tags: combinedTags, updated_at: new Date().toISOString() } : n
   );
   saveLocalData(userId, current.folders, updatedNotes);
 
-  return { success: storageSuccess, tags: combinedTags };
+  // 3. Enfileira na fila serializada de salvamento
+  const res = await saveQueue.enqueueSave(userId, noteId, newMarkdownContent, combinedTags);
+  return res;
+}
+
+/**
+ * Força a conclusão de qualquer gravação pendente de uma nota específica.
+ */
+export async function flushNoteSaves(noteId: string): Promise<void> {
+  await saveQueue.flushNote(noteId);
+}
+
+/**
+ * Força a conclusão de todas as gravações pendentes no sistema (ex: antes do logout).
+ */
+export async function flushAllPendingSaves(): Promise<void> {
+  await saveQueue.flushAll();
 }
 
 /**

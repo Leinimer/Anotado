@@ -27,10 +27,12 @@ import {
   AlignLeft,
   Hash,
   Check,
+  Loader2,
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { TagsModal } from './TagsModal';
 import { createClient } from '@/src/features/auth/api/supabase-client';
+import { flushAllPendingSaves } from '@/src/features/notes/api/notes-api';
 import {
   Folder as FolderType,
   Note as NoteType,
@@ -281,11 +283,26 @@ export function SidebarNavigation({
     }, 250);
   };
 
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const handleLogout = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    if (typeof window !== 'undefined') {
-      window.location.replace('/login');
+    if (isLoggingOut) return;
+    try {
+      setIsLoggingOut(true);
+      // 1. Aguarda a conclusão e confirmação de todos os salvamentos pendentes
+      await flushAllPendingSaves();
+
+      // 2. Executa o signOut após confirmação
+      const supabase = createClient();
+      await supabase.auth.signOut();
+
+      if (typeof window !== 'undefined') {
+        window.location.replace('/login');
+      }
+    } catch (err: any) {
+      console.error('[Logout] Falha ao persistir dados antes de sair:', err);
+      setIsLoggingOut(false);
+      alert('Não foi possível salvar todas as alterações pendentes. Por favor, tente novamente.');
     }
   };
 
@@ -1323,11 +1340,16 @@ export function SidebarNavigation({
               id="sidebar-logout-btn"
               type="button"
               onClick={handleLogout}
-              className="p-1 hover:bg-[#eae8e3] hover:text-[#ba1a1a] rounded transition-colors cursor-pointer"
-              title="Sair da Conta"
+              disabled={isLoggingOut}
+              className="p-1 hover:bg-[#eae8e3] hover:text-[#ba1a1a] rounded transition-colors cursor-pointer disabled:opacity-50"
+              title={isLoggingOut ? 'Salvando e saindo...' : 'Sair da Conta'}
               aria-label="Sair da Conta"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              {isLoggingOut ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#68594d]" />
+              ) : (
+                <LogOut className="w-3.5 h-3.5" />
+              )}
             </button>
           </div>
         </div>

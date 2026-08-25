@@ -22,6 +22,8 @@ import {
   unarchiveNote,
   archiveFolderNotes,
   moveItem,
+  flushNoteSaves,
+  flushAllPendingSaves,
 } from '@/src/features/notes/api/notes-api';
 import { perfProfiler } from '@/src/features/notes/editor/utils/media-optimizer';
 
@@ -82,6 +84,12 @@ export function MainLayout() {
     async (noteId: string) => {
       perfProfiler.start(noteId);
       setIsNewNoteJustCreated(false);
+
+      // Garante que saves pendentes da nota anterior sejam finalizados
+      if (activeNoteId && activeNoteId !== noteId) {
+        await flushNoteSaves(activeNoteId);
+      }
+
       setActiveNoteId(noteId);
 
       const targetNote = notes.find((n) => n.id === noteId);
@@ -102,7 +110,7 @@ export function MainLayout() {
         );
       }
     },
-    [notes, userId]
+    [notes, userId, activeNoteId]
   );
 
   // Nota ativa selecionada atualmente
