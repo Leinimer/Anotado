@@ -2,11 +2,55 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
+import { TextSelection, NodeSelection } from '@tiptap/pm/state';
 import { Youtube, Video, Link as LinkIcon, X } from 'lucide-react';
 import { defaultEditorExtensions } from '../editor/editor-config';
 import { FloatingBubbleToolbar } from './FloatingBubbleToolbar';
 import { isYouTubeUrl, getYouTubeEmbedUrl, normalizeUrl } from '../editor/utils/url-helper';
 import { perfProfiler } from '../editor/utils/media-optimizer';
+
+function normalizeEditorSelection(editor: Editor) {
+  if (!editor || !editor.state) return;
+  const { doc, selection, schema } = editor.state;
+  if (selection instanceof NodeSelection) {
+    const selectedNode = selection.node;
+    const isMediaNode = ['image', 'customYoutube', 'documentAttachment'].includes(
+      selectedNode?.type?.name
+    );
+    if (isMediaNode) {
+      let firstTextblockPos: number | null = null;
+      doc.descendants((node, pos) => {
+        if (firstTextblockPos !== null) return false;
+        if (node.isTextblock) {
+          firstTextblockPos = pos + 1;
+          return false;
+        }
+        return true;
+      });
+
+      const tr = editor.state.tr;
+      if (firstTextblockPos !== null) {
+        try {
+          tr.setSelection(TextSelection.create(doc, firstTextblockPos));
+          tr.setMeta('addToHistory', false);
+          editor.view.dispatch(tr);
+        } catch {}
+      } else {
+        const paragraphType = schema.nodes.paragraph;
+        if (paragraphType) {
+          const emptyParagraph = paragraphType.create();
+          const insertPos = doc.content.size;
+          tr.insert(insertPos, emptyParagraph);
+          try {
+            tr.setSelection(TextSelection.create(tr.doc, insertPos + 1));
+            tr.setMeta('addToHistory', false);
+            editor.view.dispatch(tr);
+          } catch {}
+        }
+      }
+    }
+  }
+}
 
 interface NoteEditorProps {
   noteId?: string;
@@ -55,7 +99,8 @@ export function NoteEditor({
         return false;
       },
     },
-    onCreate: () => {
+    onCreate: ({ editor }) => {
+      normalizeEditorSelection(editor);
       perfProfiler.mark(noteIdentifier, 'T2 - Tiptap Instanciado e Markdown Parseado');
     },
     onUpdate: ({ editor }) => {
@@ -91,6 +136,7 @@ export function NoteEditor({
     lastEmittedContentRef.current = targetContent;
     if (!editor.isFocused) {
       editor.commands.setContent(targetContent, { emitUpdate: false });
+      normalizeEditorSelection(editor);
       perfProfiler.mark(noteIdentifier, 'T4 - Conteúdo Sincronizado');
     }
   }, [content, editor, noteIdentifier]);

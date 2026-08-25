@@ -48,7 +48,7 @@ export function DocumentNodeView(props: NodeViewProps) {
     perfProfiler.mark(name, 'T6 - Documento/PDF Renderizado');
   }, [name]);
 
-  const isSelected = selected || isLocalSelected || isResizing;
+  const isSelected = isLocalSelected || isResizing;
 
   const alignClass =
     alignment === 'left'

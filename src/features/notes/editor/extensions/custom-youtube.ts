@@ -108,40 +108,63 @@ export const CustomYoutube = Node.create<CustomYoutubeOptions>({
           const node = type.create(options);
           if (!node) return false;
 
-          // Determina a posição de inserção garantindo que nenhum nó de mídia selecionado seja substituído
-          let insertPos = selection.to;
-          if (!(selection instanceof NodeSelection)) {
-            // Se houver uma seleção de texto não-vazia, remove o texto selecionado primeiro
-            if (!selection.empty) {
-              tr.deleteSelection();
-              insertPos = tr.selection.from;
-            } else {
-              insertPos = selection.from;
+          const paragraphType = schema.nodes.paragraph;
+
+          if (selection instanceof NodeSelection) {
+            // Se um nó de mídia já estiver selecionado, NÃO o substitui.
+            // Insere o novo vídeo do YouTube imediatamente após o nó selecionado.
+            const insertPos = selection.to;
+            tr.insert(insertPos, node);
+            const afterMediaPos = insertPos + node.nodeSize;
+            if (paragraphType) {
+              const emptyParagraph = paragraphType.create();
+              tr.insert(afterMediaPos, emptyParagraph);
+              try {
+                const textCursorPos = Math.min(afterMediaPos + 1, tr.doc.content.size);
+                tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
+              } catch {}
             }
+            if (dispatch) dispatch(tr.scrollIntoView());
+            return true;
           }
 
-          // 1. Insere o nó de mídia (YouTube)
+          if (selection.$from.parent.isTextblock && selection.$from.parent.content.size === 0) {
+            // Se o cursor estiver em um parágrafo vazio, substitui o parágrafo vazio pelo vídeo
+            const startPos = selection.$from.before();
+            const endPos = selection.$from.after();
+            tr.replaceWith(startPos, endPos, node);
+            const afterMediaPos = startPos + node.nodeSize;
+            if (paragraphType) {
+              const emptyParagraph = paragraphType.create();
+              tr.insert(afterMediaPos, emptyParagraph);
+              try {
+                const textCursorPos = Math.min(afterMediaPos + 1, tr.doc.content.size);
+                tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
+              } catch {}
+            }
+            if (dispatch) dispatch(tr.scrollIntoView());
+            return true;
+          }
+
+          // Se houver seleção de texto não-vazia, remove o texto selecionado primeiro
+          let insertPos = selection.to;
+          if (!selection.empty) {
+            tr.deleteSelection();
+            insertPos = tr.selection.from;
+          } else {
+            insertPos = selection.from;
+          }
+
           tr.insert(insertPos, node);
           const afterMediaPos = insertPos + node.nodeSize;
 
-          // 2. Garante que exista um parágrafo vazio editável imediatamente após a mídia
-          const paragraphType = schema.nodes.paragraph;
           if (paragraphType) {
-            const nextNode = tr.doc.nodeAt(afterMediaPos);
-            // Se o próximo bloco não for um parágrafo vazio, cria um novo parágrafo
-            if (!nextNode || nextNode.type.name !== 'paragraph' || nextNode.content.size > 0) {
-              const emptyParagraph = paragraphType.create();
-              tr.insert(afterMediaPos, emptyParagraph);
-            }
-
-            // 3. Posiciona a TextSelection / cursor no parágrafo seguinte (sem selecionar o vídeo)
+            const emptyParagraph = paragraphType.create();
+            tr.insert(afterMediaPos, emptyParagraph);
             try {
               const textCursorPos = Math.min(afterMediaPos + 1, tr.doc.content.size);
-              const nextSelection = TextSelection.create(tr.doc, textCursorPos);
-              tr.setSelection(nextSelection);
-            } catch {
-              // fallback seguro
-            }
+              tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
+            } catch {}
           }
 
           if (dispatch) {

@@ -10,7 +10,7 @@ import Link from '@tiptap/extension-link';
 import { Markdown } from 'tiptap-markdown';
 import HorizontalRule from '@tiptap/extension-horizontal-rule';
 import { Extension, InputRule } from '@tiptap/core';
-import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
+import { Plugin, PluginKey, TextSelection, NodeSelection } from '@tiptap/pm/state';
 
 import { FontSize } from './extensions/font-size';
 import { CustomImage } from './extensions/custom-image';
@@ -167,6 +167,63 @@ export const CustomHorizontalRule = HorizontalRule.extend({
   },
 });
 
+export const MediaAutoSafeSelectionPlugin = Extension.create({
+  name: 'mediaAutoSafeSelection',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('mediaAutoSafeSelection'),
+        appendTransaction(transactions, oldState, newState) {
+          const { selection, doc, schema } = newState;
+          // Se a seleção for um NodeSelection sobre um bloco de mídia (imagem, documento/PDF, vídeo)
+          if (selection instanceof NodeSelection) {
+            const selectedNode = selection.node;
+            const isMediaNode = ['image', 'customYoutube', 'documentAttachment'].includes(
+              selectedNode?.type?.name
+            );
+
+            if (isMediaNode) {
+              let firstTextblockPos: number | null = null;
+              doc.descendants((node, pos) => {
+                if (firstTextblockPos !== null) return false;
+                if (node.isTextblock) {
+                  firstTextblockPos = pos + 1;
+                  return false;
+                }
+                return true;
+              });
+
+              const tr = newState.tr;
+              if (firstTextblockPos !== null) {
+                try {
+                  tr.setSelection(TextSelection.create(doc, firstTextblockPos));
+                  return tr;
+                } catch {
+                  return null;
+                }
+              } else {
+                const paragraphType = schema.nodes.paragraph;
+                if (paragraphType) {
+                  const emptyParagraph = paragraphType.create();
+                  const insertPos = doc.content.size;
+                  tr.insert(insertPos, emptyParagraph);
+                  try {
+                    tr.setSelection(TextSelection.create(tr.doc, insertPos + 1));
+                    return tr;
+                  } catch {
+                    return null;
+                  }
+                }
+              }
+            }
+          }
+          return null;
+        },
+      }),
+    ];
+  },
+});
+
 export const defaultEditorExtensions = [
   StarterKit.configure({
     horizontalRule: false,
@@ -188,6 +245,7 @@ export const defaultEditorExtensions = [
   }),
   CustomHorizontalRule,
   ArrowTransformExtension,
+  MediaAutoSafeSelectionPlugin,
   Underline,
   Highlight.configure({
     multicolor: true,

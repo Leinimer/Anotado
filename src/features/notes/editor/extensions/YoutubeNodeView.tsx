@@ -44,7 +44,7 @@ export function YoutubeNodeView(props: NodeViewProps) {
   const videoId = useMemo(() => extractYouTubeVideoId(src), [src]);
   const thumbnailUrl = useMemo(() => getYouTubeThumbnailUrl(src), [src]);
 
-  const isSelected = selected || isLocalSelected || isResizing;
+  const isSelected = isLocalSelected || isResizing;
 
   const alignClass =
     alignment === 'left'

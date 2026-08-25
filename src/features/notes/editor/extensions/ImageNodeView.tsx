@@ -49,7 +49,7 @@ export function ImageNodeView(props: NodeViewProps) {
   const [imageError, setImageError] = useState(false);
   const [currentSrc, setCurrentSrc] = useState(() => getOptimizedImageUrl(rawSrc, 850));
 
-  const isSelected = selected || isLocalSelected || isResizing;
+  const isSelected = isLocalSelected || isResizing;
 
   const alignClass =
     alignment === 'left'
