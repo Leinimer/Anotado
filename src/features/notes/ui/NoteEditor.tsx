@@ -6,8 +6,10 @@ import { Youtube, Video, Link as LinkIcon, X } from 'lucide-react';
 import { defaultEditorExtensions } from '../editor/editor-config';
 import { FloatingBubbleToolbar } from './FloatingBubbleToolbar';
 import { isYouTubeUrl, getYouTubeEmbedUrl, normalizeUrl } from '../editor/utils/url-helper';
+import { perfProfiler } from '../editor/utils/media-optimizer';
 
 interface NoteEditorProps {
+  noteId?: string;
   content: string;
   onChange: (markdownContent: string) => void;
   onEditorReady?: (editor: Editor | null) => void;
@@ -15,6 +17,7 @@ interface NoteEditorProps {
 }
 
 export function NoteEditor({
+  noteId,
   content,
   onChange,
   onEditorReady,
@@ -22,6 +25,12 @@ export function NoteEditor({
 }: NoteEditorProps) {
   const lastEmittedContentRef = useRef<string>(content ?? '');
   const [youtubePasteData, setYoutubePasteData] = useState<{ url: string } | null>(null);
+
+  // Profiler T1
+  const noteIdentifier = noteId || 'active-note';
+  useEffect(() => {
+    perfProfiler.mark(noteIdentifier, 'T1 - NoteEditor Montado');
+  }, [noteIdentifier]);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -46,6 +55,9 @@ export function NoteEditor({
         return false;
       },
     },
+    onCreate: () => {
+      perfProfiler.mark(noteIdentifier, 'T2 - Tiptap Instanciado e Markdown Parseado');
+    },
     onUpdate: ({ editor }) => {
       // Extrai Markdown real usando a extensão de markdown do Tiptap
       const storageRecord = editor.storage as unknown as Record<string, { getMarkdown?: () => string }>;
@@ -55,12 +67,15 @@ export function NoteEditor({
     },
   });
 
-  // Notifica o componente pai sobre a instância do editor
+  // Notifica o componente pai sobre a instância do editor (T3)
   useEffect(() => {
     if (onEditorReady) {
       onEditorReady(editor);
+      if (editor) {
+        perfProfiler.mark(noteIdentifier, 'T3 - Editor Pronto para Interação');
+      }
     }
-  }, [editor, onEditorReady]);
+  }, [editor, onEditorReady, noteIdentifier]);
 
   // Atualiza o conteúdo apenas quando for genuinamente diferente (ex: troca de nota externa)
   useEffect(() => {
@@ -76,8 +91,9 @@ export function NoteEditor({
     lastEmittedContentRef.current = targetContent;
     if (!editor.isFocused) {
       editor.commands.setContent(targetContent, { emitUpdate: false });
+      perfProfiler.mark(noteIdentifier, 'T4 - Conteúdo Sincronizado');
     }
-  }, [content, editor]);
+  }, [content, editor, noteIdentifier]);
 
   // Fecha o diálogo de paste do YouTube ao pressionar ESC
   useEffect(() => {

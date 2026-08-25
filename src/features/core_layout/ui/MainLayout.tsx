@@ -23,6 +23,7 @@ import {
   archiveFolderNotes,
   moveItem,
 } from '@/src/features/notes/api/notes-api';
+import { perfProfiler } from '@/src/features/notes/editor/utils/media-optimizer';
 
 export function MainLayout() {
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -79,12 +80,15 @@ export function MainLayout() {
   // Carrega o conteúdo do arquivo Markdown no Storage ao selecionar uma nota
   const handleSelectNote = useCallback(
     async (noteId: string) => {
+      perfProfiler.start(noteId);
       setIsNewNoteJustCreated(false);
       setActiveNoteId(noteId);
 
       const targetNote = notes.find((n) => n.id === noteId);
       if (targetNote) {
+        perfProfiler.mark(noteId, 'T0.5 - Buscando Markdown no Storage');
         const { content, tags } = await fetchNoteContent(userId, targetNote);
+        perfProfiler.mark(noteId, 'T0.8 - Markdown Recebido do Storage');
         setNotes((prev) =>
           prev.map((n) =>
             n.id === noteId

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
 import {
   Trash2,
@@ -10,12 +10,19 @@ import {
   GripVertical,
   ChevronUp,
   ChevronDown,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { moveNodeBlock } from '../utils/node-movement';
+import {
+  getOptimizedImageUrl,
+  markMediaAsLoaded,
+  isMediaInCache,
+  perfProfiler,
+} from '../utils/media-optimizer';
 
 export function ImageNodeView(props: NodeViewProps) {
   const { node, updateAttributes, deleteNode, selected, editor, getPos } = props;
-  const src = node.attrs.src;
+  const rawSrc = node.attrs.src || '';
   const alt = node.attrs.alt || '';
   const title = node.attrs.title || '';
   const initialWidthAttr = node.attrs.width;
@@ -27,7 +34,20 @@ export function ImageNodeView(props: NodeViewProps) {
   const [isLocalSelected, setIsLocalSelected] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [resizingWidth, setResizingWidth] = useState<number | null>(null);
-  const [aspectRatio, setAspectRatio] = useState<number>(1);
+  const [aspectRatio, setAspectRatio] = useState<number>(() => {
+    // Se tiver dimensões no atributo
+    if (node.attrs.height && node.attrs.width && Number(node.attrs.height) > 0) {
+      return Number(node.attrs.width) / Number(node.attrs.height);
+    }
+    return 16 / 10;
+  });
+
+  // Estado de visibilidade via IntersectionObserver
+  const initialInCache = useMemo(() => isMediaInCache(rawSrc), [rawSrc]);
+  const [isVisibleInViewport, setIsVisibleInViewport] = useState(initialInCache);
+  const [isImageLoaded, setIsImageLoaded] = useState(initialInCache);
+  const [imageError, setImageError] = useState(false);
+  const [currentSrc, setCurrentSrc] = useState(() => getOptimizedImageUrl(rawSrc, 850));
 
   const isSelected = selected || isLocalSelected || isResizing;
 
@@ -42,16 +62,58 @@ export function ImageNodeView(props: NodeViewProps) {
   const currentDisplayWidth =
     resizingWidth !== null
       ? `${resizingWidth}px`
-      : initialWidthAttr || 'auto';
+      : initialWidthAttr || '100%';
+
+  // IntersectionObserver para Lazy Loading progressivo e não-bloqueante
+  useEffect(() => {
+    if (isVisibleInViewport || initialInCache) return;
+
+    const el = containerRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setIsVisibleInViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setIsVisibleInViewport(true);
+            observer.disconnect();
+          }
+        });
+      },
+      {
+        rootMargin: '400px 0px', // Carrega com 400px de folga antes do scroll atingir
+        threshold: 0.01,
+      }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isVisibleInViewport, initialInCache]);
 
   // Calcula e memoriza a proporção original da imagem ao carregar
   const handleImageLoad = () => {
+    setIsImageLoaded(true);
+    markMediaAsLoaded(rawSrc);
     if (imgRef.current) {
       const naturalW = imgRef.current.naturalWidth;
       const naturalH = imgRef.current.naturalHeight;
       if (naturalW && naturalH) {
         setAspectRatio(naturalW / naturalH);
       }
+    }
+    perfProfiler.mark(rawSrc, 'T6 - Imagem Renderizada', { width: initialWidthAttr });
+  };
+
+  // Fallback se a imagem otimizada falhar
+  const handleImageError = () => {
+    if (currentSrc !== rawSrc) {
+      setCurrentSrc(rawSrc);
+    } else {
+      setImageError(true);
+      setIsImageLoaded(true);
     }
   };
 
@@ -81,15 +143,15 @@ export function ImageNodeView(props: NodeViewProps) {
       e.preventDefault();
       e.stopPropagation();
 
-      if (!imgRef.current) return;
+      if (!containerRef.current) return;
 
       setIsResizing(true);
       setIsLocalSelected(true);
 
       const startX = e.clientX;
       const startY = e.clientY;
-      const startWidth = imgRef.current.offsetWidth || 300;
-      const startHeight = imgRef.current.offsetHeight || (startWidth / (aspectRatio || 1));
+      const startWidth = imgRef.current?.offsetWidth || containerRef.current.offsetWidth || 300;
+      const startHeight = imgRef.current?.offsetHeight || (startWidth / (aspectRatio || 1));
       const currentRatio = aspectRatio || (startWidth / startHeight) || 1;
 
       // Obtém a largura máxima disponível da folha (note container)
@@ -312,17 +374,48 @@ export function ImageNodeView(props: NodeViewProps) {
           </div>
         )}
 
-        {/* Imagem Real */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          ref={imgRef}
-          src={src}
-          alt={alt}
-          title={title}
-          onLoad={handleImageLoad}
-          draggable={false}
-          className="rounded-xl block w-full h-auto object-contain border border-[#e4e2dd] shadow-xs pointer-events-auto"
-        />
+        {/* Skeleton Placeholder durante o carregamento / fora da viewport (Zero Layout Shift) */}
+        {(!isImageLoaded || !isVisibleInViewport) && !imageError && (
+          <div
+            className="w-full rounded-xl bg-[#f5f3ee] border border-[#e4e2dd] flex items-center justify-center animate-pulse min-h-[160px] py-12 transition-opacity duration-300"
+            style={{
+              aspectRatio: aspectRatio || '16/10',
+            }}
+          >
+            <div className="flex flex-col items-center gap-2 text-[#a89f91]">
+              <ImageIcon className="w-7 h-7 opacity-60" />
+              <span className="text-[11px] font-sans-ui font-medium tracking-wide">
+                Carregando imagem...
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Mensagem de Erro se a Imagem não puder ser baixada */}
+        {imageError && (
+          <div className="w-full rounded-xl bg-[#fcedec] border border-[#f5c6c2] p-4 text-center text-xs font-sans-ui text-[#ba1a1a]">
+            Não foi possível carregar esta imagem.
+          </div>
+        )}
+
+        {/* Imagem Real com Lazy Loading nativo + decoding assíncrono */}
+        {isVisibleInViewport && !imageError && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            ref={imgRef}
+            src={currentSrc}
+            alt={alt}
+            title={title}
+            loading="lazy"
+            decoding="async"
+            onLoad={handleImageLoad}
+            onError={handleImageError}
+            draggable={false}
+            className={`rounded-xl block w-full h-auto object-contain border border-[#e4e2dd] shadow-xs pointer-events-auto transition-opacity duration-200 ${
+              isImageLoaded ? 'opacity-100' : 'opacity-0 absolute top-0 left-0 pointer-events-none'
+            }`}
+          />
+        )}
 
         {/* Handles de Redimensionamento Interativos (Visíveis ao Selecionar) */}
         {isSelected && (

@@ -14,6 +14,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { moveNodeBlock } from '../utils/node-movement';
+import { perfProfiler } from '../utils/media-optimizer';
 
 function formatBytes(bytes: number, decimals = 1) {
   if (!bytes || bytes === 0) return '0 B';
@@ -42,6 +43,10 @@ export function DocumentNodeView(props: NodeViewProps) {
   const [isLocalSelected, setIsLocalSelected] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [resizingWidth, setResizingWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    perfProfiler.mark(name, 'T6 - Documento/PDF Renderizado');
+  }, [name]);
 
   const isSelected = selected || isLocalSelected || isResizing;
 

@@ -276,6 +276,7 @@ export function NoteCanvas({
         >
           <NoteEditor
             key={activeNote.id}
+            noteId={activeNote.id}
             content={activeNote.content}
             onChange={handleEditorChange}
             onEditorReady={setEditorInstance}
