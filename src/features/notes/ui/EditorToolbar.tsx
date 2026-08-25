@@ -98,7 +98,7 @@ export function EditorToolbar({ editor, activeNoteId }: EditorToolbarProps) {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(({ data }: any) => {
       if (data?.user?.id) {
         setUserId(data.user.id);
       }

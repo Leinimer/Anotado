@@ -37,6 +37,7 @@ class SyncEngine {
   private activeUserId: string | null = null;
   private dataSubscribers: Set<DataSubscriber> = new Set();
   private lastKnownReachable: boolean = false;
+  private realtimeChannel: any = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -76,8 +77,164 @@ class SyncEngine {
   }
 
   public setActiveUser(userId: string) {
+    const isNewUser = this.activeUserId !== userId;
     this.activeUserId = userId;
     this.updatePendingCount(userId);
+
+    if (isNewUser || !this.realtimeChannel) {
+      this.setupRealtimeSubscription(userId);
+    }
+  }
+
+  /**
+   * Configura o ouvinte em tempo real (Supabase Realtime) para notes e folders.
+   * Permite que alterações feitas no celular apareçam instantaneamente no computador e vice-versa.
+   */
+  private setupRealtimeSubscription(userId: string) {
+    if (!isSupabaseConfigured() || !userId || typeof window === 'undefined') return;
+
+    try {
+      const supabase = createClient();
+
+      if (this.realtimeChannel) {
+        try {
+          supabase.removeChannel(this.realtimeChannel);
+        } catch {
+          // Ignora se já estiver fechado
+        }
+        this.realtimeChannel = null;
+      }
+
+      const channelName = `realtime-sync-notes-${userId}`;
+      this.realtimeChannel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes' as any,
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notes',
+            filter: `user_id=eq.${userId}`,
+          },
+          async (payload: any) => {
+            console.log('[Realtime] Alteração remota recebida em NOTES:', payload.eventType, payload.new?.id || payload.old?.id);
+            await this.handleRealtimeNoteChange(userId, payload);
+          }
+        )
+        .on(
+          'postgres_changes' as any,
+          {
+            event: '*',
+            schema: 'public',
+            table: 'folders',
+            filter: `user_id=eq.${userId}`,
+          },
+          async (payload: any) => {
+            console.log('[Realtime] Alteração remota recebida em FOLDERS:', payload.eventType, payload.new?.id || payload.old?.id);
+            await this.handleRealtimeFolderChange(userId, payload);
+          }
+        )
+        .subscribe((status: any) => {
+          console.log(`[Realtime] Canal (${channelName}) status:`, status);
+        });
+    } catch (err) {
+      console.warn('[Realtime] Falha ao configurar canal de tempo real:', err);
+    }
+  }
+
+  /**
+   * Trata alterações recebidas em tempo real para a tabela 'notes'.
+   * Verifica se há mutações pendentes locais antes de aplicar no IndexedDB.
+   */
+  private async handleRealtimeNoteChange(userId: string, payload: any) {
+    try {
+      const { eventType, new: newRecord, old: oldRecord } = payload;
+      const noteId = (newRecord && newRecord.id) || (oldRecord && oldRecord.id);
+      if (!noteId) return;
+
+      // 1. Verifica se existem mutações locais pendentes para este noteId na sync_queue
+      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+      const hasPendingMutation = pendingQueue.some(
+        (item) => item.entity_type === 'note' && item.entity_id === noteId
+      );
+
+      if (hasPendingMutation) {
+        console.log(`[Realtime] Nota ${noteId} possui mutações locais pendentes. Preservando estado local.`);
+        return;
+      }
+
+      if (eventType === 'DELETE') {
+        const existing = await indexedDBStorage.getNoteById(userId, noteId);
+        if (existing && existing.sync_status === 'synced') {
+          await indexedDBStorage.deleteNote(userId, noteId);
+          await this.notifyDataSubscribers(userId);
+        }
+      } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+        const rawTags = newRecord.tags;
+        let noteTags: string[] = [];
+        if (Array.isArray(rawTags)) {
+          noteTags = normalizeTags(rawTags);
+        } else if (typeof rawTags === 'string') {
+          try {
+            noteTags = normalizeTags(JSON.parse(rawTags));
+          } catch {
+            noteTags = normalizeTags(rawTags.split(','));
+          }
+        }
+
+        await indexedDBStorage.putNote(userId, {
+          ...newRecord,
+          tags: noteTags,
+          is_archived: Boolean(newRecord.is_archived),
+          sync_status: 'synced',
+        });
+
+        console.log(`[Realtime] IndexedDB atualizado com alteração remota da nota ${noteId}`);
+        await this.notifyDataSubscribers(userId);
+      }
+    } catch (err) {
+      console.error('[Realtime] Erro ao processar evento de nota remota:', err);
+    }
+  }
+
+  /**
+   * Trata alterações recebidas em tempo real para a tabela 'folders'.
+   * Verifica se há mutações pendentes locais antes de aplicar no IndexedDB.
+   */
+  private async handleRealtimeFolderChange(userId: string, payload: any) {
+    try {
+      const { eventType, new: newRecord, old: oldRecord } = payload;
+      const folderId = (newRecord && newRecord.id) || (oldRecord && oldRecord.id);
+      if (!folderId) return;
+
+      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+      const hasPendingMutation = pendingQueue.some(
+        (item) => item.entity_type === 'folder' && item.entity_id === folderId
+      );
+
+      if (hasPendingMutation) {
+        console.log(`[Realtime] Pasta ${folderId} possui mutações locais pendentes. Preservando estado local.`);
+        return;
+      }
+
+      if (eventType === 'DELETE') {
+        const existing = await indexedDBStorage.getFolderById(userId, folderId);
+        if (existing && existing.sync_status === 'synced') {
+          await indexedDBStorage.deleteFolder(userId, folderId);
+          await this.notifyDataSubscribers(userId);
+        }
+      } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+        await indexedDBStorage.putFolder(userId, {
+          ...newRecord,
+          is_smart: Boolean(newRecord.is_smart),
+          sync_status: 'synced',
+        });
+        console.log(`[Realtime] IndexedDB atualizado com alteração remota da pasta ${folderId}`);
+        await this.notifyDataSubscribers(userId);
+      }
+    } catch (err) {
+      console.error('[Realtime] Erro ao processar evento de pasta remota:', err);
+    }
   }
 
   /**

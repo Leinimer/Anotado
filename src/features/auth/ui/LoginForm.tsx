@@ -44,7 +44,7 @@ export function LoginForm({ onSuccess, onSwitchToApp }: LoginFormProps) {
     // 1. Escuta alterações em tempo real no estado da autenticação
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange((event: any, session: any) => {
       if (!isMounted) return;
       if (event === 'SIGNED_IN' && session?.user) {
         if (typeof window !== 'undefined') {

@@ -1,5 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { ReactNodeViewRenderer } from '@tiptap/react';
+import { NodeSelection } from '@tiptap/pm/state';
 import { ImageNodeView } from './ImageNodeView';
 
 export interface CustomImageOptions {
@@ -131,11 +132,40 @@ export const CustomImage = Node.create<CustomImageOptions>({
     return {
       setImage:
         (options) =>
-        ({ commands }) => {
-          return commands.insertContent({
-            type: this.name,
-            attrs: options,
-          });
+        ({ state, dispatch, tr }) => {
+          const { schema, selection } = state;
+          const type = schema.nodes[this.name];
+          if (!type) return false;
+
+          const node = type.create(options);
+          if (!node) return false;
+
+          if (selection instanceof NodeSelection) {
+            // Se um nó de mídia já estiver selecionado, NÃO o substitui.
+            // Insere o novo nó imediatamente após o selecionado.
+            const insertPos = selection.to;
+            tr.insert(insertPos, node);
+            try {
+              const newSelection = NodeSelection.create(tr.doc, insertPos);
+              tr.setSelection(newSelection);
+            } catch {
+              // fallback seguro
+            }
+            if (dispatch) dispatch(tr.scrollIntoView());
+            return true;
+          }
+
+          // Se for cursor de texto ou seleção comum
+          const from = selection.from;
+          tr.replaceSelectionWith(node);
+          try {
+            const newSelection = NodeSelection.create(tr.doc, from);
+            tr.setSelection(newSelection);
+          } catch {
+            // fallback seguro
+          }
+          if (dispatch) dispatch(tr.scrollIntoView());
+          return true;
         },
     };
   },

@@ -181,7 +181,7 @@ export function SidebarNavigation({
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(({ data }: any) => {
       if (data?.user) {
         if (data.user.email) setUserEmail(data.user.email);
         if (data.user.id) setUserId(data.user.id);
@@ -293,9 +293,9 @@ export function SidebarNavigation({
       // 1. Aguarda a conclusão e confirmação de todos os salvamentos pendentes
       await flushAllPendingSaves();
 
-      // 2. Executa o signOut após confirmação
+      // 2. Executa o signOut local apenas neste dispositivo (mantém sessões ativas no celular/computador/tablet)
       const supabase = createClient();
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: 'local' });
 
       if (typeof window !== 'undefined') {
         window.location.replace('/login');

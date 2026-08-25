@@ -48,7 +48,7 @@ export function MainLayout() {
     let isMounted = true;
     const supabase = createClient();
 
-    // Inscrição reativa para atualizações provenientes do SyncEngine (PULL de outros dispositivos)
+    // Inscrição reativa para atualizações provenientes do SyncEngine e Supabase Realtime
     const unsubscribeSync = syncEngine.subscribeToData(({ folders: newFolders, notes: newNotes }) => {
       if (!isMounted) return;
       setFolders(newFolders);
@@ -56,11 +56,11 @@ export function MainLayout() {
         const currentActiveId = activeNoteIdRef.current;
         return newNotes.map((n) => {
           const currentInState = prevNotes.find((p) => p.id === n.id);
-          // Se a nota estiver aberta no editor e tiver conteúdo em digitação, preserva o rascunho em memória
-          if (currentInState && currentInState.id === currentActiveId && currentInState.content !== undefined) {
+          // Se a nota remota foi atualizada pelo Realtime ou SyncEngine, aplica os novos dados
+          if (currentInState && currentInState.id === currentActiveId) {
             return {
               ...n,
-              content: currentInState.content,
+              content: n.content !== undefined ? n.content : currentInState.content,
             };
           }
           return n;
@@ -69,10 +69,11 @@ export function MainLayout() {
     });
 
     // Obtém o usuário autenticado atual
-    supabase.auth.getUser().then(async ({ data }) => {
+    supabase.auth.getUser().then(async ({ data }: any) => {
       if (!isMounted) return;
       const currentUserId = data?.user?.id || 'demo-user';
       setUserId(currentUserId);
+      syncEngine.setActiveUser(currentUserId);
 
       // Carrega pastas e notas reais diretamente do Supabase/IndexedDB
       try {
@@ -94,7 +95,7 @@ export function MainLayout() {
     if (isSupabaseConfigured()) {
       const {
         data: { subscription },
-      } = supabase.auth.onAuthStateChange((event) => {
+      } = supabase.auth.onAuthStateChange((event: any) => {
         if (event === 'SIGNED_OUT') {
           if (typeof window !== 'undefined') {
             window.location.replace('/login');

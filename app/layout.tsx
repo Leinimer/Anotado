@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Manrope, Source_Serif_4 } from 'next/font/google';
 import './globals.css';
 
@@ -19,6 +19,12 @@ const sourceSerif = Source_Serif_4({
 export const metadata: Metadata = {
   title: 'Anotado! — Digital Tactility',
   description: 'A quiet space for writing. Minimalist and high-performance tactile notes.',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({

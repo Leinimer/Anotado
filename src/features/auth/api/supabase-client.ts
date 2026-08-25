@@ -23,17 +23,35 @@ export const supabaseCookieOptions = {
   secure: true,
 };
 
+let browserClientInstance: ReturnType<typeof createBrowserClient> | null = null;
+
 /**
- * Cria o cliente Supabase para o lado do cliente (Navegador).
+ * Cria ou reutiliza a instância do cliente Supabase para o lado do cliente (Navegador).
  * Utiliza @supabase/ssr com sincronização de cookies SameSite=None e Secure para compatibilidade total.
+ * Mantém uma única instância singleton no navegador para gerenciar a sessão local isolada do dispositivo.
  */
 export function createClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
-  return createBrowserClient(supabaseUrl, supabaseAnonKey, {
+  if (typeof window !== 'undefined' && browserClientInstance) {
+    return browserClientInstance;
+  }
+
+  const client = createBrowserClient(supabaseUrl, supabaseAnonKey, {
     cookieOptions: supabaseCookieOptions,
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
   });
+
+  if (typeof window !== 'undefined') {
+    browserClientInstance = client;
+  }
+
+  return client;
 }
 
 /**

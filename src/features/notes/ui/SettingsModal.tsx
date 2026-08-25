@@ -59,7 +59,7 @@ export function SettingsModal({
   useEffect(() => {
     if (isOpen) {
       const supabase = createClient();
-      supabase.auth.getUser().then(({ data }) => {
+      supabase.auth.getUser().then(({ data }: any) => {
         if (data?.user?.email) {
           setUserEmail(data.user.email);
         }
