@@ -16,30 +16,95 @@ import {
   ExtendedNote,
   ExtendedFolder,
 } from '../db/indexed-db';
+import { Folder, Note } from '../types';
 import { networkMonitor } from './network-monitor';
 import { writeNoteMarkdown, deleteNoteMarkdown, readNoteMarkdown } from './notes-storage-api';
 import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
 import { serializeMarkdownWithTags, parseMarkdownWithTags } from '../utils/markdown-tags';
 
+export type DataChangePayload = {
+  userId: string;
+  folders: ExtendedFolder[];
+  notes: ExtendedNote[];
+};
+
+type DataSubscriber = (payload: DataChangePayload) => void;
+
 class SyncEngine {
   private isProcessing: boolean = false;
   private syncTimeout: NodeJS.Timeout | null = null;
+  private periodicInterval: NodeJS.Timeout | null = null;
   private activeUserId: string | null = null;
+  private dataSubscribers: Set<DataSubscriber> = new Set();
 
   constructor() {
     if (typeof window !== 'undefined') {
-      // Quando a rede volta a ficar disponível, dispara a sincronização
+      // 1. Quando o status de rede muda para online / backend reachable
       networkMonitor.subscribe((state) => {
-        if (state.isBackendReachable && state.pendingCount > 0 && !this.isProcessing) {
-          this.scheduleSync(500);
+        if (state.isBackendReachable && !this.isProcessing && this.activeUserId) {
+          this.scheduleSync(300);
         }
       });
+
+      // 2. Quando a aba/janela ganha foco ou visibilidade
+      window.addEventListener('focus', () => {
+        if (this.activeUserId && !this.isProcessing) {
+          this.scheduleSync(100);
+        }
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && this.activeUserId && !this.isProcessing) {
+          this.scheduleSync(100);
+        }
+      });
+
+      // 3. Polling leve de background (a cada 20 segundos se online)
+      this.periodicInterval = setInterval(() => {
+        if (this.activeUserId && !this.isProcessing && navigator.onLine) {
+          this.scheduleSync(0);
+        }
+      }, 20000);
     }
   }
 
   public setActiveUser(userId: string) {
     this.activeUserId = userId;
     this.updatePendingCount(userId);
+  }
+
+  /**
+   * Inscreve um ouvinte para receber notificações sempre que novos dados forem sincronizados.
+   */
+  public subscribeToData(subscriber: DataSubscriber): () => void {
+    this.dataSubscribers.add(subscriber);
+    return () => {
+      this.dataSubscribers.delete(subscriber);
+    };
+  }
+
+  /**
+   * Notifica todos os ouvintes com os dados mais recentes do IndexedDB.
+   */
+  public async notifyDataSubscribers(userId: string) {
+    if (!userId) return;
+    try {
+      const localFolders = await indexedDBStorage.getAllFolders(userId);
+      const localNotes = await indexedDBStorage.getAllNotes(userId);
+      const sortedFolders = localFolders.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      const sortedNotes = localNotes.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+      for (const sub of this.dataSubscribers) {
+        try {
+          sub({ userId, folders: sortedFolders, notes: sortedNotes });
+        } catch (err) {
+          console.error('[SyncEngine] Erro no data subscriber:', err);
+        }
+      }
+      console.log('[SyncEngine] STATE UPDATE: NOTES REFRESHED');
+    } catch (err) {
+      console.error('[SyncEngine] Erro ao carregar dados locais para notificar subscribers:', err);
+    }
   }
 
   /**
@@ -69,12 +134,16 @@ class SyncEngine {
   }
 
   /**
-   * Processa a fila de operações pendentes no IndexedDB.
+   * Processa o ciclo completo de sincronização:
+   * 1. PUSH: Processa operações pendentes da fila local (se houver).
+   * 2. PULL: Busca alterações remotas do Supabase e atualiza o IndexedDB (SEMPRE executado).
    */
   public async processQueue(userId: string): Promise<{ success: boolean; processed: number }> {
     if (!userId || this.isProcessing) {
       return { success: false, processed: 0 };
     }
+
+    console.log('[SyncEngine] SYNC START');
 
     // Verifica conectividade real antes de processar
     const reachable = await networkMonitor.checkBackendReachability();
@@ -90,52 +159,57 @@ class SyncEngine {
     let processedCount = 0;
 
     try {
+      // 1. ETAPA PUSH: Processamento de alterações locais da fila
       const queue = await indexedDBStorage.getPendingSyncQueue(userId);
+      console.log(`[SyncEngine] LOCAL QUEUE: ${queue.length}`);
+
       if (queue.length === 0) {
-        networkMonitor.setSyncing(false);
-        networkMonitor.updatePendingCount(0);
-        this.isProcessing = false;
-        return { success: true, processed: 0 };
-      }
+        console.log('[SyncEngine] PUSH: SKIPPED - QUEUE EMPTY');
+      } else {
+        console.log(`[SyncEngine] PUSH: ${queue.length} OPERATIONS`);
 
-      console.log(`[SyncEngine] Iniciando processamento de ${queue.length} operações pendentes para o usuário ${userId}`);
-
-      for (const item of queue) {
-        // Re-checa conexão antes de cada item para abortar imediatamente se cair no meio
-        if (!navigator.onLine) {
-          console.warn('[SyncEngine] Conexão interrompida durante o processamento da fila.');
-          break;
-        }
-
-        await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'processing');
-
-        try {
-          const itemSuccess = await this.executeQueueItem(userId, item);
-          if (itemSuccess) {
-            // Remove da fila somente após confirmação do Supabase
-            await indexedDBStorage.removeSyncQueueItem(userId, item.id);
-            processedCount++;
-          } else {
-            await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', 'Execução retornou falso');
-          }
-        } catch (err: any) {
-          console.error(`[SyncEngine] Falha ao processar item ${item.id} (${item.action}):`, err);
-          await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', err?.message || String(err));
-          // Se for erro de rede/timeout, interrompe para não sobrecarregar
-          if (err?.name === 'AbortError' || err?.message?.includes('fetch') || err?.message?.includes('network')) {
+        for (const item of queue) {
+          // Re-checa conexão antes de cada item para abortar imediatamente se cair no meio
+          if (!navigator.onLine) {
+            console.warn('[SyncEngine] Conexão interrompida durante o processamento da fila.');
             break;
           }
+
+          await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'processing');
+
+          try {
+            const itemSuccess = await this.executeQueueItem(userId, item);
+            if (itemSuccess) {
+              // Remove da fila somente após confirmação do Supabase
+              await indexedDBStorage.removeSyncQueueItem(userId, item.id);
+              processedCount++;
+            } else {
+              await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', 'Execução retornou falso');
+            }
+          } catch (err: any) {
+            console.error(`[SyncEngine] Falha ao processar item ${item.id} (${item.action}):`, err);
+            await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', err?.message || String(err));
+            // Se for erro de rede/timeout, interrompe para não sobrecarregar
+            if (err?.name === 'AbortError' || err?.message?.includes('fetch') || err?.message?.includes('network')) {
+              break;
+            }
+          }
         }
+
+        console.log('[SyncEngine] PUSH COMPLETE');
       }
 
       await this.updatePendingCount(userId);
 
-      // Após enviar as alterações locais, realiza um pull incremental das novidades do servidor
+      // 2. ETAPA PULL: SEMPRE executa PULL incremental de novidades do servidor
+      console.log('[SyncEngine] PULL: START');
       await this.pullIncrementalChanges(userId);
+      console.log('[SyncEngine] PULL: COMPLETE');
+      console.log('[SyncEngine] SYNC COMPLETE');
 
       return { success: true, processed: processedCount };
     } catch (err) {
-      console.error('[SyncEngine] Erro geral no processamento da fila:', err);
+      console.error('[SyncEngine] Erro geral no processamento da sincronização:', err);
       return { success: false, processed: processedCount };
     } finally {
       this.isProcessing = false;
@@ -553,7 +627,11 @@ class SyncEngine {
 
     try {
       const supabase = createClient();
-      const lastSync = (await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp')) || '1970-01-01T00:00:00Z';
+      let remoteChangesCount = 0;
+
+      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+      const pendingFolderIds = new Set(pendingQueue.filter((q) => q.entity_type === 'folder').map((q) => q.entity_id));
+      const pendingNoteIds = new Set(pendingQueue.filter((q) => q.entity_type === 'note').map((q) => q.entity_id));
 
       // 1. Busca pastas remotas
       const { data: remoteFolders, error: foldersErr } = await supabase
@@ -562,11 +640,40 @@ class SyncEngine {
         .eq('user_id', userId);
 
       if (!foldersErr && remoteFolders) {
-        const localFolders: ExtendedFolder[] = remoteFolders.map((f: any) => ({
-          ...f,
-          sync_status: 'synced',
-        }));
-        await indexedDBStorage.putFoldersBatch(userId, localFolders);
+        const localFolders = await indexedDBStorage.getAllFolders(userId);
+        const localFoldersMap = new Map(localFolders.map((f) => [f.id, f]));
+
+        for (const rFolder of remoteFolders) {
+          if (!pendingFolderIds.has(rFolder.id)) {
+            const existing = localFoldersMap.get(rFolder.id);
+            const isDifferent =
+              !existing ||
+              existing.name !== rFolder.name ||
+              existing.parent_id !== rFolder.parent_id ||
+              existing.position !== rFolder.position ||
+              existing.color !== rFolder.color ||
+              existing.is_smart !== Boolean(rFolder.is_smart) ||
+              JSON.stringify(existing.smart_tags || []) !== JSON.stringify(rFolder.smart_tags || []);
+
+            if (isDifferent) {
+              await indexedDBStorage.putFolder(userId, {
+                ...rFolder,
+                is_smart: Boolean(rFolder.is_smart),
+                sync_status: 'synced',
+              });
+              remoteChangesCount++;
+            }
+          }
+        }
+
+        // Detecta pastas deletadas remotamente
+        const remoteFolderIds = new Set(remoteFolders.map((f: any) => f.id));
+        for (const lFolder of localFolders) {
+          if (!remoteFolderIds.has(lFolder.id) && !pendingFolderIds.has(lFolder.id) && lFolder.sync_status === 'synced') {
+            await indexedDBStorage.deleteFolder(userId, lFolder.id);
+            remoteChangesCount++;
+          }
+        }
       }
 
       // 2. Busca notas remotas
@@ -576,8 +683,8 @@ class SyncEngine {
         .eq('user_id', userId);
 
       if (!notesErr && remoteNotes) {
-        const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
-        const pendingNoteIds = new Set(pendingQueue.filter((q) => q.entity_type === 'note').map((q) => q.entity_id));
+        const localNotes = await indexedDBStorage.getAllNotes(userId);
+        const localNotesMap = new Map(localNotes.map((n) => [n.id, n]));
 
         for (const rNote of remoteNotes) {
           // Se a nota NÃO tiver alterações locais pendentes na fila, atualiza no IndexedDB
@@ -594,16 +701,49 @@ class SyncEngine {
               }
             }
 
-            await indexedDBStorage.putNote(userId, {
-              ...rNote,
-              tags: noteTags,
-              sync_status: 'synced',
-            });
+            const existingNote = localNotesMap.get(rNote.id);
+            const isDifferent =
+              !existingNote ||
+              existingNote.title !== rNote.title ||
+              existingNote.content !== rNote.content ||
+              existingNote.folder_id !== rNote.folder_id ||
+              existingNote.position !== rNote.position ||
+              Boolean(existingNote.is_archived) !== Boolean(rNote.is_archived) ||
+              existingNote.previous_folder_id !== rNote.previous_folder_id ||
+              existingNote.updated_at !== rNote.updated_at ||
+              JSON.stringify(existingNote.tags || []) !== JSON.stringify(noteTags);
+
+            if (isDifferent) {
+              await indexedDBStorage.putNote(userId, {
+                ...rNote,
+                tags: noteTags,
+                is_archived: Boolean(rNote.is_archived),
+                sync_status: 'synced',
+              });
+              console.log(`[SyncEngine] INDEXEDDB: UPSERT NOTE ${rNote.id}`);
+              remoteChangesCount++;
+            }
+          }
+        }
+
+        // Detecta notas deletadas remotamente
+        const remoteNoteIds = new Set(remoteNotes.map((n: any) => n.id));
+        for (const lNote of localNotes) {
+          if (!remoteNoteIds.has(lNote.id) && !pendingNoteIds.has(lNote.id) && lNote.sync_status === 'synced') {
+            await indexedDBStorage.deleteNote(userId, lNote.id);
+            remoteChangesCount++;
           }
         }
       }
 
-      // 3. Atualiza timestamp da última sincronização bem sucedida
+      console.log(`[SyncEngine] PULL: FOUND ${remoteChangesCount} REMOTE CHANGES`);
+
+      // 3. Notifica a aplicação se houver alterações para atualizar o React State
+      if (remoteChangesCount > 0) {
+        await this.notifyDataSubscribers(userId);
+      }
+
+      // 4. Atualiza timestamp da última sincronização bem sucedida
       await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', new Date().toISOString());
     } catch (err) {
       console.warn('[SyncEngine] Erro ao sincronizar dados remotos:', err);

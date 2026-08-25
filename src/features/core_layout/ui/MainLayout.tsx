@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SidebarNavigation } from '@/src/features/notes/ui/SidebarNavigation';
 import { NoteCanvas } from '@/src/features/notes/ui/NoteCanvas';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
@@ -25,6 +25,7 @@ import {
   flushNoteSaves,
   flushAllPendingSaves,
 } from '@/src/features/notes/api/notes-api';
+import { syncEngine } from '@/src/features/notes/api/sync-engine';
 import { perfProfiler } from '@/src/features/notes/editor/utils/media-optimizer';
 
 export function MainLayout() {
@@ -36,11 +37,36 @@ export function MainLayout() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
 
+  const activeNoteIdRef = useRef<string | null>(null);
 
-  // 1. Carregamento inicial do Supabase e ouvinte de autenticação
+  useEffect(() => {
+    activeNoteIdRef.current = activeNoteId;
+  }, [activeNoteId]);
+
+  // 1. Carregamento inicial do Supabase, ouvintes de autenticação e reatividade do SyncEngine
   useEffect(() => {
     let isMounted = true;
     const supabase = createClient();
+
+    // Inscrição reativa para atualizações provenientes do SyncEngine (PULL de outros dispositivos)
+    const unsubscribeSync = syncEngine.subscribeToData(({ folders: newFolders, notes: newNotes }) => {
+      if (!isMounted) return;
+      setFolders(newFolders);
+      setNotes((prevNotes) => {
+        const currentActiveId = activeNoteIdRef.current;
+        return newNotes.map((n) => {
+          const currentInState = prevNotes.find((p) => p.id === n.id);
+          // Se a nota estiver aberta no editor e tiver conteúdo em digitação, preserva o rascunho em memória
+          if (currentInState && currentInState.id === currentActiveId && currentInState.content !== undefined) {
+            return {
+              ...n,
+              content: currentInState.content,
+            };
+          }
+          return n;
+        });
+      });
+    });
 
     // Obtém o usuário autenticado atual
     supabase.auth.getUser().then(async ({ data }) => {
@@ -48,7 +74,7 @@ export function MainLayout() {
       const currentUserId = data?.user?.id || 'demo-user';
       setUserId(currentUserId);
 
-      // Carrega pastas e notas reais diretamente do Supabase
+      // Carrega pastas e notas reais diretamente do Supabase/IndexedDB
       try {
         const { folders: fetchedFolders, notes: fetchedNotes } = await fetchFoldersAndNotes(currentUserId);
         if (!isMounted) return;
@@ -56,11 +82,15 @@ export function MainLayout() {
         setFolders(fetchedFolders);
         setNotes(fetchedNotes);
         setActiveNoteId(null);
+
+        // Dispara verificação imediata de sincronização PUSH/PULL
+        syncEngine.scheduleSync(100);
       } catch (err) {
         console.error('[MainLayout] Erro ao carregar dados do Supabase:', err);
       }
     });
 
+    let authUnsubscribe: (() => void) | undefined;
     if (isSupabaseConfigured()) {
       const {
         data: { subscription },
@@ -71,12 +101,14 @@ export function MainLayout() {
           }
         }
       });
-
-      return () => {
-        isMounted = false;
-        subscription.unsubscribe();
-      };
+      authUnsubscribe = () => subscription.unsubscribe();
     }
+
+    return () => {
+      isMounted = false;
+      unsubscribeSync();
+      if (authUnsubscribe) authUnsubscribe();
+    };
   }, []);
 
   // Carrega o conteúdo do arquivo Markdown no Storage ao selecionar uma nota
