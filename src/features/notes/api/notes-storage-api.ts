@@ -1,4 +1,6 @@
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
+import { indexedDBStorage } from '../db/indexed-db';
+import { networkMonitor } from './network-monitor';
 
 export const NOTES_BUCKET_NAME = 'notes';
 
@@ -12,16 +14,27 @@ export function getNoteStoragePath(userId: string, noteId: string): string {
   return `${cleanUserId}/${cleanNoteId}.md`;
 }
 
-const LOCAL_STORAGE_NOTE_FILES_PREFIX = 'anotado_md_file_';
-
 /**
- * Lê o arquivo Markdown de uma nota diretamente do Supabase Storage.
- * Retorna o conteúdo textual ou null se não encontrado/erro.
+ * Lê o arquivo Markdown de uma nota:
+ * 1. Consulta primeiro a cópia local no IndexedDB para carregamento instantâneo (<5ms).
+ * 2. Se não existir no IndexedDB e estiver online, baixa do Supabase Storage e armazena no IndexedDB.
  */
 export async function readNoteMarkdown(userId: string, noteId: string): Promise<string | null> {
   if (!userId || !noteId) return null;
 
-  if (isSupabaseConfigured()) {
+  // 1. Tenta recuperar do IndexedDB
+  try {
+    const localNote = await indexedDBStorage.getNoteById(userId, noteId);
+    if (localNote && localNote.content !== undefined && localNote.content !== null) {
+      return localNote.content;
+    }
+  } catch (err) {
+    console.warn('[NotesStorage] Erro ao ler nota do IndexedDB:', err);
+  }
+
+  // 2. Se online e configurado, busca do Supabase Storage
+  const isOnline = networkMonitor.getState().isBackendReachable;
+  if (isOnline && isSupabaseConfigured()) {
     try {
       const supabase = createClient();
       const filePath = getNoteStoragePath(userId, noteId);
@@ -32,24 +45,11 @@ export async function readNoteMarkdown(userId: string, noteId: string): Promise<
 
       if (!error && data) {
         const text = await data.text();
-        // Sincroniza cache local
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(`${LOCAL_STORAGE_NOTE_FILES_PREFIX}${userId}_${noteId}`, text);
-        }
         return text;
       }
-
-      if (error) {
-        console.warn(`[Storage] Arquivo não encontrado no Supabase Storage (${filePath}):`, error.message);
-      }
     } catch (err) {
-      console.warn('[Storage] Erro ao ler nota do Supabase Storage:', err);
+      console.warn('[NotesStorage] Erro ao baixar nota do Supabase Storage:', err);
     }
-  }
-
-  // Fallback para armazenamento local
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem(`${LOCAL_STORAGE_NOTE_FILES_PREFIX}${userId}_${noteId}`);
   }
 
   return null;
@@ -68,12 +68,7 @@ export async function writeNoteMarkdown(
 
   const content = markdownContent ?? '';
 
-  // Atualiza cache local imediatamente para fluidez
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(`${LOCAL_STORAGE_NOTE_FILES_PREFIX}${userId}_${noteId}`, content);
-  }
-
-  if (isSupabaseConfigured()) {
+  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
     try {
       const supabase = createClient();
       const filePath = getNoteStoragePath(userId, noteId);
@@ -88,13 +83,13 @@ export async function writeNoteMarkdown(
         });
 
       if (error) {
-        console.error(`[Storage] Erro ao gravar ${filePath} no bucket ${NOTES_BUCKET_NAME}:`, error);
+        console.warn(`[NotesStorage] Aviso ao gravar ${filePath} no Supabase Storage:`, error.message);
         return false;
       }
 
       return true;
     } catch (err) {
-      console.error('[Storage] Exceção ao gravar arquivo Markdown no Supabase Storage:', err);
+      console.warn('[NotesStorage] Exceção ao gravar no Supabase Storage:', err);
       return false;
     }
   }
@@ -108,12 +103,7 @@ export async function writeNoteMarkdown(
 export async function deleteNoteMarkdown(userId: string, noteId: string): Promise<boolean> {
   if (!userId || !noteId) return false;
 
-  // Limpa cache local
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(`${LOCAL_STORAGE_NOTE_FILES_PREFIX}${userId}_${noteId}`);
-  }
-
-  if (isSupabaseConfigured()) {
+  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
     try {
       const supabase = createClient();
       const filePath = getNoteStoragePath(userId, noteId);
@@ -123,13 +113,13 @@ export async function deleteNoteMarkdown(userId: string, noteId: string): Promis
         .remove([filePath]);
 
       if (error) {
-        console.warn(`[Storage] Erro ao remover ${filePath} do Storage:`, error);
+        console.warn(`[NotesStorage] Aviso ao remover ${filePath} do Storage:`, error);
         return false;
       }
 
       return true;
     } catch (err) {
-      console.warn('[Storage] Exceção ao remover arquivo Markdown:', err);
+      console.warn('[NotesStorage] Exceção ao remover arquivo Markdown:', err);
       return false;
     }
   }

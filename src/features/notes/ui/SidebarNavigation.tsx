@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { TagsModal } from './TagsModal';
+import { SyncStatusIndicator } from './SyncStatusIndicator';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import { flushAllPendingSaves } from '@/src/features/notes/api/notes-api';
 import {
@@ -1295,6 +1296,10 @@ export function SidebarNavigation({
 
       {/* Bottom Action Footer */}
       <div className="pt-2 border-t border-[#eae8e3] space-y-2">
+        <div className="flex items-center justify-between px-0.5">
+          <SyncStatusIndicator userId={userId || undefined} />
+        </div>
+
         <div className="grid grid-cols-2 gap-2">
           {/* Botão Nova Pasta (Sempre na raiz) */}
           <button
