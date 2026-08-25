@@ -1,6 +1,6 @@
 {
-  "name": "Anotado!",
-  "description": "Aplicativo de anotações focado em alta performance com design system Digital Tactility (Papyrus & Ink).",
+  "name": "ANOTADO!",
+  "description": "Um espaço para escrever. Minimalist and high-performance tactile notes.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

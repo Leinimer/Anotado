@@ -28,12 +28,14 @@ import {
   Hash,
   Check,
   Loader2,
+  Smartphone,
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { TagsModal } from './TagsModal';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import { flushAllPendingSaves } from '@/src/features/notes/api/notes-api';
+import { usePwa } from '@/src/features/pwa/PwaProvider';
 import {
   Folder as FolderType,
   Note as NoteType,
@@ -121,6 +123,7 @@ export function SidebarNavigation({
   onMoveItem,
   onCloseMobile,
 }: SidebarNavigationProps) {
+  const { isStandalone, openInstallModal } = usePwa();
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('all');
@@ -1330,6 +1333,19 @@ export function SidebarNavigation({
           </div>
 
           <div className="flex items-center gap-0.5">
+            {!isStandalone && (
+              <button
+                id="sidebar-install-pwa-btn"
+                type="button"
+                onClick={openInstallModal}
+                className="p-1 hover:bg-[#f4dfcb] text-[#68594d] hover:text-[#1b1c19] rounded transition-colors cursor-pointer"
+                title="Instalar ANOTADO! (App)"
+                aria-label="Instalar Aplicativo"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             <button
               id="sidebar-settings-btn"
               type="button"
@@ -1340,6 +1356,7 @@ export function SidebarNavigation({
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
+
 
             <button
               id="sidebar-logout-btn"

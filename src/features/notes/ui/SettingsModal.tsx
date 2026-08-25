@@ -12,10 +12,16 @@ import {
   Loader2,
   FileText,
   ShieldCheck,
+  Smartphone,
+  Share,
+  PlusSquare,
+  Sparkles,
+  Monitor,
 } from 'lucide-react';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { Note } from '../types';
 import { exportNonArchivedNotesToZip, ExportProgress } from '../utils/export-notes';
+import { usePwa } from '@/src/features/pwa/PwaProvider';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -25,7 +31,7 @@ interface SettingsModalProps {
   userEmail?: string;
 }
 
-type TabType = 'password' | 'email' | 'export';
+type TabType = 'password' | 'email' | 'export' | 'pwa';
 
 export function SettingsModal({
   isOpen,
@@ -36,6 +42,7 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('password');
   const [userEmail, setUserEmail] = useState<string>(initialUserEmail);
+  const { isStandalone, canInstall, isIos, promptInstall } = usePwa();
 
   // Estados da Aba: Alterar Senha
   const [currentPassword, setCurrentPassword] = useState('');
@@ -318,6 +325,20 @@ export function SettingsModal({
             <Download className="w-3.5 h-3.5" />
             Exportar notas
           </button>
+
+          <button
+            type="button"
+            id="settings-tab-pwa"
+            onClick={() => setActiveTab('pwa')}
+            className={`flex items-center gap-1.5 py-3 px-3 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'pwa'
+                ? 'border-[#68594d] text-[#68594d]'
+                : 'border-transparent text-[#7f756e] hover:text-[#1b1c19]'
+            }`}
+          >
+            <Smartphone className="w-3.5 h-3.5" />
+            Aplicativo (PWA)
+          </button>
         </div>
 
         {/* Conteúdo da Aba Ativa */}
@@ -579,6 +600,134 @@ export function SettingsModal({
                     </>
                   )}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* ABA 4: PROGRESSIVE WEB APP (PWA)                             */}
+          {/* ============================================================ */}
+          {activeTab === 'pwa' && (
+            <div className="space-y-4">
+              <div className="p-4 bg-[#fbfaf8] border border-[#f0eee9] rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-[#68594d] text-white flex items-center justify-center font-serif-note font-bold text-sm shadow-xs">
+                      A!
+                    </div>
+                    <div>
+                      <h3 className="font-serif-note font-bold text-sm text-[#1b1c19]">
+                        ANOTADO!
+                      </h3>
+                      <p className="font-sans-ui text-xs text-[#7f756e]">
+                        Um espaço para escrever.
+                      </p>
+                    </div>
+                  </div>
+
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                      isStandalone
+                        ? 'bg-[#eef8f2] text-[#166534] border border-[#a3e635]/40'
+                        : 'bg-[#f4dfcb]/80 text-[#68594d] border border-[#68594d]/20'
+                    }`}
+                  >
+                    {isStandalone ? (
+                      <>
+                        <CheckCircle2 className="w-3 h-3" />
+                        Instalado (Standalone)
+                      </>
+                    ) : (
+                      <>
+                        <Monitor className="w-3 h-3" />
+                        Navegador Web
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                <p className="text-xs text-[#4e453f] leading-relaxed">
+                  O ANOTADO! funciona como um aplicativo completo e instalável com suporte total a funcionamento offline, persistência via IndexedDB e sincronização automática em nuvem.
+                </p>
+              </div>
+
+              {/* Ações de Instalação */}
+              {isStandalone ? (
+                <div className="p-4 bg-[#eef8f2] border border-[#a3e635]/40 rounded-2xl flex items-start gap-3">
+                  <CheckCircle2 className="w-4 h-4 text-[#166534] shrink-0 mt-0.5" />
+                  <div className="space-y-1 text-xs text-[#166534]">
+                    <p className="font-semibold">
+                      O aplicativo já está instalado no seu sistema!
+                    </p>
+                    <p className="text-[#14532d] leading-relaxed">
+                      Você pode abri-lo direto da sua área de trabalho, menu Iniciar ou tela inicial do celular sem barras de navegação.
+                    </p>
+                  </div>
+                </div>
+              ) : isIos ? (
+                <div className="p-4 bg-white border border-[#eae8e3] rounded-2xl space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[#1b1c19]">
+                    <Smartphone className="w-4 h-4 text-[#68594d]" />
+                    <span>Como instalar no iPhone ou iPad:</span>
+                  </div>
+
+                  <div className="space-y-2 text-xs text-[#4e453f]">
+                    <div className="flex items-start gap-2.5 p-2 bg-[#fbfaf8] rounded-xl border border-[#f0eee9]">
+                      <Share className="w-3.5 h-3.5 text-[#68594d] shrink-0 mt-0.5" />
+                      <span>1. No Safari, toque no botão <strong>Compartilhar</strong> (ícone com seta para cima).</span>
+                    </div>
+                    <div className="flex items-start gap-2.5 p-2 bg-[#fbfaf8] rounded-xl border border-[#f0eee9]">
+                      <PlusSquare className="w-3.5 h-3.5 text-[#68594d] shrink-0 mt-0.5" />
+                      <span>2. Selecione a opção <strong>&quot;Adicionar à Tela de Início&quot;</strong>.</span>
+                    </div>
+                    <div className="flex items-start gap-2.5 p-2 bg-[#fbfaf8] rounded-xl border border-[#f0eee9]">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#68594d] shrink-0 mt-0.5" />
+                      <span>3. Toque em <strong>&quot;Adicionar&quot;</strong> no canto superior direito.</span>
+                    </div>
+                  </div>
+                </div>
+              ) : canInstall ? (
+                <div className="space-y-3">
+                  <div className="p-4 bg-white border border-[#eae8e3] rounded-2xl space-y-2">
+                    <h4 className="text-xs font-semibold text-[#1b1c19]">
+                      Instalar no seu dispositivo
+                    </h4>
+                    <p className="text-xs text-[#4e453f] leading-relaxed">
+                      Clique no botão abaixo para instalar o ANOTADO! diretamente no Android, Chrome, Edge ou Windows.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    id="settings-pwa-install-btn"
+                    onClick={promptInstall}
+                    className="w-full py-2.5 px-4 bg-[#68594d] hover:bg-[#53463c] text-white text-xs font-medium rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-2xs"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Instalar ANOTADO!</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-4 bg-white border border-[#eae8e3] rounded-2xl space-y-2 text-xs text-[#4e453f]">
+                  <h4 className="font-semibold text-[#1b1c19]">
+                    Instalação manual no navegador
+                  </h4>
+                  <p className="leading-relaxed">
+                    No Chrome, Edge ou Brave, você pode instalar a qualquer momento clicando no ícone de instalação <Download className="w-3 h-3 inline text-[#68594d]" /> na barra de endereço ou acessando o menu de opções do navegador.
+                  </p>
+                </div>
+              )}
+
+              {/* Informações Técnicas de Offline e Storage */}
+              <div className="p-3.5 bg-[#fbfaf8] border border-[#f0eee9] rounded-2xl space-y-1.5 text-[11px] text-[#7f756e]">
+                <div className="font-medium text-[#4e453f]">Arquitetura Offline-First & PWA:</div>
+                <div className="flex items-center gap-1.5 text-[#68594d]">
+                  <Sparkles className="w-3 h-3" />
+                  <span>IndexedDB ativo + Service Worker para App Shell</span>
+                </div>
+                <p>
+                  Todas as suas notas, pastas e anexos continuam 100% disponíveis e editáveis mesmo sem acesso à internet.
+                </p>
               </div>
             </div>
           )}

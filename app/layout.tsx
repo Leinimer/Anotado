@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Manrope, Source_Serif_4 } from 'next/font/google';
 import './globals.css';
+import { PwaProvider } from '@/src/features/pwa/PwaProvider';
 
 const manrope = Manrope({
   subsets: ['latin'],
@@ -17,14 +18,35 @@ const sourceSerif = Source_Serif_4({
 });
 
 export const metadata: Metadata = {
-  title: 'Anotado! — Digital Tactility',
-  description: 'A quiet space for writing. Minimalist and high-performance tactile notes.',
+  title: 'ANOTADO!',
+  description: 'Um espaço para escrever.',
+  applicationName: 'ANOTADO!',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'ANOTADO!',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+  },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 5,
+  themeColor: '#fbf9f4',
 };
 
 export default function RootLayout({
@@ -35,9 +57,10 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className={`${manrope.variable} ${sourceSerif.variable}`}>
       <body className="bg-[#fbf9f4] text-[#1b1c19] min-h-screen antialiased selection:bg-[#f4dfcb] selection:text-[#1b1c19]">
-        {children}
+        <PwaProvider>{children}</PwaProvider>
       </body>
     </html>
   );
 }
+
 
