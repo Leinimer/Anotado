@@ -46,32 +46,13 @@ export function getYouTubeThumbnailUrl(videoIdOrUrl: string): string {
 
 /**
  * Otimiza a entrega de imagens do Supabase Storage sem alterar o arquivo original persistido.
- * Caso seja uma imagem do Supabase Storage, adiciona parâmetros de renderização otimizada quando suportado.
+ * Utiliza diretamente a URL pública original do Supabase Storage (/storage/v1/object/public/).
+ * Não depende de serviços pagos ou transformações proprietárias (/render/image/public/).
  */
-export function getOptimizedImageUrl(src: string, targetWidth: number = 850): string {
+export function getOptimizedImageUrl(src: string, _targetWidth: number = 850): string {
   if (!src) return '';
   
-  // Data URLs ou blobs locais não precisam de transformação de CDN
-  if (src.startsWith('data:') || src.startsWith('blob:')) {
-    return src;
-  }
-
-  // Supabase Storage Image Transformations (se URL for de um bucket Supabase)
-  if (src.includes('/storage/v1/object/public/')) {
-    // Transforma para render/image/public mantendo cache eficiente
-    try {
-      const url = new URL(src);
-      // Se a CDN do Supabase Image Transformation estiver habilitada
-      const renderPath = url.pathname.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/');
-      const optimizedUrl = new URL(renderPath, url.origin);
-      optimizedUrl.searchParams.set('width', Math.min(Math.max(targetWidth, 320), 1600).toString());
-      optimizedUrl.searchParams.set('quality', '85');
-      return optimizedUrl.toString();
-    } catch {
-      return src;
-    }
-  }
-
+  // Retorna a URL original diretamente (sem reescrita para /render/image/public/)
   return src;
 }
 

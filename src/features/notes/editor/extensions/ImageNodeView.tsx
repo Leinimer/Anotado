@@ -56,17 +56,16 @@ export function ImageNodeView(props: NodeViewProps) {
     return getOptimizedImageUrl(rawSrc, 850);
   });
 
-  // Resolve anexos locais offline via protocolo attachment://[id]
+  // Resolve anexos locais offline via protocolo attachment://[id] ou local-attachment://[id]
   useEffect(() => {
     let isCancelled = false;
 
     async function resolveLocalAttachment() {
-      if (rawSrc.startsWith('attachment://')) {
-        const attachmentId = rawSrc.replace('attachment://', '').trim();
+      if (rawSrc.startsWith('attachment://') || rawSrc.startsWith('local-attachment://')) {
+        const attachmentId = rawSrc.replace(/^(?:attachment|local-attachment):\/\//, '').trim();
         try {
           // Busca o anexo pelo ID no IndexedDB
           const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
-          // Tenta pegar anexo tanto do usuário atual quanto de busca geral
           let attachment = await indexedDBStorage.getAttachment(currentUserId, attachmentId);
           if (!attachment && currentUserId !== 'anonymous') {
             attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
@@ -76,8 +75,10 @@ export function ImageNodeView(props: NodeViewProps) {
             if (attachment.remote_url) {
               // Se já foi sincronizado e tem URL remota, atualiza o src do nó no Tiptap
               if (!isCancelled) {
-                setCurrentSrc(getOptimizedImageUrl(attachment.remote_url, 850));
+                const optUrl = getOptimizedImageUrl(attachment.remote_url, 850);
+                setCurrentSrc(optUrl);
                 updateAttributes({ src: attachment.remote_url });
+                setImageError(false);
               }
               return;
             }
@@ -91,14 +92,25 @@ export function ImageNodeView(props: NodeViewProps) {
               localBlobUrlRef.current = blobUrl;
               setCurrentSrc(blobUrl);
               setIsVisibleInViewport(true);
+              setImageError(false);
               return;
             }
           }
+
+          // Se não encontrou anexo no IndexedDB local
+          if (!isCancelled) {
+            console.warn(`[ImageNodeView] Anexo local não encontrado no IndexedDB: ${attachmentId}`);
+            setImageError(true);
+          }
         } catch (err) {
           console.warn('[ImageNodeView] Falha ao resolver anexo local:', err);
+          if (!isCancelled) {
+            setImageError(true);
+          }
         }
       } else {
         setCurrentSrc(getOptimizedImageUrl(rawSrc, 850));
+        setImageError(false);
       }
     }
 

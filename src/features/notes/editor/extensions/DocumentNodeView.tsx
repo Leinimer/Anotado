@@ -50,13 +50,13 @@ export function DocumentNodeView(props: NodeViewProps) {
     return rawSrc;
   });
 
-  // Resolve anexos locais offline via protocolo attachment://[id]
+  // Resolve anexos locais offline via protocolo attachment://[id] ou local-attachment://[id]
   useEffect(() => {
     let isCancelled = false;
 
     async function resolveLocalDoc() {
-      if (rawSrc.startsWith('attachment://')) {
-        const attachmentId = rawSrc.replace('attachment://', '').trim();
+      if (rawSrc.startsWith('attachment://') || rawSrc.startsWith('local-attachment://')) {
+        const attachmentId = rawSrc.replace(/^(?:attachment|local-attachment):\/\//, '').trim();
         try {
           const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
           let attachment = await indexedDBStorage.getAttachment(currentUserId, attachmentId);
@@ -242,11 +242,26 @@ export function DocumentNodeView(props: NodeViewProps) {
     [updateAttributes]
   );
 
-  const handleOpenDocument = (e: React.MouseEvent) => {
+  const handleOpenDocument = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const targetUrl = resolvedSrc || rawSrc;
-    if (targetUrl && targetUrl !== '#' && !targetUrl.startsWith('attachment://')) {
+    let targetUrl = resolvedSrc || rawSrc;
+
+    if (targetUrl.startsWith('attachment://') || targetUrl.startsWith('local-attachment://')) {
+      const attachmentId = targetUrl.replace(/^(?:attachment|local-attachment):\/\//, '').trim();
+      const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
+      let attachment = await indexedDBStorage.getAttachment(currentUserId, attachmentId);
+      if (!attachment && currentUserId !== 'anonymous') {
+        attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
+      }
+      if (attachment?.remote_url) {
+        targetUrl = attachment.remote_url;
+      } else if (attachment?.blob) {
+        targetUrl = URL.createObjectURL(attachment.blob);
+      }
+    }
+
+    if (targetUrl && targetUrl !== '#' && !targetUrl.startsWith('attachment://') && !targetUrl.startsWith('local-attachment://')) {
       window.open(targetUrl, '_blank', 'noopener,noreferrer');
     }
   };

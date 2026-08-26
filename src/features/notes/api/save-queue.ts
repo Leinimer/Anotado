@@ -16,6 +16,11 @@ import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extract
 import { serializeMarkdownWithTags } from '../utils/markdown-tags';
 import { indexedDBStorage } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
+import {
+  resolveAndUploadNoteAttachments,
+  extractAttachmentReferences,
+  hasUnresolvedLocalMedia,
+} from './storage-api';
 
 interface PendingSaveItem {
   userId: string;
@@ -178,17 +183,57 @@ class SaveQueueManager {
         return;
       }
 
-      // 4. Se online, verifica se há anexos pendentes antes de marcar sincronizado
-      const hasUnresolvedAttachments = item.content.includes('attachment://') || item.content.includes('local-attachment://');
-      
-      // Grava no Supabase Storage
-      const storageSuccess = await writeNoteMarkdown(item.userId, item.noteId, fullMarkdown);
+      // 4. Se online, resolve anexos pendentes e faz upload físico antes de qualquer envio ao Supabase
+      const { resolvedContent, allResolved } = await resolveAndUploadNoteAttachments(
+        item.userId,
+        item.noteId,
+        item.content
+      );
 
+      if (!allResolved) {
+        console.warn(`[NOTE] PERSIST ERROR noteId=${item.noteId}: Anexos locais ainda não resolvidos. Mantendo pendente localmente.`);
+        state.persistedVersion = nextRevision;
+        item.resolve({
+          success: true,
+          tags: combinedTags,
+          version: nextRevision,
+        });
+        return;
+      }
+
+      // Se o conteúdo mudou porque referências locais foram substituídas por URLs HTTPS definitivas:
+      if (resolvedContent !== item.content) {
+        if (existingNote) {
+          existingNote.content = resolvedContent;
+          await indexedDBStorage.putNote(item.userId, existingNote);
+        }
+      }
+
+      // Validação Absoluta: O conteúdo remoto NUNCA pode conter attachment://, local-attachment://, blob: ou data:
+      const unresolvedRefs = extractAttachmentReferences(resolvedContent);
+      if (unresolvedRefs.length > 0 || hasUnresolvedLocalMedia(resolvedContent)) {
+        console.error(`[NOTE] PERSIST ERROR noteId=${item.noteId}: Conteúdo ainda contém referências locais proibidas. Gravação remota abortada.`);
+        state.persistedVersion = nextRevision;
+        item.resolve({
+          success: true,
+          tags: combinedTags,
+          version: nextRevision,
+        });
+        return;
+      }
+
+      console.log(`[NOTE] CONTENT PERSIST START noteId=${item.noteId} revision=${nextRevision}`);
+
+      // Grava Markdown definitivo no Supabase Storage
+      const remoteMarkdown = serializeMarkdownWithTags(resolvedContent, combinedTags);
+      const storageSuccess = await writeNoteMarkdown(item.userId, item.noteId, remoteMarkdown);
+
+      // Atualiza tabela notes no Supabase com conteúdo HTTPS definitivo
       const supabase = createClient();
       const { error: updateErr } = await supabase
         .from('notes')
         .update({
-          content: item.content,
+          content: resolvedContent,
           tags: combinedTags,
           revision: nextRevision,
           updated_at: new Date().toISOString(),
@@ -197,19 +242,21 @@ class SaveQueueManager {
         .eq('user_id', item.userId);
 
       if (updateErr) {
-        console.warn('[SaveQueue] Erro ao atualizar Supabase DB:', updateErr);
+        console.error(`[NOTE] PERSIST ERROR noteId=${item.noteId}:`, updateErr.message || updateErr);
         throw updateErr;
       }
+
+      console.log(`[NOTE] CONTENT PERSIST SUCCESS noteId=${item.noteId}`);
 
       // Sincroniza tabelas tags / note_tags se necessário
       await this.syncTagsAndNoteRelations(supabase, item.userId, item.noteId, combinedTags);
 
-      if (!hasUnresolvedAttachments) {
-        // Marca como sincronizado localmente após confirmação explícita do Supabase
-        await indexedDBStorage.markNoteSynced(item.userId, item.noteId, nextRevision);
-        // Remove da SyncQueue após confirmação do Supabase
-        await indexedDBStorage.removeSyncQueueItem(item.userId, syncItemId);
-      }
+      // Marca como sincronizado localmente após confirmação explícita do Supabase
+      await indexedDBStorage.markNoteSynced(item.userId, item.noteId, nextRevision);
+      // Remove da SyncQueue após confirmação do Supabase
+      await indexedDBStorage.removeSyncQueueItem(item.userId, syncItemId);
+
+      console.log(`[NOTE] SYNC CONFIRMED noteId=${item.noteId} revision=${nextRevision}`);
 
       const remainingPending = await indexedDBStorage.getSyncQueueCount(item.userId);
       networkMonitor.updatePendingCount(remainingPending);

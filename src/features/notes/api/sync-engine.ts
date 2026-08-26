@@ -23,6 +23,11 @@ import { writeNoteMarkdown, deleteNoteMarkdown, readNoteMarkdown } from './notes
 import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
 import { serializeMarkdownWithTags, parseMarkdownWithTags } from '../utils/markdown-tags';
 import { saveQueue } from './save-queue';
+import {
+  resolveAndUploadNoteAttachments,
+  extractAttachmentReferences,
+  hasUnresolvedLocalMedia,
+} from './storage-api';
 
 export type DataChangePayload = {
   userId: string;
@@ -860,18 +865,39 @@ class SyncEngine {
         const noteTags = normalizeTags(effectiveNote.tags || rawPayload.tags || []);
         const noteTitle = effectiveNote.title || rawPayload.title || 'Nova nota';
 
-        const rawAttCount = (currentContent.match(/attachment:\/\/[a-zA-Z0-9_-]+/g) || []).length +
-          (currentContent.match(/local-attachment:\/\/[a-zA-Z0-9_-]+/g) || []).length;
+        // 2. Resolve e faz upload de todos os anexos locais ANTES de persistir no Supabase
+        const { resolvedContent, allResolved } = await resolveAndUploadNoteAttachments(
+          userId,
+          noteId,
+          currentContent
+        );
 
-        console.log(`[SyncGuard] PUSH NOTE noteId=${noteId} revision=${revision} contentLength=${currentContent.length} attachmentCount=${rawAttCount}`);
+        if (!allResolved) {
+          console.warn(`[NOTE] PERSIST ERROR noteId=${noteId}: CREATE_NOTE abortado pois há anexos locais ainda não resolvidos`);
+          return false;
+        }
 
-        // 2. Grava na tabela notes sem coluna needs_sync
+        // Atualiza IndexedDB se referências locais foram substituídas por HTTPS
+        if (localNote && localNote.content !== resolvedContent) {
+          localNote.content = resolvedContent;
+          await indexedDBStorage.putNote(userId, localNote);
+        }
+
+        // Validação Absoluta: Nenhuma referência local proibida
+        if (extractAttachmentReferences(resolvedContent).length > 0 || hasUnresolvedLocalMedia(resolvedContent)) {
+          console.error(`[NOTE] PERSIST ERROR noteId=${noteId}: CREATE_NOTE abortado pois o conteúdo ainda possui referências locais`);
+          return false;
+        }
+
+        console.log(`[NOTE] CONTENT PERSIST START noteId=${noteId} revision=${revision}`);
+
+        // 3. Grava na tabela notes com conteúdo final HTTPS
         const { error: upsertError } = await supabase.from('notes').upsert({
           id: noteId,
           user_id: userId,
           folder_id: effectiveNote.folder_id || null,
           title: noteTitle,
-          content: currentContent,
+          content: resolvedContent,
           position: effectiveNote.position ?? 0,
           tags: noteTags,
           is_archived: Boolean(effectiveNote.is_archived),
@@ -882,11 +908,19 @@ class SyncEngine {
         });
 
         if (upsertError) {
-          console.error(`[SyncGuard] PUSH ERROR noteId=${noteId}:`, upsertError.message || upsertError);
+          console.error(`[NOTE] PERSIST ERROR noteId=${noteId}:`, upsertError.message || upsertError);
           throw upsertError;
         }
 
-        console.log(`[SyncGuard] PUSH SUCCESS noteId=${noteId}`);
+        // 4. Grava .md canônico no Supabase Storage
+        try {
+          const fullMarkdown = serializeMarkdownWithTags(resolvedContent, noteTags);
+          await writeNoteMarkdown(userId, noteId, fullMarkdown);
+        } catch (storageErr) {
+          console.warn(`[SyncEngine] Aviso ao gravar Markdown no Storage para nota ${noteId}:`, storageErr);
+        }
+
+        console.log(`[NOTE] CONTENT PERSIST SUCCESS noteId=${noteId}`);
 
         // Sincroniza tags associadas
         try {
@@ -895,56 +929,9 @@ class SyncEngine {
           console.warn('[SyncEngine] Aviso ao sincronizar tags:', tagErr);
         }
 
-        // 3. Processa anexos pendentes
-        try {
-          if (rawAttCount > 0) {
-            console.log(`[SyncGuard] ATTACHMENTS noteId=${noteId} pendingCount=${rawAttCount}`);
-          }
-          const res = await this.resolveAndUploadAttachmentsForNote(
-            supabase,
-            userId,
-            noteId,
-            currentContent
-          );
-          currentContent = res.finalContent;
-        } catch (attErr) {
-          console.warn(`[SyncEngine] Falha não-fatal ao processar anexos da nota ${noteId}:`, attErr);
-        }
-
-        // Se anexos foram resolvidos e URLs remotas foram injetadas no markdown:
-        if (localNote && localNote.content !== currentContent) {
-          localNote.content = currentContent;
-          await indexedDBStorage.putNote(userId, localNote);
-
-          try {
-            await supabase
-              .from('notes')
-              .update({
-                content: currentContent,
-                revision: revision,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', noteId)
-              .eq('user_id', userId);
-          } catch (updateContentErr) {
-            console.warn('[SyncEngine] Aviso ao atualizar conteúdo com remote URLs:', updateContentErr);
-          }
-        }
-
-        // 4. Grava .md canônico no Supabase Storage
-        try {
-          const fullMarkdown = serializeMarkdownWithTags(currentContent, noteTags);
-          await writeNoteMarkdown(userId, noteId, fullMarkdown);
-        } catch (storageErr) {
-          console.warn(`[SyncEngine] Aviso ao gravar Markdown no Storage para nota ${noteId}:`, storageErr);
-        }
-
         // 5. Marca sincronizado no IndexedDB após confirmação real
-        const hasUnresolvedAttachments = currentContent.includes('attachment://') || currentContent.includes('local-attachment://');
-        if (!hasUnresolvedAttachments) {
-          await indexedDBStorage.markNoteSynced(userId, noteId, revision);
-          console.log(`[SyncGuard] MARK SYNCED noteId=${noteId} revision=${revision}`);
-        }
+        await indexedDBStorage.markNoteSynced(userId, noteId, revision);
+        console.log(`[NOTE] SYNC CONFIRMED noteId=${noteId} revision=${revision}`);
 
         return true;
       }
@@ -961,26 +948,27 @@ class SyncEngine {
           : (rawPayloadContent || '');
         const cleanTags = normalizeTags((localNote && localNote.tags) || rawPayloadTags || []);
 
-        const rawAttCount = (content.match(/attachment:\/\/[a-zA-Z0-9_-]+/g) || []).length +
-          (content.match(/local-attachment:\/\/[a-zA-Z0-9_-]+/g) || []).length;
-
-        console.log(`[SyncGuard] PUSH NOTE noteId=${noteId} revision=${revision} contentLength=${content.length} attachmentCount=${rawAttCount}`);
-
-        // 2. Resolve anexos pendentes
-        if (rawAttCount > 0) {
-          console.log(`[SyncGuard] ATTACHMENTS noteId=${noteId} pendingCount=${rawAttCount}`);
-        }
-        const { finalContent } = await this.resolveAndUploadAttachmentsForNote(
-          supabase,
+        // 2. Resolve e faz upload de todos os anexos locais ANTES de persistir no Supabase
+        const { resolvedContent, allResolved } = await resolveAndUploadNoteAttachments(
           userId,
           noteId,
           content
         );
-        content = finalContent;
 
-        if (localNote && localNote.content !== content) {
-          localNote.content = content;
+        if (!allResolved) {
+          console.warn(`[NOTE] PERSIST ERROR noteId=${noteId}: UPDATE_NOTE_CONTENT abortado pois há anexos locais ainda não resolvidos`);
+          return false;
+        }
+
+        if (localNote && localNote.content !== resolvedContent) {
+          localNote.content = resolvedContent;
           await indexedDBStorage.putNote(userId, localNote);
+        }
+
+        // Validação Absoluta: Nenhuma referência local proibida
+        if (extractAttachmentReferences(resolvedContent).length > 0 || hasUnresolvedLocalMedia(resolvedContent)) {
+          console.error(`[NOTE] PERSIST ERROR noteId=${noteId}: UPDATE_NOTE_CONTENT abortado pois o conteúdo ainda possui referências locais`);
+          return false;
         }
 
         // 3. Verificação de Conflito com a versão no Supabase
@@ -1001,7 +989,7 @@ class SyncEngine {
             remoteRevision > revision &&
             remoteUpdatedAt > localBaseUpdatedAt + 1000 &&
             remoteNote.content &&
-            remoteNote.content.trim() !== (content || '').trim()
+            remoteNote.content.trim() !== (resolvedContent || '').trim()
           ) {
             console.warn(`[SyncGuard] Conflito detectado na nota ${noteId}. Preservando ambas as versões de forma não-destrutiva.`);
 
@@ -1009,14 +997,14 @@ class SyncEngine {
             const conflictTitle = `[Conflito] ${remoteNote.title || 'Nota'} (Cópia Local)`;
 
             // Grava cópia no Supabase
-            const conflictMarkdown = serializeMarkdownWithTags(content, cleanTags);
+            const conflictMarkdown = serializeMarkdownWithTags(resolvedContent, cleanTags);
             await writeNoteMarkdown(userId, conflictNoteId, conflictMarkdown);
             await supabase.from('notes').insert({
               id: conflictNoteId,
               user_id: userId,
               folder_id: remoteNote.folder_id || null,
               title: conflictTitle,
-              content: content,
+              content: resolvedContent,
               position: 0,
               tags: cleanTags,
               revision: 1,
@@ -1031,7 +1019,7 @@ class SyncEngine {
               user_id: userId,
               folder_id: remoteNote.folder_id || null,
               title: conflictTitle,
-              content: content,
+              content: resolvedContent,
               position: 0,
               tags: cleanTags,
               is_archived: false,
@@ -1055,19 +1043,21 @@ class SyncEngine {
               tags: Array.isArray(remoteNote.tags) ? remoteNote.tags : [],
             });
 
-            console.log(`[SyncGuard] CONTENT UPDATE SUCCESS (Conflict Handled) noteId=${noteId}`);
+            console.log(`[NOTE] CONTENT PERSIST SUCCESS (Conflict Handled) noteId=${noteId}`);
             return true;
           }
         }
 
+        console.log(`[NOTE] CONTENT PERSIST START noteId=${noteId} revision=${revision}`);
+
         // Sem conflito: Grava o arquivo .md no Supabase Storage e na tabela notes
-        const fullMarkdown = serializeMarkdownWithTags(content, cleanTags);
+        const fullMarkdown = serializeMarkdownWithTags(resolvedContent, cleanTags);
         await writeNoteMarkdown(userId, noteId, fullMarkdown);
 
         const { error: updateErr } = await supabase
           .from('notes')
           .update({
-            content: content,
+            content: resolvedContent,
             tags: cleanTags,
             revision: revision,
             updated_at: new Date().toISOString(),
@@ -1076,19 +1066,17 @@ class SyncEngine {
           .eq('user_id', userId);
 
         if (updateErr) {
-          console.error(`[SyncGuard] PUSH ERROR noteId=${noteId}:`, updateErr.message || updateErr);
+          console.error(`[NOTE] PERSIST ERROR noteId=${noteId}:`, updateErr.message || updateErr);
           throw updateErr;
         }
 
         await this.syncTagsWithSupabase(supabase, userId, noteId, cleanTags);
 
-        console.log(`[SyncGuard] PUSH SUCCESS noteId=${noteId}`);
+        console.log(`[NOTE] CONTENT PERSIST SUCCESS noteId=${noteId}`);
 
-        const hasUnresolvedAttachments = content.includes('attachment://') || content.includes('local-attachment://');
-        if (!hasUnresolvedAttachments) {
-          await indexedDBStorage.markNoteSynced(userId, noteId, revision);
-          console.log(`[SyncGuard] MARK SYNCED noteId=${noteId} revision=${revision}`);
-        }
+        // Marca como sincronizado no IndexedDB após confirmação real
+        await indexedDBStorage.markNoteSynced(userId, noteId, revision);
+        console.log(`[NOTE] SYNC CONFIRMED noteId=${noteId} revision=${revision}`);
         return true;
       }
 
