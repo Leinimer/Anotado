@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
+import { NodeSelection } from '@tiptap/pm/state';
 import {
   FileText,
   Trash2,
@@ -269,16 +270,31 @@ export function DocumentNodeView(props: NodeViewProps) {
     }
   };
 
+  const handleDragStart = (e: React.DragEvent) => {
+    const pos = typeof getPos === 'function' ? getPos() : undefined;
+    if (typeof pos === 'number' && editor?.view) {
+      try {
+        const { doc } = editor.view.state;
+        const selection = NodeSelection.create(doc, pos);
+        editor.view.dispatch(editor.view.state.tr.setSelection(selection));
+      } catch (err) {
+        console.warn('[MEDIA-DRAG] Could not set NodeSelection on doc drag start:', err);
+      }
+    }
+  };
+
   return (
     <NodeViewWrapper
       as="div"
       ref={containerRef}
       className={`document-attachment-wrapper my-4 relative flex ${alignClass} max-w-full select-none`}
       onClick={handleClick}
+      onDragStart={handleDragStart}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
+      draggable={true}
     >
       <div
         ref={cardRef}

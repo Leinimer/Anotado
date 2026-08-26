@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
+import { NodeSelection } from '@tiptap/pm/state';
 import {
   Trash2,
   AlignLeft,
@@ -11,6 +13,7 @@ import {
   ChevronUp,
   ChevronDown,
   Image as ImageIcon,
+  X,
 } from 'lucide-react';
 import {
   moveNodeBlock,
@@ -37,6 +40,7 @@ export function ImageNodeView(props: NodeViewProps) {
   const localBlobUrlRef = useRef<string | null>(null);
 
   const [isLocalSelected, setIsLocalSelected] = useState(false);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [resizingWidth, setResizingWidth] = useState<number | null>(null);
   const [aspectRatio, setAspectRatio] = useState<number>(() => {
@@ -211,6 +215,26 @@ export function ImageNodeView(props: NodeViewProps) {
     };
   }, []);
 
+  // Fecha o Lightbox ao pressionar Escape e bloqueia scroll de fundo
+  useEffect(() => {
+    if (!isLightboxOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsLightboxOpen(false);
+      }
+    };
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isLightboxOpen]);
+
   // Handler de Long Press para Mobile / Tablet e Clique para Desktop
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -253,9 +277,29 @@ export function ImageNodeView(props: NodeViewProps) {
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    // No Desktop (dispositivos com ponteiro fino), o clique seleciona imediatamente
+    // No Desktop (dispositivos com ponteiro fino), o clique simples seleciona a imagem
     if (typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches) {
       setIsLocalSelected(true);
+    }
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    // Duplo clique abre o lightbox modal em tela cheia
+    e.preventDefault();
+    e.stopPropagation();
+    setIsLightboxOpen(true);
+  };
+
+  const handleDragStart = (e: React.DragEvent) => {
+    const pos = typeof getPos === 'function' ? getPos() : undefined;
+    if (typeof pos === 'number' && editor?.view) {
+      try {
+        const { doc } = editor.view.state;
+        const selection = NodeSelection.create(doc, pos);
+        editor.view.dispatch(editor.view.state.tr.setSelection(selection));
+      } catch (err) {
+        console.warn('[MEDIA-DRAG] Could not set NodeSelection on drag start:', err);
+      }
     }
   };
 
@@ -358,12 +402,15 @@ export function ImageNodeView(props: NodeViewProps) {
     <NodeViewWrapper
       as="div"
       ref={containerRef}
-      className={`image-node-view-wrapper my-5 relative flex ${alignClass} max-w-full select-none`}
+      className={`image-node-view-wrapper my-5 relative flex ${alignClass} max-w-full select-none cursor-pointer`}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      onDragStart={handleDragStart}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
+      draggable={true}
     >
       <div
         className={`relative inline-block max-w-full transition-shadow duration-150 ${
@@ -617,6 +664,52 @@ export function ImageNodeView(props: NodeViewProps) {
           </>
         )}
       </div>
+
+      {/* Modal / Lightbox em Tela Cheia no Duplo Clique */}
+      {isLightboxOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            id="image-lightbox-modal"
+            className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200 select-none cursor-default"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsLightboxOpen(false);
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Visualização ampliada da imagem"
+          >
+            {/* Botão Fechar X */}
+            <button
+              id="image-lightbox-close-btn"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsLightboxOpen(false);
+              }}
+              className="absolute top-4 right-4 sm:top-6 sm:right-6 p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/50 z-10"
+              title="Fechar (Esc)"
+              aria-label="Fechar visualização"
+            >
+              <X className="w-5 h-5 sm:w-6 sm:h-6" />
+            </button>
+
+            {/* Imagem Ampliada */}
+            <div
+              className="relative max-w-full max-h-full flex items-center justify-center pointer-events-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={currentSrc || rawSrc}
+                alt={alt || 'Visualização ampliada da imagem'}
+                className="max-w-[90vw] max-h-[88vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
+              />
+            </div>
+          </div>,
+          document.body
+        )}
     </NodeViewWrapper>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { Extension } from '@tiptap/core';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, NodeSelection } from '@tiptap/pm/state';
 import { Node as PMNode } from '@tiptap/pm/model';
 
 const MEDIA_NODE_NAMES = ['image', 'documentAttachment', 'youtube'];
@@ -9,9 +9,34 @@ const MEDIA_NODE_NAMES = ['image', 'documentAttachment', 'youtube'];
 interface DraggedMediaOrigin {
   pos: number;
   node: PMNode;
+  mediaId: string;
   insideGroup: boolean;
   groupPos?: number;
   childIndex?: number;
+}
+
+function getMediaIdentifier(node: PMNode): string {
+  return (
+    node.attrs.src ||
+    node.attrs['data-src'] ||
+    node.attrs.attachmentId ||
+    node.attrs.name ||
+    ''
+  );
+}
+
+function countMediaOccurrencesInDoc(doc: PMNode, mediaId: string): number {
+  if (!mediaId) return 0;
+  let count = 0;
+  doc.descendants((n) => {
+    if (MEDIA_NODE_NAMES.includes(n.type.name)) {
+      const id = getMediaIdentifier(n);
+      if (id === mediaId) {
+        count++;
+      }
+    }
+  });
+  return count;
 }
 
 export const SmartMediaDragDrop = Extension.create({
@@ -24,7 +49,8 @@ export const SmartMediaDragDrop = Extension.create({
     const getOrCreateIndicator = () => {
       if (!dropIndicatorEl && typeof document !== 'undefined') {
         dropIndicatorEl = document.createElement('div');
-        dropIndicatorEl.className = 'smart-media-drop-indicator pointer-events-none fixed z-50 transition-all duration-75';
+        dropIndicatorEl.className =
+          'smart-media-drop-indicator pointer-events-none fixed z-50 transition-all duration-75';
         dropIndicatorEl.style.display = 'none';
         document.body.appendChild(dropIndicatorEl);
       }
@@ -37,7 +63,10 @@ export const SmartMediaDragDrop = Extension.create({
       }
     };
 
-    const showIndicator = (rect: { top: number; left: number; width: number; height: number }, isSide: boolean) => {
+    const showIndicator = (
+      rect: { top: number; left: number; width: number; height: number },
+      isSide: boolean
+    ) => {
       const el = getOrCreateIndicator();
       if (!el) return;
 
@@ -49,7 +78,7 @@ export const SmartMediaDragDrop = Extension.create({
         el.style.height = `${rect.height}px`;
         el.style.backgroundColor = '#68594d';
         el.style.borderRadius = '2px';
-        el.style.boxShadow = '0 0 6px rgba(104, 89, 77, 0.4)';
+        el.style.boxShadow = '0 0 8px rgba(104, 89, 77, 0.5)';
         el.style.display = 'block';
       } else {
         // Indicador horizontal (entre blocos)
@@ -59,7 +88,7 @@ export const SmartMediaDragDrop = Extension.create({
         el.style.height = '3px';
         el.style.backgroundColor = '#68594d';
         el.style.borderRadius = '2px';
-        el.style.boxShadow = '0 0 6px rgba(104, 89, 77, 0.4)';
+        el.style.boxShadow = '0 0 8px rgba(104, 89, 77, 0.5)';
         el.style.display = 'block';
       }
     };
@@ -74,7 +103,7 @@ export const SmartMediaDragDrop = Extension.create({
               const targetEl = event.target as HTMLElement | null;
               if (!targetEl) return false;
 
-              // Localiza o wrapper do nó de mídia que disparou o drag
+              // Localiza o wrapper do nó de mídia ou o drag handle
               const mediaWrapper = targetEl.closest<HTMLElement>(
                 '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper'
               );
@@ -85,9 +114,14 @@ export const SmartMediaDragDrop = Extension.create({
                   if (typeof pos === 'number') {
                     const { doc } = view.state;
                     const $pos = doc.resolve(pos);
-                    const node = $pos.nodeAfter || ($pos.parent && MEDIA_NODE_NAMES.includes($pos.parent.type.name) ? $pos.parent : null);
+                    const node =
+                      $pos.nodeAfter ||
+                      ($pos.parent && MEDIA_NODE_NAMES.includes($pos.parent.type.name)
+                        ? $pos.parent
+                        : null);
 
-                    const mediaNode = node && MEDIA_NODE_NAMES.includes(node.type.name) ? node : null;
+                    const mediaNode =
+                      node && MEDIA_NODE_NAMES.includes(node.type.name) ? node : null;
 
                     if (mediaNode) {
                       const insideGroup = $pos.parent.type.name === 'mediaGroup';
@@ -104,17 +138,47 @@ export const SmartMediaDragDrop = Extension.create({
                         });
                       }
 
+                      const mediaId = getMediaIdentifier(mediaNode);
+
+                      // OBRIGATÓRIO: Converte o nó em NodeSelection no início do drag
+                      try {
+                        const selection = NodeSelection.create(doc, pos);
+                        const tr = view.state.tr.setSelection(selection);
+                        view.dispatch(tr);
+
+                        console.log('[MEDIA-DRAG] START', {
+                          originPos: pos,
+                          nodeType: mediaNode.type.name,
+                          mediaId,
+                          selectionInstance: view.state.selection instanceof NodeSelection,
+                          selectionFrom: selection.from,
+                          selectionTo: selection.to,
+                        });
+                      } catch (err) {
+                        console.warn('[MEDIA-DRAG] Warning ao definir NodeSelection:', err);
+                      }
+
                       draggedOrigin = {
                         pos,
                         node: mediaNode,
+                        mediaId,
                         insideGroup,
                         groupPos,
                         childIndex,
                       };
+
+                      console.log('[MEDIA-DRAG] ORIGIN', draggedOrigin);
+                      console.log('[MEDIA-DRAG] NODE TYPE', mediaNode.type.name);
+                      console.log('[MEDIA-DRAG] ATTACHMENT ID', mediaId);
+                      console.log('[MEDIA-DRAG] SELECTION', {
+                        isNodeSelection: view.state.selection instanceof NodeSelection,
+                        from: view.state.selection.from,
+                        to: view.state.selection.to,
+                      });
                     }
                   }
                 } catch (err) {
-                  console.warn('Erro ao registrar origem do drag de mídia:', err);
+                  console.warn('[MEDIA-DRAG] Erro ao registrar origem do drag de mídia:', err);
                 }
               }
               return false;
@@ -154,8 +218,8 @@ export const SmartMediaDragDrop = Extension.create({
                 const relY = clientY - rect.top;
 
                 // Se estiver na metade esquerda ou direita da mídia
-                const isLeftSide = relX < rect.width * 0.4;
-                const isRightSide = relX > rect.width * 0.6;
+                const isLeftSide = relX < rect.width * 0.45;
+                const isRightSide = relX > rect.width * 0.55;
 
                 if (isLeftSide) {
                   showIndicator(
@@ -230,6 +294,15 @@ export const SmartMediaDragDrop = Extension.create({
               return false; // Deixa o ProseMirror tratar outros drops normalmente
             }
 
+            const mediaId = getMediaIdentifier(nodeToMove);
+            const beforeOccurrences = countMediaOccurrencesInDoc(view.state.doc, mediaId);
+
+            console.log('[MEDIA-DRAG] DROP', {
+              mediaId,
+              nodeType: nodeToMove.type.name,
+              beforeOccurrences,
+            });
+
             const elementUnder = document.elementFromPoint(clientX, clientY);
             if (!elementUnder) {
               draggedOrigin = null;
@@ -250,7 +323,7 @@ export const SmartMediaDragDrop = Extension.create({
               return false;
             }
 
-            // Inicia uma única transação atômica do ProseMirror para a operação MOVE
+            // Inicia uma única transação atômica do ProseMirror para a operação MOVE REAL
             const tr = state.tr;
 
             // 1. Identifica a posição de destino antes de qualquer mutação
@@ -275,7 +348,13 @@ export const SmartMediaDragDrop = Extension.create({
               }
             }
 
-            // Se for drop no mesmo local exato, cancela para não fazer nada
+            console.log('[MEDIA-DRAG] TARGET', {
+              targetPos,
+              isLeftSide,
+              targetIsGroup,
+            });
+
+            // Se for drop no mesmo local exato, cancela
             if (draggedOrigin && targetPos !== null && draggedOrigin.pos === targetPos) {
               draggedOrigin = null;
               event.preventDefault();
@@ -322,6 +401,8 @@ export const SmartMediaDragDrop = Extension.create({
               }
             }
 
+            console.log('[MEDIA-DRAG] MOVE - Original node deleted from origin');
+
             // 3. Insere o nó no DESTINO mapeado (INSERT DESTINO)
             if (targetPos !== null) {
               // Mapeia a posição do alvo após a deleção da origem
@@ -330,10 +411,16 @@ export const SmartMediaDragDrop = Extension.create({
               if (targetIsGroup) {
                 // Soltou no container do mediaGroup
                 const $target = tr.doc.resolve(mappedTargetPos);
-                const groupNode = $target.parent.type.name === 'mediaGroup' ? $target.parent : $target.nodeAfter;
+                const groupNode =
+                  $target.parent.type.name === 'mediaGroup'
+                    ? $target.parent
+                    : $target.nodeAfter;
 
                 if (groupNode && groupNode.type.name === 'mediaGroup') {
-                  const actualGroupPos = $target.parent.type.name === 'mediaGroup' ? $target.before() : mappedTargetPos;
+                  const actualGroupPos =
+                    $target.parent.type.name === 'mediaGroup'
+                      ? $target.before()
+                      : mappedTargetPos;
                   const childNodes: PMNode[] = [];
                   groupNode.forEach((c) => childNodes.push(c));
                   childNodes.push(nodeToMove!);
@@ -387,7 +474,11 @@ export const SmartMediaDragDrop = Extension.create({
                       : [targetNode, nodeToMove!];
 
                     const newGroup = mediaGroupType.create(null, combinedNodes);
-                    tr.replaceWith(mappedTargetPos, mappedTargetPos + targetNode.nodeSize, newGroup);
+                    tr.replaceWith(
+                      mappedTargetPos,
+                      mappedTargetPos + targetNode.nodeSize,
+                      newGroup
+                    );
                   } else {
                     tr.insert(mappedTargetPos, nodeToMove!);
                   }
@@ -395,15 +486,44 @@ export const SmartMediaDragDrop = Extension.create({
               }
             } else {
               // Soltou em posição normal de texto (entre blocos)
-              const rawDropPos = view.posAtCoords({ left: clientX, top: clientY })?.pos ?? tr.doc.content.size;
-              const mappedDropPos = Math.min(tr.mapping.map(rawDropPos), tr.doc.content.size);
+              const rawDropPos =
+                view.posAtCoords({ left: clientX, top: clientY })?.pos ??
+                tr.doc.content.size;
+              const mappedDropPos = Math.min(
+                tr.mapping.map(rawDropPos),
+                tr.doc.content.size
+              );
               tr.insert(mappedDropPos, nodeToMove!);
             }
 
-            // 4. Executa a transação única de MOVE e limpa a origem
+            // 4. VALIDAÇÃO RIGOROSA ANTI-DUPLICAÇÃO (Regra 12)
+            if (mediaId) {
+              const afterOccurrences = countMediaOccurrencesInDoc(tr.doc, mediaId);
+              if (afterOccurrences > beforeOccurrences) {
+                console.error(
+                  '[MEDIA-DRAG] ERRO CRÍTICO: Duplicação detectada! Abortando transação.',
+                  {
+                    mediaId,
+                    beforeOccurrences,
+                    afterOccurrences,
+                  }
+                );
+                draggedOrigin = null;
+                event.preventDefault();
+                return false;
+              }
+            }
+
+            // 5. Executa a transação única de MOVE e limpa a origem
             draggedOrigin = null;
             view.dispatch(tr);
             event.preventDefault();
+
+            console.log('[MEDIA-DRAG] COMPLETE', {
+              mediaId,
+              success: true,
+            });
+
             return true;
           },
         },
