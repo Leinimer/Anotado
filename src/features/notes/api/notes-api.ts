@@ -100,13 +100,20 @@ async function initializeLocalSeedIfNeeded(userId: string): Promise<{ folders: F
   const seedFolders: ExtendedFolder[] = INITIAL_DEMO_FOLDERS.map((f) => ({
     ...f,
     user_id: userId,
+    syncRequired: false,
+    syncStatus: 'synced',
     sync_status: 'synced',
+    needs_sync: false,
+    revision: 1,
   }));
 
   const seedNotes: ExtendedNote[] = INITIAL_DEMO_NOTES.map((n) => ({
     ...n,
     user_id: userId,
+    syncRequired: false,
+    syncStatus: 'synced',
     sync_status: 'synced',
+    needs_sync: false,
     revision: 1,
   }));
 
@@ -224,7 +231,15 @@ export async function fetchFoldersAndNotes(
       ]);
 
       if (!foldersRes.error && !notesRes.error) {
-        const folders = (foldersRes.data || []) as Folder[];
+        const folders = (foldersRes.data || []).map((f: any) => ({
+          ...f,
+          syncRequired: false,
+          syncStatus: 'synced',
+          sync_status: 'synced',
+          needs_sync: false,
+          revision: f.revision || 0,
+        })) as ExtendedFolder[];
+
         const notes = (notesRes.data || []).map((n: any) => {
           let noteTags: string[] = [];
           if (Array.isArray(n.tags)) {
@@ -240,14 +255,18 @@ export async function fetchFoldersAndNotes(
           return {
             ...n,
             tags: noteTags,
+            syncRequired: false,
+            syncStatus: 'synced',
             sync_status: 'synced',
+            needs_sync: false,
+            revision: n.revision || 0,
           };
-        }) as Note[];
+        }) as ExtendedNote[];
 
         if (folders.length > 0 || notes.length > 0) {
-          // Salva no IndexedDB
-          await indexedDBStorage.putFoldersBatch(userId, folders as ExtendedFolder[]);
-          await indexedDBStorage.putNotesBatch(userId, notes as ExtendedNote[]);
+          // Salva no IndexedDB como sincronizados (sem syncRequired)
+          await indexedDBStorage.putFoldersBatch(userId, folders);
+          await indexedDBStorage.putNotesBatch(userId, notes);
           return { folders, notes };
         }
       }
@@ -306,7 +325,10 @@ export async function fetchNoteContent(
             ...note,
             content: body,
             tags: finalTags,
+            syncRequired: false,
+            syncStatus: 'synced',
             sync_status: 'synced',
+            needs_sync: false,
           });
         } catch {}
 
@@ -339,12 +361,14 @@ export async function createFolder(
     position: folderData.position,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    syncRequired: true,
+    syncStatus: 'pending',
     sync_status: 'pending_sync',
     needs_sync: true,
     revision: 1,
   };
 
-  // 1. Grava no IndexedDB imediatamente
+  // 1. Grava no IndexedDB imediatamente com syncRequired = true
   await indexedDBStorage.putFolder(userId, newFolder);
 
   // 2. Enfileira na SyncQueue
@@ -361,7 +385,7 @@ export async function createFolder(
 
   // 3. Se online, tenta sincronizar imediatamente
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return newFolder;
@@ -377,6 +401,8 @@ export async function renameFolder(userId: string, folderId: string, newName: st
   if (localFolder) {
     localFolder.name = newName;
     localFolder.revision = nextRevision;
+    localFolder.syncRequired = true;
+    localFolder.syncStatus = 'pending';
     localFolder.needs_sync = true;
     localFolder.updated_at = new Date().toISOString();
     localFolder.sync_status = 'pending_sync';
@@ -396,7 +422,7 @@ export async function renameFolder(userId: string, folderId: string, newName: st
   networkMonitor.updatePendingCount(pendingCount);
 
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return true;
@@ -416,6 +442,8 @@ export async function updateFolderColor(
   if (localFolder) {
     localFolder.color = color;
     localFolder.revision = nextRevision;
+    localFolder.syncRequired = true;
+    localFolder.syncStatus = 'pending';
     localFolder.needs_sync = true;
     localFolder.updated_at = new Date().toISOString();
     localFolder.sync_status = 'pending_sync';
@@ -434,7 +462,7 @@ export async function updateFolderColor(
   networkMonitor.updatePendingCount(pendingCount);
 
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return true;
@@ -456,6 +484,8 @@ export async function updateFolderSmartConfig(
     localFolder.is_smart = isSmart;
     localFolder.smart_tags = smartTags;
     localFolder.revision = nextRevision;
+    localFolder.syncRequired = true;
+    localFolder.syncStatus = 'pending';
     localFolder.needs_sync = true;
     localFolder.updated_at = new Date().toISOString();
     localFolder.sync_status = 'pending_sync';
@@ -474,7 +504,7 @@ export async function updateFolderSmartConfig(
   networkMonitor.updatePendingCount(pendingCount);
 
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return true;
@@ -500,7 +530,7 @@ export async function deleteFolder(userId: string, folderId: string): Promise<bo
   networkMonitor.updatePendingCount(pendingCount);
 
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return true;
@@ -529,6 +559,8 @@ export async function createNote(
     previous_folder_id: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    syncRequired: true,
+    syncStatus: 'pending',
     sync_status: 'pending_sync',
     needs_sync: true,
     revision: 1,
@@ -538,7 +570,7 @@ export async function createNote(
   console.log(`[OfflineCreate] NOTE ID: ${noteId}`);
   console.log(`[OfflineCreate] USER ID: ${userId}`);
 
-  // 1. Salva no IndexedDB
+  // 1. Salva no IndexedDB imediatamente com syncRequired = true
   await indexedDBStorage.putNote(userId, newNote);
   console.log(`[OfflineCreate] INDEXEDDB SAVED: ${noteId}`);
 
@@ -557,7 +589,7 @@ export async function createNote(
 
   // 3. Se online, dispara sincronização
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return newNote;
@@ -576,6 +608,8 @@ export async function archiveNote(userId: string, noteId: string): Promise<boole
     targetNote.previous_folder_id = previousFolderId;
     targetNote.folder_id = null;
     targetNote.revision = nextRevision;
+    targetNote.syncRequired = true;
+    targetNote.syncStatus = 'pending';
     targetNote.needs_sync = true;
     targetNote.updated_at = new Date().toISOString();
     targetNote.sync_status = 'pending_sync';
@@ -594,7 +628,7 @@ export async function archiveNote(userId: string, noteId: string): Promise<boole
   networkMonitor.updatePendingCount(pendingCount);
 
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return true;
@@ -622,6 +656,8 @@ export async function unarchiveNote(
     targetNote.folder_id = destinationFolderId;
     targetNote.previous_folder_id = null;
     targetNote.revision = nextRevision;
+    targetNote.syncRequired = true;
+    targetNote.syncStatus = 'pending';
     targetNote.needs_sync = true;
     targetNote.updated_at = new Date().toISOString();
     targetNote.sync_status = 'pending_sync';
@@ -640,7 +676,7 @@ export async function unarchiveNote(
   networkMonitor.updatePendingCount(pendingCount);
 
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return true;
@@ -686,6 +722,8 @@ export async function updateNoteTitle(userId: string, noteId: string, newTitle: 
   if (localNote) {
     localNote.title = newTitle;
     localNote.revision = nextRevision;
+    localNote.syncRequired = true;
+    localNote.syncStatus = 'pending';
     localNote.needs_sync = true;
     localNote.updated_at = new Date().toISOString();
     localNote.sync_status = 'pending_sync';
@@ -704,7 +742,7 @@ export async function updateNoteTitle(userId: string, noteId: string, newTitle: 
   networkMonitor.updatePendingCount(pendingCount);
 
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return true;
@@ -764,7 +802,7 @@ export async function deleteNote(userId: string, noteId: string): Promise<boolea
   networkMonitor.updatePendingCount(pendingCount);
 
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return true;
@@ -788,6 +826,8 @@ export async function moveItem(
       localFolder.parent_id = newParentId;
       localFolder.position = newPosition;
       localFolder.revision = nextRevision;
+      localFolder.syncRequired = true;
+      localFolder.syncStatus = 'pending';
       localFolder.needs_sync = true;
       localFolder.updated_at = new Date().toISOString();
       localFolder.sync_status = 'pending_sync';
@@ -809,6 +849,8 @@ export async function moveItem(
       localNote.folder_id = newParentId;
       localNote.position = newPosition;
       localNote.revision = nextRevision;
+      localNote.syncRequired = true;
+      localNote.syncStatus = 'pending';
       localNote.needs_sync = true;
       localNote.updated_at = new Date().toISOString();
       localNote.sync_status = 'pending_sync';
@@ -828,7 +870,7 @@ export async function moveItem(
   networkMonitor.updatePendingCount(pendingCount);
 
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return true;
@@ -853,6 +895,8 @@ export async function updateNoteTags(
     localNote.tags = cleanTags;
     localNote.content = bodyContent;
     localNote.revision = nextRevision;
+    localNote.syncRequired = true;
+    localNote.syncStatus = 'pending';
     localNote.needs_sync = true;
     localNote.updated_at = new Date().toISOString();
     localNote.sync_status = 'pending_sync';
@@ -871,7 +915,7 @@ export async function updateNoteTags(
   networkMonitor.updatePendingCount(pendingCount);
 
   if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    syncEngine.scheduleSync(100);
+    syncEngine.scheduleSync(50);
   }
 
   return { success: true, tags: cleanTags };

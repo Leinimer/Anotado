@@ -1,7 +1,7 @@
 -- Migration: Create folders, notes, and notes storage bucket with individual RLS policies
 -- Created: 2026-08-22
 
--- 1. Create folders table (with color and smart folder support)
+-- 1. Create folders table (with color, revision and smart folder support)
 CREATE TABLE IF NOT EXISTS public.folders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS public.folders (
     color TEXT DEFAULT NULL,
     is_smart BOOLEAN NOT NULL DEFAULT FALSE,
     smart_tags TEXT[] NOT NULL DEFAULT '{}'::text[],
+    revision BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
@@ -19,7 +20,6 @@ CREATE TABLE IF NOT EXISTS public.folders (
 ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS color TEXT DEFAULT NULL;
 ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS is_smart BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS smart_tags TEXT[] NOT NULL DEFAULT '{}'::text[];
-ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS needs_sync BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;
 
 -- 2. Create notes metadata table
@@ -32,7 +32,6 @@ CREATE TABLE IF NOT EXISTS public.notes (
     position INTEGER NOT NULL DEFAULT 0,
     is_archived BOOLEAN NOT NULL DEFAULT FALSE,
     previous_folder_id UUID REFERENCES public.folders(id) ON DELETE SET NULL,
-    needs_sync BOOLEAN NOT NULL DEFAULT FALSE,
     revision BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
@@ -42,7 +41,6 @@ CREATE TABLE IF NOT EXISTS public.notes (
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS previous_folder_id UUID REFERENCES public.folders(id) ON DELETE SET NULL;
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'::text[];
-ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS needs_sync BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;
 
 -- Normalized tags and note_tags relation for user-scoped tag persistence
@@ -68,12 +66,10 @@ ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS search_vector tsvector
 
 -- 3. Indexes for fast query performance, hierarchical sorting, archiving and search
 CREATE INDEX IF NOT EXISTS idx_folders_user_parent ON public.folders(user_id, parent_id, position);
-CREATE INDEX IF NOT EXISTS idx_folders_user_needs_sync ON public.folders(user_id, needs_sync);
 CREATE INDEX IF NOT EXISTS idx_folders_user_revision ON public.folders(user_id, revision);
 CREATE INDEX IF NOT EXISTS idx_notes_user_folder ON public.notes(user_id, folder_id, position);
 CREATE INDEX IF NOT EXISTS idx_notes_user_archived ON public.notes(user_id, is_archived);
 CREATE INDEX IF NOT EXISTS idx_notes_user_prev_folder ON public.notes(user_id, previous_folder_id);
-CREATE INDEX IF NOT EXISTS idx_notes_user_needs_sync ON public.notes(user_id, needs_sync);
 CREATE INDEX IF NOT EXISTS idx_notes_user_revision ON public.notes(user_id, revision);
 CREATE INDEX IF NOT EXISTS idx_notes_user_tags ON public.notes USING GIN(tags);
 CREATE INDEX IF NOT EXISTS idx_tags_user ON public.tags(user_id, name);

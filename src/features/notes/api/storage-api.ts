@@ -42,6 +42,8 @@ export async function uploadNoteFile(
     file_size: file.size,
     blob: file,
     remote_url: null,
+    syncRequired: true,
+    syncStatus: 'pending',
     sync_status: 'pending',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -106,6 +108,8 @@ export async function uploadNoteFile(
 
           // Atualiza anexo como sincronizado no IndexedDB
           localAttachment.remote_url = remoteUrl;
+          localAttachment.syncRequired = false;
+          localAttachment.syncStatus = 'synced';
           localAttachment.sync_status = 'synced';
           await indexedDBStorage.putAttachment(effectiveUserId, localAttachment);
           await indexedDBStorage.removeSyncQueueItem(effectiveUserId, `sync_att_${attachmentId}`);

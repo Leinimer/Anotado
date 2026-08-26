@@ -2,15 +2,21 @@
  * Camada de Persistência Local IndexedDB para o ANOTADO!
  *
  * Garante armazenamento estruturado, durável e isolado por usuário para:
- * - Notas (conteúdo Markdown, títulos, posições, revisões, tags, arquivamento)
- * - Pastas e subpastas (hierarquia, cores, pastas inteligentes, posições)
+ * - Notas (conteúdo Markdown, títulos, posições, revisões, tags, arquivamento, syncRequired, syncStatus)
+ * - Pastas e subpastas (hierarquia, cores, pastas inteligentes, posições, syncRequired, syncStatus)
  * - Tags e relacionamentos de tags
- * - Mídias e anexos (Blobs, metadados, URLs locais e remotas)
- * - Fila de sincronização (Sync Queue) com estados e tentativas
+ * - Mídias e anexos (Blobs, metadados, referências locais 'attachment://', URLs remotas, syncRequired, syncStatus)
+ * - Fila de sincronização (Sync Queue) com estados, idempotência e tentativas
  * - Metadados de sincronização e controle de versão
+ *
+ * ARQUITETURA LOCAL-FIRST:
+ * O estado "esta entidade precisa ser enviada ao Supabase" (syncRequired = true)
+ * é controlado EXCLUSIVAMENTE pelo IndexedDB neste dispositivo, e NUNCA pelo Supabase.
  */
 
 import { Folder, Note } from '../types';
+
+export type SyncEntityStatus = 'synced' | 'pending' | 'syncing' | 'error';
 
 export interface LocalAttachment {
   id: string;
@@ -22,7 +28,9 @@ export interface LocalAttachment {
   blob?: Blob;
   data_url?: string;
   remote_url?: string | null;
-  sync_status: 'pending' | 'synced' | 'failed';
+  syncRequired: boolean;
+  syncStatus: SyncEntityStatus;
+  sync_status?: 'pending' | 'synced' | 'failed'; // compatibilidade legada
   created_at: string;
   updated_at: string;
 }
@@ -80,6 +88,9 @@ export interface LocalMetadata {
 
 export interface ExtendedNote extends Note {
   revision?: number;
+  syncRequired?: boolean;
+  syncStatus?: SyncEntityStatus;
+  // Compatibilidade transitória
   needs_sync?: boolean;
   sync_status?: 'synced' | 'pending_sync' | 'conflict';
   local_updated_at?: string;
@@ -92,12 +103,23 @@ export interface ExtendedNote extends Note {
 
 export interface ExtendedFolder extends Folder {
   revision?: number;
+  syncRequired?: boolean;
+  syncStatus?: SyncEntityStatus;
+  // Compatibilidade transitória
   needs_sync?: boolean;
   sync_status?: 'synced' | 'pending_sync';
   local_updated_at?: string;
 }
 
-const DB_VERSION = 2;
+export interface EntitiesRequiringSync {
+  notes: ExtendedNote[];
+  folders: ExtendedFolder[];
+  attachments: LocalAttachment[];
+  hasPending: boolean;
+  totalCount: number;
+}
+
+const DB_VERSION = 3;
 
 class IndexedDBStorage {
   private dbInstances: Map<string, Promise<IDBDatabase>> = new Map();
@@ -123,6 +145,7 @@ class IndexedDBStorage {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        const tx = (event.target as IDBOpenDBRequest).transaction!;
 
         // 1. Store: notes
         let notesStore: IDBObjectStore;
@@ -133,13 +156,18 @@ class IndexedDBStorage {
           notesStore.createIndex('is_archived', 'is_archived', { unique: false });
           notesStore.createIndex('position', 'position', { unique: false });
           notesStore.createIndex('updated_at', 'updated_at', { unique: false });
-          notesStore.createIndex('sync_status', 'sync_status', { unique: false });
-          notesStore.createIndex('needs_sync', 'needs_sync', { unique: false });
+          notesStore.createIndex('syncRequired', 'syncRequired', { unique: false });
+          notesStore.createIndex('syncStatus', 'syncStatus', { unique: false });
           notesStore.createIndex('revision', 'revision', { unique: false });
+          notesStore.createIndex('needs_sync', 'needs_sync', { unique: false });
+          notesStore.createIndex('sync_status', 'sync_status', { unique: false });
         } else {
-          notesStore = (event.target as IDBOpenDBRequest).transaction!.objectStore('notes');
-          if (!notesStore.indexNames.contains('needs_sync')) {
-            notesStore.createIndex('needs_sync', 'needs_sync', { unique: false });
+          notesStore = tx.objectStore('notes');
+          if (!notesStore.indexNames.contains('syncRequired')) {
+            notesStore.createIndex('syncRequired', 'syncRequired', { unique: false });
+          }
+          if (!notesStore.indexNames.contains('syncStatus')) {
+            notesStore.createIndex('syncStatus', 'syncStatus', { unique: false });
           }
           if (!notesStore.indexNames.contains('revision')) {
             notesStore.createIndex('revision', 'revision', { unique: false });
@@ -154,12 +182,17 @@ class IndexedDBStorage {
           foldersStore.createIndex('parent_id', 'parent_id', { unique: false });
           foldersStore.createIndex('position', 'position', { unique: false });
           foldersStore.createIndex('updated_at', 'updated_at', { unique: false });
-          foldersStore.createIndex('needs_sync', 'needs_sync', { unique: false });
+          foldersStore.createIndex('syncRequired', 'syncRequired', { unique: false });
+          foldersStore.createIndex('syncStatus', 'syncStatus', { unique: false });
           foldersStore.createIndex('revision', 'revision', { unique: false });
+          foldersStore.createIndex('needs_sync', 'needs_sync', { unique: false });
         } else {
-          foldersStore = (event.target as IDBOpenDBRequest).transaction!.objectStore('folders');
-          if (!foldersStore.indexNames.contains('needs_sync')) {
-            foldersStore.createIndex('needs_sync', 'needs_sync', { unique: false });
+          foldersStore = tx.objectStore('folders');
+          if (!foldersStore.indexNames.contains('syncRequired')) {
+            foldersStore.createIndex('syncRequired', 'syncRequired', { unique: false });
+          }
+          if (!foldersStore.indexNames.contains('syncStatus')) {
+            foldersStore.createIndex('syncStatus', 'syncStatus', { unique: false });
           }
           if (!foldersStore.indexNames.contains('revision')) {
             foldersStore.createIndex('revision', 'revision', { unique: false });
@@ -183,11 +216,22 @@ class IndexedDBStorage {
         }
 
         // 5. Store: attachments (mídias locais: imagens, PDFs, vídeos)
+        let attachmentsStore: IDBObjectStore;
         if (!db.objectStoreNames.contains('attachments')) {
-          const attachmentsStore = db.createObjectStore('attachments', { keyPath: 'id' });
+          attachmentsStore = db.createObjectStore('attachments', { keyPath: 'id' });
           attachmentsStore.createIndex('user_id', 'user_id', { unique: false });
           attachmentsStore.createIndex('note_id', 'note_id', { unique: false });
+          attachmentsStore.createIndex('syncRequired', 'syncRequired', { unique: false });
+          attachmentsStore.createIndex('syncStatus', 'syncStatus', { unique: false });
           attachmentsStore.createIndex('sync_status', 'sync_status', { unique: false });
+        } else {
+          attachmentsStore = tx.objectStore('attachments');
+          if (!attachmentsStore.indexNames.contains('syncRequired')) {
+            attachmentsStore.createIndex('syncRequired', 'syncRequired', { unique: false });
+          }
+          if (!attachmentsStore.indexNames.contains('syncStatus')) {
+            attachmentsStore.createIndex('syncStatus', 'syncStatus', { unique: false });
+          }
         }
 
         // 6. Store: sync_queue (fila de sincronização persistente)
@@ -225,33 +269,99 @@ class IndexedDBStorage {
   }
 
   // ==========================================
-  // MÉTODOS GENÉRICOS DE TRANSAÇÃO
+  // CONSULTA EFICIENTE DE ENTIDADES PENDENTES
   // ==========================================
 
-  private async performTransaction<T>(
-    userId: string,
-    storeName: string,
-    mode: IDBTransactionMode,
-    callback: (store: IDBObjectStore) => IDBRequest | Promise<T>
-  ): Promise<T> {
+  /**
+   * Consulta ultra-rápida das entidades que precisam de sincronização.
+   * Não consulta o Supabase. Consulta apenas o IndexedDB local.
+   */
+  public async getEntitiesRequiringSync(userId: string): Promise<EntitiesRequiringSync> {
     const db = await this.getDB(userId);
-    return new Promise<T>((resolve, reject) => {
+
+    return new Promise<EntitiesRequiringSync>((resolve, reject) => {
       try {
-        const tx = db.transaction(storeName, mode);
-        const store = tx.objectStore(storeName);
+        const tx = db.transaction(['notes', 'folders', 'attachments'], 'readonly');
+        const notesStore = tx.objectStore('notes');
+        const foldersStore = tx.objectStore('folders');
+        const attachmentsStore = tx.objectStore('attachments');
 
-        const request = callback(store);
+        const pendingNotes: ExtendedNote[] = [];
+        const pendingFolders: ExtendedFolder[] = [];
+        const pendingAttachments: LocalAttachment[] = [];
 
-        if (request && 'onsuccess' in request) {
-          (request as IDBRequest).onsuccess = () => resolve((request as IDBRequest).result);
-          (request as IDBRequest).onerror = () => reject((request as IDBRequest).error);
-        }
+        // Notas
+        const notesReq = notesStore.openCursor();
+        notesReq.onsuccess = (e) => {
+          const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+          if (cursor) {
+            const note = cursor.value as ExtendedNote;
+            const isPending =
+              note.syncRequired === true ||
+              note.syncStatus === 'pending' ||
+              note.syncStatus === 'error' ||
+              note.needs_sync === true ||
+              note.sync_status === 'pending_sync';
+
+            if (isPending) {
+              pendingNotes.push(note);
+            }
+            cursor.continue();
+          }
+        };
+
+        // Pastas
+        const foldersReq = foldersStore.openCursor();
+        foldersReq.onsuccess = (e) => {
+          const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+          if (cursor) {
+            const folder = cursor.value as ExtendedFolder;
+            const isPending =
+              folder.syncRequired === true ||
+              folder.syncStatus === 'pending' ||
+              folder.syncStatus === 'error' ||
+              folder.needs_sync === true ||
+              folder.sync_status === 'pending_sync';
+
+            if (isPending) {
+              pendingFolders.push(folder);
+            }
+            cursor.continue();
+          }
+        };
+
+        // Anexos
+        const attReq = attachmentsStore.openCursor();
+        attReq.onsuccess = (e) => {
+          const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+          if (cursor) {
+            const att = cursor.value as LocalAttachment;
+            const isPending =
+              att.syncRequired === true ||
+              att.syncStatus === 'pending' ||
+              att.syncStatus === 'error' ||
+              att.sync_status === 'pending' ||
+              (!att.remote_url && Boolean(att.blob));
+
+            if (isPending) {
+              pendingAttachments.push(att);
+            }
+            cursor.continue();
+          }
+        };
 
         tx.oncomplete = () => {
-          // Se o callback foi síncrono ou Promise, resolve
+          const totalCount = pendingNotes.length + pendingFolders.length + pendingAttachments.length;
+          resolve({
+            notes: pendingNotes,
+            folders: pendingFolders,
+            attachments: pendingAttachments,
+            hasPending: totalCount > 0,
+            totalCount,
+          });
         };
+
         tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(new Error(`Transação cancelada em ${storeName}`));
       } catch (err) {
         reject(err);
       }
@@ -286,20 +396,27 @@ class IndexedDBStorage {
 
   public async putNote(userId: string, note: ExtendedNote): Promise<void> {
     const db = await this.getDB(userId);
-    const needsSync = note.needs_sync !== undefined 
-      ? note.needs_sync 
-      : (note.sync_status === 'synced' ? false : true);
+    const syncReq = note.syncRequired !== undefined
+      ? note.syncRequired
+      : (note.syncStatus ? note.syncStatus !== 'synced' : (note.needs_sync !== undefined ? note.needs_sync : true));
+
+    const status: SyncEntityStatus = note.syncStatus || (syncReq ? 'pending' : 'synced');
 
     return new Promise<void>((resolve, reject) => {
       const tx = db.transaction('notes', 'readwrite');
       const store = tx.objectStore('notes');
-      const request = store.put({
+      const record: ExtendedNote = {
         ...note,
         user_id: userId,
-        needs_sync: needsSync,
+        syncRequired: syncReq,
+        syncStatus: status,
+        needs_sync: syncReq,
+        sync_status: syncReq ? 'pending_sync' : 'synced',
         revision: typeof note.revision === 'number' ? note.revision : 0,
         local_updated_at: note.local_updated_at || new Date().toISOString(),
-      });
+      };
+
+      const request = store.put(record);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
@@ -312,14 +429,19 @@ class IndexedDBStorage {
       const tx = db.transaction('notes', 'readwrite');
       const store = tx.objectStore('notes');
       for (const note of notes) {
-        const needsSync = note.needs_sync !== undefined 
-          ? note.needs_sync 
-          : (note.sync_status === 'synced' ? false : true);
+        const syncReq = note.syncRequired !== undefined
+          ? note.syncRequired
+          : (note.syncStatus ? note.syncStatus !== 'synced' : (note.needs_sync !== undefined ? note.needs_sync : true));
+
+        const status: SyncEntityStatus = note.syncStatus || (syncReq ? 'pending' : 'synced');
 
         store.put({
           ...note,
           user_id: userId,
-          needs_sync: needsSync,
+          syncRequired: syncReq,
+          syncStatus: status,
+          needs_sync: syncReq,
+          sync_status: syncReq ? 'pending_sync' : 'synced',
           revision: typeof note.revision === 'number' ? note.revision : 0,
           local_updated_at: note.local_updated_at || new Date().toISOString(),
         });
@@ -330,20 +452,32 @@ class IndexedDBStorage {
   }
 
   public async getPendingSyncNotes(userId: string): Promise<ExtendedNote[]> {
-    const allNotes = await this.getAllNotes(userId);
-    return allNotes.filter(
-      (note) => note.needs_sync === true || note.sync_status === 'pending_sync'
-    );
+    const res = await this.getEntitiesRequiringSync(userId);
+    return res.notes;
   }
 
+  /**
+   * Marca a nota como sincronizada no IndexedDB (syncRequired = false, syncStatus = 'synced').
+   * Ocorre SOMENTE após a confirmação de sucesso pelo Supabase.
+   */
   public async markNoteSynced(userId: string, noteId: string, serverRevision?: number): Promise<void> {
     const note = await this.getNoteById(userId, noteId);
     if (!note) return;
+    note.syncRequired = false;
+    note.syncStatus = 'synced';
     note.needs_sync = false;
     note.sync_status = 'synced';
     if (typeof serverRevision === 'number') {
       note.revision = serverRevision;
     }
+    await this.putNote(userId, note);
+  }
+
+  public async markNoteSyncError(userId: string, noteId: string): Promise<void> {
+    const note = await this.getNoteById(userId, noteId);
+    if (!note) return;
+    note.syncRequired = true;
+    note.syncStatus = 'error';
     await this.putNote(userId, note);
   }
 
@@ -386,20 +520,27 @@ class IndexedDBStorage {
 
   public async putFolder(userId: string, folder: ExtendedFolder): Promise<void> {
     const db = await this.getDB(userId);
-    const needsSync = folder.needs_sync !== undefined 
-      ? folder.needs_sync 
-      : (folder.sync_status === 'synced' ? false : true);
+    const syncReq = folder.syncRequired !== undefined
+      ? folder.syncRequired
+      : (folder.syncStatus ? folder.syncStatus !== 'synced' : (folder.needs_sync !== undefined ? folder.needs_sync : true));
+
+    const status: SyncEntityStatus = folder.syncStatus || (syncReq ? 'pending' : 'synced');
 
     return new Promise<void>((resolve, reject) => {
       const tx = db.transaction('folders', 'readwrite');
       const store = tx.objectStore('folders');
-      const request = store.put({
+      const record: ExtendedFolder = {
         ...folder,
         user_id: userId,
-        needs_sync: needsSync,
+        syncRequired: syncReq,
+        syncStatus: status,
+        needs_sync: syncReq,
+        sync_status: syncReq ? 'pending_sync' : 'synced',
         revision: typeof folder.revision === 'number' ? folder.revision : 0,
         local_updated_at: folder.local_updated_at || new Date().toISOString(),
-      });
+      };
+
+      const request = store.put(record);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
@@ -412,14 +553,19 @@ class IndexedDBStorage {
       const tx = db.transaction('folders', 'readwrite');
       const store = tx.objectStore('folders');
       for (const folder of folders) {
-        const needsSync = folder.needs_sync !== undefined 
-          ? folder.needs_sync 
-          : (folder.sync_status === 'synced' ? false : true);
+        const syncReq = folder.syncRequired !== undefined
+          ? folder.syncRequired
+          : (folder.syncStatus ? folder.syncStatus !== 'synced' : (folder.needs_sync !== undefined ? folder.needs_sync : true));
+
+        const status: SyncEntityStatus = folder.syncStatus || (syncReq ? 'pending' : 'synced');
 
         store.put({
           ...folder,
           user_id: userId,
-          needs_sync: needsSync,
+          syncRequired: syncReq,
+          syncStatus: status,
+          needs_sync: syncReq,
+          sync_status: syncReq ? 'pending_sync' : 'synced',
           revision: typeof folder.revision === 'number' ? folder.revision : 0,
           local_updated_at: folder.local_updated_at || new Date().toISOString(),
         });
@@ -430,20 +576,32 @@ class IndexedDBStorage {
   }
 
   public async getPendingSyncFolders(userId: string): Promise<ExtendedFolder[]> {
-    const allFolders = await this.getAllFolders(userId);
-    return allFolders.filter(
-      (folder) => folder.needs_sync === true || folder.sync_status === 'pending_sync'
-    );
+    const res = await this.getEntitiesRequiringSync(userId);
+    return res.folders;
   }
 
+  /**
+   * Marca a pasta como sincronizada no IndexedDB (syncRequired = false, syncStatus = 'synced').
+   * Ocorre SOMENTE após confirmação de sucesso pelo Supabase.
+   */
   public async markFolderSynced(userId: string, folderId: string, serverRevision?: number): Promise<void> {
     const folder = await this.getFolderById(userId, folderId);
     if (!folder) return;
+    folder.syncRequired = false;
+    folder.syncStatus = 'synced';
     folder.needs_sync = false;
     folder.sync_status = 'synced';
     if (typeof serverRevision === 'number') {
       folder.revision = serverRevision;
     }
+    await this.putFolder(userId, folder);
+  }
+
+  public async markFolderSyncError(userId: string, folderId: string): Promise<void> {
+    const folder = await this.getFolderById(userId, folderId);
+    if (!folder) return;
+    folder.syncRequired = true;
+    folder.syncStatus = 'error';
     await this.putFolder(userId, folder);
   }
 
@@ -510,31 +668,56 @@ class IndexedDBStorage {
     });
   }
 
-  public async putAttachment(userId: string, attachment: LocalAttachment): Promise<void> {
+  public async putAttachment(userId: string, attachment: Partial<LocalAttachment> & { id: string; user_id: string; file_name: string; file_type: string; file_size: number }): Promise<void> {
     const db = await this.getDB(userId);
+    const syncReq = attachment.syncRequired !== undefined
+      ? attachment.syncRequired
+      : (attachment.syncStatus ? attachment.syncStatus !== 'synced' : (attachment.remote_url ? false : true));
+
+    const status: SyncEntityStatus = attachment.syncStatus || (syncReq ? 'pending' : 'synced');
+
     return new Promise<void>((resolve, reject) => {
       const tx = db.transaction('attachments', 'readwrite');
       const store = tx.objectStore('attachments');
-      const request = store.put({
-        ...attachment,
+      const record: LocalAttachment = {
+        id: attachment.id,
         user_id: userId,
+        note_id: attachment.note_id || null,
+        file_name: attachment.file_name,
+        file_type: attachment.file_type,
+        file_size: attachment.file_size,
+        blob: attachment.blob,
+        data_url: attachment.data_url,
+        remote_url: attachment.remote_url || null,
+        syncRequired: syncReq,
+        syncStatus: status,
+        sync_status: syncReq ? 'pending' : 'synced',
+        created_at: attachment.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      });
+      };
+
+      const request = store.put(record);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
 
   public async getPendingAttachments(userId: string): Promise<LocalAttachment[]> {
-    const db = await this.getDB(userId);
-    return new Promise<LocalAttachment[]>((resolve, reject) => {
-      const tx = db.transaction('attachments', 'readonly');
-      const store = tx.objectStore('attachments');
-      const index = store.index('sync_status');
-      const request = index.getAll('pending');
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
-    });
+    const res = await this.getEntitiesRequiringSync(userId);
+    return res.attachments;
+  }
+
+  /**
+   * Marca o anexo como sincronizado no IndexedDB após upload bem-sucedido no Supabase Storage.
+   */
+  public async markAttachmentSynced(userId: string, attachmentId: string, remoteUrl: string): Promise<void> {
+    const att = await this.getAttachment(userId, attachmentId);
+    if (!att) return;
+    att.remote_url = remoteUrl;
+    att.syncRequired = false;
+    att.syncStatus = 'synced';
+    att.sync_status = 'synced';
+    await this.putAttachment(userId, att);
   }
 
   public async deleteAttachment(userId: string, attachmentId: string): Promise<void> {
@@ -577,9 +760,6 @@ class IndexedDBStorage {
     return new Promise<SyncQueueItem>((resolve, reject) => {
       const tx = db.transaction('sync_queue', 'readwrite');
       const store = tx.objectStore('sync_queue');
-
-      // Se for uma ação repetida para o mesmo entity_id (ex: múltiplos UPDATE_NOTE_CONTENT rápidos),
-      // podemos consolidar ou manter ordenado
       const request = store.put(syncItem);
       request.onsuccess = () => resolve(syncItem);
       request.onerror = () => reject(request.error);

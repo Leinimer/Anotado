@@ -134,6 +134,8 @@ class SaveQueueManager {
         existingNote.content = item.content;
         existingNote.tags = combinedTags;
         existingNote.revision = nextRevision;
+        existingNote.syncRequired = true;
+        existingNote.syncStatus = 'pending';
         existingNote.needs_sync = true;
         existingNote.sync_status = 'pending_sync';
         existingNote.updated_at = new Date().toISOString();
@@ -189,7 +191,6 @@ class SaveQueueManager {
           content: item.content,
           tags: combinedTags,
           revision: nextRevision,
-          needs_sync: hasUnresolvedAttachments,
           updated_at: new Date().toISOString(),
         })
         .eq('id', item.noteId)

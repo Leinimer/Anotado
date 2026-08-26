@@ -1,12 +1,13 @@
 /**
  * Motor de Sincronização Bidirecional Offline-First (SyncEngine)
  *
- * Responsável por:
- * 1. Processar a fila de sincronização persistente (SyncQueue) do IndexedDB quando online.
- * 2. Upload de mídias/anexos offline para o Supabase Storage e substituição de referências no Markdown.
- * 3. Detecção e tratamento seguro de conflitos (não-destrutivo: preservação integral de versões divergentes).
- * 4. Sincronização incremental do Supabase para o IndexedDB sem travar a interface.
- * 5. Gerenciamento idempotente de tentativas e recuperação contra quedas de conexão no meio da transferência.
+ * Arquitetura de Estado:
+ * - O estado de sincronização (syncRequired, syncStatus) é controlado EXCLUSIVAMENTE
+ *   pelo IndexedDB local do dispositivo.
+ * - O Supabase remoto é a fonte canônica oficial dos dados persistidos.
+ * - A SyncQueue é a fila resiliente de execução, serialização e retry.
+ * - Verificação local a cada 1 segundo (consulta ultrarrápida do IndexedDB sem sobrecarregar o Supabase).
+ * - Sincronização bidirecional, Realtime seguro e tratamento não-destrutivo de conflitos.
  */
 
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
@@ -34,7 +35,8 @@ type DataSubscriber = (payload: DataChangePayload) => void;
 class SyncEngine {
   private isProcessing: boolean = false;
   private syncTimeout: NodeJS.Timeout | null = null;
-  private periodicInterval: NodeJS.Timeout | null = null;
+  private fastLocalCheckInterval: NodeJS.Timeout | null = null;
+  private periodicPullInterval: NodeJS.Timeout | null = null;
   private activeUserId: string | null = null;
   private dataSubscribers: Set<DataSubscriber> = new Set();
   private lastKnownReachable: boolean = false;
@@ -45,7 +47,7 @@ class SyncEngine {
     if (typeof window !== 'undefined') {
       this.lastKnownReachable = networkMonitor.getState().isBackendReachable;
 
-      // 1. Sincroniza APENAS em transição real de conectividade (OFFLINE -> ONLINE)
+      // 1. Sincroniza imediatamente em transição de conectividade (OFFLINE -> ONLINE)
       networkMonitor.subscribe((state) => {
         const wasOffline = !this.lastKnownReachable;
         const isNowOnline = state.isBackendReachable;
@@ -55,7 +57,7 @@ class SyncEngine {
           console.log('[Realtime] RECONNECT');
           this.setupRealtimeSubscription(this.activeUserId);
           if (!this.isProcessing) {
-            this.scheduleSync(300);
+            this.scheduleSync(100);
           }
         }
       });
@@ -68,7 +70,7 @@ class SyncEngine {
             this.setupRealtimeSubscription(this.activeUserId);
           }
           if (!this.isProcessing) {
-            this.scheduleSync(100);
+            this.scheduleSync(50);
           }
         }
       });
@@ -80,13 +82,21 @@ class SyncEngine {
             this.setupRealtimeSubscription(this.activeUserId);
           }
           if (!this.isProcessing) {
-            this.scheduleSync(100);
+            this.scheduleSync(50);
           }
         }
       });
 
-      // 3. Polling leve de background (a cada 30 segundos se online e não estiver ocupado)
-      this.periodicInterval = setInterval(() => {
+      // 3. Verificação ultrarrápida a cada 1 segundo:
+      // Consulta APENAS o IndexedDB local (getEntitiesRequiringSync) - NÃO consulta o Supabase a cada segundo.
+      this.fastLocalCheckInterval = setInterval(() => {
+        if (this.activeUserId && !this.isProcessing && navigator.onLine) {
+          this.checkLocalPendingEntities(this.activeUserId);
+        }
+      }, 1000);
+
+      // 4. Polling periódico de background para PULL incremental (a cada 30 segundos se online)
+      this.periodicPullInterval = setInterval(() => {
         if (this.activeUserId && !this.isProcessing && navigator.onLine) {
           this.scheduleSync(0);
         }
@@ -105,7 +115,7 @@ class SyncEngine {
   }
 
   /**
-   * Limpa canais de tempo real e encerra ouvintes ativos (usado no logout).
+   * Limpa canais de tempo real, timers e encerra ouvintes ativos (ex: logout).
    */
   public cleanup() {
     if (this.realtimeChannel) {
@@ -121,7 +131,35 @@ class SyncEngine {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+    if (this.syncTimeout) {
+      clearTimeout(this.syncTimeout);
+      this.syncTimeout = null;
+    }
     this.activeUserId = null;
+  }
+
+  /**
+   * Verificação silenciosa no IndexedDB local:
+   * Identifica se há entidades pendentes (syncRequired = true ou itens na fila)
+   * e agenda o envio para o Supabase caso haja pendências e rede disponível.
+   */
+  public async checkLocalPendingEntities(userId: string): Promise<void> {
+    if (!userId || this.isProcessing) return;
+
+    try {
+      const isOnline = networkMonitor.getState().isBackendReachable;
+      if (!isOnline) return;
+
+      const { notes, folders, attachments } = await indexedDBStorage.getEntitiesRequiringSync(userId);
+      const queueCount = await indexedDBStorage.getSyncQueueCount(userId);
+
+      const hasPendingWork = notes.length > 0 || folders.length > 0 || attachments.length > 0 || queueCount > 0;
+      if (hasPendingWork) {
+        this.scheduleSync(50);
+      }
+    } catch {
+      // Falha silenciosa na checagem local periódica
+    }
   }
 
   /**
@@ -141,7 +179,6 @@ class SyncEngine {
 
   /**
    * Configura o ouvinte em tempo real (Supabase Realtime) para notes e folders.
-   * Permite que alterações feitas no celular apareçam instantaneamente no computador e vice-versa.
    */
   private setupRealtimeSubscription(userId: string) {
     if (!isSupabaseConfigured() || !userId || typeof window === 'undefined') return;
@@ -201,12 +238,11 @@ class SyncEngine {
 
   /**
    * Trata alterações recebidas em tempo real para a tabela 'notes'.
-   * 1. Valida user_id para segurança.
-   * 2. Verifica se há mutações pendentes locais (SyncQueue ou SaveQueue).
-   * 3. Compara versões / revisões.
-   * 4. Trata conflitos de forma não-destrutiva criando cópia de segurança se necessário.
-   * 5. Atualiza o IndexedDB com sync_status: 'synced' SEM reinserir na SyncQueue para evitar loops.
-   * 6. Notifica dataSubscribers e atualiza a UI.
+   * 1. Valida user_id.
+   * 2. Verifica se há mutações pendentes locais no IndexedDB (syncRequired = true ou SaveQueue).
+   * 3. Compara revisões.
+   * 4. Trata conflitos não-destrutivos se necessário.
+   * 5. Atualiza o IndexedDB com syncRequired: false e syncStatus: 'synced' (NÃO marca como pendente!).
    */
   private async handleRealtimeNoteChange(userId: string, payload: any) {
     try {
@@ -214,7 +250,6 @@ class SyncEngine {
       const noteId = (newRecord && newRecord.id) || (oldRecord && oldRecord.id);
       if (!noteId) return;
 
-      // Segurança: garante que apenas dados do usuário ativo sejam processados
       const recordUserId = (newRecord && newRecord.user_id) || (oldRecord && oldRecord.user_id);
       if (recordUserId && recordUserId !== userId) {
         console.warn(`[Realtime] Evento ignorado: user_id diferente do autenticado (${recordUserId} !== ${userId})`);
@@ -223,17 +258,11 @@ class SyncEngine {
 
       console.log(`[Realtime] REMOTE CHANGE [${eventType}] noteId=${noteId}`);
 
-      // 1. Verifica se existem mutações locais pendentes para este noteId na sync_queue
-      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
-      const hasPendingInSyncQueue = pendingQueue.some(
-        (item) => item.entity_type === 'note' && item.entity_id === noteId
-      );
-
-      // 2. Verifica se existem gravações ativas ou pendentes no SaveQueueManager
-      const hasPendingInSaveQueue = saveQueue.hasPendingSaveForNote(noteId);
-      const hasLocalPendingEdits = hasPendingInSyncQueue || hasPendingInSaveQueue;
-
+      // Verifica se a nota possui alterações locais pendentes
       const existingLocalNote = await indexedDBStorage.getNoteById(userId, noteId);
+      const isLocalPending = Boolean(existingLocalNote?.syncRequired || existingLocalNote?.needs_sync);
+      const isSaveQueuePending = saveQueue.hasPendingSaveForNote(noteId);
+      const hasLocalPendingEdits = isLocalPending || isSaveQueuePending;
 
       if (eventType === 'DELETE') {
         console.log(`[Realtime] DELETE noteId=${noteId}`);
@@ -253,8 +282,7 @@ class SyncEngine {
       }
 
       if (eventType === 'INSERT' || eventType === 'UPDATE') {
-        const isInsert = eventType === 'INSERT';
-        if (isInsert) {
+        if (eventType === 'INSERT') {
           console.log(`[Realtime] INSERT noteId=${noteId}`);
         } else {
           console.log(`[Realtime] UPDATE noteId=${noteId}`);
@@ -263,14 +291,13 @@ class SyncEngine {
         const remoteRevision = typeof newRecord.revision === 'number' ? newRecord.revision : 0;
         const localRevision = (existingLocalNote && typeof existingLocalNote.revision === 'number') ? existingLocalNote.revision : 0;
 
-        // Se há mutação local pendente, analisa precedência
         if (hasLocalPendingEdits) {
           if (localRevision >= remoteRevision) {
             console.log(`[Realtime] Nota ${noteId} possui mutações locais pendentes (${localRevision} >= ${remoteRevision}). Preservando estado local.`);
             return;
           }
 
-          // Se a versão remota é superior e há colisão de conteúdo, aciona resolução de conflito não-destrutiva
+          // Conflito com alteração remota superior: cria cópia não-destrutiva de segurança
           const localContent = existingLocalNote?.content || '';
           const remoteContent = newRecord.content || '';
           if (localContent.trim() !== remoteContent.trim()) {
@@ -304,8 +331,6 @@ class SyncEngine {
 
         // Conteúdo da nota
         let finalContent = newRecord.content;
-
-        // Se o conteúdo veio nulo ou ausente no payload da linha, lê o Markdown no Storage (.md)
         if (finalContent === undefined || finalContent === null) {
           try {
             const storageMarkdown = await readNoteMarkdown(userId, noteId);
@@ -324,12 +349,14 @@ class SyncEngine {
           }
         }
 
-        // Atualiza o IndexedDB diretamente com status 'synced' para EVITAR LOOPS
+        // Salva no IndexedDB como SINCRONIZADO (syncRequired = false, syncStatus = 'synced')
         await indexedDBStorage.putNote(userId, {
           ...newRecord,
           content: finalContent ?? '',
           tags: noteTags,
           is_archived: Boolean(newRecord.is_archived),
+          syncRequired: false,
+          syncStatus: 'synced',
           sync_status: 'synced',
           needs_sync: false,
           revision: Math.max(remoteRevision, localRevision),
@@ -361,7 +388,7 @@ class SyncEngine {
       const conflictContent = localNote?.content || '';
       const conflictTags = localNote?.tags || [];
 
-      // Grava a cópia de segurança do conflito no IndexedDB
+      // Grava a cópia de segurança no IndexedDB com syncRequired = true
       await indexedDBStorage.putNote(userId, {
         id: conflictNoteId,
         user_id: userId,
@@ -373,7 +400,10 @@ class SyncEngine {
         is_archived: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        syncRequired: true,
+        syncStatus: 'pending',
         sync_status: 'pending_sync',
+        needs_sync: true,
         revision: 1,
       });
 
@@ -410,7 +440,10 @@ class SyncEngine {
         ...remoteRecord,
         tags: remoteTags,
         is_archived: Boolean(remoteRecord.is_archived),
+        syncRequired: false,
+        syncStatus: 'synced',
         sync_status: 'synced',
+        needs_sync: false,
       });
 
       console.log(`[Realtime] CONFLICT resolvido com cópia de backup: ${conflictNoteId}`);
@@ -421,7 +454,6 @@ class SyncEngine {
 
   /**
    * Trata alterações recebidas em tempo real para a tabela 'folders'.
-   * Verifica se há mutações pendentes locais antes de aplicar no IndexedDB.
    */
   private async handleRealtimeFolderChange(userId: string, payload: any) {
     try {
@@ -437,20 +469,17 @@ class SyncEngine {
 
       console.log(`[Realtime] REMOTE CHANGE [${eventType}] folderId=${folderId}`);
 
-      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
-      const hasPendingMutation = pendingQueue.some(
-        (item) => item.entity_type === 'folder' && item.entity_id === folderId
-      );
+      const existingFolder = await indexedDBStorage.getFolderById(userId, folderId);
+      const isLocalPending = Boolean(existingFolder?.syncRequired || existingFolder?.needs_sync);
 
-      if (hasPendingMutation) {
+      if (isLocalPending) {
         console.log(`[Realtime] Pasta ${folderId} possui mutações locais pendentes. Preservando estado local.`);
         return;
       }
 
       if (eventType === 'DELETE') {
         console.log(`[Realtime] DELETE folderId=${folderId}`);
-        const existing = await indexedDBStorage.getFolderById(userId, folderId);
-        if (existing) {
+        if (existingFolder) {
           await indexedDBStorage.deleteFolder(userId, folderId);
           console.log(`[Realtime] INDEXEDDB UPDATE folderId=${folderId}`);
           networkMonitor.notifyRemoteChange();
@@ -468,6 +497,8 @@ class SyncEngine {
           ...newRecord,
           is_smart: Boolean(newRecord.is_smart),
           revision: typeof newRecord.revision === 'number' ? newRecord.revision : 0,
+          syncRequired: false,
+          syncStatus: 'synced',
           needs_sync: false,
           sync_status: 'synced',
         });
@@ -522,9 +553,11 @@ class SyncEngine {
   public async updatePendingCount(userId: string): Promise<number> {
     if (!userId) return 0;
     try {
-      const count = await indexedDBStorage.getSyncQueueCount(userId);
-      networkMonitor.updatePendingCount(count);
-      return count;
+      const { notes, folders, attachments } = await indexedDBStorage.getEntitiesRequiringSync(userId);
+      const queueCount = await indexedDBStorage.getSyncQueueCount(userId);
+      const totalPending = Math.max(notes.length + folders.length + attachments.length, queueCount);
+      networkMonitor.updatePendingCount(totalPending);
+      return totalPending;
     } catch {
       return 0;
     }
@@ -544,7 +577,7 @@ class SyncEngine {
 
   /**
    * Processa o ciclo completo de sincronização (SyncGuard):
-   * 1. PUSH: Processa operações pendentes da fila local e entidades marcadas com needs_sync.
+   * 1. PUSH: Processa operações pendentes no IndexedDB (syncRequired = true) e itens da SyncQueue.
    * 2. PULL: Busca alterações remotas do Supabase e atualiza o IndexedDB de forma não-destrutiva.
    */
   public async processQueue(userId: string): Promise<{ success: boolean; processed: number }> {
@@ -564,7 +597,7 @@ class SyncEngine {
 
     const supabase = createClient();
 
-    // 2. Valida e renova sessão de autenticação ativa no Supabase antes do PUSH
+    // 2. Valida sessão de autenticação ativa no Supabase antes do PUSH
     let authenticatedUid: string | null = null;
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -588,16 +621,17 @@ class SyncEngine {
     let processedCount = 0;
 
     try {
-      // 1. Auto-recuperação do SyncGuard: verifica entidades que precisam de sync no IndexedDB
-      const pendingNotes = await indexedDBStorage.getPendingSyncNotes(userId);
-      const pendingFolders = await indexedDBStorage.getPendingSyncFolders(userId);
+      // 1. Auto-recuperação do SyncGuard baseada no IndexedDB local (syncRequired = true)
+      const { notes: pendingNotes, folders: pendingFolders, attachments: pendingAttachments } =
+        await indexedDBStorage.getEntitiesRequiringSync(userId);
+
       console.log(`[SyncGuard] PENDING NOTES: count=${pendingNotes.length}`);
       console.log(`[SyncGuard] PENDING FOLDERS: count=${pendingFolders.length}`);
 
       const currentQueue = await indexedDBStorage.getPendingSyncQueue(userId);
       const queuedItemEntityIds = new Set(currentQueue.map((q) => q.entity_id));
 
-      // Re-enfileira notas que tenham needs_sync = true mas por ventura não estejam na fila
+      // Re-enfileira notas com syncRequired = true ausentes da fila
       for (const pNote of pendingNotes) {
         if (!queuedItemEntityIds.has(pNote.id)) {
           await indexedDBStorage.enqueueSyncItem(userId, {
@@ -615,7 +649,7 @@ class SyncEngine {
         }
       }
 
-      // Re-enfileira pastas que tenham needs_sync = true mas não estejam na fila
+      // Re-enfileira pastas com syncRequired = true ausentes da fila
       for (const pFolder of pendingFolders) {
         if (!queuedItemEntityIds.has(pFolder.id)) {
           await indexedDBStorage.enqueueSyncItem(userId, {
@@ -638,6 +672,25 @@ class SyncEngine {
         }
       }
 
+      // Re-enfileira anexos com syncRequired = true ausentes da fila
+      for (const pAtt of pendingAttachments) {
+        if (!queuedItemEntityIds.has(pAtt.id)) {
+          await indexedDBStorage.enqueueSyncItem(userId, {
+            action: 'UPLOAD_ATTACHMENT',
+            entity_type: 'attachment',
+            entity_id: pAtt.id,
+            revision: 1,
+            payload: {
+              attachmentId: pAtt.id,
+              fileName: pAtt.file_name,
+              fileType: pAtt.file_type,
+              fileSize: pAtt.file_size,
+              noteId: pAtt.note_id || null,
+            },
+          });
+        }
+      }
+
       // 2. ETAPA PUSH: Processamento de alterações locais da fila
       const queue = await indexedDBStorage.getPendingSyncQueue(userId);
       console.log(`[SyncGuard] LOCAL QUEUE: ${queue.length}`);
@@ -648,7 +701,6 @@ class SyncEngine {
         console.log(`[SyncGuard] PUSH: ${queue.length} OPERATIONS`);
 
         for (const item of queue) {
-          // Re-checa conexão antes de cada item para abortar imediatamente se cair no meio
           if (!navigator.onLine) {
             console.warn('[SyncGuard] Conexão interrompida durante o processamento da fila.');
             break;
@@ -659,7 +711,7 @@ class SyncEngine {
           try {
             const itemSuccess = await this.executeQueueItem(userId, item, authenticatedUid);
             if (itemSuccess) {
-              // Remove da fila SOMENTE após confirmação de sucesso no Supabase
+              // Remove da fila SOMENTE após confirmação de sucesso real no Supabase
               await indexedDBStorage.removeSyncQueueItem(userId, item.id);
               processedCount++;
             } else {
@@ -668,7 +720,6 @@ class SyncEngine {
           } catch (err: any) {
             console.error(`[SyncGuard] Falha ao processar item ${item.id} (${item.action}):`, err);
             await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', err?.message || String(err));
-            // Se for erro de rede/timeout, interrompe para não sobrecarregar
             if (err?.name === 'AbortError' || err?.message?.includes('fetch') || err?.message?.includes('network')) {
               break;
             }
@@ -680,7 +731,7 @@ class SyncEngine {
 
       await this.updatePendingCount(userId);
 
-      // 3. ETAPA PULL: SEMPRE executa PULL incremental de novidades do servidor
+      // 3. ETAPA PULL: PULL incremental de novidades do servidor
       console.log('[SyncGuard] PULL: START');
       await this.pullIncrementalChanges(userId);
       console.log('[SyncGuard] PULL: COMPLETE');
@@ -699,7 +750,6 @@ class SyncEngine {
 
   /**
    * Localiza anexos pendentes associados à nota, faz upload para o Supabase Storage e substitui URLs locais no Markdown.
-   * Suporta attachment://[id], local-attachment://[id] e referências legadas.
    */
   private async resolveAndUploadAttachmentsForNote(
     supabase: any,
@@ -756,6 +806,8 @@ class SyncEngine {
 
           uploadedCount++;
           attachment.remote_url = remoteUrl;
+          attachment.syncRequired = false;
+          attachment.syncStatus = 'synced';
           attachment.sync_status = 'synced';
           attachment.note_id = noteId;
           await indexedDBStorage.putAttachment(userId, attachment);
@@ -782,7 +834,8 @@ class SyncEngine {
   }
 
   /**
-   * Executa uma operação individual da fila.
+   * Executa uma operação individual da fila no Supabase.
+   * Somente marca syncRequired = false após confirmação de sucesso real.
    */
   private async executeQueueItem(
     userId: string,
@@ -798,7 +851,7 @@ class SyncEngine {
         const noteId = rawPayload.id || item.entity_id;
         const revision = item.revision || rawPayload.revision || 1;
 
-        // 1. Lê a versão viva e mais atualizada da nota no IndexedDB
+        // 1. Lê a versão mais atualizada da nota no IndexedDB
         const localNote = await indexedDBStorage.getNoteById(userId, noteId);
         const effectiveNote = localNote || rawPayload;
         let currentContent = (effectiveNote.content !== undefined && effectiveNote.content !== null)
@@ -810,9 +863,9 @@ class SyncEngine {
         const rawAttCount = (currentContent.match(/attachment:\/\/[a-zA-Z0-9_-]+/g) || []).length +
           (currentContent.match(/local-attachment:\/\/[a-zA-Z0-9_-]+/g) || []).length;
 
-        console.log(`[SyncGuard] PUSH NOTE noteId=${noteId} revision=${revision} needs_sync=true contentLength=${currentContent.length} attachmentCount=${rawAttCount}`);
+        console.log(`[SyncGuard] PUSH NOTE noteId=${noteId} revision=${revision} contentLength=${currentContent.length} attachmentCount=${rawAttCount}`);
 
-        // 2. Grava na tabela notes imediatamente
+        // 2. Grava na tabela notes sem coluna needs_sync
         const { error: upsertError } = await supabase.from('notes').upsert({
           id: noteId,
           user_id: userId,
@@ -824,7 +877,6 @@ class SyncEngine {
           is_archived: Boolean(effectiveNote.is_archived),
           previous_folder_id: effectiveNote.previous_folder_id || null,
           revision: revision,
-          needs_sync: false,
           created_at: effectiveNote.created_at || new Date().toISOString(),
           updated_at: effectiveNote.updated_at || new Date().toISOString(),
         });
@@ -843,8 +895,7 @@ class SyncEngine {
           console.warn('[SyncEngine] Aviso ao sincronizar tags:', tagErr);
         }
 
-        // 3. Processa anexos pendentes DEPOIS de confirmar a criação da nota
-        let uploadedCount = 0;
+        // 3. Processa anexos pendentes
         try {
           if (rawAttCount > 0) {
             console.log(`[SyncGuard] ATTACHMENTS noteId=${noteId} pendingCount=${rawAttCount}`);
@@ -856,24 +907,21 @@ class SyncEngine {
             currentContent
           );
           currentContent = res.finalContent;
-          uploadedCount = res.uploadedCount;
         } catch (attErr) {
           console.warn(`[SyncEngine] Falha não-fatal ao processar anexos da nota ${noteId}:`, attErr);
         }
 
-        // Se anexos foram enviados e o markdown foi atualizado com URLs remotas:
+        // Se anexos foram resolvidos e URLs remotas foram injetadas no markdown:
         if (localNote && localNote.content !== currentContent) {
           localNote.content = currentContent;
           await indexedDBStorage.putNote(userId, localNote);
 
-          // Atualiza a tabela notes com o conteúdo final limpo
           try {
             await supabase
               .from('notes')
               .update({
                 content: currentContent,
                 revision: revision,
-                needs_sync: false,
                 updated_at: new Date().toISOString(),
               })
               .eq('id', noteId)
@@ -891,9 +939,8 @@ class SyncEngine {
           console.warn(`[SyncEngine] Aviso ao gravar Markdown no Storage para nota ${noteId}:`, storageErr);
         }
 
-        // 5. Verifica se ainda restam anexos locais não resolvidos
+        // 5. Marca sincronizado no IndexedDB após confirmação real
         const hasUnresolvedAttachments = currentContent.includes('attachment://') || currentContent.includes('local-attachment://');
-
         if (!hasUnresolvedAttachments) {
           await indexedDBStorage.markNoteSynced(userId, noteId, revision);
           console.log(`[SyncGuard] MARK SYNCED noteId=${noteId} revision=${revision}`);
@@ -917,9 +964,9 @@ class SyncEngine {
         const rawAttCount = (content.match(/attachment:\/\/[a-zA-Z0-9_-]+/g) || []).length +
           (content.match(/local-attachment:\/\/[a-zA-Z0-9_-]+/g) || []).length;
 
-        console.log(`[SyncGuard] PUSH NOTE noteId=${noteId} revision=${revision} needs_sync=true contentLength=${content.length} attachmentCount=${rawAttCount}`);
+        console.log(`[SyncGuard] PUSH NOTE noteId=${noteId} revision=${revision} contentLength=${content.length} attachmentCount=${rawAttCount}`);
 
-        // 2. Resolve quaisquer anexos pendentes
+        // 2. Resolve anexos pendentes
         if (rawAttCount > 0) {
           console.log(`[SyncGuard] ATTACHMENTS noteId=${noteId} pendingCount=${rawAttCount}`);
         }
@@ -949,7 +996,7 @@ class SyncEngine {
           const localBaseUpdatedAt = baseUpdatedAt ? new Date(baseUpdatedAt).getTime() : 0;
           const remoteRevision = typeof remoteNote.revision === 'number' ? remoteNote.revision : 0;
 
-          // Se o servidor possui revisão superior à base da edição e tem conteúdo diferente -> Conflito Detectado
+          // Se o servidor possui revisão superior à base da edição e conteúdo divergente -> Conflito
           if (
             remoteRevision > revision &&
             remoteUpdatedAt > localBaseUpdatedAt + 1000 &&
@@ -958,7 +1005,6 @@ class SyncEngine {
           ) {
             console.warn(`[SyncGuard] Conflito detectado na nota ${noteId}. Preservando ambas as versões de forma não-destrutiva.`);
 
-            // Estratégia Não-Destrutiva: Cria uma cópia de segurança para o conteúdo conflitante
             const conflictNoteId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `note-conflict-${Date.now()}`;
             const conflictTitle = `[Conflito] ${remoteNote.title || 'Nota'} (Cópia Local)`;
 
@@ -974,7 +1020,6 @@ class SyncEngine {
               position: 0,
               tags: cleanTags,
               revision: 1,
-              needs_sync: false,
               is_archived: false,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
@@ -991,16 +1036,20 @@ class SyncEngine {
               tags: cleanTags,
               is_archived: false,
               revision: 1,
+              syncRequired: false,
+              syncStatus: 'synced',
               needs_sync: false,
+              sync_status: 'synced',
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
-              sync_status: 'synced',
             });
 
             // Atualiza a nota original local com o conteúdo do servidor para convergir
             await indexedDBStorage.putNote(userId, {
               ...remoteNote,
               user_id: userId,
+              syncRequired: false,
+              syncStatus: 'synced',
               sync_status: 'synced',
               needs_sync: false,
               tags: Array.isArray(remoteNote.tags) ? remoteNote.tags : [],
@@ -1015,15 +1064,12 @@ class SyncEngine {
         const fullMarkdown = serializeMarkdownWithTags(content, cleanTags);
         await writeNoteMarkdown(userId, noteId, fullMarkdown);
 
-        const hasUnresolvedAttachments = content.includes('attachment://') || content.includes('local-attachment://');
-
         const { error: updateErr } = await supabase
           .from('notes')
           .update({
             content: content,
             tags: cleanTags,
             revision: revision,
-            needs_sync: hasUnresolvedAttachments,
             updated_at: new Date().toISOString(),
           })
           .eq('id', noteId)
@@ -1038,6 +1084,7 @@ class SyncEngine {
 
         console.log(`[SyncGuard] PUSH SUCCESS noteId=${noteId}`);
 
+        const hasUnresolvedAttachments = content.includes('attachment://') || content.includes('local-attachment://');
         if (!hasUnresolvedAttachments) {
           await indexedDBStorage.markNoteSynced(userId, noteId, revision);
           console.log(`[SyncGuard] MARK SYNCED noteId=${noteId} revision=${revision}`);
@@ -1053,7 +1100,6 @@ class SyncEngine {
           .update({
             ...updates,
             revision,
-            needs_sync: false,
             updated_at: new Date().toISOString(),
           })
           .eq('id', noteId)
@@ -1091,7 +1137,6 @@ class SyncEngine {
             folder_id: newFolderId,
             position: newPosition,
             revision,
-            needs_sync: false,
             updated_at: new Date().toISOString(),
           })
           .eq('id', noteId)
@@ -1113,7 +1158,6 @@ class SyncEngine {
             previous_folder_id: previousFolderId,
             folder_id: null,
             revision,
-            needs_sync: false,
             updated_at: new Date().toISOString(),
           })
           .eq('id', noteId)
@@ -1135,7 +1179,6 @@ class SyncEngine {
             folder_id: destinationFolderId,
             previous_folder_id: null,
             revision,
-            needs_sync: false,
             updated_at: new Date().toISOString(),
           })
           .eq('id', noteId)
@@ -1162,7 +1205,6 @@ class SyncEngine {
           is_smart: Boolean(folder.is_smart),
           smart_tags: folder.smart_tags || [],
           revision,
-          needs_sync: false,
           created_at: folder.created_at || new Date().toISOString(),
           updated_at: folder.updated_at || new Date().toISOString(),
         });
@@ -1185,7 +1227,6 @@ class SyncEngine {
           .update({
             ...updates,
             revision,
-            needs_sync: false,
             updated_at: new Date().toISOString(),
           })
           .eq('id', folderId)
@@ -1222,7 +1263,6 @@ class SyncEngine {
             parent_id: newParentId,
             position: newPosition,
             revision,
-            needs_sync: false,
             updated_at: new Date().toISOString(),
           })
           .eq('id', folderId)
@@ -1251,7 +1291,7 @@ class SyncEngine {
           return true;
         }
 
-        if (attachment.sync_status === 'synced' && attachment.remote_url) {
+        if (attachment.syncStatus === 'synced' && attachment.remote_url) {
           console.log(`[Attachment] ALREADY SYNCED noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} remoteUrl="${attachment.remote_url}"`);
           return true;
         }
@@ -1292,28 +1332,28 @@ class SyncEngine {
         console.log(`[Attachment] UPLOAD SUCCESS noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} remoteUrl="${remoteUrl}"`);
         console.log(`[Attachment] REMOTE URL noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} url="${remoteUrl}"`);
 
-        // 3. Atualiza anexo local no IndexedDB
+        // 3. Atualiza anexo local no IndexedDB com syncRequired = false e syncStatus = 'synced'
         attachment.remote_url = remoteUrl;
+        attachment.syncRequired = false;
+        attachment.syncStatus = 'synced';
         attachment.sync_status = 'synced';
         if (noteId && !attachment.note_id) {
           attachment.note_id = noteId;
         }
         await indexedDBStorage.putAttachment(userId, attachment);
 
-        // 4. Se o anexo estiver associado a uma nota, substitui referências locais no Markdown e atualiza
+        // 4. Se o anexo estiver associado a uma nota, substitui referências locais no Markdown
         const targetNoteId = attachment.note_id || noteId;
         if (targetNoteId) {
           const note = await indexedDBStorage.getNoteById(userId, targetNoteId);
           if (note && note.content) {
             let updatedContent = note.content;
 
-            // Substitui referências de protocolo (novo e legado)
             const canonicalRefRegex = new RegExp(`attachment://${attachmentId}`, 'g');
             const localRefRegex = new RegExp(`local-attachment://${attachmentId}`, 'g');
             updatedContent = updatedContent.replace(canonicalRefRegex, remoteUrl);
             updatedContent = updatedContent.replace(localRefRegex, remoteUrl);
 
-            // Substitui data_url exata se existir
             if (attachment.data_url && updatedContent.includes(attachment.data_url)) {
               updatedContent = updatedContent.split(attachment.data_url).join(remoteUrl);
             }
@@ -1384,6 +1424,7 @@ class SyncEngine {
 
   /**
    * Puxa alterações incrementais do Supabase para o IndexedDB sem bloquear a UI.
+   * Marca dados remotos como syncRequired = false e syncStatus = 'synced'.
    */
   public async pullIncrementalChanges(userId: string): Promise<void> {
     if (!isSupabaseConfigured() || !userId) return;
@@ -1392,9 +1433,10 @@ class SyncEngine {
       const supabase = createClient();
       let remoteChangesCount = 0;
 
-      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
-      const pendingFolderIds = new Set(pendingQueue.filter((q) => q.entity_type === 'folder').map((q) => q.entity_id));
-      const pendingNoteIds = new Set(pendingQueue.filter((q) => q.entity_type === 'note').map((q) => q.entity_id));
+      const { notes: pendingNotes, folders: pendingFolders } =
+        await indexedDBStorage.getEntitiesRequiringSync(userId);
+      const pendingFolderIds = new Set(pendingFolders.map((f) => f.id));
+      const pendingNoteIds = new Set(pendingNotes.map((n) => n.id));
 
       // 1. Busca pastas remotas
       const { data: remoteFolders, error: foldersErr } = await supabase
@@ -1410,8 +1452,8 @@ class SyncEngine {
           if (!pendingFolderIds.has(rFolder.id)) {
             const existing = localFoldersMap.get(rFolder.id);
 
-            // Se a pasta local tem alterações não sincronizadas e sua revisão é >= remota, não sobrescrever
-            if (existing && existing.needs_sync && (existing.revision || 0) >= (rFolder.revision || 0)) {
+            // Se a pasta local tem alterações não sincronizadas e sua revisão é >= remota, protege edição local
+            if (existing && existing.syncRequired && (existing.revision || 0) >= (rFolder.revision || 0)) {
               continue;
             }
 
@@ -1429,6 +1471,8 @@ class SyncEngine {
                 ...rFolder,
                 is_smart: Boolean(rFolder.is_smart),
                 revision: rFolder.revision || 0,
+                syncRequired: false,
+                syncStatus: 'synced',
                 needs_sync: false,
                 sync_status: 'synced',
               });
@@ -1440,7 +1484,7 @@ class SyncEngine {
         // Detecta pastas deletadas remotamente
         const remoteFolderIds = new Set(remoteFolders.map((f: any) => f.id));
         for (const lFolder of localFolders) {
-          if (!remoteFolderIds.has(lFolder.id) && !pendingFolderIds.has(lFolder.id) && !lFolder.needs_sync && lFolder.sync_status === 'synced') {
+          if (!remoteFolderIds.has(lFolder.id) && !pendingFolderIds.has(lFolder.id) && !lFolder.syncRequired && lFolder.syncStatus === 'synced') {
             await indexedDBStorage.deleteFolder(userId, lFolder.id);
             remoteChangesCount++;
           }
@@ -1458,7 +1502,6 @@ class SyncEngine {
         const localNotesMap = new Map(localNotes.map((n) => [n.id, n]));
 
         for (const rNote of remoteNotes) {
-          // Se a nota NÃO tiver alterações locais pendentes na fila, atualiza no IndexedDB
           if (!pendingNoteIds.has(rNote.id)) {
             const rawTags = rNote.tags;
             let noteTags: string[] = [];
@@ -1475,7 +1518,7 @@ class SyncEngine {
             const existingNote = localNotesMap.get(rNote.id);
 
             // Se a nota local tem alterações não sincronizadas e sua revisão é >= remota, protege a edição local
-            if (existingNote && existingNote.needs_sync && (existingNote.revision || 0) >= (rNote.revision || 0)) {
+            if (existingNote && existingNote.syncRequired && (existingNote.revision || 0) >= (rNote.revision || 0)) {
               continue;
             }
 
@@ -1495,6 +1538,8 @@ class SyncEngine {
                 ...rNote,
                 tags: noteTags,
                 revision: rNote.revision || 0,
+                syncRequired: false,
+                syncStatus: 'synced',
                 needs_sync: false,
                 is_archived: Boolean(rNote.is_archived),
                 sync_status: 'synced',
@@ -1508,7 +1553,7 @@ class SyncEngine {
         // Detecta notas deletadas remotamente
         const remoteNoteIds = new Set(remoteNotes.map((n: any) => n.id));
         for (const lNote of localNotes) {
-          if (!remoteNoteIds.has(lNote.id) && !pendingNoteIds.has(lNote.id) && !lNote.needs_sync && lNote.sync_status === 'synced') {
+          if (!remoteNoteIds.has(lNote.id) && !pendingNoteIds.has(lNote.id) && !lNote.syncRequired && lNote.syncStatus === 'synced') {
             await indexedDBStorage.deleteNote(userId, lNote.id);
             remoteChangesCount++;
           }

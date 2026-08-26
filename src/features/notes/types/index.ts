@@ -12,7 +12,8 @@ export interface Folder {
   is_smart?: boolean;
   smart_tags?: string[];
   is_system?: boolean;
-  needs_sync?: boolean;
+  syncRequired?: boolean;
+  syncStatus?: 'synced' | 'pending' | 'syncing' | 'error';
   revision?: number;
   created_at: string;
   updated_at: string;
@@ -28,7 +29,8 @@ export interface Note {
   tags: string[];
   is_archived?: boolean;
   previous_folder_id?: string | null;
-  needs_sync?: boolean;
+  syncRequired?: boolean;
+  syncStatus?: 'synced' | 'pending' | 'syncing' | 'error';
   revision?: number;
   created_at: string;
   updated_at: string;
