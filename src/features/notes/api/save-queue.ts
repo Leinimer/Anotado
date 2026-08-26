@@ -17,8 +17,8 @@ import { serializeMarkdownWithTags } from '../utils/markdown-tags';
 import { indexedDBStorage } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
 import {
-  resolveAndUploadNoteAttachments,
-  extractAttachmentReferences,
+  prepareNoteContentForPersistence,
+  validateNoteContentForRemotePersistence,
   hasUnresolvedLocalMedia,
 } from './storage-api';
 
@@ -125,18 +125,20 @@ class SaveQueueManager {
     // 1. Tags e serialização
     const bodyHashtags = extractHashtagsFromText(item.content);
     const combinedTags = normalizeTags([...(item.tags || []), ...bodyHashtags]);
-    const fullMarkdown = serializeMarkdownWithTags(item.content, combinedTags);
 
     // 2. Gravação imediata no IndexedDB (fonte de verdade local durável)
     try {
       const existingNote = await indexedDBStorage.getNoteById(item.userId, item.noteId);
       const isOnline = networkMonitor.getState().isBackendReachable;
-      const nextRevision = typeof existingNote?.revision === 'number' && existingNote.revision >= item.version 
-        ? existingNote.revision + 1 
-        : item.version;
+      const currentContent = item.content || existingNote?.content || '';
+      const currentRevision = typeof existingNote?.revision === 'number' ? existingNote.revision : 0;
+      const nextRevision = Math.max(currentRevision + 1, item.version);
+
+      console.log(`[NOTE] PERSIST START noteId=${item.noteId} revision=${nextRevision}`);
+      console.log(`[NOTE] PERSIST CONTENT LENGTH noteId=${item.noteId} length=${currentContent.length}`);
 
       if (existingNote) {
-        existingNote.content = item.content;
+        existingNote.content = currentContent;
         existingNote.tags = combinedTags;
         existingNote.revision = nextRevision;
         existingNote.syncRequired = true;
@@ -157,7 +159,7 @@ class SaveQueueManager {
         revision: nextRevision,
         payload: {
           noteId: item.noteId,
-          content: item.content,
+          content: currentContent,
           tags: combinedTags,
           baseUpdatedAt: existingNote?.updated_at || new Date().toISOString(),
           revision: nextRevision,
@@ -183,15 +185,15 @@ class SaveQueueManager {
         return;
       }
 
-      // 4. Se online, resolve anexos pendentes e faz upload físico antes de qualquer envio ao Supabase
-      const { resolvedContent, allResolved } = await resolveAndUploadNoteAttachments(
+      // 4. Se online, prepara o conteúdo, migra Base64, resolve anexos pendentes e faz upload físico antes de qualquer envio ao Supabase
+      const { preparedContent, allResolved } = await prepareNoteContentForPersistence(
         item.userId,
         item.noteId,
-        item.content
+        currentContent
       );
 
       if (!allResolved) {
-        console.warn(`[NOTE] PERSIST ERROR noteId=${item.noteId}: Anexos locais ainda não resolvidos. Mantendo pendente localmente.`);
+        console.warn(`[NOTE] SAVE BLOCKED - UNRESOLVED ATTACHMENT noteId=${item.noteId}`);
         state.persistedVersion = nextRevision;
         item.resolve({
           success: true,
@@ -201,18 +203,18 @@ class SaveQueueManager {
         return;
       }
 
-      // Se o conteúdo mudou porque referências locais foram substituídas por URLs HTTPS definitivas:
-      if (resolvedContent !== item.content) {
+      // Se o conteúdo mudou porque referências locais foram substituídas por URLs HTTPS definitivas ou Base64 migrado:
+      if (preparedContent !== currentContent) {
         if (existingNote) {
-          existingNote.content = resolvedContent;
+          existingNote.content = preparedContent;
           await indexedDBStorage.putNote(item.userId, existingNote);
         }
       }
 
       // Validação Absoluta: O conteúdo remoto NUNCA pode conter attachment://, local-attachment://, blob: ou data:
-      const unresolvedRefs = extractAttachmentReferences(resolvedContent);
-      if (unresolvedRefs.length > 0 || hasUnresolvedLocalMedia(resolvedContent)) {
-        console.error(`[NOTE] PERSIST ERROR noteId=${item.noteId}: Conteúdo ainda contém referências locais proibidas. Gravação remota abortada.`);
+      const validation = validateNoteContentForRemotePersistence(preparedContent);
+      if (!validation.valid || hasUnresolvedLocalMedia(preparedContent)) {
+        console.warn(`[NOTE] SAVE BLOCKED - UNRESOLVED ATTACHMENT noteId=${item.noteId}: ${validation.errors.join('; ')}`);
         state.persistedVersion = nextRevision;
         item.resolve({
           success: true,
@@ -222,10 +224,10 @@ class SaveQueueManager {
         return;
       }
 
-      console.log(`[NOTE] CONTENT PERSIST START noteId=${item.noteId} revision=${nextRevision}`);
+      console.log(`[NOTE] SUPABASE UPDATE START noteId=${item.noteId}`);
 
       // Grava Markdown definitivo no Supabase Storage
-      const remoteMarkdown = serializeMarkdownWithTags(resolvedContent, combinedTags);
+      const remoteMarkdown = serializeMarkdownWithTags(preparedContent, combinedTags);
       const storageSuccess = await writeNoteMarkdown(item.userId, item.noteId, remoteMarkdown);
 
       // Atualiza tabela notes no Supabase com conteúdo HTTPS definitivo
@@ -233,7 +235,7 @@ class SaveQueueManager {
       const { error: updateErr } = await supabase
         .from('notes')
         .update({
-          content: resolvedContent,
+          content: preparedContent,
           tags: combinedTags,
           revision: nextRevision,
           updated_at: new Date().toISOString(),
@@ -246,7 +248,7 @@ class SaveQueueManager {
         throw updateErr;
       }
 
-      console.log(`[NOTE] CONTENT PERSIST SUCCESS noteId=${item.noteId}`);
+      console.log(`[NOTE] SUPABASE UPDATE SUCCESS noteId=${item.noteId}`);
 
       // Sincroniza tabelas tags / note_tags se necessário
       await this.syncTagsAndNoteRelations(supabase, item.userId, item.noteId, combinedTags);
@@ -256,7 +258,7 @@ class SaveQueueManager {
       // Remove da SyncQueue após confirmação do Supabase
       await indexedDBStorage.removeSyncQueueItem(item.userId, syncItemId);
 
-      console.log(`[NOTE] SYNC CONFIRMED noteId=${item.noteId} revision=${nextRevision}`);
+      console.log(`[NOTE] MARK SYNCED noteId=${item.noteId} revision=${nextRevision}`);
 
       const remainingPending = await indexedDBStorage.getSyncQueueCount(item.userId);
       networkMonitor.updatePendingCount(remainingPending);

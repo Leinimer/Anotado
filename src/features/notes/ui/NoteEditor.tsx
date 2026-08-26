@@ -70,6 +70,7 @@ export function NoteEditor({
   editable = true,
 }: NoteEditorProps) {
   const lastEmittedContentRef = useRef<string>(content ?? '');
+  const isApplyingRemoteAttachmentResolution = useRef(false);
   const [youtubePasteData, setYoutubePasteData] = useState<{ url: string } | null>(null);
 
   // Profiler T1
@@ -107,6 +108,10 @@ export function NoteEditor({
       perfProfiler.mark(noteIdentifier, 'T2 - Tiptap Instanciado e Markdown Parseado');
     },
     onUpdate: ({ editor }) => {
+      if (isApplyingRemoteAttachmentResolution.current) {
+        console.log(`[EDITOR] INTERNAL UPDATE - AUTOSAVE SUPPRESSED noteId=${noteIdentifier}`);
+        return;
+      }
       // Extrai Markdown real usando a extensão de markdown do Tiptap
       const storageRecord = editor.storage as unknown as Record<string, { getMarkdown?: () => string }>;
       const markdown = storageRecord?.markdown?.getMarkdown ? storageRecord.markdown.getMarkdown() : editor.getHTML();
@@ -114,6 +119,80 @@ export function NoteEditor({
       onChange(markdown);
     },
   });
+
+  // Atualiza nós do documento Tiptap quando anexos locais forem resolvidos remotamente
+  useEffect(() => {
+    const handleAttachmentResolved = (event: Event) => {
+      const customEvent = event as CustomEvent<{ noteId: string; replacements: Record<string, string> }>;
+      if (!editor || !customEvent.detail) return;
+      const { noteId: targetNoteId, replacements } = customEvent.detail;
+      if (noteId && targetNoteId !== noteId) return;
+      if (!replacements || Object.keys(replacements).length === 0) return;
+
+      console.log(
+        `[EDITOR] ATTACHMENT REFERENCE UPDATED noteId=${targetNoteId || noteIdentifier} replacements=${JSON.stringify(replacements)}`
+      );
+
+      isApplyingRemoteAttachmentResolution.current = true;
+      try {
+        let hasChanges = false;
+        const { tr } = editor.state;
+
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === 'image' && node.attrs?.src) {
+            const rawSrc = node.attrs.src;
+            for (const [attId, remoteUrl] of Object.entries(replacements)) {
+              if (
+                rawSrc === `attachment://${attId}` ||
+                rawSrc === `local-attachment://${attId}` ||
+                rawSrc === attId
+              ) {
+                tr.setNodeMarkup(pos, undefined, {
+                  ...node.attrs,
+                  src: remoteUrl,
+                });
+                hasChanges = true;
+              }
+            }
+          } else if (node.type.name === 'documentAttachment' && node.attrs) {
+            const rawSrc = node.attrs.src || node.attrs['data-src'];
+            for (const [attId, remoteUrl] of Object.entries(replacements)) {
+              if (
+                rawSrc === `attachment://${attId}` ||
+                rawSrc === `local-attachment://${attId}` ||
+                rawSrc === attId
+              ) {
+                tr.setNodeMarkup(pos, undefined, {
+                  ...node.attrs,
+                  src: remoteUrl,
+                  'data-src': remoteUrl,
+                });
+                hasChanges = true;
+              }
+            }
+          }
+        });
+
+        if (hasChanges) {
+          editor.view.dispatch(tr);
+          const storageRecord = editor.storage as unknown as Record<string, { getMarkdown?: () => string }>;
+          const newMarkdown = storageRecord?.markdown?.getMarkdown ? storageRecord.markdown.getMarkdown() : editor.getHTML();
+          lastEmittedContentRef.current = newMarkdown;
+        }
+      } catch (err) {
+        console.warn('[NoteEditor] Erro ao atualizar referências remotas no Tiptap:', err);
+      } finally {
+        setTimeout(() => {
+          isApplyingRemoteAttachmentResolution.current = false;
+        }, 100);
+      }
+    };
+
+    window.addEventListener('anotado:attachment-resolved', handleAttachmentResolved);
+    return () => {
+      window.removeEventListener('anotado:attachment-resolved', handleAttachmentResolved);
+    };
+  }, [editor, noteId, noteIdentifier]);
 
   // Notifica o componente pai sobre a instância do editor (T3)
   useEffect(() => {

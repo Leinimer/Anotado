@@ -24,9 +24,11 @@ import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extract
 import { serializeMarkdownWithTags, parseMarkdownWithTags } from '../utils/markdown-tags';
 import { saveQueue } from './save-queue';
 import {
-  resolveAndUploadNoteAttachments,
-  extractAttachmentReferences,
+  prepareNoteContentForPersistence,
+  validateNoteContentForRemotePersistence,
   hasUnresolvedLocalMedia,
+  replaceAttachmentReferencesInEditor,
+  ATTACHMENTS_BUCKET_NAME,
 } from './storage-api';
 
 export type DataChangePayload = {
@@ -865,8 +867,8 @@ class SyncEngine {
         const noteTags = normalizeTags(effectiveNote.tags || rawPayload.tags || []);
         const noteTitle = effectiveNote.title || rawPayload.title || 'Nova nota';
 
-        // 2. Resolve e faz upload de todos os anexos locais ANTES de persistir no Supabase
-        const { resolvedContent, allResolved } = await resolveAndUploadNoteAttachments(
+        // 2. Prepara e migra mídias/anexos locais ANTES de persistir no Supabase
+        const { preparedContent, allResolved } = await prepareNoteContentForPersistence(
           userId,
           noteId,
           currentContent
@@ -877,15 +879,16 @@ class SyncEngine {
           return false;
         }
 
-        // Atualiza IndexedDB se referências locais foram substituídas por HTTPS
-        if (localNote && localNote.content !== resolvedContent) {
-          localNote.content = resolvedContent;
+        // Atualiza IndexedDB se referências locais foram substituídas por HTTPS ou Base64 migrado
+        if (localNote && localNote.content !== preparedContent) {
+          localNote.content = preparedContent;
           await indexedDBStorage.putNote(userId, localNote);
         }
 
-        // Validação Absoluta: Nenhuma referência local proibida
-        if (extractAttachmentReferences(resolvedContent).length > 0 || hasUnresolvedLocalMedia(resolvedContent)) {
-          console.error(`[NOTE] PERSIST ERROR noteId=${noteId}: CREATE_NOTE abortado pois o conteúdo ainda possui referências locais`);
+        // Validação Absoluta: Nenhuma referência transitória ou Base64 permitida
+        const validation = validateNoteContentForRemotePersistence(preparedContent);
+        if (!validation.valid || hasUnresolvedLocalMedia(preparedContent)) {
+          console.error(`[NOTE] PERSIST ERROR noteId=${noteId}: CREATE_NOTE abortado pois o conteúdo ainda possui referências não resolvidas: ${validation.errors.join('; ')}`);
           return false;
         }
 
@@ -897,7 +900,7 @@ class SyncEngine {
           user_id: userId,
           folder_id: effectiveNote.folder_id || null,
           title: noteTitle,
-          content: resolvedContent,
+          content: preparedContent,
           position: effectiveNote.position ?? 0,
           tags: noteTags,
           is_archived: Boolean(effectiveNote.is_archived),
@@ -914,7 +917,7 @@ class SyncEngine {
 
         // 4. Grava .md canônico no Supabase Storage
         try {
-          const fullMarkdown = serializeMarkdownWithTags(resolvedContent, noteTags);
+          const fullMarkdown = serializeMarkdownWithTags(preparedContent, noteTags);
           await writeNoteMarkdown(userId, noteId, fullMarkdown);
         } catch (storageErr) {
           console.warn(`[SyncEngine] Aviso ao gravar Markdown no Storage para nota ${noteId}:`, storageErr);
@@ -948,8 +951,8 @@ class SyncEngine {
           : (rawPayloadContent || '');
         const cleanTags = normalizeTags((localNote && localNote.tags) || rawPayloadTags || []);
 
-        // 2. Resolve e faz upload de todos os anexos locais ANTES de persistir no Supabase
-        const { resolvedContent, allResolved } = await resolveAndUploadNoteAttachments(
+        // 2. Prepara e migra mídias/anexos locais ANTES de persistir no Supabase
+        const { preparedContent, allResolved } = await prepareNoteContentForPersistence(
           userId,
           noteId,
           content
@@ -960,14 +963,15 @@ class SyncEngine {
           return false;
         }
 
-        if (localNote && localNote.content !== resolvedContent) {
-          localNote.content = resolvedContent;
+        if (localNote && localNote.content !== preparedContent) {
+          localNote.content = preparedContent;
           await indexedDBStorage.putNote(userId, localNote);
         }
 
-        // Validação Absoluta: Nenhuma referência local proibida
-        if (extractAttachmentReferences(resolvedContent).length > 0 || hasUnresolvedLocalMedia(resolvedContent)) {
-          console.error(`[NOTE] PERSIST ERROR noteId=${noteId}: UPDATE_NOTE_CONTENT abortado pois o conteúdo ainda possui referências locais`);
+        // Validação Absoluta: Nenhuma referência transitória ou Base64 permitida
+        const validation = validateNoteContentForRemotePersistence(preparedContent);
+        if (!validation.valid || hasUnresolvedLocalMedia(preparedContent)) {
+          console.error(`[NOTE] PERSIST ERROR noteId=${noteId}: UPDATE_NOTE_CONTENT abortado pois o conteúdo ainda possui referências não resolvidas: ${validation.errors.join('; ')}`);
           return false;
         }
 
@@ -989,7 +993,7 @@ class SyncEngine {
             remoteRevision > revision &&
             remoteUpdatedAt > localBaseUpdatedAt + 1000 &&
             remoteNote.content &&
-            remoteNote.content.trim() !== (resolvedContent || '').trim()
+            remoteNote.content.trim() !== (preparedContent || '').trim()
           ) {
             console.warn(`[SyncGuard] Conflito detectado na nota ${noteId}. Preservando ambas as versões de forma não-destrutiva.`);
 
@@ -997,14 +1001,14 @@ class SyncEngine {
             const conflictTitle = `[Conflito] ${remoteNote.title || 'Nota'} (Cópia Local)`;
 
             // Grava cópia no Supabase
-            const conflictMarkdown = serializeMarkdownWithTags(resolvedContent, cleanTags);
+            const conflictMarkdown = serializeMarkdownWithTags(preparedContent, cleanTags);
             await writeNoteMarkdown(userId, conflictNoteId, conflictMarkdown);
             await supabase.from('notes').insert({
               id: conflictNoteId,
               user_id: userId,
               folder_id: remoteNote.folder_id || null,
               title: conflictTitle,
-              content: resolvedContent,
+              content: preparedContent,
               position: 0,
               tags: cleanTags,
               revision: 1,
@@ -1019,7 +1023,7 @@ class SyncEngine {
               user_id: userId,
               folder_id: remoteNote.folder_id || null,
               title: conflictTitle,
-              content: resolvedContent,
+              content: preparedContent,
               position: 0,
               tags: cleanTags,
               is_archived: false,
@@ -1051,13 +1055,13 @@ class SyncEngine {
         console.log(`[NOTE] CONTENT PERSIST START noteId=${noteId} revision=${revision}`);
 
         // Sem conflito: Grava o arquivo .md no Supabase Storage e na tabela notes
-        const fullMarkdown = serializeMarkdownWithTags(resolvedContent, cleanTags);
+        const fullMarkdown = serializeMarkdownWithTags(preparedContent, cleanTags);
         await writeNoteMarkdown(userId, noteId, fullMarkdown);
 
         const { error: updateErr } = await supabase
           .from('notes')
           .update({
-            content: resolvedContent,
+            content: preparedContent,
             tags: cleanTags,
             revision: revision,
             updated_at: new Date().toISOString(),
@@ -1289,12 +1293,12 @@ class SyncEngine {
           return true;
         }
 
-        const bucketName = 'note-attachments';
-        const sanitizedName = attachment.file_name.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const bucketName = ATTACHMENTS_BUCKET_NAME;
+        const sanitizedName = (attachment.file_name || 'file').replace(/[^a-zA-Z0-9.-]/g, '_');
         const fileExt = sanitizedName.split('.').pop() || 'dat';
         const filePath = `${userId}/${attachmentId}.${fileExt}`;
 
-        console.log(`[Attachment] UPLOAD START noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} fileName="${attachment.file_name}" fileSize=${attachment.file_size || 0} mimeType="${attachment.file_type}" path="${filePath}"`);
+        console.log(`[MEDIA] attachment upload started noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} fileName="${attachment.file_name}" fileSize=${attachment.file_size || attachment.blob.size || 0} mimeType="${attachment.file_type}" path="${filePath}"`);
 
         // 1. Upload do Blob para o bucket note-attachments do Supabase
         const { error: uploadError } = await supabase.storage
@@ -1305,7 +1309,7 @@ class SyncEngine {
           });
 
         if (uploadError) {
-          console.warn(`[Attachment] UPLOAD ERROR noteId=${noteId || 'none'} attachmentId=${attachmentId}:`, uploadError.message);
+          console.warn(`[MEDIA] attachment upload failed noteId=${noteId || 'none'} attachmentId=${attachmentId}:`, uploadError.message);
           throw uploadError;
         }
 
@@ -1317,21 +1321,38 @@ class SyncEngine {
         const remoteUrl = publicUrlData?.publicUrl;
         if (!remoteUrl) throw new Error('Não foi possível obter URL pública da mídia');
 
-        console.log(`[Attachment] UPLOAD SUCCESS noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} remoteUrl="${remoteUrl}"`);
-        console.log(`[Attachment] REMOTE URL noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} url="${remoteUrl}"`);
+        console.log(`[MEDIA] attachment upload completed noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} url="${remoteUrl}"`);
 
-        // 3. Atualiza anexo local no IndexedDB com syncRequired = false e syncStatus = 'synced'
+        // 3. Registra / Upsert na tabela public.note_attachments
+        const targetNoteId = attachment.note_id || noteId;
+        try {
+          await supabase.from('note_attachments').upsert({
+            id: attachmentId,
+            note_id: targetNoteId,
+            user_id: userId,
+            file_name: attachment.file_name,
+            mime_type: attachment.mime_type || attachment.file_type || 'application/octet-stream',
+            file_size: attachment.file_size || attachment.blob.size || 0,
+            storage_path: filePath,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        } catch (dbErr: any) {
+          console.warn('[SyncEngine] Aviso ao registrar note_attachments:', dbErr?.message || dbErr);
+        }
+
+        // 4. Atualiza anexo local no IndexedDB com syncRequired = false e syncStatus = 'synced'
         attachment.remote_url = remoteUrl;
+        attachment.storage_path = filePath;
         attachment.syncRequired = false;
         attachment.syncStatus = 'synced';
         attachment.sync_status = 'synced';
-        if (noteId && !attachment.note_id) {
-          attachment.note_id = noteId;
+        if (targetNoteId && !attachment.note_id) {
+          attachment.note_id = targetNoteId;
         }
         await indexedDBStorage.putAttachment(userId, attachment);
 
-        // 4. Se o anexo estiver associado a uma nota, substitui referências locais no Markdown
-        const targetNoteId = attachment.note_id || noteId;
+        // 5. Se o anexo estiver associado a uma nota, substitui referências locais no Markdown
         if (targetNoteId) {
           const note = await indexedDBStorage.getNoteById(userId, targetNoteId);
           if (note && note.content) {
@@ -1351,14 +1372,21 @@ class SyncEngine {
               note.content = updatedContent;
               await indexedDBStorage.putNote(userId, note);
 
-              // Atualiza o arquivo .md no Supabase Storage e na tabela notes
-              const fullMarkdown = serializeMarkdownWithTags(updatedContent, note.tags || []);
-              await writeNoteMarkdown(userId, note.id, fullMarkdown);
-              await supabase
-                .from('notes')
-                .update({ content: updatedContent, updated_at: new Date().toISOString() })
-                .eq('id', note.id)
-                .eq('user_id', userId);
+              // Notifica o editor Tiptap ativo
+              replaceAttachmentReferencesInEditor(targetNoteId, { [attachmentId]: remoteUrl });
+
+              // Valida se não resta nenhum outro anexo pendente antes de enviar ao Supabase
+              const validation = validateNoteContentForRemotePersistence(updatedContent);
+              if (validation.valid && !hasUnresolvedLocalMedia(updatedContent)) {
+                // Atualiza o arquivo .md no Supabase Storage e na tabela notes
+                const fullMarkdown = serializeMarkdownWithTags(updatedContent, note.tags || []);
+                await writeNoteMarkdown(userId, note.id, fullMarkdown);
+                await supabase
+                  .from('notes')
+                  .update({ content: updatedContent, updated_at: new Date().toISOString() })
+                  .eq('id', note.id)
+                  .eq('user_id', userId);
+              }
             }
           }
         }

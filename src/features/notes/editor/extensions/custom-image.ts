@@ -34,7 +34,7 @@ export const CustomImage = Node.create<CustomImageOptions>({
   addOptions() {
     return {
       inline: false,
-      allowBase64: true,
+      allowBase64: false,
       HTMLAttributes: {},
     };
   },

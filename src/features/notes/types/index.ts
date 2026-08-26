@@ -68,3 +68,16 @@ export interface TreeNodeItem {
 
 export type TreeItem = TreeFolderNode | TreeNodeItem;
 
+export interface NoteAttachment {
+  id: string; // UUID
+  note_id?: string | null; // UUID
+  user_id: string; // UUID
+  file_name: string;
+  mime_type: string;
+  file_size: number;
+  storage_path: string; // `${user_id}/${id}.${extension}`
+  created_at: string;
+  updated_at: string;
+}
+
+

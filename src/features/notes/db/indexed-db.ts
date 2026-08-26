@@ -24,9 +24,11 @@ export interface LocalAttachment {
   note_id?: string | null;
   file_name: string;
   file_type: string;
+  mime_type?: string;
   file_size: number;
   blob?: Blob;
   data_url?: string;
+  storage_path?: string | null;
   remote_url?: string | null;
   syncRequired: boolean;
   syncStatus: SyncEntityStatus;
@@ -668,7 +670,39 @@ class IndexedDBStorage {
     });
   }
 
-  public async putAttachment(userId: string, attachment: Partial<LocalAttachment> & { id: string; user_id: string; file_name: string; file_type: string; file_size: number }): Promise<void> {
+  public async getAttachmentsByNoteId(userId: string, noteId: string): Promise<LocalAttachment[]> {
+    const db = await this.getDB(userId);
+    return new Promise<LocalAttachment[]>((resolve, reject) => {
+      const tx = db.transaction('attachments', 'readonly');
+      const store = tx.objectStore('attachments');
+      const index = store.index('note_id');
+      const request = index.getAll(noteId);
+      request.onsuccess = () => resolve((request.result || []) as LocalAttachment[]);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  public async getAllAttachments(userId: string): Promise<LocalAttachment[]> {
+    const db = await this.getDB(userId);
+    return new Promise<LocalAttachment[]>((resolve, reject) => {
+      const tx = db.transaction('attachments', 'readonly');
+      const store = tx.objectStore('attachments');
+      const request = store.getAll();
+      request.onsuccess = () => resolve((request.result || []) as LocalAttachment[]);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  public async putAttachment(
+    userId: string,
+    attachment: Partial<LocalAttachment> & {
+      id: string;
+      user_id: string;
+      file_name: string;
+      file_type: string;
+      file_size: number;
+    }
+  ): Promise<void> {
     const db = await this.getDB(userId);
     const syncReq = attachment.syncRequired !== undefined
       ? attachment.syncRequired
@@ -684,10 +718,12 @@ class IndexedDBStorage {
         user_id: userId,
         note_id: attachment.note_id || null,
         file_name: attachment.file_name,
-        file_type: attachment.file_type,
+        file_type: attachment.file_type || attachment.mime_type || 'application/octet-stream',
+        mime_type: attachment.mime_type || attachment.file_type || 'application/octet-stream',
         file_size: attachment.file_size,
         blob: attachment.blob,
         data_url: attachment.data_url,
+        storage_path: attachment.storage_path || null,
         remote_url: attachment.remote_url || null,
         syncRequired: syncReq,
         syncStatus: status,
