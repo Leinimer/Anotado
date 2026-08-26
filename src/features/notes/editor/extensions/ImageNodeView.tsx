@@ -19,6 +19,7 @@ import {
   isMediaInCache,
   perfProfiler,
 } from '../utils/media-optimizer';
+import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
 
 export function ImageNodeView(props: NodeViewProps) {
   const { node, updateAttributes, deleteNode, selected, editor, getPos } = props;
@@ -30,6 +31,7 @@ export function ImageNodeView(props: NodeViewProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const localBlobUrlRef = useRef<string | null>(null);
 
   const [isLocalSelected, setIsLocalSelected] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -47,7 +49,69 @@ export function ImageNodeView(props: NodeViewProps) {
   const [isVisibleInViewport, setIsVisibleInViewport] = useState(initialInCache);
   const [isImageLoaded, setIsImageLoaded] = useState(initialInCache);
   const [imageError, setImageError] = useState(false);
-  const [currentSrc, setCurrentSrc] = useState(() => getOptimizedImageUrl(rawSrc, 850));
+  const [currentSrc, setCurrentSrc] = useState(() => {
+    if (rawSrc.startsWith('attachment://')) {
+      return ''; // Será resolvido assincronamente a partir do IndexedDB
+    }
+    return getOptimizedImageUrl(rawSrc, 850);
+  });
+
+  // Resolve anexos locais offline via protocolo attachment://[id]
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function resolveLocalAttachment() {
+      if (rawSrc.startsWith('attachment://')) {
+        const attachmentId = rawSrc.replace('attachment://', '').trim();
+        try {
+          // Busca o anexo pelo ID no IndexedDB
+          const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
+          // Tenta pegar anexo tanto do usuário atual quanto de busca geral
+          let attachment = await indexedDBStorage.getAttachment(currentUserId, attachmentId);
+          if (!attachment && currentUserId !== 'anonymous') {
+            attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
+          }
+
+          if (attachment) {
+            if (attachment.remote_url) {
+              // Se já foi sincronizado e tem URL remota, atualiza o src do nó no Tiptap
+              if (!isCancelled) {
+                setCurrentSrc(getOptimizedImageUrl(attachment.remote_url, 850));
+                updateAttributes({ src: attachment.remote_url });
+              }
+              return;
+            }
+
+            if (attachment.blob && !isCancelled) {
+              // Cria Blob URL temporária apenas em memória
+              if (localBlobUrlRef.current) {
+                URL.revokeObjectURL(localBlobUrlRef.current);
+              }
+              const blobUrl = URL.createObjectURL(attachment.blob);
+              localBlobUrlRef.current = blobUrl;
+              setCurrentSrc(blobUrl);
+              setIsVisibleInViewport(true);
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn('[ImageNodeView] Falha ao resolver anexo local:', err);
+        }
+      } else {
+        setCurrentSrc(getOptimizedImageUrl(rawSrc, 850));
+      }
+    }
+
+    resolveLocalAttachment();
+
+    return () => {
+      isCancelled = true;
+      if (localBlobUrlRef.current) {
+        URL.revokeObjectURL(localBlobUrlRef.current);
+        localBlobUrlRef.current = null;
+      }
+    };
+  }, [rawSrc, editor, updateAttributes]);
 
   const isSelected = isLocalSelected || isResizing;
 

@@ -340,6 +340,8 @@ export async function createFolder(
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     sync_status: 'pending_sync',
+    needs_sync: true,
+    revision: 1,
   };
 
   // 1. Grava no IndexedDB imediatamente
@@ -369,10 +371,13 @@ export async function createFolder(
  * Renomeia uma pasta no IndexedDB e enfileira para sincronização.
  */
 export async function renameFolder(userId: string, folderId: string, newName: string): Promise<boolean> {
-  // 1. Atualiza no IndexedDB
   const localFolder = await indexedDBStorage.getFolderById(userId, folderId);
+  const nextRevision = (localFolder?.revision || 0) + 1;
+
   if (localFolder) {
     localFolder.name = newName;
+    localFolder.revision = nextRevision;
+    localFolder.needs_sync = true;
     localFolder.updated_at = new Date().toISOString();
     localFolder.sync_status = 'pending_sync';
     await indexedDBStorage.putFolder(userId, localFolder);
@@ -384,7 +389,7 @@ export async function renameFolder(userId: string, folderId: string, newName: st
     entity_type: 'folder',
     entity_id: folderId,
     payload: { folderId, updates: { name: newName } },
-    revision: 1,
+    revision: nextRevision,
   });
 
   const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
@@ -406,8 +411,12 @@ export async function updateFolderColor(
   color: string | null
 ): Promise<boolean> {
   const localFolder = await indexedDBStorage.getFolderById(userId, folderId);
+  const nextRevision = (localFolder?.revision || 0) + 1;
+
   if (localFolder) {
     localFolder.color = color;
+    localFolder.revision = nextRevision;
+    localFolder.needs_sync = true;
     localFolder.updated_at = new Date().toISOString();
     localFolder.sync_status = 'pending_sync';
     await indexedDBStorage.putFolder(userId, localFolder);
@@ -418,7 +427,7 @@ export async function updateFolderColor(
     entity_type: 'folder',
     entity_id: folderId,
     payload: { folderId, updates: { color } },
-    revision: 1,
+    revision: nextRevision,
   });
 
   const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
@@ -441,9 +450,13 @@ export async function updateFolderSmartConfig(
   smartTags: string[]
 ): Promise<boolean> {
   const localFolder = await indexedDBStorage.getFolderById(userId, folderId);
+  const nextRevision = (localFolder?.revision || 0) + 1;
+
   if (localFolder) {
     localFolder.is_smart = isSmart;
     localFolder.smart_tags = smartTags;
+    localFolder.revision = nextRevision;
+    localFolder.needs_sync = true;
     localFolder.updated_at = new Date().toISOString();
     localFolder.sync_status = 'pending_sync';
     await indexedDBStorage.putFolder(userId, localFolder);
@@ -454,7 +467,7 @@ export async function updateFolderSmartConfig(
     entity_type: 'folder',
     entity_id: folderId,
     payload: { folderId, updates: { is_smart: isSmart, smart_tags: smartTags } },
-    revision: 1,
+    revision: nextRevision,
   });
 
   const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
@@ -517,6 +530,7 @@ export async function createNote(
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     sync_status: 'pending_sync',
+    needs_sync: true,
     revision: 1,
   };
 
@@ -555,11 +569,14 @@ export async function createNote(
 export async function archiveNote(userId: string, noteId: string): Promise<boolean> {
   const targetNote = await indexedDBStorage.getNoteById(userId, noteId);
   const previousFolderId = targetNote ? targetNote.folder_id : null;
+  const nextRevision = (targetNote?.revision || 0) + 1;
 
   if (targetNote) {
     targetNote.is_archived = true;
     targetNote.previous_folder_id = previousFolderId;
     targetNote.folder_id = null;
+    targetNote.revision = nextRevision;
+    targetNote.needs_sync = true;
     targetNote.updated_at = new Date().toISOString();
     targetNote.sync_status = 'pending_sync';
     await indexedDBStorage.putNote(userId, targetNote);
@@ -570,7 +587,7 @@ export async function archiveNote(userId: string, noteId: string): Promise<boole
     entity_type: 'note',
     entity_id: noteId,
     payload: { noteId, previousFolderId },
-    revision: 1,
+    revision: nextRevision,
   });
 
   const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
@@ -593,6 +610,7 @@ export async function unarchiveNote(
 ): Promise<boolean> {
   const targetNote = await indexedDBStorage.getNoteById(userId, noteId);
   const previousFolderId = targetNote?.previous_folder_id ?? null;
+  const nextRevision = (targetNote?.revision || 0) + 1;
 
   const folderStillExists = previousFolderId
     ? existingFolders.some((f) => f.id === previousFolderId)
@@ -603,6 +621,8 @@ export async function unarchiveNote(
     targetNote.is_archived = false;
     targetNote.folder_id = destinationFolderId;
     targetNote.previous_folder_id = null;
+    targetNote.revision = nextRevision;
+    targetNote.needs_sync = true;
     targetNote.updated_at = new Date().toISOString();
     targetNote.sync_status = 'pending_sync';
     await indexedDBStorage.putNote(userId, targetNote);
@@ -613,7 +633,7 @@ export async function unarchiveNote(
     entity_type: 'note',
     entity_id: noteId,
     payload: { noteId, destinationFolderId },
-    revision: 1,
+    revision: nextRevision,
   });
 
   const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
@@ -661,8 +681,12 @@ export async function archiveFolderNotes(
  */
 export async function updateNoteTitle(userId: string, noteId: string, newTitle: string): Promise<boolean> {
   const localNote = await indexedDBStorage.getNoteById(userId, noteId);
+  const nextRevision = (localNote?.revision || 0) + 1;
+
   if (localNote) {
     localNote.title = newTitle;
+    localNote.revision = nextRevision;
+    localNote.needs_sync = true;
     localNote.updated_at = new Date().toISOString();
     localNote.sync_status = 'pending_sync';
     await indexedDBStorage.putNote(userId, localNote);
@@ -673,7 +697,7 @@ export async function updateNoteTitle(userId: string, noteId: string, newTitle: 
     entity_type: 'note',
     entity_id: noteId,
     payload: { noteId, updates: { title: newTitle } },
-    revision: 1,
+    revision: nextRevision,
   });
 
   const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
@@ -758,9 +782,13 @@ export async function moveItem(
 ): Promise<boolean> {
   if (itemType === 'folder') {
     const localFolder = await indexedDBStorage.getFolderById(userId, itemId);
+    const nextRevision = (localFolder?.revision || 0) + 1;
+
     if (localFolder) {
       localFolder.parent_id = newParentId;
       localFolder.position = newPosition;
+      localFolder.revision = nextRevision;
+      localFolder.needs_sync = true;
       localFolder.updated_at = new Date().toISOString();
       localFolder.sync_status = 'pending_sync';
       await indexedDBStorage.putFolder(userId, localFolder);
@@ -771,13 +799,17 @@ export async function moveItem(
       entity_type: 'folder',
       entity_id: itemId,
       payload: { folderId: itemId, newParentId, newPosition },
-      revision: 1,
+      revision: nextRevision,
     });
   } else {
     const localNote = await indexedDBStorage.getNoteById(userId, itemId);
+    const nextRevision = (localNote?.revision || 0) + 1;
+
     if (localNote) {
       localNote.folder_id = newParentId;
       localNote.position = newPosition;
+      localNote.revision = nextRevision;
+      localNote.needs_sync = true;
       localNote.updated_at = new Date().toISOString();
       localNote.sync_status = 'pending_sync';
       await indexedDBStorage.putNote(userId, localNote);
@@ -788,7 +820,7 @@ export async function moveItem(
       entity_type: 'note',
       entity_id: itemId,
       payload: { noteId: itemId, newFolderId: newParentId, newPosition },
-      revision: 1,
+      revision: nextRevision,
     });
   }
 
@@ -815,10 +847,13 @@ export async function updateNoteTags(
 
   const localNote = await indexedDBStorage.getNoteById(userId, noteId);
   const bodyContent = currentBodyContent !== undefined ? currentBodyContent : (localNote?.content || '');
+  const nextRevision = (localNote?.revision || 0) + 1;
 
   if (localNote) {
     localNote.tags = cleanTags;
     localNote.content = bodyContent;
+    localNote.revision = nextRevision;
+    localNote.needs_sync = true;
     localNote.updated_at = new Date().toISOString();
     localNote.sync_status = 'pending_sync';
     await indexedDBStorage.putNote(userId, localNote);
@@ -829,7 +864,7 @@ export async function updateNoteTags(
     entity_type: 'note',
     entity_id: noteId,
     payload: { noteId, tags: cleanTags, bodyContent },
-    revision: 1,
+    revision: nextRevision,
   });
 
   const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);

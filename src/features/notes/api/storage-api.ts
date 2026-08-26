@@ -7,25 +7,14 @@ export interface UploadedMediaResult {
   name: string;
   size: number;
   type: string;
-  attachmentId?: string;
-  isLocal?: boolean;
+  attachmentId: string;
+  isLocal: boolean;
 }
 
 /**
- * Converte File para DataURL de forma assíncrona.
- */
-function fileToDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (err) => reject(err);
-    reader.readAsDataURL(file);
-  });
-}
-
-/**
- * Faz upload de imagem ou documento para o Supabase Storage ou armazena no IndexedDB se offline.
- * Sobrevive a quedas de conexão, F5 e fechamento do navegador.
+ * Faz upload de imagem ou documento para o Supabase Storage ou armazena o Blob no IndexedDB se offline.
+ * NUNCA injeta strings Base64/DataURL no Markdown persistido.
+ * Utiliza o protocolo leve `attachment://[attachmentId]`.
  */
 export async function uploadNoteFile(
   userId: string | null,
@@ -33,29 +22,25 @@ export async function uploadNoteFile(
   noteId?: string
 ): Promise<UploadedMediaResult> {
   const effectiveUserId = userId || 'anonymous';
-  const attachmentId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `att-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const attachmentId = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `att-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
   const fileExt = sanitizedName.split('.').pop() || 'dat';
   const filePath = `${effectiveUserId}/${attachmentId}.${fileExt}`;
 
-  // 1. Gera DataURL para persistência local visual imediata
-  let localDataUrl = '';
-  try {
-    localDataUrl = await fileToDataURL(file);
-  } catch {
-    localDataUrl = URL.createObjectURL(file);
-  }
+  // Log obrigatório de criação do anexo
+  console.log(`[Attachment] CREATED noteId=${noteId || 'none'} attachmentId=${attachmentId} fileName="${file.name}" fileSize=${file.size} mimeType="${file.type}"`);
 
-  // 2. Salva o anexo completo (com Blob) no IndexedDB
+  // 1. Salva o anexo completo com Blob bruto no IndexedDB (sem Base64 no Markdown)
   const localAttachment: LocalAttachment = {
     id: attachmentId,
     user_id: effectiveUserId,
     note_id: noteId || null,
     file_name: file.name,
-    file_type: file.type,
+    file_type: file.type || 'application/octet-stream',
     file_size: file.size,
     blob: file,
-    data_url: localDataUrl,
     remote_url: null,
     sync_status: 'pending',
     created_at: new Date().toISOString(),
@@ -64,13 +49,13 @@ export async function uploadNoteFile(
 
   try {
     await indexedDBStorage.putAttachment(effectiveUserId, localAttachment);
+    console.log(`[Attachment] STORED LOCAL noteId=${noteId || 'none'} attachmentId=${attachmentId} fileSize=${file.size}`);
   } catch (idbErr) {
     console.warn('[StorageAPI] Aviso ao salvar anexo no IndexedDB:', idbErr);
   }
 
-  // 3. Registra na SyncQueue persistente
+  // 2. Registra na SyncQueue persistente
   try {
-    console.log(`[AttachmentSync] NOTE ${noteId || 'none'} ATTACHMENT ${attachmentId} TYPE ${file.type || 'unknown'} UPLOAD START`);
     await indexedDBStorage.enqueueSyncItem(effectiveUserId, {
       id: `sync_att_${attachmentId}`,
       action: 'UPLOAD_ATTACHMENT',
@@ -80,6 +65,7 @@ export async function uploadNoteFile(
         attachmentId,
         fileName: file.name,
         fileType: file.type,
+        fileSize: file.size,
         noteId: noteId || null,
       },
       revision: 1,
@@ -90,10 +76,11 @@ export async function uploadNoteFile(
     console.warn('[StorageAPI] Aviso ao enfileirar upload na SyncQueue:', qErr);
   }
 
-  // 4. Se online e Supabase configurado, tenta fazer upload direto
+  // 3. Se online e Supabase configurado, tenta fazer upload direto
   const isOnline = networkMonitor.getState().isBackendReachable;
   if (isOnline && isSupabaseConfigured()) {
     try {
+      console.log(`[Attachment] UPLOAD START noteId=${noteId || 'none'} attachmentId=${attachmentId} fileName="${file.name}" fileSize=${file.size} mimeType="${file.type}" path="${filePath}"`);
       const supabase = createClient();
       const bucketName = 'note-attachments';
 
@@ -105,15 +92,20 @@ export async function uploadNoteFile(
           upsert: true,
         });
 
-      if (!uploadError) {
+      if (uploadError) {
+        console.warn(`[Attachment] UPLOAD ERROR noteId=${noteId || 'none'} attachmentId=${attachmentId}:`, uploadError.message);
+      } else {
         const { data: publicUrlData } = supabase.storage
           .from(bucketName)
           .getPublicUrl(filePath);
 
         if (publicUrlData?.publicUrl) {
-          console.log(`[AttachmentSync] NOTE ${noteId || 'none'} ATTACHMENT ${attachmentId} UPLOAD SUCCESS URL ${publicUrlData.publicUrl}`);
+          const remoteUrl = publicUrlData.publicUrl;
+          console.log(`[Attachment] UPLOAD SUCCESS noteId=${noteId || 'none'} attachmentId=${attachmentId} remoteUrl="${remoteUrl}"`);
+          console.log(`[Attachment] REMOTE URL noteId=${noteId || 'none'} attachmentId=${attachmentId} url="${remoteUrl}"`);
+
           // Atualiza anexo como sincronizado no IndexedDB
-          localAttachment.remote_url = publicUrlData.publicUrl;
+          localAttachment.remote_url = remoteUrl;
           localAttachment.sync_status = 'synced';
           await indexedDBStorage.putAttachment(effectiveUserId, localAttachment);
           await indexedDBStorage.removeSyncQueueItem(effectiveUserId, `sync_att_${attachmentId}`);
@@ -121,7 +113,7 @@ export async function uploadNoteFile(
           networkMonitor.updatePendingCount(remainingCount);
 
           return {
-            url: publicUrlData.publicUrl,
+            url: remoteUrl,
             name: file.name,
             size: file.size,
             type: file.type,
@@ -130,14 +122,15 @@ export async function uploadNoteFile(
           };
         }
       }
-    } catch (err) {
-      console.warn('[StorageAPI] Falha no upload online do Supabase, mantendo cópia offline segura no IndexedDB:', err);
+    } catch (err: any) {
+      console.warn(`[Attachment] UPLOAD ERROR noteId=${noteId || 'none'} attachmentId=${attachmentId}:`, err?.message || err);
     }
   }
 
-  // Retorna com a URL local persistida (funciona 100% offline)
+  // 4. Retorna a URI leve canônica do anexo local: attachment://[attachmentId]
+  const localCanonicalUrl = `attachment://${attachmentId}`;
   return {
-    url: localDataUrl,
+    url: localCanonicalUrl,
     name: file.name,
     size: file.size,
     type: file.type,

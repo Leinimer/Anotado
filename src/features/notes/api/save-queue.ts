@@ -126,12 +126,16 @@ class SaveQueueManager {
     try {
       const existingNote = await indexedDBStorage.getNoteById(item.userId, item.noteId);
       const isOnline = networkMonitor.getState().isBackendReachable;
+      const nextRevision = typeof existingNote?.revision === 'number' && existingNote.revision >= item.version 
+        ? existingNote.revision + 1 
+        : item.version;
 
       if (existingNote) {
         existingNote.content = item.content;
         existingNote.tags = combinedTags;
-        existingNote.revision = item.version;
-        existingNote.sync_status = isOnline ? 'synced' : 'pending_sync';
+        existingNote.revision = nextRevision;
+        existingNote.needs_sync = true;
+        existingNote.sync_status = 'pending_sync';
         existingNote.updated_at = new Date().toISOString();
         await indexedDBStorage.putNote(item.userId, existingNote);
       }
@@ -143,13 +147,13 @@ class SaveQueueManager {
         action: 'UPDATE_NOTE_CONTENT',
         entity_type: 'note',
         entity_id: item.noteId,
-        revision: item.version,
+        revision: nextRevision,
         payload: {
           noteId: item.noteId,
           content: item.content,
           tags: combinedTags,
           baseUpdatedAt: existingNote?.updated_at || new Date().toISOString(),
-          revision: item.version,
+          revision: nextRevision,
         },
       });
 
@@ -158,21 +162,24 @@ class SaveQueueManager {
 
       // 3. Se estiver offline ou Supabase não configurado, finaliza com sucesso local
       if (!isOnline || !isSupabaseConfigured()) {
-        state.persistedVersion = item.version;
+        state.persistedVersion = nextRevision;
         const durationMs = Math.round(performance.now() - startTime);
         console.log(
-          `%c[PERSISTÊNCIA LOCAL OFFLINE] NOTE ${item.noteId} | VERSION ${item.version} | SALVO LOCALMENTE (${durationMs}ms)`,
+          `%c[PERSISTÊNCIA LOCAL OFFLINE] NOTE ${item.noteId} | VERSION ${nextRevision} | SALVO LOCALMENTE (${durationMs}ms)`,
           'color: #d97706; font-weight: bold;'
         );
         item.resolve({
           success: true,
           tags: combinedTags,
-          version: item.version,
+          version: nextRevision,
         });
         return;
       }
 
-      // 4. Se online, grava no Supabase Storage e no Supabase Database
+      // 4. Se online, verifica se há anexos pendentes antes de marcar sincronizado
+      const hasUnresolvedAttachments = item.content.includes('attachment://') || item.content.includes('local-attachment://');
+      
+      // Grava no Supabase Storage
       const storageSuccess = await writeNoteMarkdown(item.userId, item.noteId, fullMarkdown);
 
       const supabase = createClient();
@@ -181,6 +188,8 @@ class SaveQueueManager {
         .update({
           content: item.content,
           tags: combinedTags,
+          revision: nextRevision,
+          needs_sync: hasUnresolvedAttachments,
           updated_at: new Date().toISOString(),
         })
         .eq('id', item.noteId)
@@ -194,23 +203,28 @@ class SaveQueueManager {
       // Sincroniza tabelas tags / note_tags se necessário
       await this.syncTagsAndNoteRelations(supabase, item.userId, item.noteId, combinedTags);
 
-      // Remove da SyncQueue após confirmação do Supabase
-      await indexedDBStorage.removeSyncQueueItem(item.userId, syncItemId);
+      if (!hasUnresolvedAttachments) {
+        // Marca como sincronizado localmente após confirmação explícita do Supabase
+        await indexedDBStorage.markNoteSynced(item.userId, item.noteId, nextRevision);
+        // Remove da SyncQueue após confirmação do Supabase
+        await indexedDBStorage.removeSyncQueueItem(item.userId, syncItemId);
+      }
+
       const remainingPending = await indexedDBStorage.getSyncQueueCount(item.userId);
       networkMonitor.updatePendingCount(remainingPending);
 
-      state.persistedVersion = item.version;
+      state.persistedVersion = nextRevision;
       const durationMs = Math.round(performance.now() - startTime);
 
       console.log(
-        `%c[PERSISTÊNCIA] NOTE ${item.noteId} | VERSION ${item.version} | IMAGES ${imageCount} | SAVE SUCCESS (${durationMs}ms)`,
+        `%c[PERSISTÊNCIA] NOTE ${item.noteId} | VERSION ${nextRevision} | IMAGES ${imageCount} | SAVE SUCCESS (${durationMs}ms)`,
         'color: #16a34a; font-weight: bold;'
       );
 
       item.resolve({
         success: storageSuccess,
         tags: combinedTags,
-        version: item.version,
+        version: nextRevision,
       });
     } catch (err: any) {
       console.warn(

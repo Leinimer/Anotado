@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { moveNodeBlock } from '../utils/node-movement';
 import { perfProfiler } from '../utils/media-optimizer';
+import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
 
 function formatBytes(bytes: number, decimals = 1) {
   if (!bytes || bytes === 0) return '0 B';
@@ -27,7 +28,7 @@ function formatBytes(bytes: number, decimals = 1) {
 
 export function DocumentNodeView(props: NodeViewProps) {
   const { node, updateAttributes, deleteNode, selected, editor, getPos } = props;
-  const src = node.attrs.src || '#';
+  const rawSrc = node.attrs.src || '#';
   const name = node.attrs.name || 'Documento';
   const size = Number(node.attrs.size || 0);
   const type = node.attrs.type || 'application/pdf';
@@ -39,10 +40,67 @@ export function DocumentNodeView(props: NodeViewProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const localBlobUrlRef = useRef<string | null>(null);
 
   const [isLocalSelected, setIsLocalSelected] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [resizingWidth, setResizingWidth] = useState<number | null>(null);
+  const [resolvedSrc, setResolvedSrc] = useState<string>(() => {
+    if (rawSrc.startsWith('attachment://')) return '';
+    return rawSrc;
+  });
+
+  // Resolve anexos locais offline via protocolo attachment://[id]
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function resolveLocalDoc() {
+      if (rawSrc.startsWith('attachment://')) {
+        const attachmentId = rawSrc.replace('attachment://', '').trim();
+        try {
+          const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
+          let attachment = await indexedDBStorage.getAttachment(currentUserId, attachmentId);
+          if (!attachment && currentUserId !== 'anonymous') {
+            attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
+          }
+
+          if (attachment) {
+            if (attachment.remote_url) {
+              if (!isCancelled) {
+                setResolvedSrc(attachment.remote_url);
+                updateAttributes({ src: attachment.remote_url });
+              }
+              return;
+            }
+
+            if (attachment.blob && !isCancelled) {
+              if (localBlobUrlRef.current) {
+                URL.revokeObjectURL(localBlobUrlRef.current);
+              }
+              const blobUrl = URL.createObjectURL(attachment.blob);
+              localBlobUrlRef.current = blobUrl;
+              setResolvedSrc(blobUrl);
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn('[DocumentNodeView] Falha ao resolver documento local:', err);
+        }
+      } else {
+        setResolvedSrc(rawSrc);
+      }
+    }
+
+    resolveLocalDoc();
+
+    return () => {
+      isCancelled = true;
+      if (localBlobUrlRef.current) {
+        URL.revokeObjectURL(localBlobUrlRef.current);
+        localBlobUrlRef.current = null;
+      }
+    };
+  }, [rawSrc, editor, updateAttributes]);
 
   useEffect(() => {
     perfProfiler.mark(name, 'T6 - Documento/PDF Renderizado');
@@ -187,8 +245,9 @@ export function DocumentNodeView(props: NodeViewProps) {
   const handleOpenDocument = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (src && src !== '#') {
-      window.open(src, '_blank', 'noopener,noreferrer');
+    const targetUrl = resolvedSrc || rawSrc;
+    if (targetUrl && targetUrl !== '#' && !targetUrl.startsWith('attachment://')) {
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
     }
   };
 

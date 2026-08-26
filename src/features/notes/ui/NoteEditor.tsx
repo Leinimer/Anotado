@@ -54,6 +54,7 @@ function normalizeEditorSelection(editor: Editor) {
 
 interface NoteEditorProps {
   noteId?: string;
+  userId?: string | null;
   content: string;
   onChange: (markdownContent: string) => void;
   onEditorReady?: (editor: Editor | null) => void;
@@ -62,6 +63,7 @@ interface NoteEditorProps {
 
 export function NoteEditor({
   noteId,
+  userId,
   content,
   onChange,
   onEditorReady,
@@ -84,6 +86,7 @@ export function NoteEditor({
     editorProps: {
       attributes: {
         id: 'tiptap-note-content-editable',
+        'data-user-id': userId || 'anonymous',
         class:
           'focus:outline-none min-h-[420px] text-[#1b1c19] font-serif-note text-base sm:text-lg leading-normal selection:bg-[#f4dfcb] selection:text-[#1b1c19]',
       },

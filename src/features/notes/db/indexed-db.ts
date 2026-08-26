@@ -80,6 +80,7 @@ export interface LocalMetadata {
 
 export interface ExtendedNote extends Note {
   revision?: number;
+  needs_sync?: boolean;
   sync_status?: 'synced' | 'pending_sync' | 'conflict';
   local_updated_at?: string;
   conflict_backup?: {
@@ -90,11 +91,13 @@ export interface ExtendedNote extends Note {
 }
 
 export interface ExtendedFolder extends Folder {
+  revision?: number;
+  needs_sync?: boolean;
   sync_status?: 'synced' | 'pending_sync';
   local_updated_at?: string;
 }
 
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 class IndexedDBStorage {
   private dbInstances: Map<string, Promise<IDBDatabase>> = new Map();
@@ -122,23 +125,45 @@ class IndexedDBStorage {
         const db = (event.target as IDBOpenDBRequest).result;
 
         // 1. Store: notes
+        let notesStore: IDBObjectStore;
         if (!db.objectStoreNames.contains('notes')) {
-          const notesStore = db.createObjectStore('notes', { keyPath: 'id' });
+          notesStore = db.createObjectStore('notes', { keyPath: 'id' });
           notesStore.createIndex('user_id', 'user_id', { unique: false });
           notesStore.createIndex('folder_id', 'folder_id', { unique: false });
           notesStore.createIndex('is_archived', 'is_archived', { unique: false });
           notesStore.createIndex('position', 'position', { unique: false });
           notesStore.createIndex('updated_at', 'updated_at', { unique: false });
           notesStore.createIndex('sync_status', 'sync_status', { unique: false });
+          notesStore.createIndex('needs_sync', 'needs_sync', { unique: false });
+          notesStore.createIndex('revision', 'revision', { unique: false });
+        } else {
+          notesStore = (event.target as IDBOpenDBRequest).transaction!.objectStore('notes');
+          if (!notesStore.indexNames.contains('needs_sync')) {
+            notesStore.createIndex('needs_sync', 'needs_sync', { unique: false });
+          }
+          if (!notesStore.indexNames.contains('revision')) {
+            notesStore.createIndex('revision', 'revision', { unique: false });
+          }
         }
 
         // 2. Store: folders
+        let foldersStore: IDBObjectStore;
         if (!db.objectStoreNames.contains('folders')) {
-          const foldersStore = db.createObjectStore('folders', { keyPath: 'id' });
+          foldersStore = db.createObjectStore('folders', { keyPath: 'id' });
           foldersStore.createIndex('user_id', 'user_id', { unique: false });
           foldersStore.createIndex('parent_id', 'parent_id', { unique: false });
           foldersStore.createIndex('position', 'position', { unique: false });
           foldersStore.createIndex('updated_at', 'updated_at', { unique: false });
+          foldersStore.createIndex('needs_sync', 'needs_sync', { unique: false });
+          foldersStore.createIndex('revision', 'revision', { unique: false });
+        } else {
+          foldersStore = (event.target as IDBOpenDBRequest).transaction!.objectStore('folders');
+          if (!foldersStore.indexNames.contains('needs_sync')) {
+            foldersStore.createIndex('needs_sync', 'needs_sync', { unique: false });
+          }
+          if (!foldersStore.indexNames.contains('revision')) {
+            foldersStore.createIndex('revision', 'revision', { unique: false });
+          }
         }
 
         // 3. Store: tags
@@ -261,12 +286,18 @@ class IndexedDBStorage {
 
   public async putNote(userId: string, note: ExtendedNote): Promise<void> {
     const db = await this.getDB(userId);
+    const needsSync = note.needs_sync !== undefined 
+      ? note.needs_sync 
+      : (note.sync_status === 'synced' ? false : true);
+
     return new Promise<void>((resolve, reject) => {
       const tx = db.transaction('notes', 'readwrite');
       const store = tx.objectStore('notes');
       const request = store.put({
         ...note,
         user_id: userId,
+        needs_sync: needsSync,
+        revision: typeof note.revision === 'number' ? note.revision : 0,
         local_updated_at: note.local_updated_at || new Date().toISOString(),
       });
       request.onsuccess = () => resolve();
@@ -281,15 +312,39 @@ class IndexedDBStorage {
       const tx = db.transaction('notes', 'readwrite');
       const store = tx.objectStore('notes');
       for (const note of notes) {
+        const needsSync = note.needs_sync !== undefined 
+          ? note.needs_sync 
+          : (note.sync_status === 'synced' ? false : true);
+
         store.put({
           ...note,
           user_id: userId,
+          needs_sync: needsSync,
+          revision: typeof note.revision === 'number' ? note.revision : 0,
           local_updated_at: note.local_updated_at || new Date().toISOString(),
         });
       }
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+  }
+
+  public async getPendingSyncNotes(userId: string): Promise<ExtendedNote[]> {
+    const allNotes = await this.getAllNotes(userId);
+    return allNotes.filter(
+      (note) => note.needs_sync === true || note.sync_status === 'pending_sync'
+    );
+  }
+
+  public async markNoteSynced(userId: string, noteId: string, serverRevision?: number): Promise<void> {
+    const note = await this.getNoteById(userId, noteId);
+    if (!note) return;
+    note.needs_sync = false;
+    note.sync_status = 'synced';
+    if (typeof serverRevision === 'number') {
+      note.revision = serverRevision;
+    }
+    await this.putNote(userId, note);
   }
 
   public async deleteNote(userId: string, noteId: string): Promise<void> {
@@ -331,12 +386,18 @@ class IndexedDBStorage {
 
   public async putFolder(userId: string, folder: ExtendedFolder): Promise<void> {
     const db = await this.getDB(userId);
+    const needsSync = folder.needs_sync !== undefined 
+      ? folder.needs_sync 
+      : (folder.sync_status === 'synced' ? false : true);
+
     return new Promise<void>((resolve, reject) => {
       const tx = db.transaction('folders', 'readwrite');
       const store = tx.objectStore('folders');
       const request = store.put({
         ...folder,
         user_id: userId,
+        needs_sync: needsSync,
+        revision: typeof folder.revision === 'number' ? folder.revision : 0,
         local_updated_at: folder.local_updated_at || new Date().toISOString(),
       });
       request.onsuccess = () => resolve();
@@ -351,15 +412,39 @@ class IndexedDBStorage {
       const tx = db.transaction('folders', 'readwrite');
       const store = tx.objectStore('folders');
       for (const folder of folders) {
+        const needsSync = folder.needs_sync !== undefined 
+          ? folder.needs_sync 
+          : (folder.sync_status === 'synced' ? false : true);
+
         store.put({
           ...folder,
           user_id: userId,
+          needs_sync: needsSync,
+          revision: typeof folder.revision === 'number' ? folder.revision : 0,
           local_updated_at: folder.local_updated_at || new Date().toISOString(),
         });
       }
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+  }
+
+  public async getPendingSyncFolders(userId: string): Promise<ExtendedFolder[]> {
+    const allFolders = await this.getAllFolders(userId);
+    return allFolders.filter(
+      (folder) => folder.needs_sync === true || folder.sync_status === 'pending_sync'
+    );
+  }
+
+  public async markFolderSynced(userId: string, folderId: string, serverRevision?: number): Promise<void> {
+    const folder = await this.getFolderById(userId, folderId);
+    if (!folder) return;
+    folder.needs_sync = false;
+    folder.sync_status = 'synced';
+    if (typeof serverRevision === 'number') {
+      folder.revision = serverRevision;
+    }
+    await this.putFolder(userId, folder);
   }
 
   public async deleteFolder(userId: string, folderId: string): Promise<void> {
