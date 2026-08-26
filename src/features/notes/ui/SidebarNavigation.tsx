@@ -1332,45 +1332,31 @@ export function SidebarNavigation({
             <span className="truncate font-sans-ui">{userEmail || 'Conta'}</span>
           </div>
 
-          <div className="flex items-center gap-0.5">
-            {!isStandalone && (
-              <button
-                id="sidebar-install-pwa-btn"
-                type="button"
-                onClick={openInstallModal}
-                className="p-1 hover:bg-[#f4dfcb] text-[#68594d] hover:text-[#1b1c19] rounded transition-colors cursor-pointer"
-                title="Instalar ANOTADO! (App)"
-                aria-label="Instalar Aplicativo"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-              </button>
-            )}
-
+          <div className="flex items-center gap-1">
             <button
               id="sidebar-settings-btn"
               type="button"
               onClick={() => setShowSettingsModal(true)}
-              className="p-1 hover:bg-[#eae8e3] hover:text-[#1b1c19] rounded transition-colors cursor-pointer"
+              className="min-w-[44px] min-h-[44px] p-2 flex items-center justify-center hover:bg-[#eae8e3] hover:text-[#1b1c19] text-[#4e453f] rounded-xl transition-colors cursor-pointer"
               title="Configurações"
               aria-label="Configurações"
             >
-              <Settings className="w-3.5 h-3.5" />
+              <Settings className="w-4 h-4" />
             </button>
-
 
             <button
               id="sidebar-logout-btn"
               type="button"
               onClick={handleLogout}
               disabled={isLoggingOut}
-              className="p-1 hover:bg-[#eae8e3] hover:text-[#ba1a1a] rounded transition-colors cursor-pointer disabled:opacity-50"
+              className="min-w-[44px] min-h-[44px] p-2 flex items-center justify-center hover:bg-[#eae8e3] hover:text-[#ba1a1a] text-[#4e453f] rounded-xl transition-colors cursor-pointer disabled:opacity-50"
               title={isLoggingOut ? 'Salvando e saindo...' : 'Sair da Conta'}
               aria-label="Sair da Conta"
             >
               {isLoggingOut ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#68594d]" />
+                <Loader2 className="w-4 h-4 animate-spin text-[#68594d]" />
               ) : (
-                <LogOut className="w-3.5 h-3.5" />
+                <LogOut className="w-4 h-4" />
               )}
             </button>
           </div>

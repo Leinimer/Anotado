@@ -17,6 +17,8 @@ import { CustomImage } from './extensions/custom-image';
 import { Details, DetailsSummary, DetailsContent } from './extensions/toggle-details';
 import { CustomYoutube } from './extensions/custom-youtube';
 import { DocumentAttachment } from './extensions/document-attachment';
+import { MediaGroup } from './extensions/media-group';
+import { DoubleDashBulletList } from './extensions/double-dash-bullet-list';
 
 export const CustomLink = Link.extend({
   inclusive: false,
@@ -270,6 +272,8 @@ export const defaultEditorExtensions = [
   }),
   CustomYoutube,
   DocumentAttachment,
+  MediaGroup,
+  DoubleDashBulletList,
   Details,
   DetailsSummary,
   DetailsContent,
