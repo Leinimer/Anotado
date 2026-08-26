@@ -39,6 +39,47 @@ export type DataChangePayload = {
 
 type DataSubscriber = (payload: DataChangePayload) => void;
 
+export function formatFriendlyErrorMessage(err: any): string {
+  if (!err) return 'Falha na conexão ou execução da sincronização';
+  const msg = typeof err === 'string' ? err : err.message || err.error_description || String(err);
+  const lower = msg.toLowerCase();
+
+  if (lower.includes('jwt') || lower.includes('session') || lower.includes('auth') || lower.includes('unauthenticated') || lower.includes('not logged in')) {
+    return 'Sessão de autenticação indisponível';
+  }
+  if (lower.includes('fetch') || lower.includes('network') || lower.includes('failed to fetch') || lower.includes('econnrefused')) {
+    return 'Falha de conexão com o Supabase';
+  }
+  if (lower.includes('permission') || lower.includes('denied') || lower.includes('rls') || lower.includes('row-level security') || lower.includes('policy')) {
+    return 'Permissão negada pelo Supabase';
+  }
+  if (lower.includes('timeout') || lower.includes('aborterror') || lower.includes('deadline')) {
+    return 'Tempo de resposta esgotado (Timeout)';
+  }
+  if (lower.includes('storage') || lower.includes('bucket') || lower.includes('upload')) {
+    return 'Upload do anexo falhou';
+  }
+  if (lower.includes('relation') || lower.includes('column') || lower.includes('schema') || lower.includes('syntax')) {
+    return 'Falha ao gravar no banco de dados remoto';
+  }
+  if (lower.includes('unresolved') || lower.includes('local media') || lower.includes('attachment:')) {
+    return 'Aguardando processamento de anexos locais';
+  }
+  if (lower.includes('config')) {
+    return 'Configuração do Supabase ausente';
+  }
+
+  if (msg === 'Execução retornou falso') {
+    return 'Supabase não confirmou o recebimento da operação';
+  }
+
+  if (msg.length < 80 && !msg.includes('{') && !msg.includes('stack')) {
+    return msg;
+  }
+
+  return 'Falha ao sincronizar com o Supabase';
+}
+
 class SyncEngine {
   private isProcessing: boolean = false;
   private syncTimeout: NodeJS.Timeout | null = null;
@@ -722,11 +763,13 @@ class SyncEngine {
               await indexedDBStorage.removeSyncQueueItem(userId, item.id);
               processedCount++;
             } else {
-              await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', 'Execução retornou falso');
+              const friendlyErr = formatFriendlyErrorMessage('Execução retornou falso');
+              await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', friendlyErr);
             }
           } catch (err: any) {
             console.error(`[SyncGuard] Falha ao processar item ${item.id} (${item.action}):`, err);
-            await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', err?.message || String(err));
+            const friendlyErr = formatFriendlyErrorMessage(err);
+            await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', friendlyErr);
             if (err?.name === 'AbortError' || err?.message?.includes('fetch') || err?.message?.includes('network')) {
               break;
             }

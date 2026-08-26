@@ -13,7 +13,7 @@ export interface Folder {
   smart_tags?: string[];
   is_system?: boolean;
   syncRequired?: boolean;
-  syncStatus?: 'synced' | 'pending' | 'syncing' | 'error';
+  syncStatus?: 'synced' | 'pending' | 'syncing' | 'error' | 'cancelled';
   revision?: number;
   created_at: string;
   updated_at: string;
@@ -30,7 +30,7 @@ export interface Note {
   is_archived?: boolean;
   previous_folder_id?: string | null;
   syncRequired?: boolean;
-  syncStatus?: 'synced' | 'pending' | 'syncing' | 'error';
+  syncStatus?: 'synced' | 'pending' | 'syncing' | 'error' | 'cancelled';
   revision?: number;
   created_at: string;
   updated_at: string;

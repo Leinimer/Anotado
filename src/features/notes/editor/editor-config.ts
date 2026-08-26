@@ -19,6 +19,7 @@ import { CustomYoutube } from './extensions/custom-youtube';
 import { DocumentAttachment } from './extensions/document-attachment';
 import { MediaGroup } from './extensions/media-group';
 import { DoubleDashBulletList } from './extensions/double-dash-bullet-list';
+import { SmartMediaDragDrop } from './extensions/smart-media-drag-drop';
 
 export const CustomLink = Link.extend({
   inclusive: false,
@@ -273,6 +274,7 @@ export const defaultEditorExtensions = [
   CustomYoutube,
   DocumentAttachment,
   MediaGroup,
+  SmartMediaDragDrop,
   DoubleDashBulletList,
   Details,
   DetailsSummary,

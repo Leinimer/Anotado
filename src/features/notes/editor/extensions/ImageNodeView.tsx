@@ -10,13 +10,11 @@ import {
   GripVertical,
   ChevronUp,
   ChevronDown,
-  Columns,
   Image as ImageIcon,
 } from 'lucide-react';
 import {
   moveNodeBlock,
   isInsideMediaGroup,
-  toggleMediaGrouping,
 } from '../utils/node-movement';
 import {
   getOptimizedImageUrl,
@@ -412,27 +410,6 @@ export function ImageNodeView(props: NodeViewProps) {
                 <ChevronDown className="w-3.5 h-3.5" />
               </button>
             </div>
-
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            {/* Agrupar lado a lado (MediaGroup) */}
-            <button
-              type="button"
-              onClick={() => toggleMediaGrouping(editor as any, getPos as any)}
-              className={`p-1 rounded-md transition-colors cursor-pointer ${
-                isInsideMediaGroup(editor as any, getPos as any)
-                  ? 'bg-[#68594d] text-white shadow-2xs'
-                  : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-              }`}
-              title={
-                isInsideMediaGroup(editor as any, getPos as any)
-                  ? 'Desagrupar mídia (remover de lado a lado)'
-                  : 'Agrupar lado a lado com mídias adjacentes'
-              }
-              aria-label="Agrupar ou desagrupar mídias lado a lado"
-            >
-              <Columns className="w-3.5 h-3.5" />
-            </button>
 
             <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
 

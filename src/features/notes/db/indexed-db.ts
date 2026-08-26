@@ -16,7 +16,7 @@
 
 import { Folder, Note } from '../types';
 
-export type SyncEntityStatus = 'synced' | 'pending' | 'syncing' | 'error';
+export type SyncEntityStatus = 'synced' | 'pending' | 'syncing' | 'error' | 'cancelled';
 
 export interface LocalAttachment {
   id: string;
@@ -64,7 +64,7 @@ export interface SyncQueueItem {
   created_at: string;
   attempts: number;
   last_error?: string | null;
-  status: 'pending' | 'processing' | 'synced' | 'failed';
+  status: 'pending' | 'processing' | 'synced' | 'failed' | 'cancelled';
 }
 
 export interface LocalTag {
@@ -298,12 +298,16 @@ class IndexedDBStorage {
           const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
           if (cursor) {
             const note = cursor.value as ExtendedNote;
+            const isCancelled = note.syncStatus === 'cancelled';
+            const isSynced = note.syncStatus === 'synced';
             const isPending =
-              note.syncRequired === true ||
-              note.syncStatus === 'pending' ||
-              note.syncStatus === 'error' ||
-              note.needs_sync === true ||
-              note.sync_status === 'pending_sync';
+              !isCancelled &&
+              !isSynced &&
+              (note.syncRequired === true ||
+                note.syncStatus === 'pending' ||
+                note.syncStatus === 'error' ||
+                note.needs_sync === true ||
+                note.sync_status === 'pending_sync');
 
             if (isPending) {
               pendingNotes.push(note);
@@ -318,12 +322,16 @@ class IndexedDBStorage {
           const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
           if (cursor) {
             const folder = cursor.value as ExtendedFolder;
+            const isCancelled = folder.syncStatus === 'cancelled';
+            const isSynced = folder.syncStatus === 'synced';
             const isPending =
-              folder.syncRequired === true ||
-              folder.syncStatus === 'pending' ||
-              folder.syncStatus === 'error' ||
-              folder.needs_sync === true ||
-              folder.sync_status === 'pending_sync';
+              !isCancelled &&
+              !isSynced &&
+              (folder.syncRequired === true ||
+                folder.syncStatus === 'pending' ||
+                folder.syncStatus === 'error' ||
+                folder.needs_sync === true ||
+                folder.sync_status === 'pending_sync');
 
             if (isPending) {
               pendingFolders.push(folder);
@@ -338,12 +346,16 @@ class IndexedDBStorage {
           const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
           if (cursor) {
             const att = cursor.value as LocalAttachment;
+            const isCancelled = att.syncStatus === 'cancelled';
+            const isSynced = att.syncStatus === 'synced';
             const isPending =
-              att.syncRequired === true ||
-              att.syncStatus === 'pending' ||
-              att.syncStatus === 'error' ||
-              att.sync_status === 'pending' ||
-              (!att.remote_url && Boolean(att.blob));
+              !isCancelled &&
+              !isSynced &&
+              (att.syncRequired === true ||
+                att.syncStatus === 'pending' ||
+                att.syncStatus === 'error' ||
+                att.sync_status === 'pending' ||
+                (!att.remote_url && Boolean(att.blob)));
 
             if (isPending) {
               pendingAttachments.push(att);
@@ -868,6 +880,161 @@ class IndexedDBStorage {
       };
       request.onerror = () => reject(request.error);
     });
+  }
+
+  /**
+   * Cancela deliberadamente a sincronização de uma entidade específica:
+   * - Atualiza o syncStatus da entidade para 'cancelled' (somente local no IndexedDB);
+   * - Define syncRequired = false e needs_sync = false para que o verificador automático de 1s NÃO a reenfileire;
+   * - Remove ou invalida itens da SyncQueue associados;
+   * - Preserva 100% dos dados locais (título, conteúdo, anexos e metadados).
+   */
+  public async cancelEntitySync(
+    userId: string,
+    entityType: 'note' | 'folder' | 'attachment' | 'tag' | 'queue',
+    entityId: string,
+    queueItemId?: string
+  ): Promise<void> {
+    const db = await this.getDB(userId);
+
+    // 1. Remove ou atualiza item da SyncQueue
+    if (queueItemId) {
+      await this.removeSyncQueueItem(userId, queueItemId);
+    }
+    // Remove qualquer outro item na fila relacionado à mesma entidade
+    const queue = await this.getPendingSyncQueue(userId);
+    for (const q of queue) {
+      if (q.entity_id === entityId || (queueItemId && q.id === queueItemId)) {
+        await this.removeSyncQueueItem(userId, q.id);
+      }
+    }
+
+    // 2. Atualiza status no IndexedDB conforme o tipo de entidade
+    if (entityType === 'note') {
+      const note = await this.getNoteById(userId, entityId);
+      if (note) {
+        note.syncStatus = 'cancelled';
+        note.syncRequired = false;
+        note.needs_sync = false;
+        await this.putNote(userId, note);
+      }
+    } else if (entityType === 'folder') {
+      const folder = await this.getFolderById(userId, entityId);
+      if (folder) {
+        folder.syncStatus = 'cancelled';
+        folder.syncRequired = false;
+        folder.needs_sync = false;
+        await this.putFolder(userId, folder);
+      }
+    } else if (entityType === 'attachment') {
+      const att = await this.getAttachment(userId, entityId);
+      if (att) {
+        att.syncStatus = 'cancelled';
+        att.syncRequired = false;
+        await this.putAttachment(userId, att);
+      }
+    }
+  }
+
+  /**
+   * Reativa a sincronização de uma entidade cancelada:
+   * - Define syncStatus = 'pending', syncRequired = true no IndexedDB local;
+   * - Reenfileira a operação na SyncQueue;
+   * - Permite que o SyncEngine processe e confirme no Supabase.
+   */
+  public async reactivateEntitySync(
+    userId: string,
+    entityType: 'note' | 'folder' | 'attachment' | 'tag' | 'queue',
+    entityId: string
+  ): Promise<void> {
+    if (entityType === 'note') {
+      const note = await this.getNoteById(userId, entityId);
+      if (note) {
+        note.syncStatus = 'pending';
+        note.syncRequired = true;
+        note.needs_sync = true;
+        note.sync_status = 'pending_sync';
+        await this.putNote(userId, note);
+        await this.enqueueSyncItem(userId, {
+          action: 'UPDATE_NOTE_CONTENT',
+          entity_type: 'note',
+          entity_id: note.id,
+          revision: note.revision || 1,
+          payload: {
+            noteId: note.id,
+            content: note.content || '',
+            tags: note.tags || [],
+            revision: note.revision || 1,
+          },
+        });
+      }
+    } else if (entityType === 'folder') {
+      const folder = await this.getFolderById(userId, entityId);
+      if (folder) {
+        folder.syncStatus = 'pending';
+        folder.syncRequired = true;
+        folder.needs_sync = true;
+        folder.sync_status = 'pending_sync';
+        await this.putFolder(userId, folder);
+        await this.enqueueSyncItem(userId, {
+          action: 'UPDATE_FOLDER',
+          entity_type: 'folder',
+          entity_id: folder.id,
+          revision: folder.revision || 1,
+          payload: {
+            folderId: folder.id,
+            updates: {
+              name: folder.name,
+              parent_id: folder.parent_id,
+              position: folder.position,
+              color: folder.color,
+              is_smart: folder.is_smart,
+              smart_tags: folder.smart_tags,
+            },
+          },
+        });
+      }
+    } else if (entityType === 'attachment') {
+      const att = await this.getAttachment(userId, entityId);
+      if (att) {
+        att.syncStatus = 'pending';
+        att.syncRequired = true;
+        att.sync_status = 'pending';
+        await this.putAttachment(userId, att);
+        await this.enqueueSyncItem(userId, {
+          action: 'UPLOAD_ATTACHMENT',
+          entity_type: 'attachment',
+          entity_id: att.id,
+          revision: 1,
+          payload: {
+            attachmentId: att.id,
+            fileName: att.file_name,
+            fileType: att.file_type,
+            fileSize: att.file_size,
+            noteId: att.note_id || null,
+          },
+        });
+      }
+    }
+  }
+
+  /**
+   * Retorna todas as entidades locais com status 'cancelled'
+   */
+  public async getCancelledEntities(userId: string): Promise<{
+    notes: ExtendedNote[];
+    folders: ExtendedFolder[];
+    attachments: LocalAttachment[];
+  }> {
+    const allNotes = await this.getAllNotes(userId);
+    const allFolders = await this.getAllFolders(userId);
+    const allAttachments = await this.getAllAttachments(userId);
+
+    return {
+      notes: allNotes.filter((n) => n.syncStatus === 'cancelled'),
+      folders: allFolders.filter((f) => f.syncStatus === 'cancelled'),
+      attachments: allAttachments.filter((a) => a.syncStatus === 'cancelled'),
+    };
   }
 
   // ==========================================
