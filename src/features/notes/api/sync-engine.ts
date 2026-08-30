@@ -397,6 +397,19 @@ class SyncEngine {
           }
         }
 
+        // Se a nota local já possui exatamente os mesmos dados e não tem pendências, evita re-renders desnecessários
+        const isIdentical =
+          existingLocalNote &&
+          existingLocalNote.title === newRecord.title &&
+          (existingLocalNote.content || '').trim() === (finalContent || '').trim() &&
+          existingLocalNote.folder_id === newRecord.folder_id &&
+          Boolean(existingLocalNote.is_archived) === Boolean(newRecord.is_archived) &&
+          JSON.stringify(existingLocalNote.tags || []) === JSON.stringify(noteTags);
+
+        if (isIdentical && !hasLocalPendingEdits) {
+          return;
+        }
+
         // Salva no IndexedDB como SINCRONIZADO (syncRequired = false, syncStatus = 'synced')
         await indexedDBStorage.putNote(userId, {
           ...newRecord,

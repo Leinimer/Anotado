@@ -112,6 +112,7 @@ export function NoteEditor({
         console.log(`[EDITOR] INTERNAL UPDATE - AUTOSAVE SUPPRESSED noteId=${noteIdentifier}`);
         return;
       }
+      hasUserEditedRef.current = true;
       // Extrai Markdown real usando a extensão de markdown do Tiptap
       const storageRecord = editor.storage as unknown as Record<string, { getMarkdown?: () => string }>;
       const markdown = storageRecord?.markdown?.getMarkdown ? storageRecord.markdown.getMarkdown() : editor.getHTML();
@@ -204,7 +205,15 @@ export function NoteEditor({
     }
   }, [editor, onEditorReady, noteIdentifier]);
 
-  // Atualiza o conteúdo apenas quando for genuinamente diferente (ex: troca de nota externa)
+  // Atualiza o conteúdo apenas quando for genuinamente necessário (ex: carga tardia do Storage para editor ainda não editado)
+  const hasUserEditedRef = useRef(false);
+  const initialContentAppliedRef = useRef(false);
+
+  useEffect(() => {
+    hasUserEditedRef.current = false;
+    initialContentAppliedRef.current = false;
+  }, [noteId]);
+
   useEffect(() => {
     if (!editor) return;
 
@@ -215,8 +224,16 @@ export function NoteEditor({
       return;
     }
 
-    lastEmittedContentRef.current = targetContent;
-    if (!editor.isFocused) {
+    // Se o usuário já fez edições nesta sessão da nota ou o editor está focado, o editor é a autoridade máxima
+    if (hasUserEditedRef.current || editor.isFocused) {
+      return;
+    }
+
+    // Se o editor ainda estava vazio e recebemos o conteúdo inicial do Storage/IndexedDB:
+    const isEditorEmpty = editor.isEmpty || editor.getText().trim() === '';
+    if (!initialContentAppliedRef.current && (isEditorEmpty || !lastEmittedContentRef.current)) {
+      initialContentAppliedRef.current = true;
+      lastEmittedContentRef.current = targetContent;
       editor.commands.setContent(targetContent, { emitUpdate: false });
       normalizeEditorSelection(editor);
       perfProfiler.mark(noteIdentifier, 'T4 - Conteúdo Sincronizado');

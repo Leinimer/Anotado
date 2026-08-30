@@ -288,11 +288,14 @@ export function NoteCanvas({
           ) : (
             <h1
               id="header-note-title"
-              onClick={() => setIsEditingTitle(true)}
+              onClick={() => {
+                setLocalTitle(activeNote.title || '');
+                setIsEditingTitle(true);
+              }}
               className="font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] cursor-pointer hover:opacity-80 transition-opacity tracking-tight truncate inline-block max-w-full"
               title="Clique para editar o título"
             >
-              {localTitle || 'Sem título'}
+              {activeNote.title || 'Sem título'}
             </h1>
           )}
         </div>

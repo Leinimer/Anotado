@@ -52,28 +52,60 @@ export function MainLayout() {
     // Inscrição reativa para atualizações provenientes do SyncEngine e Supabase Realtime
     const unsubscribeSync = syncEngine.subscribeToData(({ folders: newFolders, notes: newNotes }) => {
       if (!isMounted) return;
-      setFolders(newFolders);
+
+      setFolders((prevFolders) => {
+        const pendingFolderMap = new Map(
+          prevFolders.filter((f: any) => f.syncRequired || f.needs_sync).map((f) => [f.id, f])
+        );
+        const merged = newFolders.map((nf) => pendingFolderMap.get(nf.id) || nf);
+        for (const [id, pf] of pendingFolderMap.entries()) {
+          if (!merged.some((f) => f.id === id)) {
+            merged.push(pf);
+          }
+        }
+        return merged.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      });
+
       setNotes((prevNotes) => {
         const currentActiveId = activeNoteIdRef.current;
-        return newNotes.map((n) => {
-          const currentInState = prevNotes.find((p) => p.id === n.id);
-          // Se a nota ativa foi atualizada pelo Realtime ou SyncEngine
-          if (currentInState && currentInState.id === currentActiveId) {
-            // Se houver gravação em andamento ou pendente para a nota ativa, preserva o conteúdo local em edição
-            const isSavingOrPending = saveQueue.hasPendingSaveForNote(currentActiveId);
-            if (isSavingOrPending) {
-              return {
-                ...n,
-                content: currentInState.content,
-              };
-            }
+        const prevNotesMap = new Map(prevNotes.map((n) => [n.id, n]));
+
+        const merged = newNotes.map((n) => {
+          const currentInState = prevNotesMap.get(n.id);
+          if (!currentInState) return n;
+
+          // Se é a nota ativa aberta no Canvas, SEMPRE preserva o conteúdo local em exibição
+          if (n.id === currentActiveId) {
             return {
               ...n,
-              content: n.content !== undefined ? n.content : currentInState.content,
+              content: currentInState.content !== undefined ? currentInState.content : n.content,
+              tags: currentInState.tags && currentInState.tags.length > 0 ? currentInState.tags : n.tags,
             };
           }
-          return n;
+
+          // Se a nota local possui alterações pendentes ou revisão superior, preserva o estado local
+          const isPending = (currentInState as any).syncRequired || (currentInState as any).needs_sync;
+          const isSaving = saveQueue.hasPendingSaveForNote(n.id);
+          if (isPending || isSaving || (currentInState.revision || 0) > (n.revision || 0)) {
+            return currentInState;
+          }
+
+          return {
+            ...n,
+            content: n.content !== undefined ? n.content : currentInState.content,
+          };
         });
+
+        // Preserva notas criadas localmente que ainda estejam em processamento
+        for (const [id, pn] of prevNotesMap.entries()) {
+          const isPending = (pn as any).syncRequired || (pn as any).needs_sync;
+          const isSaving = saveQueue.hasPendingSaveForNote(id);
+          if ((isPending || isSaving || id === currentActiveId) && !merged.some((n) => n.id === id)) {
+            merged.push(pn);
+          }
+        }
+
+        return merged.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       });
     });
 
@@ -315,20 +347,27 @@ export function MainLayout() {
 
   const handleUpdateContent = useCallback(
     async (noteId: string, newContent: string) => {
-      const currentNote = notes.find((n) => n.id === noteId);
-      const res = await updateNoteContent(userId, noteId, newContent, currentNote?.tags);
+      // 1. Atualização Otimista Imediata na Memória da UI
       setNotes((prev) =>
         prev.map((n) =>
           n.id === noteId
             ? {
                 ...n,
                 content: newContent,
-                tags: res.tags || n.tags,
                 updated_at: new Date().toISOString(),
               }
             : n
         )
       );
+
+      // 2. Persistência Serializada em Background (IndexedDB + Supabase)
+      const currentNote = notes.find((n) => n.id === noteId);
+      const res = await updateNoteContent(userId, noteId, newContent, currentNote?.tags);
+      if (res && res.tags) {
+        setNotes((prev) =>
+          prev.map((n) => (n.id === noteId ? { ...n, tags: res.tags } : n))
+        );
+      }
     },
     [userId, notes]
   );
