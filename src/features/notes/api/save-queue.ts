@@ -149,6 +149,36 @@ class SaveQueueManager {
         await indexedDBStorage.putNote(item.userId, existingNote);
       }
 
+      // Verifica se já existe um CREATE_NOTE pendente na SyncQueue para esta nota
+      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(item.userId);
+      const hasPendingCreate = pendingQueue.some(
+        (q) =>
+          q.entity_id === item.noteId &&
+          q.action === 'CREATE_NOTE' &&
+          (q.status === 'pending' || q.status === 'processing' || q.status === 'failed')
+      );
+
+      if (hasPendingCreate) {
+        // Se a nota ainda não foi criada remotamente, o CREATE_NOTE existente é responsável pela criação
+        // utilizando o estado mais recente já gravado no IndexedDB. Não criamos UPDATE_NOTE_CONTENT redundante.
+        const pendingCount = await indexedDBStorage.getSyncQueueCount(item.userId);
+        networkMonitor.updatePendingCount(pendingCount);
+
+        state.persistedVersion = nextRevision;
+        const durationMs = Math.round(performance.now() - startTime);
+        console.log(
+          `%c[PERSISTÊNCIA LOCAL] NOTE ${item.noteId} | VERSION ${nextRevision} | CREATE_NOTE PENDENTE (Atualizado no IndexedDB) (${durationMs}ms)`,
+          'color: #0284c7; font-weight: bold;'
+        );
+
+        item.resolve({
+          success: true,
+          tags: combinedTags,
+          version: nextRevision,
+        });
+        return;
+      }
+
       // Enfileira na SyncQueue persistente do IndexedDB caso caia a conexão ou ocorra falha
       const syncItemId = `sync_note_content_${item.noteId}`;
       await indexedDBStorage.enqueueSyncItem(item.userId, {

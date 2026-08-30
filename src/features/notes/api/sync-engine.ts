@@ -691,9 +691,23 @@ class SyncEngine {
 
       const currentQueue = await indexedDBStorage.getPendingSyncQueue(userId);
       const queuedItemEntityIds = new Set(currentQueue.map((q) => q.entity_id));
+      const pendingCreateNoteIds = new Set(
+        currentQueue
+          .filter(
+            (q) =>
+              q.action === 'CREATE_NOTE' &&
+              (q.status === 'pending' || q.status === 'processing' || q.status === 'failed')
+          )
+          .map((q) => q.entity_id)
+      );
 
       // Re-enfileira notas com syncRequired = true ausentes da fila
       for (const pNote of pendingNotes) {
+        // SE já existe um CREATE_NOTE pendente para esta nota, não cria UPDATE_NOTE_CONTENT
+        if (pendingCreateNoteIds.has(pNote.id)) {
+          continue;
+        }
+
         if (!queuedItemEntityIds.has(pNote.id)) {
           await indexedDBStorage.enqueueSyncItem(userId, {
             action: 'UPDATE_NOTE_CONTENT',
