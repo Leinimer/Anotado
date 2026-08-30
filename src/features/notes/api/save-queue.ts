@@ -1,26 +1,17 @@
 /**
- * Gerenciador de Fila de Persistência Serializada por Nota (SaveQueueManager)
+ * Gerenciador de Fila de Persistência Local-First por Nota (SaveQueueManager)
  *
- * Integração Offline-First:
- * 1. Grava no IndexedDB imediatamente com controle de revisão incremental.
- * 2. Registra na SyncQueue persistente do IndexedDB (sobrevive a F5, crash ou fechamento).
- * 3. Se online, serializa a gravação no Supabase Storage e na tabela `notes`.
- * 4. Se offline, conclui com sucesso local e mantém a operação na fila para o SyncEngine.
- * 5. Garante que nunca ocorram gravações concorrentes para a mesma nota e descarta versões intermediárias obsoletas.
- * 6. Suporta `flushNote(noteId)` e `flushAll()` garantindo persistência completa antes de logout ou troca de nota.
+ * Responsabilidade Estrita Local-First:
+ * EDITOR -> SaveQueueManager -> IndexedDB -> SyncQueue -> Retorna imediatamente.
+ *
+ * O SaveQueueManager NÃO realiza chamadas de rede, uploads ou gravações no Supabase.
+ * Toda persistência remota é delegada exclusivamente ao SyncEngine através da SyncQueue.
  */
 
-import { writeNoteMarkdown } from './notes-storage-api';
-import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
-import { serializeMarkdownWithTags } from '../utils/markdown-tags';
 import { indexedDBStorage } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
-import {
-  prepareNoteContentForPersistence,
-  validateNoteContentForRemotePersistence,
-  hasUnresolvedLocalMedia,
-} from './storage-api';
+import { syncEngine } from './sync-engine';
 
 interface PendingSaveItem {
   userId: string;
@@ -39,13 +30,6 @@ interface NoteQueueState {
   persistedVersion: number;
   pendingItem: PendingSaveItem | null;
   activePromise: Promise<void> | null;
-}
-
-function countImagesInContent(content: string): number {
-  if (!content) return 0;
-  const imgTagMatches = (content.match(/<img\b[^>]*>/gi) || []).length;
-  const mdImgMatches = (content.match(/!\[.*?\]\(.*?\)/gi) || []).length;
-  return imgTagMatches + mdImgMatches;
 }
 
 class SaveQueueManager {
@@ -69,7 +53,7 @@ class SaveQueueManager {
   }
 
   /**
-   * Enfileira uma alteração para ser persistida de forma serializada.
+   * Enfileira uma alteração para ser persistida de forma local e serializada no IndexedDB.
    */
   public enqueueSave(
     userId: string,
@@ -93,7 +77,7 @@ class SaveQueueManager {
       };
 
       if (state.isSaving) {
-        // Se uma versão anterior já estava pendente, ela é substituída pela versão mais recente
+        // Se uma versão anterior já estava pendente, ela é consolidada com a versão mais recente
         if (state.pendingItem) {
           state.pendingItem.resolve({
             success: true,
@@ -103,7 +87,7 @@ class SaveQueueManager {
         }
         state.pendingItem = pendingItem;
       } else {
-        // Processa imediatamente
+        // Processa imediatamente a gravação local
         state.isSaving = true;
         state.activePromise = this.processSave(state, pendingItem);
       }
@@ -111,32 +95,25 @@ class SaveQueueManager {
   }
 
   /**
-   * Executa a gravação serializada no IndexedDB, Supabase Storage e na tabela `notes`.
+   * Executa a gravação Local-First no IndexedDB e atualiza a SyncQueue para o SyncEngine.
    */
   private async processSave(state: NoteQueueState, item: PendingSaveItem): Promise<void> {
     const startTime = performance.now();
-    const imageCount = countImagesInContent(item.content);
 
-    console.log(
-      `%c[PERSISTÊNCIA] NOTE ${item.noteId} | VERSION ${item.version} | IMAGES ${imageCount} | SAVE START`,
-      'color: #0284c7; font-weight: bold;'
-    );
-
-    // 1. Tags e serialização
+    // 1. Extração e normalização de tags
     const bodyHashtags = extractHashtagsFromText(item.content);
     const combinedTags = normalizeTags([...(item.tags || []), ...bodyHashtags]);
 
-    // 2. Gravação imediata no IndexedDB (fonte de verdade local durável)
     try {
+      // 2. Busca nota atual no IndexedDB
       const existingNote = await indexedDBStorage.getNoteById(item.userId, item.noteId);
-      const isOnline = networkMonitor.getState().isBackendReachable;
-      const currentContent = item.content || existingNote?.content || '';
+      const currentContent = item.content !== undefined && item.content !== null ? item.content : (existingNote?.content || '');
       const currentRevision = typeof existingNote?.revision === 'number' ? existingNote.revision : 0;
       const nextRevision = Math.max(currentRevision + 1, item.version);
 
-      console.log(`[NOTE] PERSIST START noteId=${item.noteId} revision=${nextRevision}`);
-      console.log(`[NOTE] PERSIST CONTENT LENGTH noteId=${item.noteId} length=${currentContent.length}`);
+      console.log(`[NOTE] PERSIST LOCAL START noteId=${item.noteId} revision=${nextRevision}`);
 
+      // 3. Atualiza entidade no IndexedDB com status pendente de sincronização
       if (existingNote) {
         existingNote.content = currentContent;
         existingNote.tags = combinedTags;
@@ -149,7 +126,7 @@ class SaveQueueManager {
         await indexedDBStorage.putNote(item.userId, existingNote);
       }
 
-      // Verifica se já existe um CREATE_NOTE pendente na SyncQueue para esta nota
+      // 4. Verifica se a nota ainda tem um CREATE_NOTE pendente na SyncQueue
       const pendingQueue = await indexedDBStorage.getPendingSyncQueue(item.userId);
       const hasPendingCreate = pendingQueue.some(
         (q) =>
@@ -159,17 +136,20 @@ class SaveQueueManager {
       );
 
       if (hasPendingCreate) {
-        // Se a nota ainda não foi criada remotamente, o CREATE_NOTE existente é responsável pela criação
-        // utilizando o estado mais recente já gravado no IndexedDB. Não criamos UPDATE_NOTE_CONTENT redundante.
+        // Se a criação ainda não foi enviada ao Supabase, CREATE_NOTE lerá o IndexedDB mais recente.
+        // Não criamos UPDATE_NOTE_CONTENT redundante.
         const pendingCount = await indexedDBStorage.getSyncQueueCount(item.userId);
         networkMonitor.updatePendingCount(pendingCount);
 
         state.persistedVersion = nextRevision;
         const durationMs = Math.round(performance.now() - startTime);
         console.log(
-          `%c[PERSISTÊNCIA LOCAL] NOTE ${item.noteId} | VERSION ${nextRevision} | CREATE_NOTE PENDENTE (Atualizado no IndexedDB) (${durationMs}ms)`,
+          `%c[PERSISTÊNCIA LOCAL] NOTE ${item.noteId} | REVISION ${nextRevision} | CREATE_NOTE PENDENTE (${durationMs}ms)`,
           'color: #0284c7; font-weight: bold;'
         );
+
+        // Dispara agendamento do SyncEngine em segundo plano
+        syncEngine.scheduleSync(500);
 
         item.resolve({
           success: true,
@@ -179,7 +159,7 @@ class SaveQueueManager {
         return;
       }
 
-      // Enfileira na SyncQueue persistente do IndexedDB caso caia a conexão ou ocorra falha
+      // 5. Se já foi criada remotamente (ou não tem CREATE_NOTE pendente), enfileira UPDATE_NOTE_CONTENT
       const syncItemId = `sync_note_content_${item.noteId}`;
       await indexedDBStorage.enqueueSyncItem(item.userId, {
         id: syncItemId,
@@ -199,127 +179,31 @@ class SaveQueueManager {
       const pendingCount = await indexedDBStorage.getSyncQueueCount(item.userId);
       networkMonitor.updatePendingCount(pendingCount);
 
-      // 3. Se estiver offline ou Supabase não configurado, finaliza com sucesso local
-      if (!isOnline || !isSupabaseConfigured()) {
-        state.persistedVersion = nextRevision;
-        const durationMs = Math.round(performance.now() - startTime);
-        console.log(
-          `%c[PERSISTÊNCIA LOCAL OFFLINE] NOTE ${item.noteId} | VERSION ${nextRevision} | SALVO LOCALMENTE (${durationMs}ms)`,
-          'color: #d97706; font-weight: bold;'
-        );
-        item.resolve({
-          success: true,
-          tags: combinedTags,
-          version: nextRevision,
-        });
-        return;
-      }
-
-      // 4. Se online, prepara o conteúdo, migra Base64, resolve anexos pendentes e faz upload físico antes de qualquer envio ao Supabase
-      const { preparedContent, allResolved } = await prepareNoteContentForPersistence(
-        item.userId,
-        item.noteId,
-        currentContent
-      );
-
-      if (!allResolved) {
-        console.warn(`[NOTE] SAVE BLOCKED - UNRESOLVED ATTACHMENT noteId=${item.noteId}`);
-        state.persistedVersion = nextRevision;
-        item.resolve({
-          success: true,
-          tags: combinedTags,
-          version: nextRevision,
-        });
-        return;
-      }
-
-      // Se o conteúdo mudou porque referências locais foram substituídas por URLs HTTPS definitivas ou Base64 migrado:
-      if (preparedContent !== currentContent) {
-        if (existingNote) {
-          existingNote.content = preparedContent;
-          await indexedDBStorage.putNote(item.userId, existingNote);
-        }
-      }
-
-      // Validação Absoluta: O conteúdo remoto NUNCA pode conter attachment://, local-attachment://, blob: ou data:
-      const validation = validateNoteContentForRemotePersistence(preparedContent);
-      if (!validation.valid || hasUnresolvedLocalMedia(preparedContent)) {
-        console.warn(`[NOTE] SAVE BLOCKED - UNRESOLVED ATTACHMENT noteId=${item.noteId}: ${validation.errors.join('; ')}`);
-        state.persistedVersion = nextRevision;
-        item.resolve({
-          success: true,
-          tags: combinedTags,
-          version: nextRevision,
-        });
-        return;
-      }
-
-      console.log(`[NOTE] SUPABASE UPDATE START noteId=${item.noteId}`);
-
-      // Grava Markdown definitivo no Supabase Storage
-      const remoteMarkdown = serializeMarkdownWithTags(preparedContent, combinedTags);
-      const storageSuccess = await writeNoteMarkdown(item.userId, item.noteId, remoteMarkdown);
-
-      // Atualiza tabela notes no Supabase com conteúdo HTTPS definitivo
-      const supabase = createClient();
-      const { error: updateErr } = await supabase
-        .from('notes')
-        .update({
-          content: preparedContent,
-          tags: combinedTags,
-          revision: nextRevision,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', item.noteId)
-        .eq('user_id', item.userId);
-
-      if (updateErr) {
-        console.error(`[NOTE] PERSIST ERROR noteId=${item.noteId}:`, updateErr.message || updateErr);
-        throw updateErr;
-      }
-
-      console.log(`[NOTE] SUPABASE UPDATE SUCCESS noteId=${item.noteId}`);
-
-      // Sincroniza tabelas tags / note_tags se necessário
-      await this.syncTagsAndNoteRelations(supabase, item.userId, item.noteId, combinedTags);
-
-      // Marca como sincronizado localmente após confirmação explícita do Supabase
-      await indexedDBStorage.markNoteSynced(item.userId, item.noteId, nextRevision);
-      // Remove da SyncQueue após confirmação do Supabase
-      await indexedDBStorage.removeSyncQueueItem(item.userId, syncItemId);
-
-      console.log(`[NOTE] MARK SYNCED noteId=${item.noteId} revision=${nextRevision}`);
-
-      const remainingPending = await indexedDBStorage.getSyncQueueCount(item.userId);
-      networkMonitor.updatePendingCount(remainingPending);
-
       state.persistedVersion = nextRevision;
       const durationMs = Math.round(performance.now() - startTime);
 
       console.log(
-        `%c[PERSISTÊNCIA] NOTE ${item.noteId} | VERSION ${nextRevision} | IMAGES ${imageCount} | SAVE SUCCESS (${durationMs}ms)`,
+        `%c[PERSISTÊNCIA LOCAL] NOTE ${item.noteId} | REVISION ${nextRevision} | SALVO NO INDEXEDDB (${durationMs}ms)`,
         'color: #16a34a; font-weight: bold;'
       );
 
+      // 6. Solicita agendamento de sincronização no SyncEngine (em segundo plano, sem bloquear)
+      syncEngine.scheduleSync(500);
+
       item.resolve({
-        success: storageSuccess,
+        success: true,
         tags: combinedTags,
         version: nextRevision,
       });
     } catch (err: any) {
-      console.warn(
-        `%c[PERSISTÊNCIA] NOTE ${item.noteId} | VERSION ${item.version} | SALVO NO INDEXEDDB (Fila Pendente)`,
-        'color: #d97706; font-weight: bold;',
+      console.error(
+        `%c[PERSISTÊNCIA LOCAL] NOTE ${item.noteId} | ERRO AO GRAVAR NO INDEXEDDB`,
+        'color: #ba1a1a; font-weight: bold;',
         err
       );
-      // Como o IndexedDB já possui a versão e está na SyncQueue, a alteração está segura e não é perdida
-      item.resolve({
-        success: true,
-        tags: combinedTags,
-        version: item.version,
-      });
+      item.reject(err);
     } finally {
-      // Verifica se há uma versão pendente mais recente acumulada durante a gravação
+      // 7. Consolidar próxima versão acumulada na fila, se houver
       if (state.pendingItem) {
         const nextItem = state.pendingItem;
         state.pendingItem = null;
@@ -331,47 +215,8 @@ class SaveQueueManager {
     }
   }
 
-  private async syncTagsAndNoteRelations(
-    supabase: any,
-    userId: string,
-    noteId: string,
-    cleanTags: string[]
-  ): Promise<void> {
-    try {
-      if (cleanTags.length === 0) {
-        await supabase.from('note_tags').delete().eq('note_id', noteId).eq('user_id', userId);
-        return;
-      }
-
-      const tagRows = cleanTags.map((name) => ({
-        user_id: userId,
-        name: name.toLowerCase(),
-      }));
-
-      await supabase.from('tags').upsert(tagRows, { onConflict: 'user_id,name' });
-
-      const { data: userTags } = await supabase
-        .from('tags')
-        .select('id, name')
-        .eq('user_id', userId)
-        .in('name', cleanTags.map((t) => t.toLowerCase()));
-
-      if (userTags && userTags.length > 0) {
-        await supabase.from('note_tags').delete().eq('note_id', noteId).eq('user_id', userId);
-        const noteTagRecords = userTags.map((t: any) => ({
-          note_id: noteId,
-          tag_id: t.id,
-          user_id: userId,
-        }));
-        await supabase.from('note_tags').insert(noteTagRecords);
-      }
-    } catch (err) {
-      console.warn('[SaveQueue] Erro ao sincronizar tags:', err);
-    }
-  }
-
   /**
-   * Força o flush de todas as alterações pendentes de uma nota específica.
+   * Força a conclusão de qualquer gravação pendente de uma nota específica.
    */
   public async flushNote(noteId: string): Promise<void> {
     const state = this.queues.get(noteId);
@@ -387,7 +232,7 @@ class SaveQueueManager {
   }
 
   /**
-   * Força o flush de todas as notas pendentes no sistema (usado no logout e unmount).
+   * Força a conclusão de todas as notas pendentes no sistema (usado no logout e unmount).
    */
   public async flushAll(): Promise<void> {
     const noteIds = Array.from(this.queues.keys());

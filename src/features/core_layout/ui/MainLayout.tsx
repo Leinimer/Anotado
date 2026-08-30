@@ -240,6 +240,25 @@ export function MainLayout() {
     [notes, userId, activeNoteId]
   );
 
+  // Ouvinte global para abertura de notas a partir de modais (ex: SyncPendingModal)
+  useEffect(() => {
+    const handleGlobalOpenNote = (e: Event) => {
+      const customEvent = e as CustomEvent<{ noteId?: string; folderId?: string | null }>;
+      if (customEvent.detail?.noteId) {
+        if (customEvent.detail.folderId !== undefined) {
+          setActiveFolderId(customEvent.detail.folderId);
+        }
+        handleSelectNote(customEvent.detail.noteId);
+        setMobileSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener('anotado:open-note', handleGlobalOpenNote);
+    return () => {
+      window.removeEventListener('anotado:open-note', handleGlobalOpenNote);
+    };
+  }, [handleSelectNote]);
+
   // Nota ativa selecionada atualmente
   const activeNote = useMemo(() => {
     return notes.find((n) => n.id === activeNoteId) || null;

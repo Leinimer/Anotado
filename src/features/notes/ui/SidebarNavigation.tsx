@@ -1300,7 +1300,13 @@ export function SidebarNavigation({
       {/* Bottom Action Footer */}
       <div className="pt-2 border-t border-[#eae8e3] space-y-2">
         <div className="flex items-center justify-between px-0.5">
-          <SyncStatusIndicator userId={userId || undefined} />
+          <SyncStatusIndicator
+            userId={userId || undefined}
+            onSelectNote={onSelectNote}
+            onSelectFolder={onSelectFolder}
+            folders={folders}
+            notes={notes}
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-2">

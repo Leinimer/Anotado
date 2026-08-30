@@ -12,13 +12,25 @@ import {
 import { networkMonitor, NetworkState } from '../api/network-monitor';
 import { syncEngine } from '../api/sync-engine';
 import { SyncPendingModal } from './SyncPendingModal';
+import { Folder as FolderType, Note as NoteType } from '../types';
 
 interface SyncStatusIndicatorProps {
   userId?: string;
   className?: string;
+  onSelectNote?: (noteId: string) => void;
+  onSelectFolder?: (folderId: string | null) => void;
+  folders?: FolderType[];
+  notes?: NoteType[];
 }
 
-export function SyncStatusIndicator({ userId, className = '' }: SyncStatusIndicatorProps) {
+export function SyncStatusIndicator({
+  userId,
+  className = '',
+  onSelectNote,
+  onSelectFolder,
+  folders = [],
+  notes = [],
+}: SyncStatusIndicatorProps) {
   const [networkState, setNetworkState] = useState<NetworkState>(networkMonitor.getState());
   const [isHovered, setIsHovered] = useState(false);
   const [isPendingModalOpen, setIsPendingModalOpen] = useState(false);
@@ -155,6 +167,10 @@ export function SyncStatusIndicator({ userId, className = '' }: SyncStatusIndica
         isOpen={isPendingModalOpen}
         onClose={() => setIsPendingModalOpen(false)}
         userId={userId}
+        onSelectNote={onSelectNote}
+        onSelectFolder={onSelectFolder}
+        folders={folders}
+        notes={notes}
       />
     </>
   );

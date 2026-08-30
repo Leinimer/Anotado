@@ -22,7 +22,6 @@ import { networkMonitor } from './network-monitor';
 import { writeNoteMarkdown, deleteNoteMarkdown, readNoteMarkdown } from './notes-storage-api';
 import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
 import { serializeMarkdownWithTags, parseMarkdownWithTags } from '../utils/markdown-tags';
-import { saveQueue } from './save-queue';
 import {
   prepareNoteContentForPersistence,
   validateNoteContentForRemotePersistence,
@@ -82,9 +81,9 @@ export function formatFriendlyErrorMessage(err: any): string {
 
 class SyncEngine {
   private isProcessing: boolean = false;
+  private hasPendingSyncRequest: boolean = false;
   private syncTimeout: NodeJS.Timeout | null = null;
-  private fastLocalCheckInterval: NodeJS.Timeout | null = null;
-  private periodicPullInterval: NodeJS.Timeout | null = null;
+  private watchdogInterval: NodeJS.Timeout | null = null;
   private activeUserId: string | null = null;
   private dataSubscribers: Set<DataSubscriber> = new Set();
   private lastKnownReachable: boolean = false;
@@ -135,18 +134,10 @@ class SyncEngine {
         }
       });
 
-      // 3. Verificação ultrarrápida a cada 1 segundo:
-      // Consulta APENAS o IndexedDB local (getEntitiesRequiringSync) - NÃO consulta o Supabase a cada segundo.
-      this.fastLocalCheckInterval = setInterval(() => {
+      // 3. Watchdog leve de segurança a cada 30 segundos (O(p) - consulta apenas a SyncQueue)
+      this.watchdogInterval = setInterval(() => {
         if (this.activeUserId && !this.isProcessing && navigator.onLine) {
-          this.checkLocalPendingEntities(this.activeUserId);
-        }
-      }, 1000);
-
-      // 4. Polling periódico de background para PULL incremental (a cada 30 segundos se online)
-      this.periodicPullInterval = setInterval(() => {
-        if (this.activeUserId && !this.isProcessing && navigator.onLine) {
-          this.scheduleSync(0);
+          this.checkWatchdog(this.activeUserId);
         }
       }, 30000);
     }
@@ -183,31 +174,40 @@ class SyncEngine {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
     }
+    if (this.watchdogInterval) {
+      clearInterval(this.watchdogInterval);
+      this.watchdogInterval = null;
+    }
     this.activeUserId = null;
+    this.hasPendingSyncRequest = false;
   }
 
   /**
-   * Verificação silenciosa no IndexedDB local:
-   * Identifica se há entidades pendentes (syncRequired = true ou itens na fila)
-   * e agenda o envio para o Supabase caso haja pendências e rede disponível.
+   * Watchdog leve de segurança:
+   * Consulta O(p) exclusivamente na SyncQueue para verificar se existem operações pendentes.
+   * Se houver itens na fila e rede disponível, aciona o processamento.
    */
-  public async checkLocalPendingEntities(userId: string): Promise<void> {
+  public async checkWatchdog(userId: string): Promise<void> {
     if (!userId || this.isProcessing) return;
 
     try {
       const isOnline = networkMonitor.getState().isBackendReachable;
       if (!isOnline) return;
 
-      const { notes, folders, attachments } = await indexedDBStorage.getEntitiesRequiringSync(userId);
-      const queueCount = await indexedDBStorage.getSyncQueueCount(userId);
-
-      const hasPendingWork = notes.length > 0 || folders.length > 0 || attachments.length > 0 || queueCount > 0;
-      if (hasPendingWork) {
+      const queue = await indexedDBStorage.getPendingSyncItems(userId);
+      if (queue.length > 0) {
         this.scheduleSync(50);
       }
     } catch {
-      // Falha silenciosa na checagem local periódica
+      // Falha silenciosa no watchdog leve
     }
+  }
+
+  /**
+   * Verificação silenciosa no IndexedDB local (mantida para compatibilidade).
+   */
+  public async checkLocalPendingEntities(userId: string): Promise<void> {
+    return this.checkWatchdog(userId);
   }
 
   /**
@@ -308,9 +308,7 @@ class SyncEngine {
 
       // Verifica se a nota possui alterações locais pendentes
       const existingLocalNote = await indexedDBStorage.getNoteById(userId, noteId);
-      const isLocalPending = Boolean(existingLocalNote?.syncRequired || existingLocalNote?.needs_sync);
-      const isSaveQueuePending = saveQueue.hasPendingSaveForNote(noteId);
-      const hasLocalPendingEdits = isLocalPending || isSaveQueuePending;
+      const hasLocalPendingEdits = Boolean(existingLocalNote?.syncRequired || existingLocalNote?.needs_sync);
 
       if (eventType === 'DELETE') {
         console.log(`[Realtime] DELETE noteId=${noteId}`);
@@ -609,16 +607,14 @@ class SyncEngine {
   }
 
   /**
-   * Atualiza o contador de itens pendentes no monitor de rede.
+   * Atualiza o contador de itens pendentes no monitor de rede consultando a SyncQueue (O(p)).
    */
   public async updatePendingCount(userId: string): Promise<number> {
     if (!userId) return 0;
     try {
-      const { notes, folders, attachments } = await indexedDBStorage.getEntitiesRequiringSync(userId);
       const queueCount = await indexedDBStorage.getSyncQueueCount(userId);
-      const totalPending = Math.max(notes.length + folders.length + attachments.length, queueCount);
-      networkMonitor.updatePendingCount(totalPending);
-      return totalPending;
+      networkMonitor.updatePendingCount(queueCount);
+      return queueCount;
     } catch {
       return 0;
     }
@@ -626,8 +622,14 @@ class SyncEngine {
 
   /**
    * Agenda uma sincronização da fila com debounce.
+   * Se um processamento já estiver em andamento, sinaliza hasPendingSyncRequest para rodar ao finalizar.
    */
   public scheduleSync(delayMs: number = 300) {
+    if (this.isProcessing) {
+      this.hasPendingSyncRequest = true;
+      return;
+    }
+
     if (this.syncTimeout) clearTimeout(this.syncTimeout);
     this.syncTimeout = setTimeout(() => {
       if (this.activeUserId) {
@@ -638,15 +640,18 @@ class SyncEngine {
 
   /**
    * Processa o ciclo completo de sincronização (SyncGuard):
-   * 1. PUSH: Processa operações pendentes no IndexedDB (syncRequired = true) e itens da SyncQueue.
+   * 1. PUSH: Processa operações pendentes da SyncQueue (O(p)).
    * 2. PULL: Busca alterações remotas do Supabase e atualiza o IndexedDB de forma não-destrutiva.
    */
   public async processQueue(userId: string): Promise<{ success: boolean; processed: number }> {
-    if (!userId || this.isProcessing) {
+    if (!userId) {
       return { success: false, processed: 0 };
     }
 
-    console.log('[SyncGuard] START');
+    if (this.isProcessing) {
+      this.hasPendingSyncRequest = true;
+      return { success: false, processed: 0 };
+    }
 
     // 1. Verifica conectividade real antes de processar
     const reachable = await networkMonitor.checkBackendReachability();
@@ -669,115 +674,29 @@ class SyncEngine {
         authenticatedUid = sessionData?.session?.user?.id || null;
       }
     } catch (authErr) {
-      console.warn('[SyncGuard] Falha ao verificar autenticação para PUSH:', authErr);
+      console.warn('[SyncEngine] Falha ao verificar autenticação para PUSH:', authErr);
     }
 
     if (userId !== 'demo-user' && authenticatedUid && authenticatedUid !== userId) {
-      console.warn(`[SyncGuard] PUSH pausado: usuário autenticado no Supabase (${authenticatedUid}) diverge do userId local (${userId}).`);
+      console.warn(`[SyncEngine] PUSH pausado: usuário autenticado no Supabase (${authenticatedUid}) diverge do userId local (${userId}).`);
     }
 
     this.isProcessing = true;
+    this.hasPendingSyncRequest = false;
     networkMonitor.setSyncing(true);
 
     let processedCount = 0;
 
     try {
-      // 1. Auto-recuperação do SyncGuard baseada no IndexedDB local (syncRequired = true)
-      const { notes: pendingNotes, folders: pendingFolders, attachments: pendingAttachments } =
-        await indexedDBStorage.getEntitiesRequiringSync(userId);
+      // 1. ETAPA PUSH: Processamento de operações pendentes da SyncQueue (O(p))
+      const queue = await indexedDBStorage.getPendingSyncItems(userId);
 
-      console.log(`[SyncGuard] PENDING NOTES: count=${pendingNotes.length}`);
-      console.log(`[SyncGuard] PENDING FOLDERS: count=${pendingFolders.length}`);
-
-      const currentQueue = await indexedDBStorage.getPendingSyncQueue(userId);
-      const queuedItemEntityIds = new Set(currentQueue.map((q) => q.entity_id));
-      const pendingCreateNoteIds = new Set(
-        currentQueue
-          .filter(
-            (q) =>
-              q.action === 'CREATE_NOTE' &&
-              (q.status === 'pending' || q.status === 'processing' || q.status === 'failed')
-          )
-          .map((q) => q.entity_id)
-      );
-
-      // Re-enfileira notas com syncRequired = true ausentes da fila
-      for (const pNote of pendingNotes) {
-        // SE já existe um CREATE_NOTE pendente para esta nota, não cria UPDATE_NOTE_CONTENT
-        if (pendingCreateNoteIds.has(pNote.id)) {
-          continue;
-        }
-
-        if (!queuedItemEntityIds.has(pNote.id)) {
-          await indexedDBStorage.enqueueSyncItem(userId, {
-            action: 'UPDATE_NOTE_CONTENT',
-            entity_type: 'note',
-            entity_id: pNote.id,
-            revision: pNote.revision || 1,
-            payload: {
-              noteId: pNote.id,
-              content: pNote.content || '',
-              tags: pNote.tags || [],
-              revision: pNote.revision || 1,
-            },
-          });
-        }
-      }
-
-      // Re-enfileira pastas com syncRequired = true ausentes da fila
-      for (const pFolder of pendingFolders) {
-        if (!queuedItemEntityIds.has(pFolder.id)) {
-          await indexedDBStorage.enqueueSyncItem(userId, {
-            action: 'UPDATE_FOLDER',
-            entity_type: 'folder',
-            entity_id: pFolder.id,
-            revision: pFolder.revision || 1,
-            payload: {
-              folderId: pFolder.id,
-              updates: {
-                name: pFolder.name,
-                parent_id: pFolder.parent_id,
-                position: pFolder.position,
-                color: pFolder.color,
-                is_smart: pFolder.is_smart,
-                smart_tags: pFolder.smart_tags,
-              },
-            },
-          });
-        }
-      }
-
-      // Re-enfileira anexos com syncRequired = true ausentes da fila
-      for (const pAtt of pendingAttachments) {
-        if (!queuedItemEntityIds.has(pAtt.id)) {
-          await indexedDBStorage.enqueueSyncItem(userId, {
-            action: 'UPLOAD_ATTACHMENT',
-            entity_type: 'attachment',
-            entity_id: pAtt.id,
-            revision: 1,
-            payload: {
-              attachmentId: pAtt.id,
-              fileName: pAtt.file_name,
-              fileType: pAtt.file_type,
-              fileSize: pAtt.file_size,
-              noteId: pAtt.note_id || null,
-            },
-          });
-        }
-      }
-
-      // 2. ETAPA PUSH: Processamento de alterações locais da fila
-      const queue = await indexedDBStorage.getPendingSyncQueue(userId);
-      console.log(`[SyncGuard] LOCAL QUEUE: ${queue.length}`);
-
-      if (queue.length === 0) {
-        console.log('[SyncGuard] PUSH: SKIPPED - QUEUE EMPTY');
-      } else {
-        console.log(`[SyncGuard] PUSH: ${queue.length} OPERATIONS`);
+      if (queue.length > 0) {
+        console.log(`[SyncEngine] PROCESS: ${queue.length} OPERATIONS`);
 
         for (const item of queue) {
           if (!navigator.onLine) {
-            console.warn('[SyncGuard] Conexão interrompida durante o processamento da fila.');
+            console.warn('[SyncEngine] Conexão interrompida durante o processamento da fila.');
             break;
           }
 
@@ -794,7 +713,7 @@ class SyncEngine {
               await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', friendlyErr);
             }
           } catch (err: any) {
-            console.error(`[SyncGuard] Falha ao processar item ${item.id} (${item.action}):`, err);
+            console.error(`[SyncEngine] Falha ao processar item ${item.id} (${item.action}):`, err);
             const friendlyErr = formatFriendlyErrorMessage(err);
             await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'failed', friendlyErr);
             if (err?.name === 'AbortError' || err?.message?.includes('fetch') || err?.message?.includes('network')) {
@@ -803,25 +722,32 @@ class SyncEngine {
           }
         }
 
-        console.log('[SyncGuard] PUSH COMPLETE');
+        console.log('[SyncEngine] SUCCESS: PUSH COMPLETE');
       }
 
       await this.updatePendingCount(userId);
 
-      // 3. ETAPA PULL: PULL incremental de novidades do servidor
-      console.log('[SyncGuard] PULL: START');
+      // 2. ETAPA PULL: PULL incremental de novidades do servidor
       await this.pullIncrementalChanges(userId);
-      console.log('[SyncGuard] PULL: COMPLETE');
-      console.log('[SyncGuard] COMPLETE');
 
       return { success: true, processed: processedCount };
     } catch (err) {
-      console.error('[SyncGuard] Erro geral no processamento da sincronização:', err);
+      console.error('[SyncEngine] ERROR no processamento da sincronização:', err);
       return { success: false, processed: processedCount };
     } finally {
       this.isProcessing = false;
       networkMonitor.setSyncing(false);
       await this.updatePendingCount(userId);
+
+      // Se novas alterações chegaram durante o processamento, executa novo ciclo imediatamente
+      if (this.hasPendingSyncRequest && this.activeUserId) {
+        this.hasPendingSyncRequest = false;
+        setTimeout(() => {
+          if (this.activeUserId) {
+            this.processQueue(this.activeUserId);
+          }
+        }, 50);
+      }
     }
   }
 
@@ -926,11 +852,28 @@ class SyncEngine {
       case 'CREATE_NOTE': {
         const rawPayload = item.payload as ExtendedNote;
         const noteId = rawPayload.id || item.entity_id;
-        const revision = item.revision || rawPayload.revision || 1;
 
         // 1. Lê a versão mais atualizada da nota no IndexedDB
         const localNote = await indexedDBStorage.getNoteById(userId, noteId);
+        
+        // Verifica se a nota foi excluída localmente ou se há um DELETE_NOTE pendente
+        const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+        const hasPendingDelete = pendingQueue.some(
+          (q) => q.entity_id === noteId && q.action === 'DELETE_NOTE'
+        );
+
+        if (!localNote || hasPendingDelete) {
+          console.log(`[SyncEngine] CREATE_NOTE descartado para noteId=${noteId} (nota excluída localmente antes do envio)`);
+          return true;
+        }
+
         const effectiveNote = localNote || rawPayload;
+        const effectiveRevision = Math.max(
+          item.revision || 1,
+          rawPayload.revision || 1,
+          typeof effectiveNote.revision === 'number' ? effectiveNote.revision : 1
+        );
+
         let currentContent = (effectiveNote.content !== undefined && effectiveNote.content !== null)
           ? effectiveNote.content
           : (rawPayload.content || '');
@@ -962,7 +905,7 @@ class SyncEngine {
           return false;
         }
 
-        console.log(`[NOTE] CONTENT PERSIST START noteId=${noteId} revision=${revision}`);
+        console.log(`[NOTE] CONTENT PERSIST START noteId=${noteId} revision=${effectiveRevision}`);
 
         // 3. Grava na tabela notes com conteúdo final HTTPS
         const { error: upsertError } = await supabase.from('notes').upsert({
@@ -975,7 +918,7 @@ class SyncEngine {
           tags: noteTags,
           is_archived: Boolean(effectiveNote.is_archived),
           previous_folder_id: effectiveNote.previous_folder_id || null,
-          revision: revision,
+          revision: effectiveRevision,
           created_at: effectiveNote.created_at || new Date().toISOString(),
           updated_at: effectiveNote.updated_at || new Date().toISOString(),
         });
@@ -1003,8 +946,21 @@ class SyncEngine {
         }
 
         // 5. Marca sincronizado no IndexedDB após confirmação real
-        await indexedDBStorage.markNoteSynced(userId, noteId, revision);
-        console.log(`[NOTE] SYNC CONFIRMED noteId=${noteId} revision=${revision}`);
+        await indexedDBStorage.markNoteSynced(userId, noteId, effectiveRevision);
+        console.log(`[NOTE] SYNC CONFIRMED noteId=${noteId} revision=${effectiveRevision}`);
+
+        // 6. Elimina operações redundantes de UPDATE_NOTE_CONTENT já consolidadas neste CREATE_NOTE
+        const remainingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+        for (const q of remainingQueue) {
+          if (
+            q.entity_id === noteId &&
+            q.action === 'UPDATE_NOTE_CONTENT' &&
+            (typeof q.revision === 'number' ? q.revision <= effectiveRevision : true)
+          ) {
+            console.log(`[SyncEngine] Removendo UPDATE_NOTE_CONTENT redundante (id=${q.id}) já consolidado no CREATE_NOTE`);
+            await indexedDBStorage.removeSyncQueueItem(userId, q.id);
+          }
+        }
 
         return true;
       }
@@ -1519,10 +1475,9 @@ class SyncEngine {
       const supabase = createClient();
       let remoteChangesCount = 0;
 
-      const { notes: pendingNotes, folders: pendingFolders } =
-        await indexedDBStorage.getEntitiesRequiringSync(userId);
-      const pendingFolderIds = new Set(pendingFolders.map((f) => f.id));
-      const pendingNoteIds = new Set(pendingNotes.map((n) => n.id));
+      const pendingQueue = await indexedDBStorage.getPendingSyncItems(userId);
+      const pendingFolderIds = new Set(pendingQueue.filter((q) => q.entity_type === 'folder').map((f) => f.entity_id));
+      const pendingNoteIds = new Set(pendingQueue.filter((q) => q.entity_type === 'note').map((n) => n.entity_id));
 
       // 1. Busca pastas remotas
       const { data: remoteFolders, error: foldersErr } = await supabase

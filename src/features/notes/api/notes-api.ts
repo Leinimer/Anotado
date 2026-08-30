@@ -2,7 +2,6 @@ import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supa
 import { Folder, Note } from '../types';
 import {
   readNoteMarkdown,
-  writeNoteMarkdown,
   deleteNoteMarkdown,
 } from './notes-storage-api';
 import { saveQueue } from './save-queue';
@@ -12,6 +11,7 @@ import {
 } from '../utils/markdown-tags';
 import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
 import { generateUUID } from '../utils/uuid';
+import { removeAttachmentReferenceFromContent } from '../utils/path-builder';
 import { indexedDBStorage, ExtendedFolder, ExtendedNote } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
 import { syncEngine } from './sync-engine';
@@ -788,15 +788,31 @@ export async function flushAllPendingSaves(): Promise<void> {
  * Exclui uma nota do IndexedDB e enfileira para exclusão no Supabase.
  */
 export async function deleteNote(userId: string, noteId: string): Promise<boolean> {
+  // 1. Remove do IndexedDB local
   await indexedDBStorage.deleteNote(userId, noteId);
 
-  await indexedDBStorage.enqueueSyncItem(userId, {
-    action: 'DELETE_NOTE',
-    entity_type: 'note',
-    entity_id: noteId,
-    payload: { noteId },
-    revision: 1,
-  });
+  // 2. Limpa da SyncQueue qualquer item pendente desta nota (ex: CREATE_NOTE, UPDATE_NOTE_CONTENT)
+  const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+  let hadPendingCreate = false;
+  for (const q of pendingQueue) {
+    if (q.entity_id === noteId) {
+      if (q.action === 'CREATE_NOTE') {
+        hadPendingCreate = true;
+      }
+      await indexedDBStorage.removeSyncQueueItem(userId, q.id);
+    }
+  }
+
+  // 3. Se a nota já existia remotamente (não era uma criação local pendente), enfileira DELETE_NOTE
+  if (!hadPendingCreate) {
+    await indexedDBStorage.enqueueSyncItem(userId, {
+      action: 'DELETE_NOTE',
+      entity_type: 'note',
+      entity_id: noteId,
+      payload: { noteId },
+      revision: 1,
+    });
+  }
 
   const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
   networkMonitor.updatePendingCount(pendingCount);
@@ -951,3 +967,70 @@ export async function fetchUserTags(userId: string): Promise<string[]> {
     return [];
   }
 }
+
+/**
+ * Exclui um anexo completamente:
+ * 1. Remove referência do anexo do conteúdo da nota associada (se existir).
+ * 2. Remove o registro e o Blob do IndexedDB.
+ * 3. Remove itens da SyncQueue associados (ex: UPLOAD_ATTACHMENT).
+ * 4. Remove do Supabase Storage caso o anexo já possua storage_path e conexão ativa.
+ * 5. Atualiza contadores de sincronização.
+ */
+export async function deleteAttachmentCompletely(
+  userId: string,
+  attachmentId: string
+): Promise<{ success: boolean; noteId?: string | null }> {
+  if (!userId || !attachmentId) return { success: false };
+
+  try {
+    const att = await indexedDBStorage.getAttachment(userId, attachmentId);
+    let associatedNoteId: string | null = att?.note_id || null;
+
+    // 1. Limpa o conteúdo da nota associada no IndexedDB
+    if (associatedNoteId) {
+      const note = await indexedDBStorage.getNoteById(userId, associatedNoteId);
+      if (note && note.content) {
+        const cleanedContent = removeAttachmentReferenceFromContent(note.content, attachmentId);
+        if (cleanedContent !== note.content) {
+          note.content = cleanedContent;
+          note.updated_at = new Date().toISOString();
+          note.syncRequired = true;
+          note.needs_sync = true;
+          note.sync_status = 'pending_sync';
+          await indexedDBStorage.putNote(userId, note);
+        }
+      }
+    }
+
+    // 2. Remove operações pendentes na SyncQueue para este anexo
+    const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+    for (const q of pendingQueue) {
+      if (q.entity_id === attachmentId || (q.payload && (q.payload.attachmentId === attachmentId || q.payload.id === attachmentId))) {
+        await indexedDBStorage.removeSyncQueueItem(userId, q.id);
+      }
+    }
+
+    // 3. Se o anexo tiver sido enviado para o Supabase Storage, tenta remover remotamente
+    if (att?.storage_path && isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+      try {
+        const supabase = createClient();
+        await supabase.storage.from('note-attachments').remove([att.storage_path]);
+      } catch (storageErr) {
+        console.warn('[NotesAPI] Aviso ao excluir anexo remoto do Storage:', storageErr);
+      }
+    }
+
+    // 4. Exclui o anexo do IndexedDB local
+    await indexedDBStorage.deleteAttachment(userId, attachmentId);
+
+    // 5. Atualiza o contador de pendências
+    const queueCount = await indexedDBStorage.getSyncQueueCount(userId);
+    networkMonitor.updatePendingCount(queueCount);
+
+    return { success: true, noteId: associatedNoteId };
+  } catch (err) {
+    console.error('[NotesAPI] Erro ao excluir anexo completamente:', err);
+    return { success: false };
+  }
+}
+

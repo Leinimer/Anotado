@@ -783,6 +783,10 @@ class IndexedDBStorage {
   // OPERAÇÕES: FILA DE SINCRONIZAÇÃO (SYNC QUEUE)
   // ==========================================
 
+  /**
+   * Enfileira ou atualiza de forma consolidada uma operação na SyncQueue.
+   * Utiliza chaves determinísticas por entidade para evitar duplicações e acumulações desnecessárias.
+   */
   public async enqueueSyncItem(
     userId: string,
     item: Omit<SyncQueueItem, 'id' | 'attempts' | 'status' | 'user_id' | 'created_at'> & {
@@ -792,8 +796,33 @@ class IndexedDBStorage {
     }
   ): Promise<SyncQueueItem> {
     const db = await this.getDB(userId);
+
+    // Chave determinística padrão por tipo e id de entidade se não fornecida explicitamente
+    let deterministicId = item.id;
+    if (!deterministicId) {
+      if (item.action === 'CREATE_NOTE') {
+        deterministicId = `sync_create_note_${item.entity_id}`;
+      } else if (item.action === 'UPDATE_NOTE_CONTENT' || item.action === 'UPDATE_NOTE') {
+        deterministicId = `sync_note_${item.entity_id}`;
+      } else if (item.action === 'DELETE_NOTE') {
+        deterministicId = `sync_delete_note_${item.entity_id}`;
+      } else if (item.action === 'CREATE_FOLDER') {
+        deterministicId = `sync_create_folder_${item.entity_id}`;
+      } else if (item.action === 'UPDATE_FOLDER' || item.action === 'MOVE_FOLDER') {
+        deterministicId = `sync_folder_${item.entity_id}`;
+      } else if (item.action === 'DELETE_FOLDER') {
+        deterministicId = `sync_delete_folder_${item.entity_id}`;
+      } else if (item.action === 'UPLOAD_ATTACHMENT') {
+        deterministicId = `sync_att_${item.entity_id}`;
+      } else if (item.action === 'DELETE_ATTACHMENT') {
+        deterministicId = `sync_del_att_${item.entity_id}`;
+      } else {
+        deterministicId = `sync_${item.entity_type}_${item.entity_id}`;
+      }
+    }
+
     const syncItem: SyncQueueItem = {
-      id: item.id || `sync_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: deterministicId,
       user_id: userId,
       action: item.action,
       entity_type: item.entity_type,
@@ -812,6 +841,14 @@ class IndexedDBStorage {
       request.onsuccess = () => resolve(syncItem);
       request.onerror = () => reject(request.error);
     });
+  }
+
+  /**
+   * Consulta O(p) das operações pendentes da SyncQueue.
+   * Não percorre notes, folders ou attachments com cursores.
+   */
+  public async getPendingSyncItems(userId: string): Promise<SyncQueueItem[]> {
+    return this.getPendingSyncQueue(userId);
   }
 
   public async getPendingSyncQueue(userId: string): Promise<SyncQueueItem[]> {
