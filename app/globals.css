@@ -226,6 +226,9 @@
 
 .ProseMirror ul[data-type="taskList"] li > label {
   user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   margin-top: 0.15rem;
   display: inline-flex;
   align-items: center;
@@ -239,6 +242,10 @@
 .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
   -webkit-appearance: none;
   appearance: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   width: 1.125rem;
   height: 1.125rem;
   border: 1.5px solid #8d8076;

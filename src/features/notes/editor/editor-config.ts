@@ -5,7 +5,6 @@ import { TextStyle } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
 import TextAlign from '@tiptap/extension-text-align';
 import TaskList from '@tiptap/extension-task-list';
-import TaskItem from '@tiptap/extension-task-item';
 import Link from '@tiptap/extension-link';
 import { Markdown } from 'tiptap-markdown';
 import HorizontalRule from '@tiptap/extension-horizontal-rule';
@@ -20,6 +19,7 @@ import { DocumentAttachment } from './extensions/document-attachment';
 import { MediaGroup } from './extensions/media-group';
 import { DoubleDashBulletList } from './extensions/double-dash-bullet-list';
 import { SmartMediaDragDrop } from './extensions/smart-media-drag-drop';
+import { CustomTaskItem } from './extensions/custom-task-item';
 
 export const CustomLink = Link.extend({
   inclusive: false,
@@ -202,7 +202,7 @@ export const defaultEditorExtensions = [
     types: ['heading', 'paragraph', 'blockquote'],
   }),
   TaskList,
-  TaskItem.configure({
+  CustomTaskItem.configure({
     nested: true,
   }),
   CustomLink,
