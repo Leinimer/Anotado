@@ -60,6 +60,19 @@ CREATE TABLE IF NOT EXISTS public.note_tags (
     PRIMARY KEY (note_id, tag_id)
 );
 
+-- Media and document attachments metadata table
+CREATE TABLE IF NOT EXISTS public.note_attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    note_id UUID REFERENCES public.notes(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    file_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    file_size BIGINT NOT NULL DEFAULT 0,
+    storage_path TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
 -- Full-Text Search column generation & Indexing
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS search_vector tsvector 
     GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(title, '') || ' ' || coalesce(content, ''))) STORED;
@@ -74,6 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_notes_user_revision ON public.notes(user_id, revi
 CREATE INDEX IF NOT EXISTS idx_notes_user_tags ON public.notes USING GIN(tags);
 CREATE INDEX IF NOT EXISTS idx_tags_user ON public.tags(user_id, name);
 CREATE INDEX IF NOT EXISTS idx_note_tags_user ON public.note_tags(user_id, note_id, tag_id);
+CREATE INDEX IF NOT EXISTS idx_note_attachments_user ON public.note_attachments(user_id, note_id);
 CREATE INDEX IF NOT EXISTS idx_notes_user_created ON public.notes(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notes_search_vector ON public.notes USING GIN(search_vector);
 
@@ -82,6 +96,7 @@ ALTER TABLE public.folders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.note_tags ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.note_attachments ENABLE ROW LEVEL SECURITY;
 
 -- 5. Atomic RPC function for archiving all notes in a folder and its subfolders
 CREATE OR REPLACE FUNCTION public.archive_folder_notes(p_folder_id UUID, p_user_id UUID)
@@ -183,6 +198,24 @@ CREATE POLICY "Users can update their own note_tags"
 
 CREATE POLICY "Users can delete their own note_tags"
     ON public.note_tags FOR DELETE
+    USING (auth.uid() = user_id);
+
+-- 6.3 RLS Policies for Note Attachments
+CREATE POLICY "Users can view their own note_attachments"
+    ON public.note_attachments FOR SELECT
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own note_attachments"
+    ON public.note_attachments FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own note_attachments"
+    ON public.note_attachments FOR UPDATE
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own note_attachments"
+    ON public.note_attachments FOR DELETE
     USING (auth.uid() = user_id);
 
 -- 7. Storage Bucket Setup: 'notes' (Private Markdown Persistence)

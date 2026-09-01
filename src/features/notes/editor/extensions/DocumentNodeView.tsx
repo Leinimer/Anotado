@@ -20,6 +20,8 @@ import {
 } from '../utils/node-movement';
 import { perfProfiler } from '../utils/media-optimizer';
 import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
+import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
+import { ATTACHMENTS_BUCKET_NAME } from '@/src/features/notes/api/storage-api';
 
 function formatBytes(bytes: number, decimals = 1) {
   if (!bytes || bytes === 0) return '0 B';
@@ -85,6 +87,52 @@ export function DocumentNodeView(props: NodeViewProps) {
               localBlobUrlRef.current = blobUrl;
               setResolvedSrc(blobUrl);
               return;
+            }
+          }
+
+          // Se não encontrou no IndexedDB local, consulta note_attachments no Supabase (outro dispositivo)
+          if (isSupabaseConfigured() && typeof navigator !== 'undefined' && navigator.onLine) {
+            try {
+              const supabase = createClient();
+              const { data: dbAtt } = await supabase
+                .from('note_attachments')
+                .select('*')
+                .eq('id', attachmentId)
+                .maybeSingle();
+
+              if (dbAtt && dbAtt.storage_path) {
+                const { data: pubData } = supabase.storage
+                  .from(ATTACHMENTS_BUCKET_NAME)
+                  .getPublicUrl(dbAtt.storage_path);
+
+                if (pubData?.publicUrl) {
+                  const remoteUrl = pubData.publicUrl;
+                  await indexedDBStorage.putAttachment(currentUserId, {
+                    id: dbAtt.id,
+                    user_id: currentUserId,
+                    note_id: dbAtt.note_id,
+                    file_name: dbAtt.file_name,
+                    file_type: dbAtt.mime_type,
+                    mime_type: dbAtt.mime_type,
+                    file_size: dbAtt.file_size,
+                    storage_path: dbAtt.storage_path,
+                    remote_url: remoteUrl,
+                    syncRequired: false,
+                    syncStatus: 'synced',
+                    sync_status: 'synced',
+                    created_at: dbAtt.created_at,
+                    updated_at: dbAtt.updated_at,
+                  });
+
+                  if (!isCancelled) {
+                    setResolvedSrc(remoteUrl);
+                    updateAttributes({ src: remoteUrl });
+                    return;
+                  }
+                }
+              }
+            } catch (fetchErr) {
+              console.warn('[DocumentNodeView] Falha ao consultar note_attachments no Supabase:', fetchErr);
             }
           }
         } catch (err) {

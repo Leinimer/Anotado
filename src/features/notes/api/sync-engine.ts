@@ -89,6 +89,7 @@ class SyncEngine {
   private lastKnownReachable: boolean = false;
   private realtimeChannel: any = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private uploadingAttachments: Set<string> = new Set();
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -692,6 +693,15 @@ class SyncEngine {
       const queue = await indexedDBStorage.getPendingSyncItems(userId);
 
       if (queue.length > 0) {
+        // Prioriza uploads de anexos (0) antes de pastas (1) e notas (2) para garantir que URLs remotas estejam prontas
+        const getActionPriority = (action: string) => {
+          if (action === 'UPLOAD_ATTACHMENT') return 0;
+          if (action.includes('FOLDER')) return 1;
+          if (action === 'CREATE_NOTE' || action === 'UPDATE_NOTE_CONTENT') return 2;
+          return 3;
+        };
+        queue.sort((a, b) => getActionPriority(a.action) - getActionPriority(b.action));
+
         console.log(`[SyncEngine] PROCESS: ${queue.length} OPERATIONS`);
 
         for (const item of queue) {
@@ -749,91 +759,6 @@ class SyncEngine {
         }, 50);
       }
     }
-  }
-
-  /**
-   * Localiza anexos pendentes associados à nota, faz upload para o Supabase Storage e substitui URLs locais no Markdown.
-   */
-  private async resolveAndUploadAttachmentsForNote(
-    supabase: any,
-    userId: string,
-    noteId: string,
-    content: string
-  ): Promise<{ finalContent: string; uploadedCount: number }> {
-    let updatedContent = content;
-    let uploadedCount = 0;
-
-    try {
-      const pendingAttachments = await indexedDBStorage.getPendingAttachments(userId);
-      const noteAttachments = pendingAttachments.filter((att) => {
-        if (att.note_id === noteId) return true;
-        if (updatedContent) {
-          if (updatedContent.includes(att.id)) return true;
-          if (att.data_url && updatedContent.includes(att.data_url)) return true;
-        }
-        return false;
-      });
-
-      for (const attachment of noteAttachments) {
-        let remoteUrl = attachment.remote_url;
-
-        if (!remoteUrl && attachment.blob) {
-          const bucketName = 'note-attachments';
-          const sanitizedName = attachment.file_name.replace(/[^a-zA-Z0-9.-]/g, '_');
-          const fileExt = sanitizedName.split('.').pop() || 'dat';
-          const filePath = `${userId}/${attachment.id}.${fileExt}`;
-
-          console.log(`[Attachment] UPLOAD START noteId=${noteId} attachmentId=${attachment.id} fileName="${attachment.file_name}" fileSize=${attachment.file_size || 0} mimeType="${attachment.file_type}" path="${filePath}"`);
-
-          const { error: uploadError } = await supabase.storage
-            .from(bucketName)
-            .upload(filePath, attachment.blob, {
-              contentType: attachment.file_type || 'application/octet-stream',
-              upsert: true,
-            });
-
-          if (uploadError) {
-            console.warn(`[Attachment] UPLOAD ERROR noteId=${noteId} attachmentId=${attachment.id}:`, uploadError.message);
-            continue;
-          }
-
-          const { data: publicUrlData } = supabase.storage
-            .from(bucketName)
-            .getPublicUrl(filePath);
-
-          remoteUrl = publicUrlData?.publicUrl;
-          if (!remoteUrl) continue;
-
-          console.log(`[Attachment] UPLOAD SUCCESS noteId=${noteId} attachmentId=${attachment.id} remoteUrl="${remoteUrl}"`);
-          console.log(`[Attachment] REMOTE URL noteId=${noteId} attachmentId=${attachment.id} url="${remoteUrl}"`);
-
-          uploadedCount++;
-          attachment.remote_url = remoteUrl;
-          attachment.syncRequired = false;
-          attachment.syncStatus = 'synced';
-          attachment.sync_status = 'synced';
-          attachment.note_id = noteId;
-          await indexedDBStorage.putAttachment(userId, attachment);
-          await indexedDBStorage.removeSyncQueueItem(userId, `sync_att_${attachment.id}`);
-        }
-
-        if (remoteUrl) {
-          console.log(`[Attachment] MARKDOWN REFERENCE REPLACED noteId=${noteId} attachmentId=${attachment.id} remoteUrl="${remoteUrl}"`);
-          const canonicalRefRegex = new RegExp(`attachment://${attachment.id}`, 'g');
-          const localRefRegex = new RegExp(`local-attachment://${attachment.id}`, 'g');
-          updatedContent = updatedContent.replace(canonicalRefRegex, remoteUrl);
-          updatedContent = updatedContent.replace(localRefRegex, remoteUrl);
-
-          if (attachment.data_url && updatedContent.includes(attachment.data_url)) {
-            updatedContent = updatedContent.split(attachment.data_url).join(remoteUrl);
-          }
-        }
-      }
-    } catch (err) {
-      console.warn(`[SyncEngine] Erro ao resolver anexos da nota ${noteId}:`, err);
-    }
-
-    return { finalContent: updatedContent, uploadedCount };
   }
 
   /**
@@ -1303,56 +1228,64 @@ class SyncEngine {
         const attachmentId = item.entity_id;
         const noteId = item.payload?.noteId || null;
 
-        const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
-        if (!attachment) {
-          console.log(`[Attachment] SKIPPED (NOT FOUND) noteId=${noteId || 'none'} attachmentId=${attachmentId}`);
-          return true;
+        if (this.uploadingAttachments.has(attachmentId)) {
+          console.log(`[Attachment] UPLOAD ALREADY IN FLIGHT attachmentId=${attachmentId}`);
+          return false;
         }
 
-        if (attachment.syncStatus === 'synced' && attachment.remote_url) {
-          console.log(`[Attachment] ALREADY SYNCED noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} remoteUrl="${attachment.remote_url}"`);
-          return true;
-        }
+        this.uploadingAttachments.add(attachmentId);
 
-        if (!attachment.blob) {
-          console.log(`[Attachment] SKIPPED (NO BLOB) noteId=${noteId || 'none'} attachmentId=${attachmentId}`);
-          return true;
-        }
-
-        const bucketName = ATTACHMENTS_BUCKET_NAME;
-        const sanitizedName = (attachment.file_name || 'file').replace(/[^a-zA-Z0-9.-]/g, '_');
-        const fileExt = sanitizedName.split('.').pop() || 'dat';
-        const filePath = `${userId}/${attachmentId}.${fileExt}`;
-
-        console.log(`[MEDIA] attachment upload started noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} fileName="${attachment.file_name}" fileSize=${attachment.file_size || attachment.blob.size || 0} mimeType="${attachment.file_type}" path="${filePath}"`);
-
-        // 1. Upload do Blob para o bucket note-attachments do Supabase
-        const { error: uploadError } = await supabase.storage
-          .from(bucketName)
-          .upload(filePath, attachment.blob, {
-            contentType: attachment.file_type || 'application/octet-stream',
-            upsert: true,
-          });
-
-        if (uploadError) {
-          console.warn(`[MEDIA] attachment upload failed noteId=${noteId || 'none'} attachmentId=${attachmentId}:`, uploadError.message);
-          throw uploadError;
-        }
-
-        // 2. Obtém a URL pública definitiva
-        const { data: publicUrlData } = supabase.storage
-          .from(bucketName)
-          .getPublicUrl(filePath);
-
-        const remoteUrl = publicUrlData?.publicUrl;
-        if (!remoteUrl) throw new Error('Não foi possível obter URL pública da mídia');
-
-        console.log(`[MEDIA] attachment upload completed noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} url="${remoteUrl}"`);
-
-        // 3. Registra / Upsert na tabela public.note_attachments
-        const targetNoteId = attachment.note_id || noteId;
         try {
-          await supabase.from('note_attachments').upsert({
+          const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
+          if (!attachment) {
+            console.log(`[Attachment] SKIPPED (NOT FOUND) noteId=${noteId || 'none'} attachmentId=${attachmentId}`);
+            return true;
+          }
+
+          if (attachment.syncStatus === 'synced' && attachment.remote_url) {
+            console.log(`[Attachment] ALREADY SYNCED noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} remoteUrl="${attachment.remote_url}"`);
+            return true;
+          }
+
+          if (!attachment.blob) {
+            console.log(`[Attachment] SKIPPED (NO BLOB) noteId=${noteId || 'none'} attachmentId=${attachmentId}`);
+            return true;
+          }
+
+          const bucketName = ATTACHMENTS_BUCKET_NAME;
+          const sanitizedName = (attachment.file_name || 'file').replace(/[^a-zA-Z0-9.-]/g, '_');
+          const fileExt = sanitizedName.split('.').pop() || 'dat';
+          const filePath = attachment.storage_path || `${userId}/${attachmentId}.${fileExt}`;
+
+          console.log(`[MEDIA] attachment upload started noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} fileName="${attachment.file_name}" fileSize=${attachment.file_size || attachment.blob.size || 0} mimeType="${attachment.file_type}" path="${filePath}"`);
+
+          // 1. Upload do Blob para o bucket note-attachments do Supabase
+          const { error: uploadError } = await supabase.storage
+            .from(bucketName)
+            .upload(filePath, attachment.blob, {
+              contentType: attachment.file_type || 'application/octet-stream',
+              cacheControl: '3600',
+              upsert: true,
+            });
+
+          if (uploadError) {
+            console.error(`[MEDIA] attachment upload failed noteId=${noteId || 'none'} attachmentId=${attachmentId}:`, uploadError.message);
+            throw uploadError;
+          }
+
+          // 2. Obtém a URL pública definitiva
+          const { data: publicUrlData } = supabase.storage
+            .from(bucketName)
+            .getPublicUrl(filePath);
+
+          const remoteUrl = publicUrlData?.publicUrl;
+          if (!remoteUrl) throw new Error('Não foi possível obter URL pública da mídia');
+
+          console.log(`[MEDIA] attachment upload completed noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} url="${remoteUrl}"`);
+
+          // 3. Registra / Upsert na tabela public.note_attachments
+          const targetNoteId = attachment.note_id || noteId;
+          const { error: dbErr } = await supabase.from('note_attachments').upsert({
             id: attachmentId,
             note_id: targetNoteId,
             user_id: userId,
@@ -1360,64 +1293,69 @@ class SyncEngine {
             mime_type: attachment.mime_type || attachment.file_type || 'application/octet-stream',
             file_size: attachment.file_size || attachment.blob.size || 0,
             storage_path: filePath,
-            created_at: new Date().toISOString(),
+            created_at: attachment.created_at || new Date().toISOString(),
             updated_at: new Date().toISOString(),
           });
-        } catch (dbErr: any) {
-          console.warn('[SyncEngine] Aviso ao registrar note_attachments:', dbErr?.message || dbErr);
-        }
 
-        // 4. Atualiza anexo local no IndexedDB com syncRequired = false e syncStatus = 'synced'
-        attachment.remote_url = remoteUrl;
-        attachment.storage_path = filePath;
-        attachment.syncRequired = false;
-        attachment.syncStatus = 'synced';
-        attachment.sync_status = 'synced';
-        if (targetNoteId && !attachment.note_id) {
-          attachment.note_id = targetNoteId;
-        }
-        await indexedDBStorage.putAttachment(userId, attachment);
+          if (dbErr) {
+            console.error('[SyncEngine] ERRO ao registrar na tabela note_attachments:', dbErr.message);
+            throw new Error(`Falha ao registrar metadados do anexo: ${dbErr.message}`);
+          }
 
-        // 5. Se o anexo estiver associado a uma nota, substitui referências locais no Markdown
-        if (targetNoteId) {
-          const note = await indexedDBStorage.getNoteById(userId, targetNoteId);
-          if (note && note.content) {
-            let updatedContent = note.content;
+          // 4. Atualiza anexo local no IndexedDB com syncRequired = false e syncStatus = 'synced'
+          attachment.remote_url = remoteUrl;
+          attachment.storage_path = filePath;
+          attachment.syncRequired = false;
+          attachment.syncStatus = 'synced';
+          attachment.sync_status = 'synced';
+          if (targetNoteId && !attachment.note_id) {
+            attachment.note_id = targetNoteId;
+          }
+          await indexedDBStorage.putAttachment(userId, attachment);
 
-            const canonicalRefRegex = new RegExp(`attachment://${attachmentId}`, 'g');
-            const localRefRegex = new RegExp(`local-attachment://${attachmentId}`, 'g');
-            updatedContent = updatedContent.replace(canonicalRefRegex, remoteUrl);
-            updatedContent = updatedContent.replace(localRefRegex, remoteUrl);
+          // 5. Se o anexo estiver associado a uma nota, substitui referências locais no Markdown
+          if (targetNoteId) {
+            const note = await indexedDBStorage.getNoteById(userId, targetNoteId);
+            if (note && note.content) {
+              let updatedContent = note.content;
 
-            if (attachment.data_url && updatedContent.includes(attachment.data_url)) {
-              updatedContent = updatedContent.split(attachment.data_url).join(remoteUrl);
-            }
+              const canonicalRefRegex = new RegExp(`attachment://${attachmentId}`, 'g');
+              const localRefRegex = new RegExp(`local-attachment://${attachmentId}`, 'g');
+              updatedContent = updatedContent.replace(canonicalRefRegex, remoteUrl);
+              updatedContent = updatedContent.replace(localRefRegex, remoteUrl);
 
-            if (updatedContent !== note.content) {
-              console.log(`[Attachment] REPLACED REFS noteId=${targetNoteId} attachmentId=${attachmentId} remoteUrl="${remoteUrl}"`);
-              note.content = updatedContent;
-              await indexedDBStorage.putNote(userId, note);
+              if (attachment.data_url && updatedContent.includes(attachment.data_url)) {
+                updatedContent = updatedContent.split(attachment.data_url).join(remoteUrl);
+              }
 
-              // Notifica o editor Tiptap ativo
-              replaceAttachmentReferencesInEditor(targetNoteId, { [attachmentId]: remoteUrl });
+              if (updatedContent !== note.content) {
+                console.log(`[Attachment] REPLACED REFS noteId=${targetNoteId} attachmentId=${attachmentId} remoteUrl="${remoteUrl}"`);
+                note.content = updatedContent;
+                await indexedDBStorage.putNote(userId, note);
 
-              // Valida se não resta nenhum outro anexo pendente antes de enviar ao Supabase
-              const validation = validateNoteContentForRemotePersistence(updatedContent);
-              if (validation.valid && !hasUnresolvedLocalMedia(updatedContent)) {
-                // Atualiza o arquivo .md no Supabase Storage e na tabela notes
-                const fullMarkdown = serializeMarkdownWithTags(updatedContent, note.tags || []);
-                await writeNoteMarkdown(userId, note.id, fullMarkdown);
-                await supabase
-                  .from('notes')
-                  .update({ content: updatedContent, updated_at: new Date().toISOString() })
-                  .eq('id', note.id)
-                  .eq('user_id', userId);
+                // Notifica o editor Tiptap ativo
+                replaceAttachmentReferencesInEditor(targetNoteId, { [attachmentId]: remoteUrl });
+
+                // Valida se não resta nenhum outro anexo pendente antes de enviar ao Supabase
+                const validation = validateNoteContentForRemotePersistence(updatedContent);
+                if (validation.valid && !hasUnresolvedLocalMedia(updatedContent)) {
+                  // Atualiza o arquivo .md no Supabase Storage e na tabela notes
+                  const fullMarkdown = serializeMarkdownWithTags(updatedContent, note.tags || []);
+                  await writeNoteMarkdown(userId, note.id, fullMarkdown);
+                  await supabase
+                    .from('notes')
+                    .update({ content: updatedContent, updated_at: new Date().toISOString() })
+                    .eq('id', note.id)
+                    .eq('user_id', userId);
+                }
               }
             }
           }
-        }
 
-        return true;
+          return true;
+        } finally {
+          this.uploadingAttachments.delete(attachmentId);
+        }
       }
 
       default:
@@ -1478,6 +1416,50 @@ class SyncEngine {
       const pendingQueue = await indexedDBStorage.getPendingSyncItems(userId);
       const pendingFolderIds = new Set(pendingQueue.filter((q) => q.entity_type === 'folder').map((f) => f.entity_id));
       const pendingNoteIds = new Set(pendingQueue.filter((q) => q.entity_type === 'note').map((n) => n.entity_id));
+      const pendingAttachmentIds = new Set(pendingQueue.filter((q) => q.entity_type === 'attachment' || q.action === 'UPLOAD_ATTACHMENT').map((a) => a.entity_id));
+
+      // 0. Sincroniza metadados de anexos remotos (note_attachments)
+      try {
+        const { data: remoteAttachments, error: attsErr } = await supabase
+          .from('note_attachments')
+          .select('*')
+          .eq('user_id', userId);
+
+        if (!attsErr && remoteAttachments) {
+          for (const rAtt of remoteAttachments) {
+            if (!pendingAttachmentIds.has(rAtt.id)) {
+              const existingAtt = await indexedDBStorage.getAttachment(userId, rAtt.id);
+              if (!existingAtt || !existingAtt.remote_url) {
+                const { data: pubData } = supabase.storage
+                  .from(ATTACHMENTS_BUCKET_NAME)
+                  .getPublicUrl(rAtt.storage_path);
+
+                const remoteUrl = pubData?.publicUrl || null;
+                await indexedDBStorage.putAttachment(userId, {
+                  id: rAtt.id,
+                  user_id: userId,
+                  note_id: rAtt.note_id,
+                  file_name: rAtt.file_name,
+                  file_type: rAtt.mime_type,
+                  mime_type: rAtt.mime_type,
+                  file_size: rAtt.file_size,
+                  storage_path: rAtt.storage_path,
+                  remote_url: remoteUrl,
+                  syncRequired: false,
+                  syncStatus: 'synced',
+                  sync_status: 'synced',
+                  created_at: rAtt.created_at,
+                  updated_at: rAtt.updated_at,
+                });
+                console.log(`[SyncGuard] PULL: ATTACHMENT SYNCED ${rAtt.id} path="${rAtt.storage_path}"`);
+                remoteChangesCount++;
+              }
+            }
+          }
+        }
+      } catch (attPullErr) {
+        console.warn('[SyncEngine] Aviso ao sincronizar anexos remotos:', attPullErr);
+      }
 
       // 1. Busca pastas remotas
       const { data: remoteFolders, error: foldersErr } = await supabase

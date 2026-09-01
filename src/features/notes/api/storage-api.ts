@@ -1,6 +1,7 @@
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { indexedDBStorage, LocalAttachment } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
+import { base64AttachmentMigrator } from './base64-attachment-migrator';
 
 export const ATTACHMENTS_BUCKET_NAME = 'note-attachments';
 
@@ -228,6 +229,10 @@ export async function uploadNoteAttachment(
   const noteId = options?.noteId || null;
   const storagePath = getAttachmentStoragePath(effectiveUserId, attachmentId, fileName);
 
+  console.log(
+    `[StorageAPI] Novo anexo local registrado noteId=${noteId || 'none'} attachmentId=${attachmentId} fileName="${fileName}" fileSize=${fileSize} mimeType="${mimeType}"`
+  );
+
   // 1. Salva o anexo completo com Blob bruto no IndexedDB (sem Base64 no Markdown)
   const localAttachment: LocalAttachment = {
     id: attachmentId,
@@ -253,7 +258,7 @@ export async function uploadNoteAttachment(
     console.warn('[StorageAPI] Aviso ao salvar anexo no IndexedDB:', idbErr);
   }
 
-  // 2. Registra na SyncQueue persistente
+  // 2. Registra na SyncQueue persistente para processamento exclusivo pelo SyncEngine
   try {
     await indexedDBStorage.enqueueSyncItem(effectiveUserId, {
       id: `sync_att_${attachmentId}`,
@@ -273,86 +278,16 @@ export async function uploadNoteAttachment(
     });
     const pendingCount = await indexedDBStorage.getSyncQueueCount(effectiveUserId);
     networkMonitor.updatePendingCount(pendingCount);
+
+    // Dispara sincronização em segundo plano no SyncEngine sem bloquear a UI
+    import('./sync-engine').then(({ syncEngine }) => {
+      syncEngine.scheduleSync(100);
+    }).catch(() => {});
   } catch (qErr) {
     console.warn('[StorageAPI] Aviso ao enfileirar upload na SyncQueue:', qErr);
   }
 
-  // 3. Se online e Supabase configurado, faz upload físico direto
-  const isOnline = networkMonitor.getState().isBackendReachable;
-  if (isOnline && isSupabaseConfigured()) {
-    try {
-      console.log(
-        `[MEDIA] attachment upload started noteId=${noteId || 'none'} attachmentId=${attachmentId} fileName="${fileName}" fileSize=${fileSize} mimeType="${mimeType}" path="${storagePath}"`
-      );
-      const supabase = createClient();
-
-      const { error: uploadError } = await supabase.storage
-        .from(ATTACHMENTS_BUCKET_NAME)
-        .upload(storagePath, fileOrBlob, {
-          contentType: mimeType,
-          cacheControl: '3600',
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error(`[MEDIA] attachment upload failed noteId=${noteId || 'none'} attachmentId=${attachmentId}:`, uploadError.message);
-      } else {
-        const { data: publicUrlData } = supabase.storage
-          .from(ATTACHMENTS_BUCKET_NAME)
-          .getPublicUrl(storagePath);
-
-        const remoteUrl = publicUrlData?.publicUrl || '';
-        if (remoteUrl) {
-          console.log(`[MEDIA] attachment upload completed noteId=${noteId || 'none'} attachmentId=${attachmentId} url="${remoteUrl}"`);
-
-          // Registra / Upsert na tabela public.note_attachments
-          try {
-            const { error: dbErr } = await supabase.from('note_attachments').upsert({
-              id: attachmentId,
-              note_id: noteId,
-              user_id: effectiveUserId,
-              file_name: fileName,
-              mime_type: mimeType,
-              file_size: fileSize,
-              storage_path: storagePath,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            });
-            if (dbErr) {
-              console.warn('[StorageAPI] Aviso ao registrar na tabela note_attachments:', dbErr.message);
-            }
-          } catch (dbEx) {
-            console.warn('[StorageAPI] Exceção ao gravar em note_attachments:', dbEx);
-          }
-
-          // Atualiza anexo como sincronizado no IndexedDB
-          localAttachment.remote_url = remoteUrl;
-          localAttachment.storage_path = storagePath;
-          localAttachment.syncRequired = false;
-          localAttachment.syncStatus = 'synced';
-          localAttachment.sync_status = 'synced';
-          await indexedDBStorage.putAttachment(effectiveUserId, localAttachment);
-          await indexedDBStorage.removeSyncQueueItem(effectiveUserId, `sync_att_${attachmentId}`);
-          const remainingCount = await indexedDBStorage.getSyncQueueCount(effectiveUserId);
-          networkMonitor.updatePendingCount(remainingCount);
-
-          return {
-            url: remoteUrl,
-            name: fileName,
-            size: fileSize,
-            type: mimeType,
-            attachmentId,
-            storagePath,
-            isLocal: false,
-          };
-        }
-      }
-    } catch (err: any) {
-      console.error(`[MEDIA] attachment upload failed noteId=${noteId || 'none'} attachmentId=${attachmentId}:`, err?.message || err);
-    }
-  }
-
-  // 4. Retorna a URI leve canônica do anexo local: attachment://[attachmentId]
+  // 3. Retorna IMEDIATAMENTE a URI canônica do anexo local: attachment://[attachmentId]
   const localCanonicalUrl = `attachment://${attachmentId}`;
   return {
     url: localCanonicalUrl,
@@ -396,7 +331,7 @@ export async function deleteNoteAttachment(userId: string, attachmentId: string)
 
 /**
  * Migra mídias Base64 embutidas em notas legadas para anexos isolados no Supabase Storage e na tabela note_attachments.
- * Processamento seguro, não-bloqueante e idempotente.
+ * Processamento seguro, não-bloqueante e idempotente através do Base64AttachmentMigrator.
  */
 export async function migrateLegacyNoteAttachments(
   userId: string,
@@ -406,48 +341,16 @@ export async function migrateLegacyNoteAttachments(
   if (!content) return { migratedContent: '', migrationCount: 0 };
 
   const effectiveUserId = userId || 'anonymous';
-  let migrated = content;
-  let count = 0;
-
-  // Regex para detectar data:[mime];base64,[data]
-  const base64Regex = /data:([a-zA-Z0-9/+-]+);base64,([a-zA-Z0-9+/=\s]+)/g;
-  const matches = Array.from(content.matchAll(base64Regex));
-
-  if (matches.length > 0) {
-    for (const match of matches) {
-      const fullDataUri = match[0];
-      const mimeType = match[1] || 'application/octet-stream';
-      const base64Body = (match[2] || '').replace(/\s/g, '');
-      const approxSize = Math.round((base64Body.length * 3) / 4);
-
-      console.log(`[MEDIA] attachment migration started noteId=${noteId} mimeType="${mimeType}" size=${approxSize}`);
-
-      try {
-        const { blob, extension } = base64ToBlob(fullDataUri);
-        const attachmentId = typeof crypto !== 'undefined' && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `att-migrated-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-        const fileName = `migrated_${attachmentId.slice(0, 8)}.${extension}`;
-
-        const uploadResult = await uploadNoteAttachment(effectiveUserId, blob, {
-          noteId,
-          fileName,
-          mimeType,
-          customAttachmentId: attachmentId,
-        });
-
-        const targetUrl = uploadResult.url;
-        migrated = migrated.split(fullDataUri).join(targetUrl);
-        count++;
-
-        console.log(`[MEDIA] attachment migration completed noteId=${noteId} attachmentId=${attachmentId}`);
-      } catch (err: any) {
-        console.error(`[MEDIA] attachment migration failed noteId=${noteId}:`, err?.message || err);
-      }
-    }
+  if (!/data:image\/[a-zA-Z0-9.+_-]+;base64,/i.test(content)) {
+    return { migratedContent: content, migrationCount: 0 };
   }
 
-  return { migratedContent: migrated, migrationCount: count };
+  const res = await base64AttachmentMigrator.migrateNoteBase64Attachments(effectiveUserId, noteId);
+  const updatedNote = await indexedDBStorage.getNoteById(effectiveUserId, noteId);
+  return {
+    migratedContent: updatedNote?.content || content,
+    migrationCount: res.migratedCount,
+  };
 }
 
 /**
@@ -470,14 +373,13 @@ export async function prepareNoteContentForPersistence(
 }> {
   console.log(`[NOTE] note persistence started noteId=${noteId}`);
 
-  // 1. Migração de Base64 se houver
+  // 1. Migração de Base64 legados se houver (enfileira no IndexedDB/SyncQueue e converte para attachment://)
   const { migratedContent, migrationCount } = await migrateLegacyNoteAttachments(
     userId,
     noteId,
     content || ''
   );
   let updatedContent = migratedContent;
-  let uploadedCount = migrationCount;
   const replacements: Record<string, string> = {};
 
   // 2. Extrai IDs de anexos locais attachment:// ou local-attachment://
@@ -503,81 +405,24 @@ export async function prepareNoteContentForPersistence(
             .getPublicUrl(attachment.storage_path);
           if (pubData?.publicUrl) {
             remoteUrl = pubData.publicUrl;
-          }
-        }
-
-        // Se precisa de upload do Blob
-        if (!remoteUrl && attachment?.blob && isOnline && isSupabaseConfigured()) {
-          const sanitizedName = (attachment.file_name || 'file').replace(/[^a-zA-Z0-9.-]/g, '_');
-          const fileExt = sanitizedName.split('.').pop() || 'dat';
-          const storagePath = attachment.storage_path || getAttachmentStoragePath(userId, attachmentId, fileExt);
-
-          console.log(
-            `[MEDIA] attachment upload started noteId=${noteId} attachmentId=${attachmentId} fileName="${attachment.file_name || 'file'}" fileSize=${attachment.file_size || attachment.blob.size || 0} mimeType="${attachment.file_type || 'application/octet-stream'}" path="${storagePath}"`
-          );
-
-          const { error: uploadError } = await supabase.storage
-            .from(ATTACHMENTS_BUCKET_NAME)
-            .upload(storagePath, attachment.blob, {
-              contentType: attachment.file_type || 'application/octet-stream',
-              cacheControl: '3600',
-              upsert: true,
-            });
-
-          if (uploadError) {
-            console.error(`[MEDIA] attachment upload failed noteId=${noteId} attachmentId=${attachmentId}:`, uploadError.message);
-          } else {
-            const { data: publicUrlData } = supabase.storage
-              .from(ATTACHMENTS_BUCKET_NAME)
-              .getPublicUrl(storagePath);
-
-            if (publicUrlData?.publicUrl) {
-              remoteUrl = publicUrlData.publicUrl;
-              uploadedCount++;
-
-              console.log(`[MEDIA] attachment upload completed noteId=${noteId} attachmentId=${attachmentId} url="${remoteUrl}"`);
-
-              // Registra na tabela public.note_attachments
-              try {
-                await supabase.from('note_attachments').upsert({
-                  id: attachmentId,
-                  note_id: noteId,
-                  user_id: userId,
-                  file_name: attachment.file_name,
-                  mime_type: attachment.mime_type || attachment.file_type || 'application/octet-stream',
-                  file_size: attachment.file_size || attachment.blob.size || 0,
-                  storage_path: storagePath,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                });
-              } catch (recErr) {
-                console.warn('[StorageAPI] Aviso ao registrar em note_attachments:', recErr);
-              }
-
-              attachment.remote_url = remoteUrl;
-              attachment.storage_path = storagePath;
-              attachment.syncRequired = false;
-              attachment.syncStatus = 'synced';
-              attachment.sync_status = 'synced';
-              attachment.note_id = noteId;
-              await indexedDBStorage.putAttachment(userId, attachment);
-              await indexedDBStorage.removeSyncQueueItem(userId, `sync_att_${attachmentId}`);
-            }
+            // Atualiza cache local no IndexedDB
+            attachment.remote_url = remoteUrl;
+            await indexedDBStorage.putAttachment(userId, attachment);
           }
         }
 
         if (remoteUrl) {
           replacements[attachmentId] = remoteUrl;
         } else {
-          console.warn(`[MEDIA] attachment unresolved noteId=${noteId} attachmentId=${attachmentId}`);
+          console.log(`[MEDIA] attachment pending upload in SyncEngine noteId=${noteId} attachmentId=${attachmentId}`);
         }
       } catch (attErr: any) {
-        console.error(`[MEDIA] attachment processing error noteId=${noteId} attachmentId=${attachmentId}:`, attErr?.message || attErr);
+        console.error(`[MEDIA] attachment check error noteId=${noteId} attachmentId=${attachmentId}:`, attErr?.message || attErr);
       }
     }
   }
 
-  // 3. Aplica as substituições no conteúdo
+  // 3. Aplica as substituições no conteúdo para anexos já resolvidos
   if (Object.keys(replacements).length > 0) {
     updatedContent = resolveAttachmentReferences(updatedContent, replacements);
     replaceAttachmentReferencesInEditor(noteId, replacements);
@@ -591,7 +436,7 @@ export async function prepareNoteContentForPersistence(
     return {
       preparedContent: updatedContent,
       allResolved: false,
-      uploadedCount,
+      uploadedCount: 0,
       replacements,
     };
   }
@@ -600,7 +445,7 @@ export async function prepareNoteContentForPersistence(
   return {
     preparedContent: updatedContent,
     allResolved: true,
-    uploadedCount,
+    uploadedCount: 0,
     replacements,
   };
 }
