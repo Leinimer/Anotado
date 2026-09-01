@@ -100,7 +100,7 @@ class NetworkMonitor {
       }
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
       // Probe leve no endpoint health ou rest do Supabase
       const pingUrl = `${supabaseUrl}/rest/v1/`;

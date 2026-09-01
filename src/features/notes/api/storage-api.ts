@@ -231,25 +231,22 @@ export async function uploadNoteAttachment(
   const noteId = options?.noteId || null;
   const storagePath = getAttachmentStoragePath(userId, attachmentId, fileName);
 
-  console.log(`[Attachment] INPUT FILE name="${fileName}" size=${fileOrBlob.size} type="${mimeType}"`);
+  console.log(`[ATTACHMENT] INPUT_FILE name="${fileName}" size=${fileOrBlob.size} type="${mimeType}"`);
 
   // 1. Extrai imediatamente os bytes reais do arquivo para desvincular do ciclo de vida do input mobile
   const arrayBuffer = await fileOrBlob.arrayBuffer();
-  console.log(`[Attachment] ARRAYBUFFER CAPTURED byteLength=${arrayBuffer.byteLength}`);
+  console.log(`[ATTACHMENT] BYTES_CAPTURED byteLength=${arrayBuffer.byteLength}`);
 
   if (!arrayBuffer || arrayBuffer.byteLength === 0) {
-    console.error(`[Attachment] VALIDATION FAILED: Arquivo "${fileName}" possui 0 bytes.`);
+    console.error(`[ATTACHMENT] VALIDATION_FAILED: Arquivo "${fileName}" possui 0 bytes.`);
     throw new Error('Arquivo selecionado possui 0 bytes');
   }
 
   // 2. Cria cópia binária independente (detached Blob) imune a limpezas de input ou suspensão de aba
   const detachedBlob = new Blob([arrayBuffer], { type: mimeType });
   const fileSize = arrayBuffer.byteLength;
-  console.log(`[Attachment] LOCAL BLOB STORED size=${detachedBlob.size}`);
-
-  console.log(
-    `[Attachment] LOCAL CREATE attachmentId=${attachmentId} noteId=${noteId || 'none'} userId=${userId} fileName="${fileName}" mimeType="${mimeType}" fileSize=${fileSize}`
-  );
+  console.log(`[ATTACHMENT] CREATED attachmentId=${attachmentId} fileName="${fileName}" mimeType="${mimeType}" fileSize=${fileSize}`);
+  console.log(`[ATTACHMENT] LOCAL_STORED attachmentId=${attachmentId} size=${detachedBlob.size}`);
 
   // 3. Salva o anexo com detachedBlob independente no IndexedDB
   const localAttachment: LocalAttachment = {
@@ -276,9 +273,9 @@ export async function uploadNoteAttachment(
     console.warn('[StorageAPI] Aviso ao salvar anexo no IndexedDB:', idbErr);
   }
 
-  // 2. Registra na SyncQueue persistente para processamento exclusivo pelo SyncEngine
+  // 4. Registra na SyncQueue persistente para processamento exclusivo pelo SyncEngine
   try {
-    console.log(`[Attachment] QUEUE INSERT queueId=sync_att_${attachmentId} userId=${userId}`);
+    console.log(`[ATTACHMENT] QUEUE_INSERT queueId=sync_att_${attachmentId} userId=${userId}`);
     await indexedDBStorage.enqueueSyncItem(userId, {
       id: `sync_att_${attachmentId}`,
       action: 'UPLOAD_ATTACHMENT',
@@ -295,6 +292,7 @@ export async function uploadNoteAttachment(
       },
       revision: 1,
     });
+    console.log(`[ATTACHMENT] QUEUED attachmentId=${attachmentId}`);
     const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
     networkMonitor.updatePendingCount(pendingCount);
 
@@ -306,7 +304,7 @@ export async function uploadNoteAttachment(
     console.warn('[StorageAPI] Aviso ao enfileirar upload na SyncQueue:', qErr);
   }
 
-  // 3. Retorna IMEDIATAMENTE a URI canônica do anexo local: attachment://[attachmentId]
+  // 5. Retorna IMEDIATAMENTE a URI canônica do anexo local: attachment://[attachmentId]
   const localCanonicalUrl = `attachment://${attachmentId}`;
   return {
     url: localCanonicalUrl,
@@ -316,6 +314,169 @@ export async function uploadNoteAttachment(
     attachmentId,
     storagePath,
     isLocal: true,
+  };
+}
+
+/**
+ * Abstração central e ÚNICO ponto de execução física de upload de anexos para o Supabase Storage no codebase.
+ * Valida integridade binária, cria Blob desacoplado, executa retry interno com classificação de erros e garante persistência em public.note_attachments.
+ */
+export async function uploadAttachmentBinary(
+  userId: string,
+  attachment: LocalAttachment,
+  supabase: any
+): Promise<{
+  success: boolean;
+  remoteUrl: string;
+  storagePath: string;
+  error?: any;
+}> {
+  if (!userId || userId === 'anonymous') {
+    const err = new Error('Usuário não autenticado para upload');
+    (err as any).code = 'AUTH_MISSING';
+    console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} error="Auth missing or anonymous"`);
+    return { success: false, remoteUrl: '', storagePath: '', error: err };
+  }
+
+  // 1. Obter e validar o Blob binário local
+  const blob = attachment.blob;
+  if (!blob) {
+    const err = new Error('Blob binário ausente no IndexedDB');
+    (err as any).code = 'BLOB_MISSING';
+    console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} error="Blob missing in IndexedDB"`);
+    return { success: false, remoteUrl: '', storagePath: '', error: err };
+  }
+
+  // 2. Obter e validar os bytes reais (ArrayBuffer)
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await blob.arrayBuffer();
+  } catch (readErr: any) {
+    const err = readErr || new Error('Falha ao ler ArrayBuffer do Blob');
+    (err as any).code = 'BUFFER_READ_FAILED';
+    console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} error="ArrayBuffer read error"`, readErr);
+    return { success: false, remoteUrl: '', storagePath: '', error: err };
+  }
+
+  if (!buffer || buffer.byteLength === 0) {
+    const err = new Error('ArrayBuffer do arquivo possui 0 bytes');
+    (err as any).code = 'ZERO_BYTES_BLOB';
+    console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} error="Buffer has 0 bytes"`);
+    return { success: false, remoteUrl: '', storagePath: '', error: err };
+  }
+
+  console.log(`[ATTACHMENT] BLOB_VALIDATED attachmentId=${attachment.id} byteLength=${buffer.byteLength}`);
+
+  // 3. Caminho permanente determinístico: {userId}/{attachmentId}.{extension}
+  const sanitizedName = (attachment.file_name || 'file').replace(/[^a-zA-Z0-9.-]/g, '_');
+  const fileExt = sanitizedName.includes('.') ? sanitizedName.split('.').pop() || 'dat' : 'dat';
+  const filePath = attachment.storage_path || `${userId}/${attachment.id}.${fileExt}`;
+  const mimeType = attachment.mime_type || attachment.file_type || 'application/octet-stream';
+
+  // 4. Política de retry interno (Tentativa 1: imediata, Tentativa 2: 1s, Tentativa 3: 3s)
+  const maxInternalAttempts = 3;
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= maxInternalAttempts; attempt++) {
+    if (attempt > 1) {
+      const waitMs = attempt === 2 ? 1000 : 3000;
+      console.log(`[ATTACHMENT] RETRY_WAIT attachmentId=${attachment.id} attempt=${attempt} waitMs=${waitMs}`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+
+      // Se o erro anterior foi de autenticação (401/403), tenta atualizar a sessão do Supabase antes da nova tentativa
+      if (lastError?.status === 401 || lastError?.status === 403 || lastError?.message?.includes('JWT')) {
+        try {
+          await supabase.auth.refreshSession();
+        } catch {
+          // prossegue para tentar com getSession
+        }
+      }
+
+      // Revalida buffer se a tentativa anterior retornou "No Content" ou 400
+      try {
+        buffer = await blob.arrayBuffer();
+      } catch {
+        // mantém buffer anterior
+      }
+    }
+
+    console.log(`[ATTACHMENT] UPLOAD_START path="${filePath}" size=${buffer.byteLength} attempt=${attempt}`);
+
+    // Criar corpo binário estável com bytes validados
+    const uploadBody = new Blob([buffer], { type: mimeType });
+
+    try {
+      // 5. Upload real para o Supabase Storage (ÚNICO PONTO REAL DE EXECUÇÃO)
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from(ATTACHMENTS_BUCKET_NAME)
+        .upload(filePath, uploadBody, {
+          contentType: mimeType,
+          cacheControl: '3600',
+          upsert: true,
+        });
+
+      if (uploadError || !uploadData) {
+        lastError = uploadError || new Error('Upload falhou sem confirmação de dados');
+        console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} attempt=${attempt} error="${lastError.message || lastError}"`);
+        continue;
+      }
+
+      console.log(`[ATTACHMENT] UPLOAD_SUCCESS path="${filePath}"`);
+
+      // 6. Obter URL pública do Storage
+      const { data: publicUrlData } = supabase.storage
+        .from(ATTACHMENTS_BUCKET_NAME)
+        .getPublicUrl(filePath);
+
+      const remoteUrl = publicUrlData?.publicUrl;
+      if (!remoteUrl) {
+        lastError = new Error('Falha ao derivar URL pública do Storage');
+        console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} error="${lastError.message}"`);
+        continue;
+      }
+
+      // 7. Upsert na tabela public.note_attachments (Obrigatório para conclusão)
+      console.log(`[ATTACHMENT] METADATA_START attachmentId=${attachment.id}`);
+      const targetNoteId = attachment.note_id || null;
+      const { error: dbErr } = await supabase.from('note_attachments').upsert({
+        id: attachment.id,
+        note_id: targetNoteId,
+        user_id: userId,
+        file_name: attachment.file_name || 'file',
+        mime_type: mimeType,
+        file_size: buffer.byteLength,
+        storage_path: filePath,
+        created_at: attachment.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (dbErr) {
+        lastError = new Error(`Falha ao registrar metadados em note_attachments: ${dbErr.message}`);
+        (lastError as any).code = dbErr.code || 'METADATA_UPSERT_FAILED';
+        (lastError as any).details = dbErr.details || dbErr.message;
+        console.error(`[ATTACHMENT] METADATA_ERROR attachmentId=${attachment.id} error="${dbErr.message}"`);
+        continue;
+      }
+
+      console.log(`[ATTACHMENT] METADATA_SUCCESS attachmentId=${attachment.id}`);
+
+      return {
+        success: true,
+        remoteUrl,
+        storagePath: filePath,
+      };
+    } catch (err: any) {
+      lastError = err;
+      console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} attempt=${attempt} error="${err?.message || err}"`);
+    }
+  }
+
+  // Se todas as 3 tentativas internas falharem, retorna o erro técnico original para gerenciamento pela SyncQueue
+  return {
+    success: false,
+    remoteUrl: '',
+    storagePath: filePath,
+    error: lastError || new Error('Upload falhou após tentativas internas'),
   };
 }
 

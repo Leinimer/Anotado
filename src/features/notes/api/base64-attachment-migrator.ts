@@ -16,6 +16,7 @@ import {
   base64ToBlob,
   ATTACHMENTS_BUCKET_NAME,
   replaceAttachmentReferencesInEditor,
+  uploadAttachmentBinary,
 } from './storage-api';
 import { writeNoteMarkdown } from './notes-storage-api';
 import { serializeMarkdownWithTags } from '../utils/markdown-tags';
@@ -214,53 +215,7 @@ export class Base64AttachmentMigrator {
       }
       console.log(`[MIGRATION] BLOB CREATED size=${blob.size} mimeType="${blob.type}"`);
 
-      // PASSO 3 & 7 DA ESPECIFICAÇÃO: Upload para o Supabase Storage via bucket central
-      console.log(`[MIGRATION] UPLOAD START path="${filePath}"`);
-      const { error: uploadError } = await supabase.storage
-        .from(ATTACHMENTS_BUCKET_NAME)
-        .upload(filePath, blob, {
-          contentType: mimeType,
-          cacheControl: '3600',
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error(`[MIGRATION] ERROR upload failed: ${uploadError.message}`);
-        throw new Error(`Falha no upload para o Storage: ${uploadError.message}`);
-      }
-
-      // Obtém a URL pública definitiva
-      const { data: publicUrlData } = supabase.storage
-        .from(ATTACHMENTS_BUCKET_NAME)
-        .getPublicUrl(filePath);
-
-      const remoteUrl = publicUrlData?.publicUrl;
-      if (!remoteUrl) {
-        throw new Error('Não foi possível derivar a URL pública do Storage.');
-      }
-      console.log(`[MIGRATION] UPLOAD SUCCESS url="${remoteUrl}"`);
-
-      // PASSO 9 DA ESPECIFICAÇÃO: Registra / Upsert na tabela public.note_attachments
       const nowIso = new Date().toISOString();
-      const { error: dbErr } = await supabase.from('note_attachments').upsert({
-        id: deterministicId,
-        note_id: noteId,
-        user_id: effectiveUserId,
-        file_name: fileName,
-        mime_type: mimeType,
-        file_size: blob.size,
-        storage_path: filePath,
-        created_at: nowIso,
-        updated_at: nowIso,
-      });
-
-      if (dbErr) {
-        console.error(`[MIGRATION] ERROR note_attachments insert failed: ${dbErr.message}`);
-        throw new Error(`Falha ao registrar em public.note_attachments: ${dbErr.message}`);
-      }
-      console.log(`[MIGRATION] NOTE_ATTACHMENT CREATED id=${deterministicId}`);
-
-      // Salva no cache do IndexedDB com status synced
       const localAttachment: LocalAttachment = {
         id: deterministicId,
         user_id: effectiveUserId,
@@ -269,17 +224,31 @@ export class Base64AttachmentMigrator {
         file_type: mimeType,
         mime_type: mimeType,
         file_size: blob.size,
+        blob,
         storage_path: filePath,
-        remote_url: remoteUrl,
-        syncRequired: false,
-        syncStatus: 'synced',
-        sync_status: 'synced',
+        remote_url: null,
+        syncRequired: true,
+        syncStatus: 'pending',
+        sync_status: 'pending',
         created_at: nowIso,
         updated_at: nowIso,
       };
+
+      // Upload físico através do kernel central uploadAttachmentBinary
+      const uploadRes = await uploadAttachmentBinary(effectiveUserId, localAttachment, supabase);
+      if (!uploadRes.success || !uploadRes.remoteUrl) {
+        throw uploadRes.error || new Error('Upload falhou sem URL remota');
+      }
+
+      localAttachment.remote_url = uploadRes.remoteUrl;
+      localAttachment.storage_path = uploadRes.storagePath;
+      localAttachment.syncRequired = false;
+      localAttachment.syncStatus = 'synced';
+      localAttachment.sync_status = 'synced';
+
       await indexedDBStorage.putAttachment(effectiveUserId, localAttachment);
 
-      return { success: true, remoteUrl, attachmentId: deterministicId };
+      return { success: true, remoteUrl: uploadRes.remoteUrl, attachmentId: deterministicId };
     } catch (err: any) {
       console.error(`[MIGRATION] ERROR noteId=${noteId} attachmentId=${deterministicId}:`, err?.message || err);
       return { success: false, attachmentId: deterministicId, error: err?.message || String(err) };

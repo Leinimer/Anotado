@@ -64,6 +64,9 @@ export interface SyncQueueItem {
   created_at: string;
   attempts: number;
   last_error?: string | null;
+  error_details?: any;
+  last_attempt_at?: string;
+  next_retry_at?: number;
   status: 'pending' | 'processing' | 'synced' | 'failed' | 'cancelled';
 }
 
@@ -872,7 +875,9 @@ class IndexedDBStorage {
     userId: string,
     itemId: string,
     status: SyncQueueItem['status'],
-    lastError?: string
+    lastError?: string,
+    errorDetails?: any,
+    nextRetryAt?: number
   ): Promise<void> {
     const db = await this.getDB(userId);
     return new Promise<void>((resolve, reject) => {
@@ -884,7 +889,10 @@ class IndexedDBStorage {
         if (item) {
           item.status = status;
           item.attempts = (item.attempts || 0) + 1;
+          item.last_attempt_at = new Date().toISOString();
           if (lastError !== undefined) item.last_error = lastError;
+          if (errorDetails !== undefined) item.error_details = errorDetails;
+          if (nextRetryAt !== undefined) item.next_retry_at = nextRetryAt;
           store.put(item);
         }
         resolve();
