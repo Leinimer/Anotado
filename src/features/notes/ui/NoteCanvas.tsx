@@ -17,6 +17,7 @@ import { NoteTagsBar } from './NoteTagsBar';
 
 interface NoteCanvasProps {
   activeNote: NoteType | null;
+  userId?: string;
   onUpdateTitle: (noteId: string, newTitle: string) => void;
   onUpdateContent: (noteId: string, newContent: string) => void;
   onUpdateTags: (noteId: string, newTags: string[]) => void;
@@ -28,6 +29,7 @@ interface NoteCanvasProps {
 
 export function NoteCanvas({
   activeNote,
+  userId,
   onUpdateTitle,
   onUpdateContent,
   onUpdateTags,
@@ -326,7 +328,7 @@ export function NoteCanvas({
           <NoteEditor
             key={activeNote.id}
             noteId={activeNote.id}
-            userId={activeNote.user_id}
+            userId={userId || activeNote.user_id}
             content={activeNote.content}
             onChange={handleEditorChange}
             onEditorReady={setEditorInstance}
@@ -403,7 +405,11 @@ export function NoteCanvas({
       </div>
 
       {/* Barra de Ferramentas Rica no Rodapé */}
-      <EditorToolbar editor={editorInstance} activeNoteId={activeNote.id} />
+      <EditorToolbar
+        editor={editorInstance}
+        activeNoteId={activeNote.id}
+        userId={userId || activeNote.user_id}
+      />
     </main>
   );
 }

@@ -36,6 +36,7 @@ import { normalizeUrl } from '../editor/utils/url-helper';
 interface EditorToolbarProps {
   editor: Editor | null;
   activeNoteId?: string | null;
+  userId?: string | null;
 }
 
 const FONT_SIZES = [
@@ -60,7 +61,7 @@ const FONT_SIZES = [
   '72px',
 ] as const;
 
-export function EditorToolbar({ editor, activeNoteId }: EditorToolbarProps) {
+export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: EditorToolbarProps) {
   const [showStyleMenu, setShowStyleMenu] = useState(false);
   const [showHighlightPicker, setShowHighlightPicker] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -72,8 +73,10 @@ export function EditorToolbar({ editor, activeNoteId }: EditorToolbarProps) {
   const [linkModalUrl, setLinkModalUrl] = useState('');
   const [linkModalText, setLinkModalText] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [, setSelectionUpdate] = useState(0);
+
+  const effectiveUserId = propUserId && propUserId !== 'anonymous' ? propUserId : authUserId;
 
   const footerRef = useRef<HTMLElement>(null);
   const { isKeyboardOpen, toolbarStyle } = useMobileKeyboardViewport(footerRef);
@@ -98,11 +101,22 @@ export function EditorToolbar({ editor, activeNoteId }: EditorToolbarProps) {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }: any) => {
-      if (data?.user?.id) {
-        setUserId(data.user.id);
+    const fetchUser = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user?.id) {
+          setAuthUserId(sessionData.session.user.id);
+          return;
+        }
+        const { data: userData } = await supabase.auth.getUser();
+        if (userData?.user?.id) {
+          setAuthUserId(userData.user.id);
+        }
+      } catch (e) {
+        console.warn('[EditorToolbar] Falha ao verificar autenticação:', e);
       }
-    });
+    };
+    fetchUser();
   }, []);
 
   useEffect(() => {
@@ -337,13 +351,45 @@ export function EditorToolbar({ editor, activeNoteId }: EditorToolbarProps) {
     try {
       setIsUploading(true);
       setShowAddFileMenu(false);
+
+      // Validação rigorosa de autenticação antes do upload
+      let authUid: string | null = effectiveUserId;
+      const supabase = createClient();
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user?.id) {
+          authUid = sessionData.session.user.id;
+        } else {
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user?.id) {
+            authUid = userData.user.id;
+          }
+        }
+      } catch (authErr) {
+        console.warn('[EditorToolbar] Falha ao checar auth:', authErr);
+      }
+
+      if (!authUid && typeof window !== 'undefined') {
+        const cached = localStorage.getItem('anotado_last_auth_user_id');
+        if (cached && cached !== 'anonymous') authUid = cached;
+      }
+
+      console.log(`[Attachment] AUTH CHECK userId=${authUid || 'null'} noteId=${activeNoteId || 'none'}`);
+
+      if (!authUid || authUid === 'anonymous') {
+        console.error('[Attachment] AUTH CHECK FAILED: Nenhuma sessão de usuário autenticado encontrada para upload.');
+        alert('Usuário não autenticado. Faça login para fazer upload de arquivos.');
+        return;
+      }
+
       const fileList = Array.from(files);
       for (const file of fileList) {
-        // 1. Upload do arquivo
-        // 2. Aguarda conclusão do upload
-        // 3. Obtém a referência definitiva
-        const result = await uploadNoteFile(userId, file, activeNoteId || undefined);
-        // 4. Insere a referência definitiva no documento
+        console.log(
+          `[Attachment] LOCAL CREATE starting for file="${file.name}" size=${file.size} mimeType="${file.type}"`
+        );
+        // 1. Upload do arquivo para fila local / IndexedDB do usuário autenticado
+        const result = await uploadNoteFile(authUid, file, activeNoteId || undefined);
+        // 2. Insere a referência canônica (attachment://) no documento Tiptap
         editor.chain().focus().setImage({ src: result.url, alt: result.name }).run();
       }
     } catch (err) {
@@ -362,7 +408,41 @@ export function EditorToolbar({ editor, activeNoteId }: EditorToolbarProps) {
     try {
       setIsUploading(true);
       setShowAddFileMenu(false);
-      const result = await uploadNoteFile(userId, file, activeNoteId || undefined);
+
+      // Validação rigorosa de autenticação antes do upload
+      let authUid: string | null = effectiveUserId;
+      const supabase = createClient();
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user?.id) {
+          authUid = sessionData.session.user.id;
+        } else {
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user?.id) {
+            authUid = userData.user.id;
+          }
+        }
+      } catch (authErr) {
+        console.warn('[EditorToolbar] Falha ao checar auth:', authErr);
+      }
+
+      if (!authUid && typeof window !== 'undefined') {
+        const cached = localStorage.getItem('anotado_last_auth_user_id');
+        if (cached && cached !== 'anonymous') authUid = cached;
+      }
+
+      console.log(`[Attachment] AUTH CHECK userId=${authUid || 'null'} noteId=${activeNoteId || 'none'}`);
+
+      if (!authUid || authUid === 'anonymous') {
+        console.error('[Attachment] AUTH CHECK FAILED: Nenhuma sessão de usuário autenticado encontrada para upload.');
+        alert('Usuário não autenticado. Faça login para fazer upload de arquivos.');
+        return;
+      }
+
+      console.log(
+        `[Attachment] LOCAL CREATE starting for file="${file.name}" size=${file.size} mimeType="${file.type}"`
+      );
+      const result = await uploadNoteFile(authUid, file, activeNoteId || undefined);
       editor
         .chain()
         .focus()

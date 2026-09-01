@@ -717,6 +717,9 @@ class SyncEngine {
             if (itemSuccess) {
               // Remove da fila SOMENTE após confirmação de sucesso real no Supabase
               await indexedDBStorage.removeSyncQueueItem(userId, item.id);
+              if (item.action === 'UPLOAD_ATTACHMENT') {
+                console.log(`[Attachment] QUEUE REMOVED queueId=${item.id} attachmentId=${item.entity_id}`);
+              }
               processedCount++;
             } else {
               const friendlyErr = formatFriendlyErrorMessage('Execução retornou falso');
@@ -1228,6 +1231,17 @@ class SyncEngine {
         const attachmentId = item.entity_id;
         const noteId = item.payload?.noteId || null;
 
+        console.log('[Attachment] AUTH CHECK');
+        console.log(`[Attachment] AUTH USER ID: ${authenticatedUid || 'none'}`);
+        console.log(`[Attachment] EXPECTED USER ID: ${userId}`);
+
+        if (authenticatedUid && userId !== 'demo-user' && authenticatedUid !== userId) {
+          console.error(`[Attachment] AUTH MISMATCH itemUserId=${userId} authUid=${authenticatedUid}`);
+          return false;
+        }
+
+        console.log(`[Attachment] PROCESS START attachmentId=${attachmentId} noteId=${noteId || 'none'} userId=${userId}`);
+
         if (this.uploadingAttachments.has(attachmentId)) {
           console.log(`[Attachment] UPLOAD ALREADY IN FLIGHT attachmentId=${attachmentId}`);
           return false;
@@ -1238,8 +1252,8 @@ class SyncEngine {
         try {
           const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
           if (!attachment) {
-            console.log(`[Attachment] SKIPPED (NOT FOUND) noteId=${noteId || 'none'} attachmentId=${attachmentId}`);
-            return true;
+            console.error(`[Attachment] NOT FOUND noteId=${noteId || 'none'} attachmentId=${attachmentId}`);
+            return false;
           }
 
           if (attachment.syncStatus === 'synced' && attachment.remote_url) {
@@ -1248,19 +1262,21 @@ class SyncEngine {
           }
 
           if (!attachment.blob) {
-            console.log(`[Attachment] SKIPPED (NO BLOB) noteId=${noteId || 'none'} attachmentId=${attachmentId}`);
-            return true;
+            console.error(`[Attachment] BLOB MISSING noteId=${noteId || 'none'} attachmentId=${attachmentId}`);
+            return false;
           }
+
+          console.log(`[Attachment] BLOB FOUND attachmentId=${attachmentId} size=${attachment.file_size || attachment.blob.size || 0}`);
 
           const bucketName = ATTACHMENTS_BUCKET_NAME;
           const sanitizedName = (attachment.file_name || 'file').replace(/[^a-zA-Z0-9.-]/g, '_');
           const fileExt = sanitizedName.split('.').pop() || 'dat';
           const filePath = attachment.storage_path || `${userId}/${attachmentId}.${fileExt}`;
 
-          console.log(`[MEDIA] attachment upload started noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} fileName="${attachment.file_name}" fileSize=${attachment.file_size || attachment.blob.size || 0} mimeType="${attachment.file_type}" path="${filePath}"`);
+          console.log(`[Attachment] UPLOAD START path="${filePath}" size=${attachment.file_size || attachment.blob.size || 0}`);
 
           // 1. Upload do Blob para o bucket note-attachments do Supabase
-          const { error: uploadError } = await supabase.storage
+          const { data: uploadData, error: uploadError } = await supabase.storage
             .from(bucketName)
             .upload(filePath, attachment.blob, {
               contentType: attachment.file_type || 'application/octet-stream',
@@ -1268,10 +1284,12 @@ class SyncEngine {
               upsert: true,
             });
 
-          if (uploadError) {
-            console.error(`[MEDIA] attachment upload failed noteId=${noteId || 'none'} attachmentId=${attachmentId}:`, uploadError.message);
-            throw uploadError;
+          if (uploadError || !uploadData) {
+            console.error(`[Attachment] UPLOAD ERROR noteId=${noteId || 'none'} attachmentId=${attachmentId}:`, uploadError?.message || 'Sem confirmação');
+            throw uploadError || new Error('Falha no upload do storage');
           }
+
+          console.log(`[Attachment] UPLOAD SUCCESS path="${filePath}"`);
 
           // 2. Obtém a URL pública definitiva
           const { data: publicUrlData } = supabase.storage
@@ -1281,10 +1299,10 @@ class SyncEngine {
           const remoteUrl = publicUrlData?.publicUrl;
           if (!remoteUrl) throw new Error('Não foi possível obter URL pública da mídia');
 
-          console.log(`[MEDIA] attachment upload completed noteId=${noteId || attachment.note_id || 'none'} attachmentId=${attachmentId} url="${remoteUrl}"`);
-
           // 3. Registra / Upsert na tabela public.note_attachments
           const targetNoteId = attachment.note_id || noteId;
+          console.log(`[Attachment] NOTE_ATTACHMENT START attachmentId=${attachmentId} targetNoteId=${targetNoteId || 'none'}`);
+
           const { error: dbErr } = await supabase.from('note_attachments').upsert({
             id: attachmentId,
             note_id: targetNoteId,
@@ -1298,9 +1316,11 @@ class SyncEngine {
           });
 
           if (dbErr) {
-            console.error('[SyncEngine] ERRO ao registrar na tabela note_attachments:', dbErr.message);
+            console.error(`[Attachment] NOTE_ATTACHMENT ERROR attachmentId=${attachmentId}:`, dbErr.message);
             throw new Error(`Falha ao registrar metadados do anexo: ${dbErr.message}`);
           }
+
+          console.log(`[Attachment] NOTE_ATTACHMENT SUCCESS attachmentId=${attachmentId}`);
 
           // 4. Atualiza anexo local no IndexedDB com syncRequired = false e syncStatus = 'synced'
           attachment.remote_url = remoteUrl;
@@ -1312,6 +1332,7 @@ class SyncEngine {
             attachment.note_id = targetNoteId;
           }
           await indexedDBStorage.putAttachment(userId, attachment);
+          console.log(`[Attachment] SYNC MARKED attachmentId=${attachmentId} url="${remoteUrl}"`);
 
           // 5. Se o anexo estiver associado a uma nota, substitui referências locais no Markdown
           if (targetNoteId) {

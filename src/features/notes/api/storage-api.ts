@@ -218,7 +218,10 @@ export async function uploadNoteAttachment(
     customAttachmentId?: string;
   }
 ): Promise<UploadedMediaResult> {
-  const effectiveUserId = userId || 'anonymous';
+  if (!userId || userId === 'anonymous') {
+    throw new Error('Usuário não autenticado');
+  }
+
   const attachmentId = options?.customAttachmentId || (typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
     : `att-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
@@ -227,16 +230,16 @@ export async function uploadNoteAttachment(
   const mimeType = options?.mimeType || (fileOrBlob.type || 'application/octet-stream');
   const fileSize = fileOrBlob.size;
   const noteId = options?.noteId || null;
-  const storagePath = getAttachmentStoragePath(effectiveUserId, attachmentId, fileName);
+  const storagePath = getAttachmentStoragePath(userId, attachmentId, fileName);
 
   console.log(
-    `[StorageAPI] Novo anexo local registrado noteId=${noteId || 'none'} attachmentId=${attachmentId} fileName="${fileName}" fileSize=${fileSize} mimeType="${mimeType}"`
+    `[Attachment] LOCAL CREATE attachmentId=${attachmentId} noteId=${noteId || 'none'} userId=${userId} fileName="${fileName}" mimeType="${mimeType}" fileSize=${fileSize}`
   );
 
   // 1. Salva o anexo completo com Blob bruto no IndexedDB (sem Base64 no Markdown)
   const localAttachment: LocalAttachment = {
     id: attachmentId,
-    user_id: effectiveUserId,
+    user_id: userId,
     note_id: noteId,
     file_name: fileName,
     file_type: mimeType,
@@ -253,14 +256,15 @@ export async function uploadNoteAttachment(
   };
 
   try {
-    await indexedDBStorage.putAttachment(effectiveUserId, localAttachment);
+    await indexedDBStorage.putAttachment(userId, localAttachment);
   } catch (idbErr) {
     console.warn('[StorageAPI] Aviso ao salvar anexo no IndexedDB:', idbErr);
   }
 
   // 2. Registra na SyncQueue persistente para processamento exclusivo pelo SyncEngine
   try {
-    await indexedDBStorage.enqueueSyncItem(effectiveUserId, {
+    console.log(`[Attachment] QUEUE INSERT queueId=sync_att_${attachmentId} userId=${userId}`);
+    await indexedDBStorage.enqueueSyncItem(userId, {
       id: `sync_att_${attachmentId}`,
       action: 'UPLOAD_ATTACHMENT',
       entity_type: 'attachment',
@@ -276,7 +280,7 @@ export async function uploadNoteAttachment(
       },
       revision: 1,
     });
-    const pendingCount = await indexedDBStorage.getSyncQueueCount(effectiveUserId);
+    const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
     networkMonitor.updatePendingCount(pendingCount);
 
     // Dispara sincronização em segundo plano no SyncEngine sem bloquear a UI
@@ -310,17 +314,17 @@ export const uploadNoteFile = (userId: string | null, file: File, noteId?: strin
  * Remove anexo físico do storage, registro do note_attachments e do IndexedDB.
  */
 export async function deleteNoteAttachment(userId: string, attachmentId: string): Promise<boolean> {
-  const effectiveUserId = userId || 'anonymous';
+  if (!userId || userId === 'anonymous') return false;
   try {
-    const attachment = await indexedDBStorage.getAttachment(effectiveUserId, attachmentId);
-    await indexedDBStorage.deleteAttachment(effectiveUserId, attachmentId);
+    const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
+    await indexedDBStorage.deleteAttachment(userId, attachmentId);
 
     if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
       const supabase = createClient();
-      const storagePath = attachment?.storage_path || getAttachmentStoragePath(effectiveUserId, attachmentId, attachment?.file_name || 'dat');
+      const storagePath = attachment?.storage_path || getAttachmentStoragePath(userId, attachmentId, attachment?.file_name || 'dat');
 
       await supabase.storage.from(ATTACHMENTS_BUCKET_NAME).remove([storagePath]);
-      await supabase.from('note_attachments').delete().eq('id', attachmentId).eq('user_id', effectiveUserId);
+      await supabase.from('note_attachments').delete().eq('id', attachmentId).eq('user_id', userId);
     }
     return true;
   } catch (err) {
@@ -386,29 +390,13 @@ export async function prepareNoteContentForPersistence(
   const attachmentIds = extractAttachmentReferences(updatedContent);
 
   if (attachmentIds.length > 0) {
-    const supabase = createClient();
-    const isOnline = networkMonitor.getState().isBackendReachable;
-
     for (const attachmentId of attachmentIds) {
       try {
-        let attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
-        if (!attachment && userId !== 'anonymous') {
-          attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
-        }
+        const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
 
-        let remoteUrl = attachment?.remote_url || null;
-
-        // Se já tem storage_path e estamos online mas falta a publicUrl
-        if (!remoteUrl && attachment?.storage_path && isOnline && isSupabaseConfigured()) {
-          const { data: pubData } = supabase.storage
-            .from(ATTACHMENTS_BUCKET_NAME)
-            .getPublicUrl(attachment.storage_path);
-          if (pubData?.publicUrl) {
-            remoteUrl = pubData.publicUrl;
-            // Atualiza cache local no IndexedDB
-            attachment.remote_url = remoteUrl;
-            await indexedDBStorage.putAttachment(userId, attachment);
-          }
+        let remoteUrl: string | null = null;
+        if (attachment && attachment.syncStatus === 'synced' && attachment.remote_url) {
+          remoteUrl = attachment.remote_url;
         }
 
         if (remoteUrl) {

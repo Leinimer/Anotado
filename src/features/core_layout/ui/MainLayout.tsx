@@ -607,6 +607,7 @@ export function MainLayout() {
         <NoteCanvas
           key={activeNote?.id || 'empty'}
           activeNote={activeNote}
+          userId={userId}
           onUpdateTitle={(noteId, newTitle) => handleUpdateTitle(noteId, newTitle)}
           onUpdateContent={(noteId, newContent) => handleUpdateContent(noteId, newContent)}
           onUpdateTags={(noteId, newTags) => handleUpdateNoteTags(noteId, newTags)}
