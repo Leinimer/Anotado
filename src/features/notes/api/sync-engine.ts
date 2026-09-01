@@ -1266,20 +1266,43 @@ class SyncEngine {
             return false;
           }
 
-          console.log(`[Attachment] BLOB FOUND attachmentId=${attachmentId} size=${attachment.file_size || attachment.blob.size || 0}`);
+          let buffer: ArrayBuffer;
+          try {
+            buffer = await attachment.blob.arrayBuffer();
+          } catch (readErr: any) {
+            console.error(`[Attachment] BLOB READ ERROR attachmentId=${attachmentId}:`, readErr?.message || readErr);
+            return false;
+          }
+
+          const blobSize = attachment.blob.size || 0;
+          const bufferSize = buffer ? buffer.byteLength : 0;
+          const expectedSize = attachment.file_size || blobSize || 0;
+
+          console.log(
+            `[Attachment] BLOB VALIDATION blobSize=${blobSize} bufferSize=${bufferSize} expectedSize=${expectedSize}`
+          );
+
+          if (!buffer || buffer.byteLength === 0) {
+            console.error(`[Attachment] BLOB VALIDATION FAILED: buffer has 0 bytes for attachmentId=${attachmentId}`);
+            return false;
+          }
 
           const bucketName = ATTACHMENTS_BUCKET_NAME;
           const sanitizedName = (attachment.file_name || 'file').replace(/[^a-zA-Z0-9.-]/g, '_');
           const fileExt = sanitizedName.split('.').pop() || 'dat';
           const filePath = attachment.storage_path || `${userId}/${attachmentId}.${fileExt}`;
+          const mimeType = attachment.mime_type || attachment.file_type || 'application/octet-stream';
 
-          console.log(`[Attachment] UPLOAD START path="${filePath}" size=${attachment.file_size || attachment.blob.size || 0}`);
+          console.log(`[Attachment] UPLOAD START path="${filePath}" size=${bufferSize}`);
+
+          // Cria o corpo de upload a partir dos bytes reais validados
+          const uploadBody = new Blob([buffer], { type: mimeType });
 
           // 1. Upload do Blob para o bucket note-attachments do Supabase
           const { data: uploadData, error: uploadError } = await supabase.storage
             .from(bucketName)
-            .upload(filePath, attachment.blob, {
-              contentType: attachment.file_type || 'application/octet-stream',
+            .upload(filePath, uploadBody, {
+              contentType: mimeType,
               cacheControl: '3600',
               upsert: true,
             });

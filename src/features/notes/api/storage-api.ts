@@ -228,15 +228,30 @@ export async function uploadNoteAttachment(
 
   const fileName = options?.fileName || (fileOrBlob instanceof File ? fileOrBlob.name : 'attachment.dat');
   const mimeType = options?.mimeType || (fileOrBlob.type || 'application/octet-stream');
-  const fileSize = fileOrBlob.size;
   const noteId = options?.noteId || null;
   const storagePath = getAttachmentStoragePath(userId, attachmentId, fileName);
+
+  console.log(`[Attachment] INPUT FILE name="${fileName}" size=${fileOrBlob.size} type="${mimeType}"`);
+
+  // 1. Extrai imediatamente os bytes reais do arquivo para desvincular do ciclo de vida do input mobile
+  const arrayBuffer = await fileOrBlob.arrayBuffer();
+  console.log(`[Attachment] ARRAYBUFFER CAPTURED byteLength=${arrayBuffer.byteLength}`);
+
+  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+    console.error(`[Attachment] VALIDATION FAILED: Arquivo "${fileName}" possui 0 bytes.`);
+    throw new Error('Arquivo selecionado possui 0 bytes');
+  }
+
+  // 2. Cria cópia binária independente (detached Blob) imune a limpezas de input ou suspensão de aba
+  const detachedBlob = new Blob([arrayBuffer], { type: mimeType });
+  const fileSize = arrayBuffer.byteLength;
+  console.log(`[Attachment] LOCAL BLOB STORED size=${detachedBlob.size}`);
 
   console.log(
     `[Attachment] LOCAL CREATE attachmentId=${attachmentId} noteId=${noteId || 'none'} userId=${userId} fileName="${fileName}" mimeType="${mimeType}" fileSize=${fileSize}`
   );
 
-  // 1. Salva o anexo completo com Blob bruto no IndexedDB (sem Base64 no Markdown)
+  // 3. Salva o anexo com detachedBlob independente no IndexedDB
   const localAttachment: LocalAttachment = {
     id: attachmentId,
     user_id: userId,
@@ -245,7 +260,7 @@ export async function uploadNoteAttachment(
     file_type: mimeType,
     mime_type: mimeType,
     file_size: fileSize,
-    blob: fileOrBlob,
+    blob: detachedBlob,
     storage_path: storagePath,
     remote_url: null,
     syncRequired: true,
