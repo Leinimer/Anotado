@@ -1142,121 +1142,140 @@ export function SidebarNavigation({
     };
 
     return (
-      <div key={folder.id} className="space-y-0.5 select-none relative">
+      <div key={folder.id} className="space-y-0.5 select-none relative w-full" data-tree-row="true">
         {/* Linha de Inserção Horizontal ANTES da Pasta */}
         {isDropBefore && !isSystemArchive && (
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
         )}
 
-        <div
-          id={`folder-item-${folder.id}`}
-          data-tree-item="true"
-          data-item-id={folder.id}
-          data-item-type="folder"
-          draggable={!isEditing && !isSystemArchive}
-          onDragStart={(e) => handleDragStart(e, 'folder', folder.id)}
-          onDragEnd={handleDragEnd}
-          onDragOver={(e) => handleDragOverFolder(e, folder)}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onTouchStart={(e) => handleTouchStart('folder', folder.id, e)}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onClick={handleFolderClick}
-          onDoubleClick={handleFolderDoubleClick}
-          onContextMenu={(e) => {
-            if (!isSystemArchive) {
-              handleContextMenu(e, folder.id, 'folder');
-            }
-          }}
-          style={{ paddingLeft: `${folder.depth * 16 + 12}px` }}
-          className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-all relative ${
-            isSelectedInMulti
-              ? 'bg-[#e8decb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
-              : isDropInside
-              ? 'bg-[#d7c3b0]/70 border-2 border-dashed border-[#68594d]'
-              : isMenuOpenForThisFolder
-              ? 'bg-[#e4e2dd]/90 text-[#1b1c19]'
-              : isSystemArchive
-              ? 'text-[#5e4b3e] hover:bg-[#f0ece5]'
-              : 'text-[#4e453f] hover:bg-[#e4e2dd]/70'
-          }`}
-        >
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <div className="relative shrink-0 flex items-center justify-center">
-              {isSystemArchive ? (
-                <Archive
-                  className="w-4 h-4 shrink-0 stroke-[1.75]"
-                  style={{ color: iconColor }}
-                />
-              ) : isOpen ? (
-                <FolderOpen
-                  className="w-4 h-4 shrink-0 stroke-[1.75]"
-                  style={{ color: iconColor }}
+        <div className="flex items-center w-full min-w-0" data-tree-row-inner="true">
+          {/* Espaço de Indentação Livre à Esquerda */}
+          {folder.depth > 0 && (
+            <div
+              style={{ width: `${folder.depth * 14}px` }}
+              className="shrink-0 h-7 pointer-events-auto cursor-default"
+              data-tree-indent-space="true"
+            />
+          )}
+
+          {/* Cápsula Interativa Real da Pasta */}
+          <div
+            id={`folder-item-${folder.id}`}
+            data-tree-item="true"
+            data-item-id={folder.id}
+            data-item-type="folder"
+            draggable={!isEditing && !isSystemArchive}
+            onDragStart={(e) => handleDragStart(e, 'folder', folder.id)}
+            onDragEnd={handleDragEnd}
+            onDragOver={(e) => handleDragOverFolder(e, folder)}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onTouchStart={(e) => handleTouchStart('folder', folder.id, e)}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onClick={handleFolderClick}
+            onDoubleClick={handleFolderDoubleClick}
+            onContextMenu={(e) => {
+              if (!isSystemArchive) {
+                handleContextMenu(e, folder.id, 'folder');
+              }
+            }}
+            className={`group flex items-center justify-between gap-1.5 px-2 py-1.5 text-sm rounded-lg cursor-pointer transition-all relative w-fit max-w-[calc(100%-4px)] min-w-[130px] ${
+              isSelectedInMulti
+                ? 'bg-[#e8decb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
+                : isDropInside
+                ? 'bg-[#d7c3b0]/70 border-2 border-dashed border-[#68594d]'
+                : isMenuOpenForThisFolder
+                ? 'bg-[#e4e2dd]/90 text-[#1b1c19]'
+                : isSystemArchive
+                ? 'text-[#5e4b3e] hover:bg-[#f0ece5]'
+                : 'text-[#4e453f] hover:bg-[#e4e2dd]/70'
+            }`}
+          >
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              {/* Seta indicador antes do ícone */}
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFolder(folder.id, e);
+                }}
+                className="shrink-0 flex items-center justify-center cursor-pointer text-[#7f756e] hover:text-[#1b1c19] transition-transform"
+                title={isOpen ? 'Recolher pasta' : 'Expandir pasta'}
+                aria-label={isOpen ? 'Recolher pasta' : 'Expandir pasta'}
+              >
+                {isOpen ? (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5" />
+                )}
+              </span>
+
+              <div className="relative shrink-0 flex items-center justify-center">
+                {isSystemArchive ? (
+                  <Archive
+                    className="w-4 h-4 shrink-0 stroke-[1.75]"
+                    style={{ color: iconColor }}
+                  />
+                ) : isOpen ? (
+                  <FolderOpen
+                    className="w-4 h-4 shrink-0 stroke-[1.75]"
+                    style={{ color: iconColor }}
+                  />
+                ) : (
+                  <Folder
+                    className="w-4 h-4 shrink-0 stroke-[1.5]"
+                    style={{ color: iconColor }}
+                  />
+                )}
+                {isSmart && (
+                  <Sparkles className="w-2.5 h-2.5 absolute -top-1 -right-1 text-[#eab308] fill-[#eab308]" />
+                )}
+              </div>
+
+              {isEditing && !isSystemArchive ? (
+                <input
+                  ref={editInputRef}
+                  type="text"
+                  value={editingValue}
+                  onChange={(e) => setEditingValue(e.target.value)}
+                  onBlur={handleSaveRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveRename();
+                    if (e.key === 'Escape') {
+                      isCancellingRenameRef.current = true;
+                      setEditingItemId(null);
+                      setEditingItemType(null);
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className="w-full bg-white px-1.5 py-0.5 text-xs font-sans-ui rounded border border-[#68594d] focus:outline-none min-w-[100px]"
                 />
               ) : (
-                <Folder
-                  className="w-4 h-4 shrink-0 stroke-[1.5]"
-                  style={{ color: iconColor }}
-                />
-              )}
-              {isSmart && (
-                <Sparkles className="w-2.5 h-2.5 absolute -top-1 -right-1 text-[#eab308] fill-[#eab308]" />
+                <div className="flex items-center gap-1.5 truncate">
+                  <span className={`font-sans-ui truncate text-xs sm:text-sm ${isSystemArchive ? 'font-semibold text-[#5e4b3e]' : 'font-medium text-[#3b332d]'}`}>
+                    {folder.name}
+                  </span>
+                  {isSystemArchive && folder.notes.length > 0 && (
+                    <span className="text-[10px] text-[#8c6b4f] bg-[#e8ded3] px-1.5 py-0.2 rounded-full font-medium">
+                      {folder.notes.length}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
 
-            {isEditing && !isSystemArchive ? (
-              <input
-                ref={editInputRef}
-                type="text"
-                value={editingValue}
-                onChange={(e) => setEditingValue(e.target.value)}
-                onBlur={handleSaveRename}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSaveRename();
-                  if (e.key === 'Escape') {
-                    isCancellingRenameRef.current = true;
-                    setEditingItemId(null);
-                    setEditingItemType(null);
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-                onDoubleClick={(e) => e.stopPropagation()}
-                className="w-full bg-white px-1.5 py-0.5 text-xs font-sans-ui rounded border border-[#68594d] focus:outline-none"
-              />
-            ) : (
-              <div className="flex items-center gap-1.5 truncate">
-                <span className={`font-sans-ui truncate text-xs sm:text-sm ${isSystemArchive ? 'font-semibold text-[#5e4b3e]' : 'font-medium text-[#3b332d]'}`}>
-                  {folder.name}
-                </span>
-                {isSystemArchive && folder.notes.length > 0 && (
-                  <span className="text-[10px] text-[#8c6b4f] bg-[#e8ded3] px-1.5 py-0.2 rounded-full font-medium">
-                    {folder.notes.length}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1 shrink-0">
             {/* Menu ... (Não exibido para a pasta de sistema Notas Arquivadas) */}
             {!isSystemArchive && (
               <button
                 id={`folder-menu-btn-${folder.id}`}
                 onClick={(e) => handleOpenMenu(e, folder.id, 'folder')}
-                className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity"
+                className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity ml-1 shrink-0"
                 title="Opções da Pasta"
                 aria-label="Opções da Pasta"
               >
                 <MoreHorizontal className="w-4 h-4" />
               </button>
-            )}
-
-            {/* Seta indicador */}
-            {isOpen ? (
-              <ChevronDown className="w-3.5 h-3.5 text-[#7f756e]" />
-            ) : (
-              <ChevronRight className="w-3.5 h-3.5 text-[#7f756e]" />
             )}
           </div>
         </div>
@@ -1356,91 +1375,102 @@ export function SidebarNavigation({
     };
 
     return (
-      <div key={note.id} className="relative space-y-0.5 select-none">
+      <div key={note.id} className="relative space-y-0.5 select-none w-full" data-tree-row="true">
         {/* Linha de Inserção Horizontal ANTES da Nota */}
         {isDropBefore && (
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
         )}
 
-        <div
-          id={`note-item-${note.id}`}
-          data-tree-item="true"
-          data-item-id={note.id}
-          data-item-type="note"
-          draggable={!isEditing}
-          onDragStart={(e) => handleDragStart(e, 'note', note.id)}
-          onDragEnd={handleDragEnd}
-          onDragOver={(e) => handleDragOverNote(e, note)}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onTouchStart={(e) => handleTouchStart('note', note.id, e)}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onClick={handleNoteClick}
-          onDoubleClick={handleNoteDoubleClick}
-          onContextMenu={(e) => handleContextMenu(e, note.id, 'note', isArchived)}
-          style={{ paddingLeft: `${note.depth * 16 + 12}px` }}
-          className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative ${
-            isSelectedInMulti
-              ? 'bg-[#f4dfcb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
-              : isActive
-              ? 'bg-[#f4dfcb] text-[#1b1c19] font-medium shadow-2xs'
-              : isMenuOpenForThisNote
-              ? 'bg-[#e4e2dd]/80 text-[#1b1c19]'
-              : 'text-[#4e453f] hover:bg-[#e4e2dd]/60'
-          }`}
-        >
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            {isArchived ? (
-              <Archive
-                className={`w-3.5 h-3.5 shrink-0 ${
-                  isActive ? 'text-[#8c6b4f] stroke-[2]' : 'text-[#a1968e] stroke-[1.5]'
-                }`}
-              />
-            ) : (
-              <FileText
-                className={`w-4 h-4 shrink-0 ${
-                  isActive ? 'text-[#68594d] stroke-[2]' : 'text-[#7f756e] stroke-[1.5]'
-                }`}
-              />
-            )}
+        <div className="flex items-center w-full min-w-0" data-tree-row-inner="true">
+          {/* Espaço de Indentação Livre à Esquerda */}
+          {note.depth > 0 && (
+            <div
+              style={{ width: `${note.depth * 14}px` }}
+              className="shrink-0 h-7 pointer-events-auto cursor-default"
+              data-tree-indent-space="true"
+            />
+          )}
 
-            {isEditing ? (
-              <input
-                ref={editInputRef}
-                type="text"
-                value={editingValue}
-                onChange={(e) => setEditingValue(e.target.value)}
-                onBlur={handleSaveRename}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSaveRename();
-                  if (e.key === 'Escape') {
-                    isCancellingRenameRef.current = true;
-                    setEditingItemId(null);
-                    setEditingItemType(null);
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-                onDoubleClick={(e) => e.stopPropagation()}
-                className="w-full bg-white px-1.5 py-0.5 text-xs font-sans-ui rounded border border-[#68594d] focus:outline-none"
-              />
-            ) : (
-              <span className="font-sans-ui truncate text-xs sm:text-sm">
-                {note.title || 'Sem título'}
-              </span>
-            )}
-          </div>
-
-          {/* Menu Horizontal ... */}
-          <button
-            id={`note-menu-btn-${note.id}`}
-            onClick={(e) => handleOpenMenu(e, note.id, 'note', isArchived)}
-            className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity"
-            title="Opções da Nota"
-            aria-label="Opções da Nota"
+          {/* Cápsula Interativa Real da Nota */}
+          <div
+            id={`note-item-${note.id}`}
+            data-tree-item="true"
+            data-item-id={note.id}
+            data-item-type="note"
+            draggable={!isEditing}
+            onDragStart={(e) => handleDragStart(e, 'note', note.id)}
+            onDragEnd={handleDragEnd}
+            onDragOver={(e) => handleDragOverNote(e, note)}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onTouchStart={(e) => handleTouchStart('note', note.id, e)}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onClick={handleNoteClick}
+            onDoubleClick={handleNoteDoubleClick}
+            onContextMenu={(e) => handleContextMenu(e, note.id, 'note', isArchived)}
+            className={`group flex items-center justify-between gap-1.5 px-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative w-fit max-w-[calc(100%-4px)] min-w-[120px] ${
+              isSelectedInMulti
+                ? 'bg-[#f4dfcb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
+                : isActive
+                ? 'bg-[#f4dfcb] text-[#1b1c19] font-medium shadow-2xs'
+                : isMenuOpenForThisNote
+                ? 'bg-[#e4e2dd]/80 text-[#1b1c19]'
+                : 'text-[#4e453f] hover:bg-[#e4e2dd]/60'
+            }`}
           >
-            <MoreHorizontal className="w-4 h-4" />
-          </button>
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              {isArchived ? (
+                <Archive
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    isActive ? 'text-[#8c6b4f] stroke-[2]' : 'text-[#a1968e] stroke-[1.5]'
+                  }`}
+                />
+              ) : (
+                <FileText
+                  className={`w-4 h-4 shrink-0 ${
+                    isActive ? 'text-[#68594d] stroke-[2]' : 'text-[#7f756e] stroke-[1.5]'
+                  }`}
+                />
+              )}
+
+              {isEditing ? (
+                <input
+                  ref={editInputRef}
+                  type="text"
+                  value={editingValue}
+                  onChange={(e) => setEditingValue(e.target.value)}
+                  onBlur={handleSaveRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveRename();
+                    if (e.key === 'Escape') {
+                      isCancellingRenameRef.current = true;
+                      setEditingItemId(null);
+                      setEditingItemType(null);
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className="w-full bg-white px-1.5 py-0.5 text-xs font-sans-ui rounded border border-[#68594d] focus:outline-none min-w-[100px]"
+                />
+              ) : (
+                <span className="font-sans-ui truncate text-xs sm:text-sm">
+                  {note.title || 'Sem título'}
+                </span>
+              )}
+            </div>
+
+            {/* Menu Horizontal ... */}
+            <button
+              id={`note-menu-btn-${note.id}`}
+              onClick={(e) => handleOpenMenu(e, note.id, 'note', isArchived)}
+              className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity ml-1 shrink-0"
+              title="Opções da Nota"
+              aria-label="Opções da Nota"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Linha de Inserção Horizontal DEPOIS da Nota */}
