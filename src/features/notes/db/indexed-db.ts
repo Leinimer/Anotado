@@ -824,25 +824,37 @@ class IndexedDBStorage {
       }
     }
 
-    const syncItem: SyncQueueItem = {
-      id: deterministicId,
-      user_id: userId,
-      action: item.action,
-      entity_type: item.entity_type,
-      entity_id: item.entity_id,
-      payload: item.payload,
-      revision: item.revision || 1,
-      created_at: item.created_at || new Date().toISOString(),
-      attempts: 0,
-      status: 'pending',
-    };
-
     return new Promise<SyncQueueItem>((resolve, reject) => {
       const tx = db.transaction('sync_queue', 'readwrite');
       const store = tx.objectStore('sync_queue');
-      const request = store.put(syncItem);
-      request.onsuccess = () => resolve(syncItem);
-      request.onerror = () => reject(request.error);
+      const getReq = store.get(deterministicId);
+
+      getReq.onsuccess = () => {
+        const existing = getReq.result as SyncQueueItem | undefined;
+
+        const syncItem: SyncQueueItem = {
+          id: deterministicId,
+          user_id: userId,
+          action: item.action,
+          entity_type: item.entity_type,
+          entity_id: item.entity_id,
+          payload: item.payload,
+          revision: item.revision || (existing ? existing.revision : 1),
+          created_at: existing?.created_at || item.created_at || new Date().toISOString(),
+          attempts: existing ? existing.attempts : 0,
+          status: existing ? (existing.status === 'processing' ? 'pending' : existing.status) : 'pending',
+          last_error: existing?.last_error,
+          error_details: existing?.error_details,
+          last_attempt_at: existing?.last_attempt_at,
+          next_retry_at: existing?.next_retry_at,
+        };
+
+        const putReq = store.put(syncItem);
+        putReq.onsuccess = () => resolve(syncItem);
+        putReq.onerror = () => reject(putReq.error);
+      };
+
+      getReq.onerror = () => reject(getReq.error);
     });
   }
 

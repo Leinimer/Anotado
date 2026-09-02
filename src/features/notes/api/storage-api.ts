@@ -269,7 +269,8 @@ export async function uploadNoteAttachment(
   try {
     await indexedDBStorage.putAttachment(userId, localAttachment);
   } catch (idbErr) {
-    console.warn('[StorageAPI] Aviso ao salvar anexo no IndexedDB:', idbErr);
+    console.error('[StorageAPI] Erro ao salvar anexo no IndexedDB:', idbErr);
+    throw new Error(`Falha ao persistir anexo offline no IndexedDB: ${idbErr instanceof Error ? idbErr.message : String(idbErr)}`);
   }
 
   // 4. Registra na SyncQueue persistente para processamento exclusivo pelo SyncEngine
@@ -300,7 +301,8 @@ export async function uploadNoteAttachment(
       syncEngine.scheduleSync(100);
     }).catch(() => {});
   } catch (qErr) {
-    console.warn('[StorageAPI] Aviso ao enfileirar upload na SyncQueue:', qErr);
+    console.error('[StorageAPI] Erro ao enfileirar upload na SyncQueue:', qErr);
+    throw new Error(`Falha ao registrar anexo na fila de sincronização: ${qErr instanceof Error ? qErr.message : String(qErr)}`);
   }
 
   // 5. Retorna IMEDIATAMENTE a URI canônica do anexo local: attachment://[attachmentId]
