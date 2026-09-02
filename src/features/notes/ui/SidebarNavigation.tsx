@@ -547,9 +547,39 @@ export function SidebarNavigation({
       setDraggingItem({ type, id });
       e.dataTransfer.setData('text/plain', JSON.stringify({ type, id, multi: true }));
       e.dataTransfer.effectAllowed = 'move';
+
+      // Badge visual de arrasto em lote ("X itens")
+      try {
+        const count = multi.length;
+        const ghost = document.createElement('div');
+        ghost.style.position = 'absolute';
+        ghost.style.top = '-1000px';
+        ghost.style.left = '-1000px';
+        ghost.style.padding = '5px 12px';
+        ghost.style.background = '#68594d';
+        ghost.style.color = '#ffffff';
+        ghost.style.borderRadius = '9999px';
+        ghost.style.fontSize = '12px';
+        ghost.style.fontWeight = '600';
+        ghost.style.fontFamily = 'system-ui, sans-serif';
+        ghost.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25)';
+        ghost.style.pointerEvents = 'none';
+        ghost.style.zIndex = '9999';
+        ghost.innerText = `${count} itens`;
+        document.body.appendChild(ghost);
+        e.dataTransfer.setDragImage(ghost, 25, 15);
+        setTimeout(() => {
+          if (document.body.contains(ghost)) {
+            document.body.removeChild(ghost);
+          }
+        }, 0);
+      } catch {
+        // Fallback se setDragImage não for suportado
+      }
       return;
     }
 
+    // Drag Individual Estrito
     setDraggingMultiItems(null);
     setDraggingItem({ type, id });
     e.dataTransfer.setData('text/plain', JSON.stringify({ type, id }));
@@ -940,8 +970,8 @@ export function SidebarNavigation({
 
   // Handler para Marquee Selection na Área Vazia da Sidebar
   const handleTreeAreaPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    // Apenas botão principal (esquerdo)
-    if (e.button !== 0) return;
+    // Apenas botão principal (esquerdo) e ignora touch para preservar scroll nativo no mobile
+    if (e.button !== 0 || e.pointerType === 'touch') return;
 
     // Se o clique ocorreu sobre algum elemento interativo ou item da árvore, não inicia marquee
     const target = e.target as HTMLElement;
@@ -969,7 +999,7 @@ export function SidebarNavigation({
       const dy = moveEv.clientY - startY;
 
       if (!hasStarted) {
-        if (Math.hypot(dx, dy) > 4) {
+        if (Math.hypot(dx, dy) >= 5) {
           hasStarted = true;
           setIsMarqueeActive(true);
           document.body.style.userSelect = 'none';
@@ -1643,10 +1673,16 @@ export function SidebarNavigation({
         {/* Pasta Especial do Sistema: "Notas arquivadas" */}
         {filteredArchivedFolder && renderFolderNode(filteredArchivedFolder)}
 
-        {!hasResults && (
+        {!hasResults ? (
           <div className="p-4 text-center text-xs text-[#7f756e] font-sans-ui">
             Nenhuma nota ou pasta encontrada.
           </div>
+        ) : (
+          /* Espaço vazio inferior garantido para início de Marquee e Drop na raiz */
+          <div
+            className="h-12 w-full min-h-[48px] pointer-events-auto cursor-default"
+            data-empty-marquee-area="true"
+          />
         )}
       </div>
 
