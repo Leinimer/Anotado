@@ -49,11 +49,11 @@ export const CustomYoutube = Node.create<CustomYoutubeOptions>({
         }),
       },
       width: {
-        default: '100%',
-        parseHTML: (element) => element.getAttribute('data-width') || element.style.width || '100%',
+        default: '50%',
+        parseHTML: (element) => element.getAttribute('data-width') || element.style.width || '50%',
         renderHTML: (attributes) => ({
-          'data-width': attributes.width,
-          style: `width: ${attributes.width}; max-width: 100%; aspect-ratio: 16/9;`,
+          'data-width': attributes.width || '50%',
+          style: `width: ${attributes.width || '50%'}; max-width: 100%; aspect-ratio: 16/9;`,
         }),
       },
     };

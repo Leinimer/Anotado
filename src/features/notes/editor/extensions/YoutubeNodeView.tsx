@@ -29,7 +29,7 @@ import {
 export function YoutubeNodeView(props: NodeViewProps) {
   const { node, updateAttributes, deleteNode, selected, editor, getPos } = props;
   const src = node.attrs.src || '';
-  const initialWidthAttr = node.attrs.width || '100%';
+  const initialWidthAttr = node.attrs.width || '50%';
   const alignment = (node.attrs.alignment as 'left' | 'center' | 'right') || 'center';
 
   const containerRef = useRef<HTMLDivElement>(null);
