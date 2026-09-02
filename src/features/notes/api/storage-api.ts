@@ -2,6 +2,7 @@ import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supa
 import { indexedDBStorage, LocalAttachment } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
 import { base64AttachmentMigrator } from './base64-attachment-migrator';
+import { generateUUID } from '../utils/uuid';
 
 export const ATTACHMENTS_BUCKET_NAME = 'note-attachments';
 
@@ -222,9 +223,7 @@ export async function uploadNoteAttachment(
     throw new Error('Usuário não autenticado');
   }
 
-  const attachmentId = options?.customAttachmentId || (typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `att-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
+  const attachmentId = options?.customAttachmentId || generateUUID();
 
   const fileName = options?.fileName || (fileOrBlob instanceof File ? fileOrBlob.name : 'attachment.dat');
   const mimeType = options?.mimeType || (fileOrBlob.type || 'application/octet-stream');

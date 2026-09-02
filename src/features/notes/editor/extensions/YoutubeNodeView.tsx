@@ -4,19 +4,11 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
 import { NodeSelection } from '@tiptap/pm/state';
 import {
-  Trash2,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  GripVertical,
-  ChevronUp,
-  ChevronDown,
   Play,
   Youtube,
 } from 'lucide-react';
 import {
   moveNodeBlock,
-  isInsideMediaGroup,
 } from '../utils/node-movement';
 import {
   getYouTubeThumbnailUrl,
@@ -25,6 +17,10 @@ import {
   isMediaInCache,
   perfProfiler,
 } from '../utils/media-optimizer';
+import { getMediaAlignmentClass } from '../utils/media-common';
+import { useMediaResize } from '../hooks/use-media-resize';
+import { MediaResizeHandles } from '../ui/MediaResizeHandles';
+import { MediaFloatingToolbar } from '../ui/MediaToolbarControls';
 
 export function YoutubeNodeView(props: NodeViewProps) {
   const { node, updateAttributes, deleteNode, selected, editor, getPos } = props;
@@ -36,8 +32,6 @@ export function YoutubeNodeView(props: NodeViewProps) {
   const iframeWrapperRef = useRef<HTMLDivElement>(null);
 
   const [isLocalSelected, setIsLocalSelected] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
-  const [resizingWidth, setResizingWidth] = useState<number | null>(null);
 
   // Estado de carregamento inteligente do Player do YouTube
   const initialInCache = useMemo(() => isMediaInCache(src), [src]);
@@ -48,14 +42,20 @@ export function YoutubeNodeView(props: NodeViewProps) {
   const videoId = useMemo(() => extractYouTubeVideoId(src), [src]);
   const thumbnailUrl = useMemo(() => getYouTubeThumbnailUrl(src), [src]);
 
-  const isSelected = isLocalSelected || isResizing;
+  const { isResizing, resizingWidth, handleResizeStart } = useMediaResize({
+    containerRef,
+    targetRef: iframeWrapperRef,
+    aspectRatio: 16 / 9,
+    minWidth: 200,
+    onPersistWidth: (finalWidth) => {
+      updateAttributes({ width: finalWidth });
+      console.log('[MEDIA-PERSIST]', { type: 'youtube', width: finalWidth, alignment });
+    },
+    onSelect: () => setIsLocalSelected(true),
+  });
 
-  const alignClass =
-    alignment === 'left'
-      ? 'justify-start'
-      : alignment === 'right'
-      ? 'justify-end'
-      : 'justify-center';
+  const isSelected = isLocalSelected || isResizing;
+  const alignClass = getMediaAlignmentClass(alignment);
 
   const currentDisplayWidth =
     resizingWidth !== null
@@ -136,6 +136,15 @@ export function YoutubeNodeView(props: NodeViewProps) {
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Limpa touchTimer ao desmontar
+  useEffect(() => {
+    return () => {
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length !== 1) return;
     const touch = e.touches[0];
@@ -177,99 +186,6 @@ export function YoutubeNodeView(props: NodeViewProps) {
       setIsLocalSelected(true);
     }
   };
-
-  // Inicia o redimensionamento por arraste (Pointer / Touch / Mouse unificado)
-  const handleResizeStart = useCallback(
-    (
-      e: React.PointerEvent<HTMLDivElement>,
-      direction: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'left' | 'right'
-    ) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (!iframeWrapperRef.current) return;
-
-      setIsResizing(true);
-      setIsLocalSelected(true);
-
-      const startX = e.clientX;
-      const startY = e.clientY;
-      const startWidth = iframeWrapperRef.current.offsetWidth || 500;
-      const aspectRatio = 16 / 9; // Proporção padrão 16:9 de vídeos do YouTube
-
-      // Obtém a largura máxima disponível da folha
-      const editorElement =
-        containerRef.current?.closest('.ProseMirror') || containerRef.current?.parentElement;
-      const maxContainerWidth = editorElement ? editorElement.clientWidth - 24 : 800;
-
-      let latestCalculatedWidth = startWidth;
-
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        moveEvent.preventDefault();
-        const deltaX = moveEvent.clientX - startX;
-        const deltaY = moveEvent.clientY - startY;
-
-        let calculatedWidth = startWidth;
-
-        switch (direction) {
-          case 'right':
-            calculatedWidth = startWidth + deltaX;
-            break;
-          case 'left':
-            calculatedWidth = startWidth - deltaX;
-            break;
-          case 'bottom-right': {
-            const widthFromX = startWidth + deltaX;
-            const widthFromY = startWidth + deltaY * aspectRatio;
-            calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
-            break;
-          }
-          case 'bottom-left': {
-            const widthFromX = startWidth - deltaX;
-            const widthFromY = startWidth + deltaY * aspectRatio;
-            calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
-            break;
-          }
-          case 'top-right': {
-            const widthFromX = startWidth + deltaX;
-            const widthFromY = startWidth - deltaY * aspectRatio;
-            calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
-            break;
-          }
-          case 'top-left': {
-            const widthFromX = startWidth - deltaX;
-            const widthFromY = startWidth - deltaY * aspectRatio;
-            calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
-            break;
-          }
-        }
-
-        // Limites de tamanho: mínimo 200px, máximo largura total da folha
-        const clampedWidth = Math.min(Math.max(calculatedWidth, 200), maxContainerWidth);
-        latestCalculatedWidth = clampedWidth;
-        setResizingWidth(Math.round(clampedWidth));
-      };
-
-      const handlePointerUp = (upEvent: PointerEvent) => {
-        upEvent.preventDefault();
-        window.removeEventListener('pointermove', handlePointerMove);
-        window.removeEventListener('pointerup', handlePointerUp);
-        setIsResizing(false);
-        setResizingWidth(null);
-
-        const finalWidth = `${Math.round(latestCalculatedWidth)}px`;
-        // Persiste as dimensões nos atributos do node
-        updateAttributes({
-          width: finalWidth,
-        });
-        console.log('[MEDIA-PERSIST]', { type: 'youtube', width: finalWidth, alignment });
-      };
-
-      window.addEventListener('pointermove', handlePointerMove, { passive: false });
-      window.addEventListener('pointerup', handlePointerUp, { passive: false });
-    },
-    [updateAttributes, alignment]
-  );
 
   const handleStartPlay = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -316,168 +232,26 @@ export function YoutubeNodeView(props: NodeViewProps) {
       >
         {/* Barra Flutuante de Ações Rápidas (Aparece ao selecionar) */}
         {isSelected && (
-          <div
-            className="absolute -top-11 left-1/2 -translate-x-1/2 bg-[#ffffff]/98 backdrop-blur-xs border border-[#e4e2dd] shadow-lg rounded-xl px-2 py-1 flex items-center gap-1.5 z-30 text-xs font-sans-ui text-[#4e453f] animate-in fade-in zoom-in-95 pointer-events-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Handle de Arraste (Drag & Drop nativo do ProseMirror) */}
-            <div
-              data-drag-handle
-              className="p-1 hover:bg-[#f0eee9] rounded-md text-[#68594d] cursor-grab active:cursor-grabbing flex items-center justify-center"
-              title="Segure e arraste para reposicionar no documento"
-            >
-              <GripVertical className="w-3.5 h-3.5" />
-            </div>
-
-            {/* Mover para Cima e para Baixo */}
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => handleMove('up')}
-                className="p-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer"
-                title="Mover bloco para cima"
-                aria-label="Mover bloco para cima"
-              >
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleMove('down')}
-                className="p-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer"
-                title="Mover bloco para baixo"
-                aria-label="Mover bloco para baixo"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            {/* Controles de Alinhamento Horizontal */}
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  updateAttributes({ alignment: 'left' });
-                  console.log('[MEDIA-PERSIST]', { type: 'youtube', width: node.attrs.width, alignment: 'left' });
-                }}
-                className={`p-1 rounded-md transition-colors cursor-pointer ${
-                  alignment === 'left'
-                    ? 'bg-[#68594d] text-white shadow-2xs'
-                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                }`}
-                title="Alinhar à esquerda"
-                aria-label="Alinhar à esquerda"
-              >
-                <AlignLeft className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  updateAttributes({ alignment: 'center' });
-                  console.log('[MEDIA-PERSIST]', { type: 'youtube', width: node.attrs.width, alignment: 'center' });
-                }}
-                className={`p-1 rounded-md transition-colors cursor-pointer ${
-                  alignment === 'center'
-                    ? 'bg-[#68594d] text-white shadow-2xs'
-                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                }`}
-                title="Centralizar"
-                aria-label="Centralizar"
-              >
-                <AlignCenter className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  updateAttributes({ alignment: 'right' });
-                  console.log('[MEDIA-PERSIST]', { type: 'youtube', width: node.attrs.width, alignment: 'right' });
-                }}
-                className={`p-1 rounded-md transition-colors cursor-pointer ${
-                  alignment === 'right'
-                    ? 'bg-[#68594d] text-white shadow-2xs'
-                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                }`}
-                title="Alinhar à direita"
-                aria-label="Alinhar à direita"
-              >
-                <AlignRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            {/* Indicador numérico de largura */}
-            <span className="font-mono text-[11px] font-medium text-[#68594d] px-1">
-              {resizingWidth ? `${Math.round(resizingWidth)}px` : initialWidthAttr || '100%'}
-            </span>
-
-            {/* Presets rápidos */}
-            <button
-              type="button"
-              onClick={() => {
-                updateAttributes({ width: '50%' });
-                console.log('[MEDIA-PERSIST]', { type: 'youtube', width: '50%', alignment });
-              }}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
-                initialWidthAttr === '50%'
-                  ? 'bg-[#68594d] text-white'
-                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
-              }`}
-              title="50% da folha"
-              aria-label="Redimensionar para 50% da folha"
-            >
-              50%
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                updateAttributes({ width: '75%' });
-                console.log('[MEDIA-PERSIST]', { type: 'youtube', width: '75%', alignment });
-              }}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
-                initialWidthAttr === '75%'
-                  ? 'bg-[#68594d] text-white'
-                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
-              }`}
-              title="75% da folha"
-              aria-label="Redimensionar para 75% da folha"
-            >
-              75%
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                updateAttributes({ width: '100%' });
-                console.log('[MEDIA-PERSIST]', { type: 'youtube', width: '100%', alignment });
-              }}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
-                initialWidthAttr === '100%'
-                  ? 'bg-[#68594d] text-white'
-                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
-              }`}
-              title="100% da folha"
-              aria-label="Redimensionar para 100% da folha"
-            >
-              100%
-            </button>
-
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            {/* Excluir vídeo */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteNode();
-              }}
-              className="p-1 text-[#ba1a1a] hover:bg-[#fceded] rounded-md transition-colors cursor-pointer"
-              title="Excluir Vídeo"
-              aria-label="Excluir Vídeo"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <MediaFloatingToolbar
+            onMove={handleMove}
+            alignment={alignment}
+            onAlign={(align) => {
+              updateAttributes({ alignment: align });
+              console.log('[MEDIA-PERSIST]', { type: 'youtube', width: node.attrs.width, alignment: align });
+            }}
+            widthDisplay={resizingWidth ? `${Math.round(resizingWidth)}px` : initialWidthAttr || '100%'}
+            presets={[
+              { label: '50%', value: '50%' },
+              { label: '75%', value: '75%' },
+              { label: '100%', value: '100%' },
+            ]}
+            onSetWidth={(val) => {
+              updateAttributes({ width: val });
+              console.log('[MEDIA-PERSIST]', { type: 'youtube', width: val, alignment });
+            }}
+            onDelete={() => deleteNode()}
+            deleteTitle="Excluir Vídeo"
+          />
         )}
 
         {/* Container do Iframe com Proporção 16:9 Estrita e Facade Leve */}
@@ -541,61 +315,10 @@ export function YoutubeNodeView(props: NodeViewProps) {
 
         {/* Handles de Redimensionamento Interativos */}
         {isSelected && (
-          <>
-            {/* Quina Superior Esquerda */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'top-left')}
-              className="absolute -top-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
-              title="Redimensionar proporção 16:9"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Quina Superior Direita */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'top-right')}
-              className="absolute -top-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
-              title="Redimensionar proporção 16:9"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Quina Inferior Esquerda */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'bottom-left')}
-              className="absolute -bottom-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
-              title="Redimensionar proporção 16:9"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Quina Inferior Direita */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'bottom-right')}
-              className="absolute -bottom-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
-              title="Redimensionar proporção 16:9"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Lateral Esquerda */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'left')}
-              className="absolute top-1/2 -left-3 -translate-y-1/2 w-7 h-7 flex items-center justify-center cursor-ew-resize z-20 touch-none"
-              title="Redimensionar largura"
-            >
-              <div className="w-2.5 h-5 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Lateral Direita */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'right')}
-              className="absolute top-1/2 -right-3 -translate-y-1/2 w-7 h-7 flex items-center justify-center cursor-ew-resize z-20 touch-none"
-              title="Redimensionar largura"
-            >
-              <div className="w-2.5 h-5 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-          </>
+          <MediaResizeHandles
+            onResizeStart={handleResizeStart}
+            showTopHandles={true}
+          />
         )}
       </div>
     </NodeViewWrapper>

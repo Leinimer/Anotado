@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import {
-  Cloud,
   CloudOff,
   RefreshCw,
   CheckCircle2,

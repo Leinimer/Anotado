@@ -1,5 +1,6 @@
 import { Editor } from '@tiptap/react';
-import { NodeSelection } from '@tiptap/pm/state';
+import { Transaction, EditorState, TextSelection, NodeSelection } from '@tiptap/pm/state';
+import { Node as ProseMirrorNode } from '@tiptap/pm/model';
 
 /**
  * Verifica se o nó atual está contido dentro de um mediaGroup
@@ -160,4 +161,64 @@ export function moveNodeBlock(
     view.dispatch(tr);
     return true;
   }
+}
+
+/**
+ * Insere um nó de mídia de bloco de forma padronizada no documento ProseMirror:
+ * - Se um nó de mídia estiver selecionado, insere logo após sem substituí-lo.
+ * - Se o cursor estiver em parágrafo vazio, substitui o parágrafo vazio.
+ * - Se houver seleção de texto, substitui a seleção.
+ * - Garante parágrafo seguinte e foco de digitação limpo.
+ */
+export function insertMediaNode(
+  tr: Transaction,
+  state: EditorState,
+  node: ProseMirrorNode,
+  dispatch?: (tr: Transaction) => void
+): boolean {
+  const { schema, selection } = state;
+  const paragraphType = schema.nodes.paragraph;
+
+  const appendParagraphAndFocus = (afterPos: number) => {
+    if (paragraphType) {
+      tr.insert(afterPos, paragraphType.create());
+      try {
+        const textCursorPos = Math.min(afterPos + 1, tr.doc.content.size);
+        tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
+      } catch {}
+    }
+  };
+
+  if (selection instanceof NodeSelection) {
+    const insertPos = selection.to;
+    tr.insert(insertPos, node);
+    appendParagraphAndFocus(insertPos + node.nodeSize);
+    if (dispatch) dispatch(tr.scrollIntoView());
+    return true;
+  }
+
+  if (selection.$from.parent.isTextblock && selection.$from.parent.content.size === 0) {
+    const startPos = selection.$from.before();
+    const endPos = selection.$from.after();
+    tr.replaceWith(startPos, endPos, node);
+    appendParagraphAndFocus(startPos + node.nodeSize);
+    if (dispatch) dispatch(tr.scrollIntoView());
+    return true;
+  }
+
+  let insertPos = selection.to;
+  if (!selection.empty) {
+    tr.deleteSelection();
+    insertPos = tr.selection.from;
+  } else {
+    insertPos = selection.from;
+  }
+
+  tr.insert(insertPos, node);
+  appendParagraphAndFocus(insertPos + node.nodeSize);
+
+  if (dispatch) {
+    dispatch(tr.scrollIntoView());
+  }
+  return true;
 }

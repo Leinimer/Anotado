@@ -5,19 +5,11 @@ import { createPortal } from 'react-dom';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
 import { NodeSelection } from '@tiptap/pm/state';
 import {
-  Trash2,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  GripVertical,
-  ChevronUp,
-  ChevronDown,
   Image as ImageIcon,
   X,
 } from 'lucide-react';
 import {
   moveNodeBlock,
-  isInsideMediaGroup,
 } from '../utils/node-movement';
 import {
   getOptimizedImageUrl,
@@ -25,9 +17,11 @@ import {
   isMediaInCache,
   perfProfiler,
 } from '../utils/media-optimizer';
-import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
-import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
-import { ATTACHMENTS_BUCKET_NAME } from '@/src/features/notes/api/storage-api';
+import { getMediaAlignmentClass } from '../utils/media-common';
+import { useAttachmentSource } from '../hooks/use-attachment-source';
+import { useMediaResize } from '../hooks/use-media-resize';
+import { MediaResizeHandles } from '../ui/MediaResizeHandles';
+import { MediaFloatingToolbar } from '../ui/MediaToolbarControls';
 
 export function ImageNodeView(props: NodeViewProps) {
   const { node, updateAttributes, deleteNode, selected, editor, getPos } = props;
@@ -43,8 +37,6 @@ export function ImageNodeView(props: NodeViewProps) {
 
   const [isLocalSelected, setIsLocalSelected] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
-  const [resizingWidth, setResizingWidth] = useState<number | null>(null);
   const [aspectRatio, setAspectRatio] = useState<number>(() => {
     // Se tiver dimensões no atributo
     if (node.attrs.height && node.attrs.width && Number(node.attrs.height) > 0) {
@@ -57,139 +49,39 @@ export function ImageNodeView(props: NodeViewProps) {
   const initialInCache = useMemo(() => isMediaInCache(rawSrc), [rawSrc]);
   const [isVisibleInViewport, setIsVisibleInViewport] = useState(initialInCache);
   const [isImageLoaded, setIsImageLoaded] = useState(initialInCache);
-  const [imageError, setImageError] = useState(false);
-  const [currentSrc, setCurrentSrc] = useState(() => {
-    if (rawSrc.startsWith('attachment://')) {
-      return ''; // Será resolvido assincronamente a partir do IndexedDB
-    }
-    return getOptimizedImageUrl(rawSrc, 850);
+
+  const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
+  const {
+    resolvedSrc: currentSrc,
+    setResolvedSrc: setCurrentSrc,
+    hasError: imageError,
+    setHasError: setImageError,
+  } = useAttachmentSource({
+    rawSrc,
+    currentUserId,
+    transformInitialUrl: (url) => getOptimizedImageUrl(url, 850),
+    onRemoteResolved: (remoteUrl) => {
+      const optUrl = getOptimizedImageUrl(remoteUrl, 850);
+      setCurrentSrc(optUrl);
+      updateAttributes({ src: remoteUrl });
+      setImageError(false);
+    },
   });
 
-  // Resolve anexos locais offline via protocolo attachment://[id] ou local-attachment://[id]
-  useEffect(() => {
-    let isCancelled = false;
-
-    async function resolveLocalAttachment() {
-      if (rawSrc.startsWith('attachment://') || rawSrc.startsWith('local-attachment://')) {
-        const attachmentId = rawSrc.replace(/^(?:attachment|local-attachment):\/\//, '').trim();
-        try {
-          // Busca o anexo pelo ID no IndexedDB
-          const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
-          let attachment = await indexedDBStorage.getAttachment(currentUserId, attachmentId);
-          if (!attachment && currentUserId !== 'anonymous') {
-            attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
-          }
-
-          if (attachment) {
-            if (attachment.remote_url) {
-              // Se já foi sincronizado e tem URL remota, atualiza o src do nó no Tiptap
-              if (!isCancelled) {
-                const optUrl = getOptimizedImageUrl(attachment.remote_url, 850);
-                setCurrentSrc(optUrl);
-                updateAttributes({ src: attachment.remote_url });
-                setImageError(false);
-              }
-              return;
-            }
-
-            if (attachment.blob && !isCancelled) {
-              // Cria Blob URL temporária apenas em memória
-              if (localBlobUrlRef.current) {
-                URL.revokeObjectURL(localBlobUrlRef.current);
-              }
-              const blobUrl = URL.createObjectURL(attachment.blob);
-              localBlobUrlRef.current = blobUrl;
-              setCurrentSrc(blobUrl);
-              setIsVisibleInViewport(true);
-              setImageError(false);
-              return;
-            }
-          }
-
-          // Se não encontrou anexo no IndexedDB local, consulta tabela note_attachments no Supabase (outro dispositivo)
-          if (isSupabaseConfigured() && typeof navigator !== 'undefined' && navigator.onLine) {
-            try {
-              const supabase = createClient();
-              const { data: dbAtt } = await supabase
-                .from('note_attachments')
-                .select('*')
-                .eq('id', attachmentId)
-                .maybeSingle();
-
-              if (dbAtt && dbAtt.storage_path) {
-                const { data: pubData } = supabase.storage
-                  .from(ATTACHMENTS_BUCKET_NAME)
-                  .getPublicUrl(dbAtt.storage_path);
-
-                if (pubData?.publicUrl) {
-                  const remoteUrl = pubData.publicUrl;
-                  await indexedDBStorage.putAttachment(currentUserId, {
-                    id: dbAtt.id,
-                    user_id: currentUserId,
-                    note_id: dbAtt.note_id,
-                    file_name: dbAtt.file_name,
-                    file_type: dbAtt.mime_type,
-                    mime_type: dbAtt.mime_type,
-                    file_size: dbAtt.file_size,
-                    storage_path: dbAtt.storage_path,
-                    remote_url: remoteUrl,
-                    syncRequired: false,
-                    syncStatus: 'synced',
-                    sync_status: 'synced',
-                    created_at: dbAtt.created_at,
-                    updated_at: dbAtt.updated_at,
-                  });
-
-                  if (!isCancelled) {
-                    const optUrl = getOptimizedImageUrl(remoteUrl, 850);
-                    setCurrentSrc(optUrl);
-                    updateAttributes({ src: remoteUrl });
-                    setImageError(false);
-                    return;
-                  }
-                }
-              }
-            } catch (fetchErr) {
-              console.warn('[ImageNodeView] Falha ao consultar note_attachments no Supabase:', fetchErr);
-            }
-          }
-
-          // Se não encontrou nem local nem remotamente
-          if (!isCancelled) {
-            console.warn(`[ImageNodeView] Anexo não encontrado: ${attachmentId}`);
-            setImageError(true);
-          }
-        } catch (err) {
-          console.warn('[ImageNodeView] Falha ao resolver anexo local:', err);
-          if (!isCancelled) {
-            setImageError(true);
-          }
-        }
-      } else {
-        setCurrentSrc(getOptimizedImageUrl(rawSrc, 850));
-        setImageError(false);
-      }
-    }
-
-    resolveLocalAttachment();
-
-    return () => {
-      isCancelled = true;
-      if (localBlobUrlRef.current) {
-        URL.revokeObjectURL(localBlobUrlRef.current);
-        localBlobUrlRef.current = null;
-      }
-    };
-  }, [rawSrc, editor, updateAttributes]);
+  const { isResizing, resizingWidth, handleResizeStart } = useMediaResize({
+    containerRef,
+    targetRef: imgRef,
+    aspectRatio,
+    minWidth: 70,
+    onPersistWidth: (finalWidth) => {
+      updateAttributes({ width: finalWidth });
+      console.log('[MEDIA-PERSIST]', { type: 'image', width: finalWidth, alignment });
+    },
+    onSelect: () => setIsLocalSelected(true),
+  });
 
   const isSelected = isLocalSelected || isResizing;
-
-  const alignClass =
-    alignment === 'left'
-      ? 'justify-start'
-      : alignment === 'right'
-      ? 'justify-end'
-      : 'justify-center';
+  const alignClass = getMediaAlignmentClass(alignment);
 
   // Largura exibida: durante o arraste usa a largura em tempo real, caso contrário usa o atributo persistido
   const currentDisplayWidth =
@@ -293,6 +185,15 @@ export function ImageNodeView(props: NodeViewProps) {
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Limpa touchTimer ao desmontar
+  useEffect(() => {
+    return () => {
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length !== 1) return;
     const touch = e.touches[0];
@@ -361,99 +262,6 @@ export function ImageNodeView(props: NodeViewProps) {
     moveNodeBlock(editor as any, getPos as any, direction);
   };
 
-  // Inicia o redimensionamento por arraste (Pointer / Touch / Mouse unificado)
-  const handleResizeStart = useCallback(
-    (
-      e: React.PointerEvent<HTMLDivElement>,
-      direction: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'left' | 'right'
-    ) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (!containerRef.current) return;
-
-      setIsResizing(true);
-      setIsLocalSelected(true);
-
-      const startX = e.clientX;
-      const startY = e.clientY;
-      const startWidth = imgRef.current?.offsetWidth || containerRef.current.offsetWidth || 300;
-      const startHeight = imgRef.current?.offsetHeight || (startWidth / (aspectRatio || 1));
-      const currentRatio = aspectRatio || (startWidth / startHeight) || 1;
-
-      // Obtém a largura máxima disponível da folha (note container)
-      const editorElement = containerRef.current?.closest('.ProseMirror') || containerRef.current?.parentElement;
-      const maxContainerWidth = editorElement ? editorElement.clientWidth - 24 : 800;
-
-      let latestCalculatedWidth = startWidth;
-
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        moveEvent.preventDefault();
-        const deltaX = moveEvent.clientX - startX;
-        const deltaY = moveEvent.clientY - startY;
-
-        let calculatedWidth = startWidth;
-
-        switch (direction) {
-          case 'right':
-            calculatedWidth = startWidth + deltaX;
-            break;
-          case 'left':
-            calculatedWidth = startWidth - deltaX;
-            break;
-          case 'bottom-right': {
-            const widthFromX = startWidth + deltaX;
-            const widthFromY = startWidth + (deltaY * currentRatio);
-            calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
-            break;
-          }
-          case 'bottom-left': {
-            const widthFromX = startWidth - deltaX;
-            const widthFromY = startWidth + (deltaY * currentRatio);
-            calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
-            break;
-          }
-          case 'top-right': {
-            const widthFromX = startWidth + deltaX;
-            const widthFromY = startWidth - (deltaY * currentRatio);
-            calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
-            break;
-          }
-          case 'top-left': {
-            const widthFromX = startWidth - deltaX;
-            const widthFromY = startWidth - (deltaY * currentRatio);
-            calculatedWidth = Math.abs(deltaX) > Math.abs(deltaY) ? widthFromX : widthFromY;
-            break;
-          }
-        }
-
-        // Limites de tamanho: mínimo 70px, máximo a largura total da folha
-        const clampedWidth = Math.min(Math.max(calculatedWidth, 70), maxContainerWidth);
-        latestCalculatedWidth = clampedWidth;
-        setResizingWidth(Math.round(clampedWidth));
-      };
-
-      const handlePointerUp = (upEvent: PointerEvent) => {
-        upEvent.preventDefault();
-        window.removeEventListener('pointermove', handlePointerMove);
-        window.removeEventListener('pointerup', handlePointerUp);
-        setIsResizing(false);
-        setResizingWidth(null);
-
-        const finalWidth = `${Math.round(latestCalculatedWidth)}px`;
-        // Persiste as dimensões no documento da nota
-        updateAttributes({
-          width: finalWidth,
-        });
-        console.log('[MEDIA-PERSIST]', { type: 'image', width: finalWidth, alignment });
-      };
-
-      window.addEventListener('pointermove', handlePointerMove, { passive: false });
-      window.addEventListener('pointerup', handlePointerUp, { passive: false });
-    },
-    [aspectRatio, updateAttributes, alignment]
-  );
-
   return (
     <NodeViewWrapper
       as="div"
@@ -479,153 +287,25 @@ export function ImageNodeView(props: NodeViewProps) {
       >
         {/* Barra Flutuante de Informação e Ações Rápidas (Aparece ao selecionar) */}
         {isSelected && (
-          <div
-            className="absolute -top-11 left-1/2 -translate-x-1/2 bg-[#ffffff]/98 backdrop-blur-xs border border-[#e4e2dd] shadow-lg rounded-xl px-2 py-1 flex items-center gap-1.5 z-30 text-xs font-sans-ui text-[#4e453f] animate-in fade-in zoom-in-95 pointer-events-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Handle de Arraste (Drag & Drop nativo do ProseMirror) */}
-            <div
-              data-drag-handle
-              className="p-1 hover:bg-[#f0eee9] rounded-md text-[#68594d] cursor-grab active:cursor-grabbing flex items-center justify-center"
-              title="Segure e arraste para reposicionar no documento"
-            >
-              <GripVertical className="w-3.5 h-3.5" />
-            </div>
-
-            {/* Mover para Cima e para Baixo */}
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => handleMove('up')}
-                className="p-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer"
-                title="Mover bloco para cima"
-                aria-label="Mover bloco para cima"
-              >
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleMove('down')}
-                className="p-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer"
-                title="Mover bloco para baixo"
-                aria-label="Mover bloco para baixo"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            {/* Controles de Alinhamento Horizontal */}
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  updateAttributes({ alignment: 'left' });
-                  console.log('[MEDIA-PERSIST]', { type: 'image', width: node.attrs.width, alignment: 'left' });
-                }}
-                className={`p-1 rounded-md transition-colors cursor-pointer ${
-                  alignment === 'left'
-                    ? 'bg-[#68594d] text-white shadow-2xs'
-                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                }`}
-                title="Alinhar à esquerda"
-                aria-label="Alinhar à esquerda"
-              >
-                <AlignLeft className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  updateAttributes({ alignment: 'center' });
-                  console.log('[MEDIA-PERSIST]', { type: 'image', width: node.attrs.width, alignment: 'center' });
-                }}
-                className={`p-1 rounded-md transition-colors cursor-pointer ${
-                  alignment === 'center'
-                    ? 'bg-[#68594d] text-white shadow-2xs'
-                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                }`}
-                title="Centralizar"
-                aria-label="Centralizar"
-              >
-                <AlignCenter className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  updateAttributes({ alignment: 'right' });
-                  console.log('[MEDIA-PERSIST]', { type: 'image', width: node.attrs.width, alignment: 'right' });
-                }}
-                className={`p-1 rounded-md transition-colors cursor-pointer ${
-                  alignment === 'right'
-                    ? 'bg-[#68594d] text-white shadow-2xs'
-                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                }`}
-                title="Alinhar à direita"
-                aria-label="Alinhar à direita"
-              >
-                <AlignRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            {/* Indicador numérico de largura em tempo real */}
-            <span className="font-mono text-[11px] font-medium text-[#68594d] px-1">
-              {resizingWidth ? `${Math.round(resizingWidth)}px` : initialWidthAttr || 'Auto'}
-            </span>
-
-            {/* Presets rápidos */}
-            <button
-              type="button"
-              onClick={() => {
-                updateAttributes({ width: '50%' });
-                console.log('[MEDIA-PERSIST]', { type: 'image', width: '50%', alignment });
-              }}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
-                initialWidthAttr === '50%'
-                  ? 'bg-[#68594d] text-white'
-                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
-              }`}
-              title="50% da folha"
-              aria-label="Redimensionar para 50% da folha"
-            >
-              50%
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                updateAttributes({ width: '100%' });
-                console.log('[MEDIA-PERSIST]', { type: 'image', width: '100%', alignment });
-              }}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
-                initialWidthAttr === '100%'
-                  ? 'bg-[#68594d] text-white'
-                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
-              }`}
-              title="100% da folha"
-              aria-label="Redimensionar para 100% da folha"
-            >
-              100%
-            </button>
-
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            {/* Excluir imagem */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteNode();
-              }}
-              className="p-1 text-[#ba1a1a] hover:bg-[#fceded] rounded-md transition-colors cursor-pointer"
-              title="Excluir Imagem"
-              aria-label="Excluir Imagem"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <MediaFloatingToolbar
+            onMove={handleMove}
+            alignment={alignment}
+            onAlign={(align) => {
+              updateAttributes({ alignment: align });
+              console.log('[MEDIA-PERSIST]', { type: 'image', width: node.attrs.width, alignment: align });
+            }}
+            widthDisplay={resizingWidth ? `${Math.round(resizingWidth)}px` : initialWidthAttr || 'Auto'}
+            presets={[
+              { label: '50%', value: '50%' },
+              { label: '100%', value: '100%' },
+            ]}
+            onSetWidth={(val) => {
+              updateAttributes({ width: val });
+              console.log('[MEDIA-PERSIST]', { type: 'image', width: val, alignment });
+            }}
+            onDelete={() => deleteNode()}
+            deleteTitle="Excluir Imagem"
+          />
         )}
 
         {/* Skeleton Placeholder durante o carregamento / fora da viewport (Zero Layout Shift) */}
@@ -673,61 +353,10 @@ export function ImageNodeView(props: NodeViewProps) {
 
         {/* Handles de Redimensionamento Interativos (Visíveis ao Selecionar) */}
         {isSelected && (
-          <>
-            {/* Quina Superior Esquerda */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'top-left')}
-              className="absolute -top-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
-              title="Redimensionar proporção"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Quina Superior Direita */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'top-right')}
-              className="absolute -top-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
-              title="Redimensionar proporção"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Quina Inferior Esquerda */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'bottom-left')}
-              className="absolute -bottom-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
-              title="Redimensionar proporção"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Quina Inferior Direita */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'bottom-right')}
-              className="absolute -bottom-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
-              title="Redimensionar proporção"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Lateral Esquerda */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'left')}
-              className="absolute top-1/2 -left-3 -translate-y-1/2 w-7 h-7 flex items-center justify-center cursor-ew-resize z-20 touch-none"
-              title="Redimensionar largura"
-            >
-              <div className="w-2.5 h-5 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Lateral Direita */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'right')}
-              className="absolute top-1/2 -right-3 -translate-y-1/2 w-7 h-7 flex items-center justify-center cursor-ew-resize z-20 touch-none"
-              title="Redimensionar largura"
-            >
-              <div className="w-2.5 h-5 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-          </>
+          <MediaResizeHandles
+            onResizeStart={handleResizeStart}
+            showTopHandles={true}
+          />
         )}
       </div>
 

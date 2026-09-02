@@ -1,36 +1,22 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
 import { NodeSelection } from '@tiptap/pm/state';
 import {
   FileText,
-  Trash2,
   ExternalLink,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  GripVertical,
-  ChevronUp,
-  ChevronDown,
 } from 'lucide-react';
 import {
   moveNodeBlock,
-  isInsideMediaGroup,
 } from '../utils/node-movement';
 import { perfProfiler } from '../utils/media-optimizer';
+import { formatBytes, getMediaAlignmentClass } from '../utils/media-common';
 import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
-import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
-import { ATTACHMENTS_BUCKET_NAME } from '@/src/features/notes/api/storage-api';
-
-function formatBytes(bytes: number, decimals = 1) {
-  if (!bytes || bytes === 0) return '0 B';
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-}
+import { useAttachmentSource } from '../hooks/use-attachment-source';
+import { useMediaResize } from '../hooks/use-media-resize';
+import { MediaResizeHandles } from '../ui/MediaResizeHandles';
+import { MediaFloatingToolbar } from '../ui/MediaToolbarControls';
 
 export function DocumentNodeView(props: NodeViewProps) {
   const { node, updateAttributes, deleteNode, selected, editor, getPos } = props;
@@ -46,126 +32,38 @@ export function DocumentNodeView(props: NodeViewProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const localBlobUrlRef = useRef<string | null>(null);
 
   const [isLocalSelected, setIsLocalSelected] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
-  const [resizingWidth, setResizingWidth] = useState<number | null>(null);
-  const [resolvedSrc, setResolvedSrc] = useState<string>(() => {
-    if (rawSrc.startsWith('attachment://')) return '';
-    return rawSrc;
+
+  const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
+
+  // Hook unificado para resolução offline e online de anexos
+  const { resolvedSrc } = useAttachmentSource({
+    rawSrc,
+    currentUserId,
+    onRemoteResolved: (remoteUrl) => {
+      updateAttributes({ src: remoteUrl });
+    },
   });
 
-  // Resolve anexos locais offline via protocolo attachment://[id] ou local-attachment://[id]
-  useEffect(() => {
-    let isCancelled = false;
-
-    async function resolveLocalDoc() {
-      if (rawSrc.startsWith('attachment://') || rawSrc.startsWith('local-attachment://')) {
-        const attachmentId = rawSrc.replace(/^(?:attachment|local-attachment):\/\//, '').trim();
-        try {
-          const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
-          let attachment = await indexedDBStorage.getAttachment(currentUserId, attachmentId);
-          if (!attachment && currentUserId !== 'anonymous') {
-            attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
-          }
-
-          if (attachment) {
-            if (attachment.remote_url) {
-              if (!isCancelled) {
-                setResolvedSrc(attachment.remote_url);
-                updateAttributes({ src: attachment.remote_url });
-              }
-              return;
-            }
-
-            if (attachment.blob && !isCancelled) {
-              if (localBlobUrlRef.current) {
-                URL.revokeObjectURL(localBlobUrlRef.current);
-              }
-              const blobUrl = URL.createObjectURL(attachment.blob);
-              localBlobUrlRef.current = blobUrl;
-              setResolvedSrc(blobUrl);
-              return;
-            }
-          }
-
-          // Se não encontrou no IndexedDB local, consulta note_attachments no Supabase (outro dispositivo)
-          if (isSupabaseConfigured() && typeof navigator !== 'undefined' && navigator.onLine) {
-            try {
-              const supabase = createClient();
-              const { data: dbAtt } = await supabase
-                .from('note_attachments')
-                .select('*')
-                .eq('id', attachmentId)
-                .maybeSingle();
-
-              if (dbAtt && dbAtt.storage_path) {
-                const { data: pubData } = supabase.storage
-                  .from(ATTACHMENTS_BUCKET_NAME)
-                  .getPublicUrl(dbAtt.storage_path);
-
-                if (pubData?.publicUrl) {
-                  const remoteUrl = pubData.publicUrl;
-                  await indexedDBStorage.putAttachment(currentUserId, {
-                    id: dbAtt.id,
-                    user_id: currentUserId,
-                    note_id: dbAtt.note_id,
-                    file_name: dbAtt.file_name,
-                    file_type: dbAtt.mime_type,
-                    mime_type: dbAtt.mime_type,
-                    file_size: dbAtt.file_size,
-                    storage_path: dbAtt.storage_path,
-                    remote_url: remoteUrl,
-                    syncRequired: false,
-                    syncStatus: 'synced',
-                    sync_status: 'synced',
-                    created_at: dbAtt.created_at,
-                    updated_at: dbAtt.updated_at,
-                  });
-
-                  if (!isCancelled) {
-                    setResolvedSrc(remoteUrl);
-                    updateAttributes({ src: remoteUrl });
-                    return;
-                  }
-                }
-              }
-            } catch (fetchErr) {
-              console.warn('[DocumentNodeView] Falha ao consultar note_attachments no Supabase:', fetchErr);
-            }
-          }
-        } catch (err) {
-          console.warn('[DocumentNodeView] Falha ao resolver documento local:', err);
-        }
-      } else {
-        setResolvedSrc(rawSrc);
-      }
-    }
-
-    resolveLocalDoc();
-
-    return () => {
-      isCancelled = true;
-      if (localBlobUrlRef.current) {
-        URL.revokeObjectURL(localBlobUrlRef.current);
-        localBlobUrlRef.current = null;
-      }
-    };
-  }, [rawSrc, editor, updateAttributes]);
+  // Hook unificado de redimensionamento
+  const { isResizing, resizingWidth, handleResizeStart } = useMediaResize({
+    containerRef,
+    targetRef: cardRef,
+    minWidth: 220,
+    onPersistWidth: (finalWidth) => {
+      updateAttributes({ width: finalWidth });
+      console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: finalWidth, alignment });
+    },
+    onSelect: () => setIsLocalSelected(true),
+  });
 
   useEffect(() => {
     perfProfiler.mark(name, 'T6 - Documento/PDF Renderizado');
   }, [name]);
 
   const isSelected = isLocalSelected || isResizing;
-
-  const alignClass =
-    alignment === 'left'
-      ? 'justify-start'
-      : alignment === 'right'
-      ? 'justify-end'
-      : 'justify-center';
+  const alignClass = getMediaAlignmentClass(alignment);
 
   const currentDisplayWidth =
     resizingWidth !== null
@@ -198,6 +96,15 @@ export function DocumentNodeView(props: NodeViewProps) {
   // Handler de Long Press para Mobile / Tablet e Clique para Desktop
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Limpa touchTimer ao desmontar
+  useEffect(() => {
+    return () => {
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length !== 1) return;
@@ -241,65 +148,6 @@ export function DocumentNodeView(props: NodeViewProps) {
     }
   };
 
-  // Redimensionamento horizontal uniforme
-  const handleResizeStart = useCallback(
-    (
-      e: React.PointerEvent<HTMLDivElement>,
-      direction: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'left' | 'right'
-    ) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (!cardRef.current) return;
-
-      setIsResizing(true);
-      setIsLocalSelected(true);
-
-      const startX = e.clientX;
-      const startWidth = cardRef.current.offsetWidth || 400;
-
-      const editorElement =
-        containerRef.current?.closest('.ProseMirror') || containerRef.current?.parentElement;
-      const maxContainerWidth = editorElement ? editorElement.clientWidth - 24 : 800;
-
-      let latestCalculatedWidth = startWidth;
-
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        moveEvent.preventDefault();
-        const deltaX = moveEvent.clientX - startX;
-
-        let calculatedWidth = startWidth;
-        if (direction === 'right' || direction === 'top-right' || direction === 'bottom-right') {
-          calculatedWidth = startWidth + deltaX;
-        } else {
-          calculatedWidth = startWidth - deltaX;
-        }
-
-        const clampedWidth = Math.min(Math.max(calculatedWidth, 220), maxContainerWidth);
-        latestCalculatedWidth = clampedWidth;
-        setResizingWidth(Math.round(clampedWidth));
-      };
-
-      const handlePointerUp = (upEvent: PointerEvent) => {
-        upEvent.preventDefault();
-        window.removeEventListener('pointermove', handlePointerMove);
-        window.removeEventListener('pointerup', handlePointerUp);
-        setIsResizing(false);
-        setResizingWidth(null);
-
-        const finalWidth = `${Math.round(latestCalculatedWidth)}px`;
-        updateAttributes({
-          width: finalWidth,
-        });
-        console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: finalWidth, alignment });
-      };
-
-      window.addEventListener('pointermove', handlePointerMove, { passive: false });
-      window.addEventListener('pointerup', handlePointerUp, { passive: false });
-    },
-    [updateAttributes, alignment]
-  );
-
   const handleOpenDocument = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -321,6 +169,9 @@ export function DocumentNodeView(props: NodeViewProps) {
 
     if (targetUrl && targetUrl !== '#' && !targetUrl.startsWith('attachment://') && !targetUrl.startsWith('local-attachment://')) {
       window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      if (targetUrl.startsWith('blob:')) {
+        setTimeout(() => URL.revokeObjectURL(targetUrl), 10000);
+      }
     }
   };
 
@@ -362,138 +213,26 @@ export function DocumentNodeView(props: NodeViewProps) {
       >
         {/* Barra Flutuante de Ações (Aparece ao selecionar) */}
         {isSelected && (
-          <div
-            className="absolute -top-11 left-1/2 -translate-x-1/2 bg-[#ffffff]/98 backdrop-blur-xs border border-[#e4e2dd] shadow-lg rounded-xl px-2 py-1 flex items-center gap-1.5 z-30 text-xs font-sans-ui text-[#4e453f] animate-in fade-in zoom-in-95 pointer-events-auto"
-            onClick={(e) => e.stopPropagation()}
+          <MediaFloatingToolbar
+            onMove={handleMove}
+            alignment={alignment}
+            onAlign={(align) => {
+              updateAttributes({ alignment: align });
+              console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: node.attrs.width, alignment: align });
+            }}
+            widthDisplay={resizingWidth ? `${Math.round(resizingWidth)}px` : initialWidthAttr || 'Auto'}
+            presets={[
+              { label: '50%', value: '50%' },
+              { label: '100%', value: '100%' },
+            ]}
+            onSetWidth={(val) => {
+              updateAttributes({ width: val });
+              console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: val, alignment });
+            }}
+            onDelete={() => deleteNode()}
+            deleteTitle="Excluir Documento"
           >
-            {/* Handle de Arraste (Drag & Drop nativo do ProseMirror) */}
-            <div
-              data-drag-handle
-              className="p-1 hover:bg-[#f0eee9] rounded-md text-[#68594d] cursor-grab active:cursor-grabbing flex items-center justify-center"
-              title="Segure e arraste para reposicionar no documento"
-            >
-              <GripVertical className="w-3.5 h-3.5" />
-            </div>
-
-            {/* Mover para Cima e para Baixo */}
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => handleMove('up')}
-                className="p-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer"
-                title="Mover bloco para cima"
-                aria-label="Mover bloco para cima"
-              >
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleMove('down')}
-                className="p-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer"
-                title="Mover bloco para baixo"
-                aria-label="Mover bloco para baixo"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
             <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            {/* Controles de Alinhamento Horizontal */}
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  updateAttributes({ alignment: 'left' });
-                  console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: node.attrs.width, alignment: 'left' });
-                }}
-                className={`p-1 rounded-md transition-colors cursor-pointer ${
-                  alignment === 'left'
-                    ? 'bg-[#68594d] text-white shadow-2xs'
-                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                }`}
-                title="Alinhar à esquerda"
-                aria-label="Alinhar à esquerda"
-              >
-                <AlignLeft className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  updateAttributes({ alignment: 'center' });
-                  console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: node.attrs.width, alignment: 'center' });
-                }}
-                className={`p-1 rounded-md transition-colors cursor-pointer ${
-                  alignment === 'center'
-                    ? 'bg-[#68594d] text-white shadow-2xs'
-                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                }`}
-                title="Centralizar"
-                aria-label="Centralizar"
-              >
-                <AlignCenter className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  updateAttributes({ alignment: 'right' });
-                  console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: node.attrs.width, alignment: 'right' });
-                }}
-                className={`p-1 rounded-md transition-colors cursor-pointer ${
-                  alignment === 'right'
-                    ? 'bg-[#68594d] text-white shadow-2xs'
-                    : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-                }`}
-                title="Alinhar à direita"
-                aria-label="Alinhar à direita"
-              >
-                <AlignRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            <span className="font-mono text-[11px] font-medium text-[#68594d] px-1">
-              {resizingWidth ? `${Math.round(resizingWidth)}px` : initialWidthAttr || 'Auto'}
-            </span>
-
-            {/* Presets de Largura */}
-            <button
-              type="button"
-              onClick={() => {
-                updateAttributes({ width: '50%' });
-                console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: '50%', alignment });
-              }}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
-                initialWidthAttr === '50%'
-                  ? 'bg-[#68594d] text-white'
-                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
-              }`}
-              title="50% da folha"
-              aria-label="Redimensionar para 50% da folha"
-            >
-              50%
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                updateAttributes({ width: '100%' });
-                console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: '100%', alignment });
-              }}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
-                initialWidthAttr === '100%'
-                  ? 'bg-[#68594d] text-white'
-                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
-              }`}
-              title="100% da folha"
-              aria-label="Redimensionar para 100% da folha"
-            >
-              100%
-            </button>
-
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            {/* Ação Abrir */}
             <button
               type="button"
               onClick={handleOpenDocument}
@@ -504,23 +243,7 @@ export function DocumentNodeView(props: NodeViewProps) {
               <ExternalLink className="w-3.5 h-3.5" />
               <span>Abrir</span>
             </button>
-
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
-
-            {/* Excluir documento */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteNode();
-              }}
-              className="p-1 text-[#ba1a1a] hover:bg-[#fceded] rounded-md transition-colors cursor-pointer"
-              title="Excluir Documento"
-              aria-label="Excluir Documento"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          </MediaFloatingToolbar>
         )}
 
         {/* Card do Documento */}
@@ -555,61 +278,10 @@ export function DocumentNodeView(props: NodeViewProps) {
 
         {/* Handles de Redimensionamento Interativos */}
         {isSelected && (
-          <>
-            {/* Quina Superior Esquerda */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'top-left')}
-              className="absolute -top-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
-              title="Redimensionar largura"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Quina Superior Direita */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'top-right')}
-              className="absolute -top-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
-              title="Redimensionar largura"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Quina Inferior Esquerda */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'bottom-left')}
-              className="absolute -bottom-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
-              title="Redimensionar largura"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Quina Inferior Direita */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'bottom-right')}
-              className="absolute -bottom-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
-              title="Redimensionar largura"
-            >
-              <div className="w-3 h-3 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Lateral Esquerda */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'left')}
-              className="absolute top-1/2 -left-3 -translate-y-1/2 w-7 h-7 flex items-center justify-center cursor-ew-resize z-20 touch-none"
-              title="Redimensionar largura"
-            >
-              <div className="w-2.5 h-5 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-
-            {/* Lateral Direita */}
-            <div
-              onPointerDown={(e) => handleResizeStart(e, 'right')}
-              className="absolute top-1/2 -right-3 -translate-y-1/2 w-7 h-7 flex items-center justify-center cursor-ew-resize z-20 touch-none"
-              title="Redimensionar largura"
-            >
-              <div className="w-2.5 h-5 rounded-full bg-white border-2 border-[#68594d] shadow-sm hover:scale-125 transition-transform" />
-            </div>
-          </>
+          <MediaResizeHandles
+            onResizeStart={handleResizeStart}
+            showTopHandles={true}
+          />
         )}
       </div>
     </NodeViewWrapper>

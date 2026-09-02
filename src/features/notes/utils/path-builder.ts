@@ -1,4 +1,4 @@
-import { Folder, Note } from '../types';
+import { Folder } from '../types';
 
 /**
  * Constrói o caminho textual hierárquico de uma pasta através de seus parent_ids.

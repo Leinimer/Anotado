@@ -64,6 +64,13 @@ export function NoteCanvas({
   const lastPendingContentRef = useRef<string | null>(null);
   const activeNoteIdRef = useRef<string | null>(activeNote?.id || null);
 
+  const [prevActiveNoteId, setPrevActiveNoteId] = useState(activeNote?.id);
+  if (activeNote?.id !== prevActiveNoteId) {
+    setPrevActiveNoteId(activeNote?.id);
+    setIsEditingTitle(isNewNoteJustCreated);
+    setLocalTitle(activeNote?.title || '');
+  }
+
   useEffect(() => {
     activeNoteIdRef.current = activeNote?.id || null;
   }, [activeNote?.id]);

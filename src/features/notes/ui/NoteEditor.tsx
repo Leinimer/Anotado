@@ -109,21 +109,9 @@ export function NoteEditor({
     },
     onUpdate: ({ editor }) => {
       if (isApplyingRemoteAttachmentResolution.current) {
-        console.log(`[EDITOR] INTERNAL UPDATE - AUTOSAVE SUPPRESSED noteId=${noteIdentifier}`);
         return;
       }
       hasUserEditedRef.current = true;
-
-      // Logs de verificação de persistência de mídias no documento
-      editor.state.doc.descendants((node) => {
-        if (node.type.name === 'image' || node.type.name === 'documentAttachment' || node.type.name === 'youtube') {
-          console.log('[MEDIA-SAVE]', {
-            type: node.type.name,
-            width: node.attrs.width,
-            alignment: node.attrs.alignment,
-          });
-        }
-      });
 
       // Extrai Markdown real usando a extensão de markdown do Tiptap
       const storageRecord = editor.storage as unknown as Record<string, { getMarkdown?: () => string }>;

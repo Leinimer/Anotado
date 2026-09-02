@@ -86,17 +86,25 @@ export function usePwaInstall(): PwaState {
 
       // Recarrega de forma suave quando o novo Service Worker assumir o controle
       let refreshing = false;
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
+      const handleControllerChange = () => {
         if (!refreshing) {
           refreshing = true;
           window.location.reload();
         }
-      });
+      };
+      navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+
+      var removeControllerChange = () => {
+        navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+      };
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
+      if (typeof removeControllerChange === 'function') {
+        removeControllerChange();
+      }
       try {
         mediaQuery.removeEventListener('change', handleMediaChange);
       } catch {

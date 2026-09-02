@@ -1,7 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { ReactNodeViewRenderer } from '@tiptap/react';
-import { TextSelection, NodeSelection } from '@tiptap/pm/state';
 import { ImageNodeView } from './ImageNodeView';
+import { insertMediaNode } from '../utils/node-movement';
 
 export interface CustomImageOptions {
   inline: boolean;
@@ -206,8 +206,7 @@ export const CustomImage = Node.create<CustomImageOptions>({
       setImage:
         (options) =>
         ({ state, dispatch, tr }) => {
-          const { schema, selection } = state;
-          const type = schema.nodes[this.name];
+          const type = state.schema.nodes[this.name];
           if (!type) return false;
 
           const nodeAttrs = {
@@ -218,69 +217,7 @@ export const CustomImage = Node.create<CustomImageOptions>({
           const node = type.create(nodeAttrs);
           if (!node) return false;
 
-          const paragraphType = schema.nodes.paragraph;
-
-          if (selection instanceof NodeSelection) {
-            // Se um nó de mídia já estiver selecionado, NÃO o substitui.
-            // Insere o novo nó imediatamente após o selecionado.
-            const insertPos = selection.to;
-            tr.insert(insertPos, node);
-            const afterMediaPos = insertPos + node.nodeSize;
-            if (paragraphType) {
-              const emptyParagraph = paragraphType.create();
-              tr.insert(afterMediaPos, emptyParagraph);
-              try {
-                const textCursorPos = Math.min(afterMediaPos + 1, tr.doc.content.size);
-                tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
-              } catch {}
-            }
-            if (dispatch) dispatch(tr.scrollIntoView());
-            return true;
-          }
-
-          if (selection.$from.parent.isTextblock && selection.$from.parent.content.size === 0) {
-            // Se o cursor estiver em um parágrafo vazio, substitui o parágrafo vazio pelo nó de mídia
-            const startPos = selection.$from.before();
-            const endPos = selection.$from.after();
-            tr.replaceWith(startPos, endPos, node);
-            const afterMediaPos = startPos + node.nodeSize;
-            if (paragraphType) {
-              const emptyParagraph = paragraphType.create();
-              tr.insert(afterMediaPos, emptyParagraph);
-              try {
-                const textCursorPos = Math.min(afterMediaPos + 1, tr.doc.content.size);
-                tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
-              } catch {}
-            }
-            if (dispatch) dispatch(tr.scrollIntoView());
-            return true;
-          }
-
-          // Se houver seleção de texto não-vazia, remove o texto selecionado primeiro
-          let insertPos = selection.to;
-          if (!selection.empty) {
-            tr.deleteSelection();
-            insertPos = tr.selection.from;
-          } else {
-            insertPos = selection.from;
-          }
-
-          tr.insert(insertPos, node);
-          const afterMediaPos = insertPos + node.nodeSize;
-
-          if (paragraphType) {
-            const emptyParagraph = paragraphType.create();
-            tr.insert(afterMediaPos, emptyParagraph);
-            try {
-              const textCursorPos = Math.min(afterMediaPos + 1, tr.doc.content.size);
-              tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
-            } catch {}
-          }
-
-          if (dispatch) {
-            dispatch(tr.scrollIntoView());
-          }
-          return true;
+          return insertMediaNode(tr, state, node, dispatch);
         },
     };
   },

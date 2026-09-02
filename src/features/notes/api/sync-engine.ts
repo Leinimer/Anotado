@@ -17,10 +17,9 @@ import {
   ExtendedNote,
   ExtendedFolder,
 } from '../db/indexed-db';
-import { Folder, Note } from '../types';
 import { networkMonitor } from './network-monitor';
 import { writeNoteMarkdown, deleteNoteMarkdown, readNoteMarkdown } from './notes-storage-api';
-import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
+import { normalizeTags } from '../utils/hashtag-extractor';
 import { serializeMarkdownWithTags, parseMarkdownWithTags } from '../utils/markdown-tags';
 import {
   prepareNoteContentForPersistence,
@@ -28,7 +27,6 @@ import {
   hasUnresolvedLocalMedia,
   replaceAttachmentReferencesInEditor,
   extractAttachmentReferences,
-  resolveAttachmentReferences,
   uploadAttachmentBinary,
   ATTACHMENTS_BUCKET_NAME,
 } from './storage-api';
@@ -673,67 +671,60 @@ class SyncEngine {
       return { success: false, processed: 0 };
     }
 
-    // 1. Verifica conectividade real antes de processar
-    const reachable = await networkMonitor.checkBackendReachability();
-    if (!reachable) {
-      await this.updatePendingCount(userId);
-      networkMonitor.setSyncing(false);
-      return { success: false, processed: 0 };
-    }
-
-    const supabase = createClient();
-
-    // 2. Valida sessão de autenticação ativa no Supabase antes do PUSH
-    let authenticatedUid: string | null = null;
-    let hasValidSession = false;
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (sessionData?.session?.user?.id && sessionData?.session?.access_token) {
-        authenticatedUid = sessionData.session.user.id;
-        hasValidSession = true;
-      } else {
-        const { data: refreshData } = await supabase.auth.refreshSession();
-        if (refreshData?.session?.user?.id && refreshData?.session?.access_token) {
-          authenticatedUid = refreshData.session.user.id;
-          hasValidSession = true;
-        } else {
-          const { data: userData } = await supabase.auth.getUser();
-          if (userData?.user?.id) {
-            authenticatedUid = userData.user.id;
-            hasValidSession = true;
-          }
-        }
-      }
-    } catch (authErr) {
-      console.warn('[SyncEngine] Falha ao verificar autenticação para PUSH:', authErr);
-    }
-
-    if (userId !== 'demo-user') {
-      if (!hasValidSession || !authenticatedUid) {
-        console.warn(`[AUTH] SESSION_NOT_READY: PUSH adiado para userId=${userId}. Aguardando sessão ativa.`);
-        await this.updatePendingCount(userId);
-        networkMonitor.setSyncing(false);
-        return { success: false, processed: 0 };
-      }
-      if (authenticatedUid !== userId) {
-        console.warn(`[AUTH] USER_MISMATCH: PUSH pausado. Autenticado (${authenticatedUid}) diverge do userId local (${userId}).`);
-        await this.updatePendingCount(userId);
-        networkMonitor.setSyncing(false);
-        return { success: false, processed: 0 };
-      }
-    }
-
-    console.log(`[SYNC] START userId=${userId}`);
-    console.log('[AUTH] SESSION_READY');
-    console.log('[AUTH] USER_READY');
-
     this.isProcessing = true;
     this.hasPendingSyncRequest = false;
-    networkMonitor.setSyncing(true);
-
     let processedCount = 0;
 
     try {
+      // 1. Verifica conectividade real antes de processar
+      const reachable = await networkMonitor.checkBackendReachability();
+      if (!reachable) {
+        return { success: false, processed: 0 };
+      }
+
+      const supabase = createClient();
+
+      // 2. Valida sessão de autenticação ativa no Supabase antes do PUSH
+      let authenticatedUid: string | null = null;
+      let hasValidSession = false;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user?.id && sessionData?.session?.access_token) {
+          authenticatedUid = sessionData.session.user.id;
+          hasValidSession = true;
+        } else {
+          const { data: refreshData } = await supabase.auth.refreshSession();
+          if (refreshData?.session?.user?.id && refreshData?.session?.access_token) {
+            authenticatedUid = refreshData.session.user.id;
+            hasValidSession = true;
+          } else {
+            const { data: userData } = await supabase.auth.getUser();
+            if (userData?.user?.id) {
+              authenticatedUid = userData.user.id;
+              hasValidSession = true;
+            }
+          }
+        }
+      } catch (authErr) {
+        console.warn('[SyncEngine] Falha ao verificar autenticação para PUSH:', authErr);
+      }
+
+      if (userId !== 'demo-user') {
+        if (!hasValidSession || !authenticatedUid) {
+          console.warn(`[AUTH] SESSION_NOT_READY: PUSH adiado para userId=${userId}. Aguardando sessão ativa.`);
+          return { success: false, processed: 0 };
+        }
+        if (authenticatedUid !== userId) {
+          console.warn(`[AUTH] USER_MISMATCH: PUSH pausado. Autenticado (${authenticatedUid}) diverge do userId local (${userId}).`);
+          return { success: false, processed: 0 };
+        }
+      }
+
+      console.log(`[SYNC] START userId=${userId}`);
+      console.log('[AUTH] SESSION_READY');
+      console.log('[AUTH] USER_READY');
+
+      networkMonitor.setSyncing(true);
       // 1. ETAPA PUSH: Processamento de operações pendentes da SyncQueue (O(p))
       const queue = await indexedDBStorage.getPendingSyncItems(userId);
 

@@ -16,21 +16,12 @@ import {
   Settings,
   User,
   MoreHorizontal,
-  Edit2,
   Trash2,
-  AlertTriangle,
   Sparkles,
-  Palette,
   Archive,
-  ArchiveRestore,
-  Type,
-  AlignLeft,
-  Hash,
   Check,
   Loader2,
-  Smartphone,
   FolderInput,
-  Layers,
   CheckSquare,
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
@@ -49,34 +40,14 @@ import {
 } from '../types';
 import { extractAllUniqueTags } from '../utils/hashtag-extractor';
 import { buildFolderTree, filterTree, wouldCreateCycle } from '../utils/tree-builder';
-
-const FOLDER_PRESET_COLORS = [
-  { id: 'default', label: 'Padrão / Neutro', color: null, hex: '#7f756e' },
-  { id: 'yellow', label: 'Amarelo', color: '#eab308', hex: '#eab308' },
-  { id: 'green', label: 'Verde', color: '#16a34a', hex: '#16a34a' },
-  { id: 'mint', label: 'Menta', color: '#0d9488', hex: '#0d9488' },
-  { id: 'blue', label: 'Azul', color: '#2563eb', hex: '#2563eb' },
-  { id: 'pink', label: 'Rosa', color: '#db2777', hex: '#db2777' },
-  { id: 'red', label: 'Vermelho', color: '#dc2626', hex: '#dc2626' },
-  { id: 'purple', label: 'Roxo', color: '#9333ea', hex: '#9333ea' },
-];
-
-const SEARCH_MODES = [
-  { id: 'all' as SearchMode, label: 'Tudo', desc: 'Títulos, conteúdo, tags e pastas', icon: Sparkles },
-  { id: 'title' as SearchMode, label: 'Títulos', desc: 'Somente títulos de notas', icon: Type },
-  { id: 'content' as SearchMode, label: 'Conteúdo', desc: 'Texto interno das notas', icon: AlignLeft },
-  { id: 'tags' as SearchMode, label: 'Tags', desc: 'Etiquetas e #hashtags', icon: Hash },
-  { id: 'folders' as SearchMode, label: 'Pastas', desc: 'Somente nomes de pastas', icon: Folder },
-  { id: 'archived' as SearchMode, label: 'Arquivadas', desc: 'Somente notas arquivadas', icon: Archive },
-];
-
-interface DropTargetInfo {
-  targetId: string;
-  targetType: 'folder' | 'note';
-  dropPosition: 'before' | 'after' | 'inside';
-  targetParentId: string | null;
-  targetPosition: number;
-}
+import {
+  SEARCH_MODES,
+  DropTargetInfo,
+} from './sidebar-constants';
+import { SidebarContextMenu } from './SidebarContextMenu';
+import { SmartFolderModal } from './SmartFolderModal';
+import { ConfirmDeleteModal, BatchDeleteConfirmModal } from './SidebarDeleteModals';
+import { BatchMoveModal } from './BatchMoveModal';
 
 interface SidebarNavigationProps {
   folders: FolderType[];
@@ -195,21 +166,46 @@ export function SidebarNavigation({
     currentX: number;
     currentY: number;
   } | null>(null);
+  const marqueeCleanupRef = useRef<(() => void) | null>(null);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [showBatchMoveDialog, setShowBatchMoveDialog] = useState(false);
-  const [batchMoveFolderId, setBatchMoveFolderId] = useState<string | null>(null);
   const [draggingMultiItems, setDraggingMultiItems] = useState<
     { type: 'folder' | 'note'; id: string }[] | null
   >(null);
 
+  // Limpeza de timers e listeners globais no desmonte
   useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data }: any) => {
-      if (data?.user) {
-        if (data.user.email) setUserEmail(data.user.email);
-        if (data.user.id) setUserId(data.user.id);
+    return () => {
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+        touchTimerRef.current = null;
       }
-    });
+      if (marqueeCleanupRef.current) {
+        marqueeCleanupRef.current();
+        marqueeCleanupRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+    const supabase = createClient();
+    const loadUser = async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        if (isCancelled) return;
+        if (data?.user) {
+          if (data.user.email) setUserEmail(data.user.email);
+          if (data.user.id) setUserId(data.user.id);
+        }
+      } catch {
+        // Ignora falha silenciosamente caso offline
+      }
+    };
+    loadUser();
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   // Debounce para busca
@@ -353,7 +349,7 @@ export function SidebarNavigation({
       if (typeof window !== 'undefined') {
         window.location.replace('/login');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Logout] Falha ao persistir dados antes de sair:', err);
       setIsLoggingOut(false);
       alert('Não foi possível salvar todas as alterações pendentes. Por favor, tente novamente.');
@@ -420,6 +416,24 @@ export function SidebarNavigation({
     }
   };
 
+  const openContextMenuAt = (
+    top: number,
+    left: number,
+    id: string,
+    type: 'folder' | 'note',
+    isArchived: boolean
+  ) => {
+    setMenuPosition({ top, left });
+    setMenuOpenId(id);
+    setMenuItemType(type);
+    setMenuNoteIsArchived(isArchived);
+    setShowColorSubmenu(false);
+    if (colorSubmenuTimerRef.current) {
+      clearTimeout(colorSubmenuTimerRef.current);
+      colorSubmenuTimerRef.current = null;
+    }
+  };
+
   // Abre menu contextual ao clicar no botão ...
   const handleOpenMenu = (
     e: React.MouseEvent,
@@ -441,15 +455,7 @@ export function SidebarNavigation({
       top = Math.max(10, rect.top - menuHeight - 4);
     }
 
-    setMenuPosition({ top, left });
-    setMenuOpenId(id);
-    setMenuItemType(type);
-    setMenuNoteIsArchived(isArchived);
-    setShowColorSubmenu(false);
-    if (colorSubmenuTimerRef.current) {
-      clearTimeout(colorSubmenuTimerRef.current);
-      colorSubmenuTimerRef.current = null;
-    }
+    openContextMenuAt(top, left, id, type, isArchived);
   };
 
   // Abre menu contextual ao clicar com o botão direito do mouse
@@ -470,25 +476,15 @@ export function SidebarNavigation({
     let left = e.clientX;
     let top = e.clientY;
 
-    // Ajuste de borda direita
     if (left + menuWidth > windowWidth - 12) {
       left = Math.max(12, left - menuWidth);
     }
 
-    // Ajuste de borda inferior
     if (top + menuHeight > windowHeight - 12) {
       top = Math.max(10, top - menuHeight);
     }
 
-    setMenuPosition({ top, left });
-    setMenuOpenId(id);
-    setMenuItemType(type);
-    setMenuNoteIsArchived(isArchived);
-    setShowColorSubmenu(false);
-    if (colorSubmenuTimerRef.current) {
-      clearTimeout(colorSubmenuTimerRef.current);
-      colorSubmenuTimerRef.current = null;
-    }
+    openContextMenuAt(top, left, id, type, isArchived);
   };
 
   // Inicia confirmação de exclusão
@@ -723,10 +719,23 @@ export function SidebarNavigation({
     e.preventDefault();
     e.stopPropagation();
 
-    if (!draggingItem || !dropTarget) {
+    const resetDragState = () => {
       setDraggingItem(null);
       setDraggingMultiItems(null);
       setDropTarget(null);
+    };
+
+    const unarchiveIfArchived = (itemType: 'folder' | 'note', itemId: string) => {
+      if (itemType === 'note') {
+        const isArchived = notes.find((n) => n.id === itemId)?.is_archived;
+        if (isArchived && onUnarchiveNote) {
+          onUnarchiveNote(itemId);
+        }
+      }
+    };
+
+    if (!draggingItem || !dropTarget) {
+      resetDragState();
       return;
     }
 
@@ -742,10 +751,7 @@ export function SidebarNavigation({
           if (onArchiveNote) onArchiveNote(item.id);
           return;
         }
-        const isArchived = notes.find((n) => n.id === item.id)?.is_archived;
-        if (isArchived && item.type === 'note' && onUnarchiveNote) {
-          onUnarchiveNote(item.id);
-        }
+        unarchiveIfArchived(item.type, item.id);
         onMoveItem(item.type, item.id, targetParentId, targetPosition + index);
       });
 
@@ -753,9 +759,7 @@ export function SidebarNavigation({
         setOpenFolderIds((prev) => new Set(prev).add(dropTarget.targetId));
       }
       setSelectedItems(new Map());
-      setDraggingItem(null);
-      setDraggingMultiItems(null);
-      setDropTarget(null);
+      resetDragState();
       return;
     }
 
@@ -766,42 +770,27 @@ export function SidebarNavigation({
       if (onArchiveNote) {
         onArchiveNote(id);
       }
-      setDraggingItem(null);
-      setDraggingMultiItems(null);
-      setDropTarget(null);
+      resetDragState();
       return;
     }
 
     // Verificação estrita contra ciclos se for pasta
     if (type === 'folder') {
       if (wouldCreateCycle(id, targetParentId, folders)) {
-        setDraggingItem(null);
-        setDraggingMultiItems(null);
-        setDropTarget(null);
+        resetDragState();
         return;
       }
     }
 
-    // Se estiver arrastando uma nota que estava arquivada para fora, desarquiva e move
-    const isArchivedNote = notes.find((n) => n.id === id)?.is_archived;
-    if (isArchivedNote && type === 'note') {
-      if (onUnarchiveNote) {
-        onUnarchiveNote(id);
-      }
-      onMoveItem(type, id, targetParentId, targetPosition);
-    } else {
-      // Movimentação normal
-      onMoveItem(type, id, targetParentId, targetPosition);
-    }
+    unarchiveIfArchived(type, id);
+    onMoveItem(type, id, targetParentId, targetPosition);
 
     // Se soltou dentro de uma pasta, abre a pasta para mostrar o item
     if (dropPosition === 'inside' && dropTarget.targetId) {
       setOpenFolderIds((prev) => new Set(prev).add(dropTarget.targetId));
     }
 
-    setDraggingItem(null);
-    setDraggingMultiItems(null);
-    setDropTarget(null);
+    resetDragState();
   };
 
   // Drop na raiz da sidebar
@@ -810,6 +799,12 @@ export function SidebarNavigation({
     e.stopPropagation();
 
     if (!draggingItem) return;
+
+    const resetDragState = () => {
+      setDraggingItem(null);
+      setDraggingMultiItems(null);
+      setDropTarget(null);
+    };
 
     if (draggingMultiItems && draggingMultiItems.length > 0) {
       draggingMultiItems.forEach((item, index) => {
@@ -820,9 +815,7 @@ export function SidebarNavigation({
         onMoveItem(item.type, item.id, null, folders.length + notes.length + index);
       });
       setSelectedItems(new Map());
-      setDraggingItem(null);
-      setDraggingMultiItems(null);
-      setDropTarget(null);
+      resetDragState();
       return;
     }
 
@@ -835,9 +828,7 @@ export function SidebarNavigation({
     }
     onMoveItem(type, id, null, folders.length + notes.length);
 
-    setDraggingItem(null);
-    setDraggingMultiItems(null);
-    setDropTarget(null);
+    resetDragState();
   };
 
   // Touch Drag Support para Mobile
@@ -1044,12 +1035,18 @@ export function SidebarNavigation({
       setSelectedItems(nextSelection);
     };
 
-    const handlePointerUp = () => {
+    const cleanupMarquee = () => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
       document.body.style.userSelect = '';
       setIsMarqueeActive(false);
       setMarqueeRect(null);
+      marqueeCleanupRef.current = null;
+    };
+    marqueeCleanupRef.current = cleanupMarquee;
+
+    const handlePointerUp = () => {
+      cleanupMarquee();
     };
 
     window.addEventListener('pointermove', handlePointerMove, { passive: false });
@@ -1860,511 +1857,91 @@ export function SidebarNavigation({
       </div>
 
       {/* Menu Contextual Flutuante (...) */}
-      {menuOpenId && menuPosition && (
-        <div
-          id="item-context-menu"
-          style={{
-            position: 'fixed',
-            top: `${menuPosition.top}px`,
-            left: `${menuPosition.left}px`,
-          }}
-          className="bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[170px] font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Opção 1: Renomear */}
-          <button
-            id="context-menu-rename-btn"
-            onClick={() => {
-              const currentName =
-                menuItemType === 'folder'
-                  ? folders.find((f) => f.id === menuOpenId)?.name || ''
-                  : notes.find((n) => n.id === menuOpenId)?.title || '';
-              startRenaming(menuOpenId, menuItemType!, currentName);
-            }}
-            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
-            title="Renomear"
-          >
-            <Edit2 className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
-            <span>Renomear</span>
-          </button>
-
-          {/* Opções para NOTAS: Arquivar / Desarquivar */}
-          {menuItemType === 'note' && (
-            <>
-              {menuNoteIsArchived ? (
-                <button
-                  id="context-menu-unarchive-note-btn"
-                  onClick={() => {
-                    if (onUnarchiveNote && menuOpenId) {
-                      onUnarchiveNote(menuOpenId);
-                    }
-                    setMenuOpenId(null);
-                  }}
-                  className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
-                  title="Desarquivar nota"
-                >
-                  <ArchiveRestore className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
-                  <span>Desarquivar</span>
-                </button>
-              ) : (
-                <button
-                  id="context-menu-archive-note-btn"
-                  onClick={() => {
-                    if (onArchiveNote && menuOpenId) {
-                      onArchiveNote(menuOpenId);
-                    }
-                    setMenuOpenId(null);
-                  }}
-                  className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
-                  title="Arquivar nota"
-                >
-                  <Archive className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
-                  <span>Arquivar</span>
-                </button>
-              )}
-            </>
-          )}
-
-          {/* Opções exclusivas para PASTAS */}
-          {menuItemType === 'folder' && (
-            <>
-              {/* Opção: Cor da pasta > (com Submenu Lateral) */}
-              <div
-                className="relative"
-                onMouseEnter={handleMouseEnterColorOption}
-                onMouseLeave={handleMouseLeaveColorOption}
-              >
-                <button
-                  id="context-menu-folder-color-btn"
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (colorSubmenuTimerRef.current) {
-                      clearTimeout(colorSubmenuTimerRef.current);
-                      colorSubmenuTimerRef.current = null;
-                    }
-                    setShowColorSubmenu((prev) => !prev);
-                  }}
-                  className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
-                  title="Cor da pasta"
-                >
-                  <div className="flex items-center gap-2">
-                    <Palette className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
-                    <span>Cor da pasta</span>
-                  </div>
-                  <ChevronRight className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
-                </button>
-
-                {/* Submenu Lateral de Cores com Hover Bridge Contínua e Detecção de Borda */}
-                {showColorSubmenu && (
-                  <div
-                    id="folder-color-lateral-submenu"
-                    onMouseEnter={handleMouseEnterColorOption}
-                    onMouseLeave={handleMouseLeaveColorOption}
-                    onClick={(e) => e.stopPropagation()}
-                    className={`absolute top-0 z-60 min-w-[140px] bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 ${
-                      menuPosition &&
-                      menuPosition.left + 175 + 145 > (typeof window !== 'undefined' ? window.innerWidth : 1000)
-                        ? 'right-full mr-1.5 before:absolute before:-right-3 before:top-0 before:bottom-0 before:w-4 before:content-[""]'
-                        : 'left-full ml-1.5 before:absolute before:-left-3 before:top-0 before:bottom-0 before:w-4 before:content-[""]'
-                    }`}
-                  >
-                    {FOLDER_PRESET_COLORS.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          if (onUpdateFolderColor && menuOpenId) {
-                            onUpdateFolderColor(menuOpenId, c.color);
-                          }
-                          setMenuOpenId(null);
-                          setShowColorSubmenu(false);
-                          if (colorSubmenuTimerRef.current) {
-                            clearTimeout(colorSubmenuTimerRef.current);
-                            colorSubmenuTimerRef.current = null;
-                          }
-                        }}
-                        className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] text-[#4e453f] text-xs transition-colors cursor-pointer text-left"
-                      >
-                        <span
-                          className="w-3 h-3 rounded-full border border-black/10 shrink-0 block"
-                          style={{ backgroundColor: c.hex }}
-                        />
-                        <span>{c.label}</span>
-                      </button>
-                    ))}
-
-                    {/* Opção 🌈 Seletor de Cor Personalizado */}
-                    <div className="pt-1 mt-0.5 border-t border-[#e4e2dd]">
-                      <button
-                        type="button"
-                        id="folder-custom-color-btn"
-                        onClick={() => {
-                          if (customColorInputRef.current) {
-                            customColorInputRef.current.click();
-                          }
-                        }}
-                        className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] text-[#4e453f] text-xs transition-colors cursor-pointer text-left"
-                      >
-                        <span className="text-xs">🌈</span>
-                        <span>Personalizada</span>
-                      </button>
-                      <input
-                        ref={customColorInputRef}
-                        type="color"
-                        className="sr-only"
-                        onChange={(e) => {
-                          const hexColor = e.target.value;
-                          if (onUpdateFolderColor && menuOpenId) {
-                            onUpdateFolderColor(menuOpenId, hexColor);
-                          }
-                          setMenuOpenId(null);
-                          setShowColorSubmenu(false);
-                          if (colorSubmenuTimerRef.current) {
-                            clearTimeout(colorSubmenuTimerRef.current);
-                            colorSubmenuTimerRef.current = null;
-                          }
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Opção: Pasta inteligente */}
-              <button
-                id="context-menu-smart-folder-btn"
-                onClick={() => {
-                  const targetFolder = folders.find((f) => f.id === menuOpenId);
-                  setSmartConfigFolderId(menuOpenId);
-                  setSmartConfigTags(targetFolder?.smart_tags || []);
-                  setMenuOpenId(null);
-                }}
-                className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
-                title="Configurar Pasta Inteligente"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-[#eab308] shrink-0 fill-[#eab308]" />
-                <span>Pasta inteligente</span>
-              </button>
-
-              {/* Opção Arquivar Pasta / Arquivar todas as notas da pasta */}
-              <button
-                id="context-menu-archive-folder-btn"
-                onClick={() => {
-                  if (onArchiveFolderNotes && menuOpenId) {
-                    onArchiveFolderNotes(menuOpenId);
-                  }
-                  setMenuOpenId(null);
-                }}
-                className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
-                title="Arquivar todas as notas desta pasta"
-              >
-                <Archive className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
-                <span>Arquivar</span>
-              </button>
-            </>
-          )}
-
-          <div className="h-[1px] bg-[#e4e2dd] my-1" />
-
-          {/* Opção: Excluir */}
-          <button
-            id="context-menu-delete-btn"
-            onClick={() => {
-              if (menuOpenId && menuItemType) {
-                promptDelete(menuOpenId, menuItemType);
-              }
-            }}
-            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#ba1a1a] hover:bg-[#fceded] transition-colors cursor-pointer text-left"
-            title="Excluir"
-          >
-            <Trash2 className="w-3.5 h-3.5 shrink-0" />
-            <span>Excluir</span>
-          </button>
-        </div>
-      )}
+      <SidebarContextMenu
+        menuOpenId={menuOpenId}
+        menuPosition={menuPosition}
+        menuItemType={menuItemType}
+        menuNoteIsArchived={menuNoteIsArchived}
+        folders={folders}
+        notes={notes}
+        showColorSubmenu={showColorSubmenu}
+        onClose={() => {
+          setMenuOpenId(null);
+          setMenuPosition(null);
+          setShowColorSubmenu(false);
+          if (colorSubmenuTimerRef.current) {
+            clearTimeout(colorSubmenuTimerRef.current);
+            colorSubmenuTimerRef.current = null;
+          }
+        }}
+        onStartRenaming={startRenaming}
+        onArchiveNote={onArchiveNote}
+        onUnarchiveNote={onUnarchiveNote}
+        onArchiveFolderNotes={onArchiveFolderNotes}
+        onUpdateFolderColor={onUpdateFolderColor}
+        onOpenSmartConfig={(folderId, smartTags) => {
+          setSmartConfigFolderId(folderId);
+          setSmartConfigTags(smartTags);
+        }}
+        onPromptDelete={promptDelete}
+        onMouseEnterColorOption={handleMouseEnterColorOption}
+        onMouseLeaveColorOption={handleMouseLeaveColorOption}
+        onToggleColorSubmenu={() => {
+          if (colorSubmenuTimerRef.current) {
+            clearTimeout(colorSubmenuTimerRef.current);
+            colorSubmenuTimerRef.current = null;
+          }
+          setShowColorSubmenu((prev) => !prev);
+        }}
+        colorSubmenuTimerRef={colorSubmenuTimerRef}
+        customColorInputRef={customColorInputRef}
+      />
 
       {/* Popover Contextual de Configuração de Pasta Inteligente */}
-      {smartConfigFolderId && (
-        <div
-          className="fixed inset-0 z-50 bg-black/30 backdrop-blur-2xs flex items-center justify-center p-4"
-          onClick={() => setSmartConfigFolderId(null)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-[#fbf9f4] border border-[#e4e2dd] rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95"
-          >
-            <div className="flex items-center justify-between pb-2 border-b border-[#eae8e3]">
-              <div className="flex items-center gap-2 text-[#1b1c19]">
-                <Sparkles className="w-4 h-4 text-[#68594d]" />
-                <h3 className="font-serif-note font-bold text-base">Pasta inteligente</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSmartConfigFolderId(null)}
-                className="p-1 text-[#7f756e] hover:text-[#1b1c19] rounded-lg transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <p className="font-sans-ui text-xs text-[#4e453f] font-medium">
-                Mostrar notas com as etiquetas:
-              </p>
-
-              {uniqueTags.length === 0 ? (
-                <div className="p-3 bg-[#f0eee9] rounded-xl text-center text-xs text-[#7f756e] font-sans-ui leading-relaxed">
-                  Nenhuma etiqueta (<span className="font-semibold text-[#1b1c19]">#hashtag</span>) encontrada nas suas notas ainda. Adicione tags como <span className="font-medium">#tributario</span> no texto de uma nota para selecioná-la aqui.
-                </div>
-              ) : (
-                <div className="max-h-48 overflow-y-auto space-y-1 p-1 bg-white/70 rounded-xl border border-[#eae8e3]">
-                  {uniqueTags.map((tag) => {
-                    const isChecked = smartConfigTags.some(
-                      (t) => t.toLowerCase() === tag.toLowerCase()
-                    );
-                    return (
-                      <label
-                        key={tag}
-                        className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-[#f0eee9] cursor-pointer text-xs font-sans-ui text-[#1b1c19] transition-colors select-none"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSmartConfigTags((prev) => [...prev, tag]);
-                            } else {
-                              setSmartConfigTags((prev) =>
-                                prev.filter((t) => t.toLowerCase() !== tag.toLowerCase())
-                              );
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-[#68594d] text-[#68594d] focus:ring-[#68594d] accent-[#68594d] cursor-pointer"
-                        />
-                        <span className="font-medium text-[#3b332d]">{tag}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-[#eae8e3]">
-              {smartConfigTags.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onUpdateFolderSmartConfig && smartConfigFolderId) {
-                      onUpdateFolderSmartConfig(smartConfigFolderId, false, []);
-                    }
-                    setSmartConfigFolderId(null);
-                  }}
-                  className="px-3 py-1.5 text-xs text-[#ba1a1a] hover:bg-[#fceded] rounded-xl transition-colors cursor-pointer font-sans-ui font-medium"
-                >
-                  Desativar
-                </button>
-              ) : (
-                <div />
-              )}
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSmartConfigFolderId(null)}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-sans-ui font-medium text-[#4e453f] hover:bg-[#e4e2dd] transition-colors cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  id="apply-smart-folder-btn"
-                  onClick={() => {
-                    if (onUpdateFolderSmartConfig && smartConfigFolderId) {
-                      const isSmart = smartConfigTags.length > 0;
-                      onUpdateFolderSmartConfig(smartConfigFolderId, isSmart, smartConfigTags);
-                    }
-                    setSmartConfigFolderId(null);
-                  }}
-                  className="px-4 py-1.5 rounded-xl text-xs font-sans-ui font-medium bg-[#68594d] text-white hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
-                >
-                  Aplicar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <SmartFolderModal
+        folderId={smartConfigFolderId}
+        initialTags={smartConfigTags}
+        uniqueTags={uniqueTags}
+        onClose={() => setSmartConfigFolderId(null)}
+        onApply={(tags) => {
+          if (onUpdateFolderSmartConfig && smartConfigFolderId) {
+            const isSmart = tags.length > 0;
+            onUpdateFolderSmartConfig(smartConfigFolderId, isSmart, tags);
+          }
+          setSmartConfigFolderId(null);
+        }}
+        onDisable={() => {
+          if (onUpdateFolderSmartConfig && smartConfigFolderId) {
+            onUpdateFolderSmartConfig(smartConfigFolderId, false, []);
+          }
+          setSmartConfigFolderId(null);
+        }}
+      />
 
       {/* Diálogo Modal de Confirmação de Exclusão */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-[#fbf9f4] border border-[#e4e2dd] rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95"
-          >
-            <div className="flex items-center gap-3 text-[#ba1a1a]">
-              <AlertTriangle className="w-6 h-6 shrink-0" />
-              <h3 className="font-serif-note font-bold text-lg text-[#1b1c19]">
-                Confirmar Exclusão
-              </h3>
-            </div>
+      <ConfirmDeleteModal
+        confirmDelete={confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={handleConfirmDelete}
+      />
 
-            <p className="font-sans-ui text-sm text-[#4e453f] leading-relaxed">
-              Deseja realmente excluir <strong>&quot;{confirmDelete.name}&quot;</strong>?
-              {confirmDelete.hasChildren && (
-                <span className="block mt-2 text-xs text-[#ba1a1a] font-medium">
-                  Atenção: Esta pasta contém subpastas ou notas. A exclusão removerá todo o seu conteúdo.
-                </span>
-              )}
-            </p>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(null)}
-                className="px-4 py-2 rounded-xl text-xs font-sans-ui font-medium text-[#4e453f] hover:bg-[#e4e2dd] transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                id="confirm-delete-action-btn"
-                onClick={handleConfirmDelete}
-                className="px-4 py-2 rounded-xl text-xs font-sans-ui font-medium bg-[#ba1a1a] text-white hover:bg-[#961515] transition-colors cursor-pointer shadow-xs"
-              >
-                Excluir
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Modal de Confirmação de Exclusão em Lote (Bloco B) */}
-      {showBatchDeleteConfirm && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-[#fbf9f4] border border-[#e4e2dd] rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95"
-          >
-            <div className="flex items-center gap-3 text-[#ba1a1a]">
-              <AlertTriangle className="w-6 h-6 shrink-0" />
-              <h3 className="font-serif-note font-bold text-lg text-[#1b1c19]">
-                Excluir {selectedItems.size} {selectedItems.size > 1 ? 'itens' : 'item'}?
-              </h3>
-            </div>
-
-            <p className="font-sans-ui text-sm text-[#4e453f] leading-relaxed">
-              Deseja realmente excluir os <strong>{selectedItems.size}</strong> itens selecionados?
-              <span className="block mt-2 text-xs text-[#ba1a1a] font-medium">
-                Esta ação removerá todas as notas e pastas selecionadas.
-              </span>
-            </p>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowBatchDeleteConfirm(false)}
-                className="px-4 py-2 rounded-xl text-xs font-sans-ui font-medium text-[#4e453f] hover:bg-[#e4e2dd] transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                id="batch-confirm-delete-action-btn"
-                onClick={handleBatchConfirmDelete}
-                className="px-4 py-2 rounded-xl text-xs font-sans-ui font-medium bg-[#ba1a1a] text-white hover:bg-[#961515] transition-colors cursor-pointer shadow-xs"
-              >
-                Excluir Selecionados
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <BatchDeleteConfirmModal
+        isOpen={showBatchDeleteConfirm}
+        selectedCount={selectedItems.size}
+        onClose={() => setShowBatchDeleteConfirm(false)}
+        onConfirm={handleBatchConfirmDelete}
+      />
 
       {/* Modal de Seleção de Pasta de Destino para Mover em Lote (Bloco B) */}
-      {showBatchMoveDialog && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-[#fbf9f4] border border-[#e4e2dd] rounded-2xl p-5 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95 font-sans-ui"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-[#68594d]">
-                <FolderInput className="w-5 h-5" />
-                <h3 className="font-serif-note font-bold text-base text-[#1b1c19]">
-                  Mover {selectedItems.size} {selectedItems.size > 1 ? 'itens' : 'item'}
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowBatchMoveDialog(false)}
-                className="p-1 hover:bg-[#eae8e3] text-[#7f756e] rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-[#7f756e]">
-              Selecione o local de destino para os itens selecionados:
-            </p>
-
-            <div className="max-h-60 overflow-y-auto space-y-1 py-1 border border-[#eae8e3] bg-white rounded-xl p-1.5">
-              {/* Opção Raiz */}
-              <button
-                type="button"
-                onClick={() => setBatchMoveFolderId(null)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer text-left ${
-                  batchMoveFolderId === null
-                    ? 'bg-[#f4dfcb] font-semibold text-[#1b1c19]'
-                    : 'hover:bg-[#f0eee9] text-[#4e453f]'
-                }`}
-              >
-                <Layers className="w-4 h-4 text-[#68594d] shrink-0" />
-                <span>Raiz da Sidebar (Sem pasta)</span>
-              </button>
-
-              {/* Pastas Disponíveis */}
-              {folders
-                .filter((f) => !selectedItems.has(f.id) && f.id !== SYSTEM_ARCHIVE_FOLDER_ID)
-                .map((folder) => {
-                  const isSelected = batchMoveFolderId === folder.id;
-                  return (
-                    <button
-                      key={folder.id}
-                      type="button"
-                      onClick={() => setBatchMoveFolderId(folder.id)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer text-left ${
-                        isSelected
-                          ? 'bg-[#f4dfcb] font-semibold text-[#1b1c19]'
-                          : 'hover:bg-[#f0eee9] text-[#4e453f]'
-                      }`}
-                    >
-                      <Folder className="w-4 h-4 text-[#68594d] shrink-0" />
-                      <span className="truncate">{folder.name}</span>
-                    </button>
-                  );
-                })}
-            </div>
-
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setShowBatchMoveDialog(false)}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-[#4e453f] hover:bg-[#e4e2dd] transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                id="batch-confirm-move-btn"
-                onClick={() => handleBatchMoveSubmit(batchMoveFolderId)}
-                className="px-4 py-1.5 rounded-xl text-xs font-medium bg-[#68594d] text-white hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
-              >
-                Mover para Cá
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <BatchMoveModal
+        isOpen={showBatchMoveDialog}
+        selectedCount={selectedItems.size}
+        folders={folders}
+        selectedItemIds={new Set(selectedItems.keys())}
+        onClose={() => setShowBatchMoveDialog(false)}
+        onSubmit={(targetFolderId) => handleBatchMoveSubmit(targetFolderId)}
+      />
 
       {/* Modal de Configurações da Aplicação */}
       <SettingsModal

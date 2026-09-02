@@ -2,12 +2,10 @@ import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supa
 import { Folder, Note } from '../types';
 import {
   readNoteMarkdown,
-  deleteNoteMarkdown,
 } from './notes-storage-api';
 import { saveQueue } from './save-queue';
 import {
   parseMarkdownWithTags,
-  serializeMarkdownWithTags,
 } from '../utils/markdown-tags';
 import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
 import { generateUUID } from '../utils/uuid';

@@ -5,7 +5,6 @@
 import {
   parseStoragePath,
   inferMimeTypeFromExtension,
-  AttachmentReconciler,
 } from '../api/attachment-reconciler';
 
 export function runAttachmentReconciliationTests(): {

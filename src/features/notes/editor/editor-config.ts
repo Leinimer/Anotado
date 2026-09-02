@@ -9,7 +9,7 @@ import Link from '@tiptap/extension-link';
 import { Markdown } from 'tiptap-markdown';
 import HorizontalRule from '@tiptap/extension-horizontal-rule';
 import { Extension, InputRule } from '@tiptap/core';
-import { Plugin, PluginKey, TextSelection, NodeSelection } from '@tiptap/pm/state';
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 
 import { FontSize } from './extensions/font-size';
 import { CustomImage } from './extensions/custom-image';

@@ -51,55 +51,21 @@ export const CustomTaskItem = TaskItem.extend({
         const isBulletList = editor.isActive('bulletList');
         const isItemEmpty = taskItemNode.textContent.trim().length === 0;
 
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('[CHECKLIST] ENTER', {
-            empty,
-            pos: $from.pos,
-            depth: $from.depth,
-            taskItemDepth,
-            isItemEmpty,
-            checked: taskItemNode.attrs.checked,
-          });
-          console.log('[CHECKLIST] CURRENT NODE', taskItemNode.type.name);
-          console.log('[CHECKLIST] CURRENT PARENT', parentNode?.type?.name);
-          console.log('[CHECKLIST] IS TASK ITEM', true);
-          console.log('[CHECKLIST] IS BULLET LIST', isBulletList);
-        }
-
         // CASO 2: O item atual está vazio e o usuário pressiona Enter novamente
         // Comportamento padrão esperado: sair da checklist e criar um parágrafo normal abaixo.
         if (isItemEmpty) {
-          if (process.env.NODE_ENV !== 'production') {
-            console.log('[CHECKLIST] COMMAND', 'liftListItem (exit / unwrap taskItem)');
-          }
-
           const lifted = editor.commands.liftListItem('taskItem');
           if (lifted) {
-            if (process.env.NODE_ENV !== 'production') {
-              console.log('[CHECKLIST] RESULT', true);
-            }
             return true;
           }
 
           // Fallback seguro: se lift falhar, desfaz o taskList para parágrafo normal
-          const toggled = editor.chain().focus().toggleTaskList().run();
-          if (process.env.NODE_ENV !== 'production') {
-            console.log('[CHECKLIST] RESULT (fallback toggleTaskList)', toggled);
-          }
-          return toggled;
+          return editor.chain().focus().toggleTaskList().run();
         }
 
         // CASO 1: O item possui texto.
         // Divide o item atual criando um novo TaskItem desmarcado (checked: false).
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('[CHECKLIST] COMMAND', 'splitListItem taskItem { checked: false }');
-        }
-
-        const split = editor.commands.splitListItem('taskItem', { checked: false });
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('[CHECKLIST] RESULT', split);
-        }
-        return split;
+        return editor.commands.splitListItem('taskItem', { checked: false });
       },
 
       'Shift-Tab': () => this.editor.commands.liftListItem(this.name),

@@ -1,7 +1,8 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { ReactNodeViewRenderer } from '@tiptap/react';
-import { TextSelection, NodeSelection } from '@tiptap/pm/state';
 import { DocumentNodeView } from './DocumentNodeView';
+import { formatBytes } from '../utils/media-common';
+import { insertMediaNode } from '../utils/node-movement';
 
 export interface DocumentAttachmentOptions {
   HTMLAttributes: Record<string, any>;
@@ -20,15 +21,6 @@ declare module '@tiptap/core' {
       }) => ReturnType;
     };
   }
-}
-
-function formatBytes(bytes: number, decimals = 1) {
-  if (!bytes || bytes === 0) return '0 B';
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
 export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
@@ -249,8 +241,7 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
       setDocumentAttachment:
         (options) =>
         ({ state, dispatch, tr }) => {
-          const { schema, selection } = state;
-          const type = schema.nodes[this.name];
+          const type = state.schema.nodes[this.name];
           if (!type) return false;
 
           const nodeAttrs = {
@@ -261,69 +252,7 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
           const node = type.create(nodeAttrs);
           if (!node) return false;
 
-          const paragraphType = schema.nodes.paragraph;
-
-          if (selection instanceof NodeSelection) {
-            // Se um nó de mídia já estiver selecionado, NÃO o substitui.
-            // Insere o novo documento imediatamente após o nó selecionado.
-            const insertPos = selection.to;
-            tr.insert(insertPos, node);
-            const afterMediaPos = insertPos + node.nodeSize;
-            if (paragraphType) {
-              const emptyParagraph = paragraphType.create();
-              tr.insert(afterMediaPos, emptyParagraph);
-              try {
-                const textCursorPos = Math.min(afterMediaPos + 1, tr.doc.content.size);
-                tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
-              } catch {}
-            }
-            if (dispatch) dispatch(tr.scrollIntoView());
-            return true;
-          }
-
-          if (selection.$from.parent.isTextblock && selection.$from.parent.content.size === 0) {
-            // Se o cursor estiver em um parágrafo vazio, substitui o parágrafo vazio pelo documento
-            const startPos = selection.$from.before();
-            const endPos = selection.$from.after();
-            tr.replaceWith(startPos, endPos, node);
-            const afterMediaPos = startPos + node.nodeSize;
-            if (paragraphType) {
-              const emptyParagraph = paragraphType.create();
-              tr.insert(afterMediaPos, emptyParagraph);
-              try {
-                const textCursorPos = Math.min(afterMediaPos + 1, tr.doc.content.size);
-                tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
-              } catch {}
-            }
-            if (dispatch) dispatch(tr.scrollIntoView());
-            return true;
-          }
-
-          // Se houver seleção de texto não-vazia, remove o texto selecionado primeiro
-          let insertPos = selection.to;
-          if (!selection.empty) {
-            tr.deleteSelection();
-            insertPos = tr.selection.from;
-          } else {
-            insertPos = selection.from;
-          }
-
-          tr.insert(insertPos, node);
-          const afterMediaPos = insertPos + node.nodeSize;
-
-          if (paragraphType) {
-            const emptyParagraph = paragraphType.create();
-            tr.insert(afterMediaPos, emptyParagraph);
-            try {
-              const textCursorPos = Math.min(afterMediaPos + 1, tr.doc.content.size);
-              tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
-            } catch {}
-          }
-
-          if (dispatch) {
-            dispatch(tr.scrollIntoView());
-          }
-          return true;
+          return insertMediaNode(tr, state, node, dispatch);
         },
     };
   },

@@ -17,19 +17,16 @@ import {
   AlertTriangle,
   ExternalLink,
   Trash2,
-  ChevronRight,
   Sparkles,
 } from 'lucide-react';
 import {
   indexedDBStorage,
-  SyncQueueItem,
-  ExtendedNote,
   ExtendedFolder,
-  LocalAttachment,
+  ExtendedNote,
 } from '../db/indexed-db';
 import { syncEngine, formatFriendlyErrorMessage } from '../api/sync-engine';
 import { networkMonitor } from '../api/network-monitor';
-import { buildFolderPath, buildNotePath } from '../utils/path-builder';
+import { buildFolderPath } from '../utils/path-builder';
 import { deleteAttachmentCompletely } from '../api/notes-api';
 import { Folder as FolderType, Note as NoteType } from '../types';
 
@@ -87,7 +84,7 @@ function formatRelativeTimestamp(isoDate: string): string {
   return `${dayMonth} às ${timeStr}`;
 }
 
-function getActionSemanticLabel(action?: string, payload?: any, type?: string): string {
+function getActionSemanticLabel(action?: string, payload?: Record<string, any>, type?: string): string {
   if (!action) {
     if (type === 'note') return 'Nota pendente';
     if (type === 'folder') return 'Pasta pendente';
@@ -142,8 +139,8 @@ async function fetchAllPendingDisplayItems(
   const processedEntityIds = new Set<string>();
 
   // 1. Carrega dados do IndexedDB para resolução completa de caminhos e nomes caso não fornecidos
-  let allFolders: any[] = providedFolders || [];
-  let allNotes: any[] = providedNotes || [];
+  let allFolders: (FolderType | ExtendedFolder)[] = providedFolders || [];
+  let allNotes: (NoteType | ExtendedNote)[] = providedNotes || [];
 
   if (allFolders.length === 0) {
     try {
@@ -161,8 +158,8 @@ async function fetchAllPendingDisplayItems(
     }
   }
 
-  const notesMap = new Map<string, any>(allNotes.map((n) => [n.id, n]));
-  const foldersMap = new Map<string, any>(allFolders.map((f) => [f.id, f]));
+  const notesMap = new Map<string, NoteType | ExtendedNote>(allNotes.map((n) => [n.id, n]));
+  const foldersMap = new Map<string, FolderType | ExtendedFolder>(allFolders.map((f) => [f.id, f]));
 
   // Helper para resolver informações de nota
   const resolveNoteInfo = (noteId?: string | null) => {

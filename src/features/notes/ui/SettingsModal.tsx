@@ -65,12 +65,23 @@ export function SettingsModal({
   // Carrega e-mail atual do Supabase caso não fornecido
   useEffect(() => {
     if (isOpen) {
+      let isCancelled = false;
       const supabase = createClient();
-      supabase.auth.getUser().then(({ data }: any) => {
-        if (data?.user?.email) {
-          setUserEmail(data.user.email);
+      const loadUser = async () => {
+        try {
+          const { data } = await supabase.auth.getUser();
+          if (isCancelled) return;
+          if (data?.user?.email) {
+            setUserEmail(data.user.email);
+          }
+        } catch {
+          // Ignora falha silenciosamente caso offline
         }
-      });
+      };
+      loadUser();
+      return () => {
+        isCancelled = true;
+      };
     }
   }, [isOpen]);
 
@@ -146,8 +157,9 @@ export function SettingsModal({
         setNewPassword('');
         setConfirmPassword('');
       }
-    } catch (err: any) {
-      setPasswordError(err?.message || 'Erro inesperado ao alterar senha.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro inesperado ao alterar senha.';
+      setPasswordError(message);
     } finally {
       setPasswordLoading(false);
     }
@@ -199,8 +211,9 @@ export function SettingsModal({
         setEmailSuccess('E-mail atualizado com sucesso no ambiente de demonstração.');
         setNewEmail('');
       }
-    } catch (err: any) {
-      setEmailError(err?.message || 'Erro inesperado ao alterar e-mail.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro inesperado ao alterar e-mail.';
+      setEmailError(message);
     } finally {
       setEmailLoading(false);
     }
@@ -229,12 +242,13 @@ export function SettingsModal({
           errorMessage: result.error || 'Erro ao exportar notas.',
         });
       }
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro ao exportar notas.';
       setExportProgress({
         current: 0,
         total: 0,
         status: 'error',
-        errorMessage: err?.message || 'Erro ao exportar notas.',
+        errorMessage: message,
       });
     } finally {
       setIsExporting(false);

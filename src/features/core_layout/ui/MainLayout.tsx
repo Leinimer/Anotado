@@ -23,7 +23,6 @@ import {
   archiveFolderNotes,
   moveItem,
   flushNoteSaves,
-  flushAllPendingSaves,
 } from '@/src/features/notes/api/notes-api';
 import { syncEngine } from '@/src/features/notes/api/sync-engine';
 import { saveQueue } from '@/src/features/notes/api/save-queue';

@@ -14,8 +14,6 @@ import {
   AlignRight,
   AlignJustify,
   List as ListIcon,
-  ListOrdered,
-  Minus,
   ChevronRight,
   Undo,
   Redo,
@@ -100,15 +98,19 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const docInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (propUserId && propUserId !== 'anonymous') return;
+    let isCancelled = false;
     const supabase = createClient();
     const fetchUser = async () => {
       try {
         const { data: sessionData } = await supabase.auth.getSession();
+        if (isCancelled) return;
         if (sessionData?.session?.user?.id) {
           setAuthUserId(sessionData.session.user.id);
           return;
         }
         const { data: userData } = await supabase.auth.getUser();
+        if (isCancelled) return;
         if (userData?.user?.id) {
           setAuthUserId(userData.user.id);
         }
@@ -117,7 +119,10 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       }
     };
     fetchUser();
-  }, []);
+    return () => {
+      isCancelled = true;
+    };
+  }, [propUserId]);
 
   useEffect(() => {
     if (!editor) return;
@@ -132,50 +137,18 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     };
   }, [editor]);
 
-  // Fecha popovers ao clicar fora
+  // Evita sobreposição visual e fecha menus auxiliares quando o usuário clica de volta no canvas ou em outro controle
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (
-        stylePopoverRef.current &&
-        !stylePopoverRef.current.contains(target) &&
-        styleBtnRef.current &&
-        !styleBtnRef.current.contains(target)
-      ) {
-        setShowStyleMenu(false);
-      }
-      if (
-        colorPopoverRef.current &&
-        !colorPopoverRef.current.contains(target) &&
-        colorBtnRef.current &&
-        !colorBtnRef.current.contains(target)
-      ) {
-        setShowColorPicker(false);
-      }
-      if (
-        highlightPopoverRef.current &&
-        !highlightPopoverRef.current.contains(target) &&
-        highlightBtnRef.current &&
-        !highlightBtnRef.current.contains(target)
-      ) {
-        setShowHighlightPicker(false);
-      }
-      if (
-        listPopoverRef.current &&
-        !listPopoverRef.current.contains(target) &&
-        listBtnRef.current &&
-        !listBtnRef.current.contains(target)
-      ) {
-        setShowListMenu(false);
-      }
-      if (
-        addFilePopoverRef.current &&
-        !addFilePopoverRef.current.contains(target) &&
-        addFileBtnRef.current &&
-        !addFileBtnRef.current.contains(target)
-      ) {
-        setShowAddFileMenu(false);
-      }
+      const isOutside = (popover: HTMLDivElement | null, btn: HTMLButtonElement | null) =>
+        Boolean(popover && !popover.contains(target) && btn && !btn.contains(target));
+
+      if (isOutside(stylePopoverRef.current, styleBtnRef.current)) setShowStyleMenu(false);
+      if (isOutside(colorPopoverRef.current, colorBtnRef.current)) setShowColorPicker(false);
+      if (isOutside(highlightPopoverRef.current, highlightBtnRef.current)) setShowHighlightPicker(false);
+      if (isOutside(listPopoverRef.current, listBtnRef.current)) setShowListMenu(false);
+      if (isOutside(addFilePopoverRef.current, addFileBtnRef.current)) setShowAddFileMenu(false);
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -242,90 +215,36 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   ];
 
   // Disparadores de Popover com cálculo de posição acima da toolbar
-  const toggleStyleMenu = () => {
-    if (!showStyleMenu && styleBtnRef.current) {
-      const rect = styleBtnRef.current.getBoundingClientRect();
+  const togglePopover = (
+    currentIsOpen: boolean,
+    btnRef: React.RefObject<HTMLButtonElement | null>,
+    popoverKey: 'style' | 'color' | 'highlight' | 'list' | 'addFile'
+  ) => {
+    if (!currentIsOpen && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
       setPopoverCoords({
         bottom: window.innerHeight - rect.top + 8,
         left: rect.left + rect.width / 2,
       });
-      setShowStyleMenu(true);
-      setShowColorPicker(false);
-      setShowHighlightPicker(false);
-      setShowListMenu(false);
-      setShowAddFileMenu(false);
+      setShowStyleMenu(popoverKey === 'style');
+      setShowColorPicker(popoverKey === 'color');
+      setShowHighlightPicker(popoverKey === 'highlight');
+      setShowListMenu(popoverKey === 'list');
+      setShowAddFileMenu(popoverKey === 'addFile');
     } else {
-      setShowStyleMenu(false);
+      if (popoverKey === 'style') setShowStyleMenu(false);
+      if (popoverKey === 'color') setShowColorPicker(false);
+      if (popoverKey === 'highlight') setShowHighlightPicker(false);
+      if (popoverKey === 'list') setShowListMenu(false);
+      if (popoverKey === 'addFile') setShowAddFileMenu(false);
     }
   };
 
-  const toggleColorPicker = () => {
-    if (!showColorPicker && colorBtnRef.current) {
-      const rect = colorBtnRef.current.getBoundingClientRect();
-      setPopoverCoords({
-        bottom: window.innerHeight - rect.top + 8,
-        left: rect.left + rect.width / 2,
-      });
-      setShowColorPicker(true);
-      setShowStyleMenu(false);
-      setShowHighlightPicker(false);
-      setShowListMenu(false);
-      setShowAddFileMenu(false);
-    } else {
-      setShowColorPicker(false);
-    }
-  };
-
-  const toggleHighlightPicker = () => {
-    if (!showHighlightPicker && highlightBtnRef.current) {
-      const rect = highlightBtnRef.current.getBoundingClientRect();
-      setPopoverCoords({
-        bottom: window.innerHeight - rect.top + 8,
-        left: rect.left + rect.width / 2,
-      });
-      setShowHighlightPicker(true);
-      setShowStyleMenu(false);
-      setShowColorPicker(false);
-      setShowListMenu(false);
-      setShowAddFileMenu(false);
-    } else {
-      setShowHighlightPicker(false);
-    }
-  };
-
-  const toggleListMenu = () => {
-    if (!showListMenu && listBtnRef.current) {
-      const rect = listBtnRef.current.getBoundingClientRect();
-      setPopoverCoords({
-        bottom: window.innerHeight - rect.top + 8,
-        left: rect.left + rect.width / 2,
-      });
-      setShowListMenu(true);
-      setShowStyleMenu(false);
-      setShowColorPicker(false);
-      setShowHighlightPicker(false);
-      setShowAddFileMenu(false);
-    } else {
-      setShowListMenu(false);
-    }
-  };
-
-  const toggleAddFileMenu = () => {
-    if (!showAddFileMenu && addFileBtnRef.current) {
-      const rect = addFileBtnRef.current.getBoundingClientRect();
-      setPopoverCoords({
-        bottom: window.innerHeight - rect.top + 8,
-        left: rect.left + rect.width / 2,
-      });
-      setShowAddFileMenu(true);
-      setShowStyleMenu(false);
-      setShowColorPicker(false);
-      setShowHighlightPicker(false);
-      setShowListMenu(false);
-    } else {
-      setShowAddFileMenu(false);
-    }
-  };
+  const toggleStyleMenu = () => togglePopover(showStyleMenu, styleBtnRef, 'style');
+  const toggleColorPicker = () => togglePopover(showColorPicker, colorBtnRef, 'color');
+  const toggleHighlightPicker = () => togglePopover(showHighlightPicker, highlightBtnRef, 'highlight');
+  const toggleListMenu = () => togglePopover(showListMenu, listBtnRef, 'list');
+  const toggleAddFileMenu = () => togglePopover(showAddFileMenu, addFileBtnRef, 'addFile');
 
   // Escala de Tamanho de Fonte Progressiva
   const handleIncreaseFontSize = () => {
@@ -374,8 +293,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
         if (cached && cached !== 'anonymous') authUid = cached;
       }
 
-      console.log(`[Attachment] AUTH CHECK userId=${authUid || 'null'} noteId=${activeNoteId || 'none'}`);
-
       if (!authUid || authUid === 'anonymous') {
         console.error('[Attachment] AUTH CHECK FAILED: Nenhuma sessão de usuário autenticado encontrada para upload.');
         alert('Usuário não autenticado. Faça login para fazer upload de arquivos.');
@@ -384,9 +301,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
 
       const fileList = Array.from(files);
       for (const file of fileList) {
-        console.log(
-          `[Attachment] LOCAL CREATE starting for file="${file.name}" size=${file.size} mimeType="${file.type}"`
-        );
         // 1. Upload do arquivo para fila local / IndexedDB do usuário autenticado
         const result = await uploadNoteFile(authUid, file, activeNoteId || undefined);
         // 2. Insere a referência canônica (attachment://) no documento Tiptap
@@ -431,17 +345,12 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
         if (cached && cached !== 'anonymous') authUid = cached;
       }
 
-      console.log(`[Attachment] AUTH CHECK userId=${authUid || 'null'} noteId=${activeNoteId || 'none'}`);
-
       if (!authUid || authUid === 'anonymous') {
         console.error('[Attachment] AUTH CHECK FAILED: Nenhuma sessão de usuário autenticado encontrada para upload.');
         alert('Usuário não autenticado. Faça login para fazer upload de arquivos.');
         return;
       }
 
-      console.log(
-        `[Attachment] LOCAL CREATE starting for file="${file.name}" size=${file.size} mimeType="${file.type}"`
-      );
       const result = await uploadNoteFile(authUid, file, activeNoteId || undefined);
       editor
         .chain()
