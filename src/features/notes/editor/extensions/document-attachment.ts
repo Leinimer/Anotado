@@ -48,14 +48,23 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
     return {
       src: {
         default: null,
-        parseHTML: (element) => element.getAttribute('data-src') || element.getAttribute('href'),
+        parseHTML: (element) =>
+          element.getAttribute('data-src') ||
+          element.getAttribute('href') ||
+          element.getAttribute('src'),
         renderHTML: (attributes) => ({
           'data-src': attributes.src,
         }),
       },
       name: {
         default: 'Documento',
-        parseHTML: (element) => element.getAttribute('data-name') || 'Documento',
+        parseHTML: (element) => {
+          let rawName = element.getAttribute('data-name') || element.textContent || 'Documento';
+          try {
+            if (rawName.includes('%')) rawName = decodeURIComponent(rawName);
+          } catch {}
+          return rawName;
+        },
         renderHTML: (attributes) => ({
           'data-name': attributes.name,
         }),
@@ -69,7 +78,10 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
       },
       type: {
         default: 'application/pdf',
-        parseHTML: (element) => element.getAttribute('data-type') || 'application/pdf',
+        parseHTML: (element) =>
+          element.getAttribute('data-type-mime') ||
+          element.getAttribute('data-type') ||
+          'application/pdf',
         renderHTML: (attributes) => ({
           'data-type': attributes.type,
         }),
@@ -85,17 +97,18 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
         }),
       },
       width: {
-        default: null,
+        default: '50%',
         parseHTML: (element) =>
           element.getAttribute('data-width') ||
           element.getAttribute('width') ||
-          element.style.width ||
+          element.style?.width ||
           null,
         renderHTML: (attributes) => {
           if (!attributes.width) return {};
+          const w = typeof attributes.width === 'number' ? `${attributes.width}px` : attributes.width;
           return {
-            'data-width': attributes.width,
-            style: `width: ${typeof attributes.width === 'number' ? `${attributes.width}px` : attributes.width}; max-width: 100%;`,
+            'data-width': w,
+            style: `width: ${w}; max-width: 100%;`,
           };
         },
       },
@@ -106,11 +119,68 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
     return [
       {
         tag: 'div[data-type="documentAttachment"]',
+        getAttrs: (element: HTMLElement | string) => {
+          if (typeof element === 'string') return {};
+          let rawName = element.getAttribute('data-name') || 'Documento';
+          try {
+            if (rawName.includes('%')) rawName = decodeURIComponent(rawName);
+          } catch {}
+          return {
+            src: element.getAttribute('data-src') || element.getAttribute('href') || element.getAttribute('src'),
+            name: rawName,
+            size: Number(element.getAttribute('data-size') || 0),
+            type: element.getAttribute('data-type-mime') || element.getAttribute('data-type') || 'application/pdf',
+            alignment:
+              element.getAttribute('data-alignment') ||
+              element.getAttribute('data-align') ||
+              'left',
+            width:
+              element.getAttribute('data-width') ||
+              element.getAttribute('width') ||
+              element.style?.width ||
+              null,
+          };
+        },
       },
       {
         tag: 'a.tiptap-document-card',
+        getAttrs: (element: HTMLElement | string) => {
+          if (typeof element === 'string') return {};
+          return {
+            src: element.getAttribute('href') || element.getAttribute('data-src'),
+            name: element.getAttribute('data-name') || element.textContent || 'Documento',
+            size: Number(element.getAttribute('data-size') || 0),
+            type: element.getAttribute('data-type') || 'application/pdf',
+            alignment: element.getAttribute('data-alignment') || 'left',
+            width: element.getAttribute('data-width') || null,
+          };
+        },
       },
     ];
+  },
+
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state: any, node: any) {
+          const attrs: string[] = [];
+          attrs.push('data-type="documentAttachment"');
+          if (node.attrs.src) attrs.push(`data-src="${node.attrs.src}"`);
+          if (node.attrs.name) attrs.push(`data-name="${encodeURIComponent(node.attrs.name)}"`);
+          if (node.attrs.size) attrs.push(`data-size="${node.attrs.size}"`);
+          if (node.attrs.type) attrs.push(`data-type-mime="${node.attrs.type}"`);
+          if (node.attrs.alignment) attrs.push(`data-alignment="${node.attrs.alignment}"`);
+          if (node.attrs.width) {
+            const w = typeof node.attrs.width === 'number' ? `${node.attrs.width}px` : node.attrs.width;
+            attrs.push(`data-width="${w}"`);
+            attrs.push(`style="width: ${w}; max-width: 100%;"`);
+          }
+          state.write(`<div ${attrs.join(' ')}></div>`);
+          state.closeBlock(node);
+        },
+        parse: {},
+      },
+    };
   },
 
   renderHTML({ HTMLAttributes }) {
@@ -183,7 +253,12 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
           const type = schema.nodes[this.name];
           if (!type) return false;
 
-          const node = type.create(options);
+          const nodeAttrs = {
+            width: '50%',
+            alignment: 'left',
+            ...options,
+          };
+          const node = type.create(nodeAttrs);
           if (!node) return false;
 
           const paragraphType = schema.nodes.paragraph;

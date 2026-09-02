@@ -43,7 +43,7 @@ export const CustomImage = Node.create<CustomImageOptions>({
     return {
       src: {
         default: null,
-        parseHTML: (element) => element.getAttribute('src'),
+        parseHTML: (element) => element.getAttribute('src') || element.getAttribute('data-src'),
         renderHTML: (attributes) => ({
           src: attributes.src,
         }),
@@ -69,24 +69,23 @@ export const CustomImage = Node.create<CustomImageOptions>({
           element.getAttribute('data-align') ||
           element.getAttribute('align') ||
           'center',
-        renderHTML: (attributes) => {
-          return {
-            'data-alignment': attributes.alignment || 'center',
-          };
-        },
+        renderHTML: (attributes) => ({
+          'data-alignment': attributes.alignment || 'center',
+        }),
       },
       width: {
-        default: null,
+        default: '50%',
         parseHTML: (element) =>
           element.getAttribute('data-width') ||
           element.getAttribute('width') ||
-          element.style.width ||
+          element.style?.width ||
           null,
         renderHTML: (attributes) => {
           if (!attributes.width) return {};
+          const w = typeof attributes.width === 'number' ? `${attributes.width}px` : attributes.width;
           return {
-            'data-width': attributes.width,
-            style: `width: ${typeof attributes.width === 'number' ? `${attributes.width}px` : attributes.width}; max-width: 100%; height: auto;`,
+            'data-width': w,
+            style: `width: ${w}; max-width: 100%; height: auto;`,
           };
         },
       },
@@ -95,7 +94,7 @@ export const CustomImage = Node.create<CustomImageOptions>({
         parseHTML: (element) =>
           element.getAttribute('data-height') ||
           element.getAttribute('height') ||
-          element.style.height ||
+          element.style?.height ||
           null,
         renderHTML: (attributes) => {
           if (!attributes.height) return {};
@@ -111,6 +110,55 @@ export const CustomImage = Node.create<CustomImageOptions>({
     return [
       {
         tag: 'img[src]',
+        getAttrs: (element: HTMLElement | string) => {
+          if (typeof element === 'string') return {};
+          return {
+            src: element.getAttribute('src') || element.getAttribute('data-src'),
+            alt: element.getAttribute('alt'),
+            title: element.getAttribute('title'),
+            alignment:
+              element.getAttribute('data-alignment') ||
+              element.getAttribute('data-align') ||
+              element.getAttribute('align') ||
+              'center',
+            width:
+              element.getAttribute('data-width') ||
+              element.getAttribute('width') ||
+              element.style?.width ||
+              null,
+            height:
+              element.getAttribute('data-height') ||
+              element.getAttribute('height') ||
+              element.style?.height ||
+              null,
+          };
+        },
+      },
+      {
+        tag: 'img[data-src]',
+        getAttrs: (element: HTMLElement | string) => {
+          if (typeof element === 'string') return {};
+          return {
+            src: element.getAttribute('data-src') || element.getAttribute('src'),
+            alt: element.getAttribute('alt'),
+            title: element.getAttribute('title'),
+            alignment:
+              element.getAttribute('data-alignment') ||
+              element.getAttribute('data-align') ||
+              element.getAttribute('align') ||
+              'center',
+            width:
+              element.getAttribute('data-width') ||
+              element.getAttribute('width') ||
+              element.style?.width ||
+              null,
+            height:
+              element.getAttribute('data-height') ||
+              element.getAttribute('height') ||
+              element.style?.height ||
+              null,
+          };
+        },
       },
     ];
   },
@@ -122,6 +170,31 @@ export const CustomImage = Node.create<CustomImageOptions>({
         class: 'rounded-xl max-w-full my-4 border border-[#e4e2dd] shadow-xs',
       }),
     ];
+  },
+
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state: any, node: any) {
+          const attrs: string[] = [];
+          if (node.attrs.src) attrs.push(`src="${node.attrs.src}"`);
+          if (node.attrs.alt) attrs.push(`alt="${node.attrs.alt}"`);
+          if (node.attrs.title) attrs.push(`title="${node.attrs.title}"`);
+          if (node.attrs.alignment) attrs.push(`data-alignment="${node.attrs.alignment}"`);
+          if (node.attrs.width) {
+            const w = typeof node.attrs.width === 'number' ? `${node.attrs.width}px` : node.attrs.width;
+            attrs.push(`data-width="${w}"`);
+            attrs.push(`style="width: ${w}; max-width: 100%;"`);
+          }
+          if (node.attrs.height) {
+            attrs.push(`data-height="${node.attrs.height}"`);
+          }
+          state.write(`<img ${attrs.join(' ')} />`);
+          state.closeBlock(node);
+        },
+        parse: {},
+      },
+    };
   },
 
   addNodeView() {
@@ -137,7 +210,12 @@ export const CustomImage = Node.create<CustomImageOptions>({
           const type = schema.nodes[this.name];
           if (!type) return false;
 
-          const node = type.create(options);
+          const nodeAttrs = {
+            width: '50%',
+            alignment: 'center',
+            ...options,
+          };
+          const node = type.create(nodeAttrs);
           if (!node) return false;
 
           const paragraphType = schema.nodes.paragraph;

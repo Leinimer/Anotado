@@ -34,7 +34,7 @@ export function ImageNodeView(props: NodeViewProps) {
   const rawSrc = node.attrs.src || '';
   const alt = node.attrs.alt || '';
   const title = node.attrs.title || '';
-  const initialWidthAttr = node.attrs.width;
+  const initialWidthAttr = node.attrs.width || '50%';
   const alignment = (node.attrs.alignment as 'left' | 'center' | 'right') || 'center';
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -195,7 +195,11 @@ export function ImageNodeView(props: NodeViewProps) {
   const currentDisplayWidth =
     resizingWidth !== null
       ? `${resizingWidth}px`
-      : initialWidthAttr || '100%';
+      : initialWidthAttr
+      ? typeof initialWidthAttr === 'number'
+        ? `${initialWidthAttr}px`
+        : initialWidthAttr
+      : '50%';
 
   // IntersectionObserver para Lazy Loading progressivo e não-bloqueante
   useEffect(() => {
@@ -436,16 +440,18 @@ export function ImageNodeView(props: NodeViewProps) {
         setIsResizing(false);
         setResizingWidth(null);
 
+        const finalWidth = `${Math.round(latestCalculatedWidth)}px`;
         // Persiste as dimensões no documento da nota
         updateAttributes({
-          width: `${Math.round(latestCalculatedWidth)}px`,
+          width: finalWidth,
         });
+        console.log('[MEDIA-PERSIST]', { type: 'image', width: finalWidth, alignment });
       };
 
       window.addEventListener('pointermove', handlePointerMove, { passive: false });
       window.addEventListener('pointerup', handlePointerUp, { passive: false });
     },
-    [aspectRatio, updateAttributes]
+    [aspectRatio, updateAttributes, alignment]
   );
 
   return (
@@ -514,7 +520,10 @@ export function ImageNodeView(props: NodeViewProps) {
             <div className="flex items-center gap-0.5">
               <button
                 type="button"
-                onClick={() => updateAttributes({ alignment: 'left' })}
+                onClick={() => {
+                  updateAttributes({ alignment: 'left' });
+                  console.log('[MEDIA-PERSIST]', { type: 'image', width: node.attrs.width, alignment: 'left' });
+                }}
                 className={`p-1 rounded-md transition-colors cursor-pointer ${
                   alignment === 'left'
                     ? 'bg-[#68594d] text-white shadow-2xs'
@@ -527,7 +536,10 @@ export function ImageNodeView(props: NodeViewProps) {
               </button>
               <button
                 type="button"
-                onClick={() => updateAttributes({ alignment: 'center' })}
+                onClick={() => {
+                  updateAttributes({ alignment: 'center' });
+                  console.log('[MEDIA-PERSIST]', { type: 'image', width: node.attrs.width, alignment: 'center' });
+                }}
                 className={`p-1 rounded-md transition-colors cursor-pointer ${
                   alignment === 'center'
                     ? 'bg-[#68594d] text-white shadow-2xs'
@@ -540,7 +552,10 @@ export function ImageNodeView(props: NodeViewProps) {
               </button>
               <button
                 type="button"
-                onClick={() => updateAttributes({ alignment: 'right' })}
+                onClick={() => {
+                  updateAttributes({ alignment: 'right' });
+                  console.log('[MEDIA-PERSIST]', { type: 'image', width: node.attrs.width, alignment: 'right' });
+                }}
                 className={`p-1 rounded-md transition-colors cursor-pointer ${
                   alignment === 'right'
                     ? 'bg-[#68594d] text-white shadow-2xs'
@@ -564,30 +579,31 @@ export function ImageNodeView(props: NodeViewProps) {
             <button
               type="button"
               onClick={() => {
-                const parent =
-                  containerRef.current?.closest('.ProseMirror') ||
-                  containerRef.current?.parentElement;
-                const maxW = parent ? parent.clientWidth - 24 : 700;
-                const halfW = Math.round(maxW * 0.5);
-                updateAttributes({ width: `${halfW}px` });
+                updateAttributes({ width: '50%' });
+                console.log('[MEDIA-PERSIST]', { type: 'image', width: '50%', alignment });
               }}
-              className="px-1.5 py-0.5 rounded text-[10px] font-medium hover:bg-[#f0eee9] text-[#4e453f] transition-colors cursor-pointer"
+              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+                initialWidthAttr === '50%'
+                  ? 'bg-[#68594d] text-white'
+                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
+              }`}
               title="50% da folha"
               aria-label="Redimensionar para 50% da folha"
             >
               50%
             </button>
+
             <button
               type="button"
               onClick={() => {
-                const parent =
-                  containerRef.current?.closest('.ProseMirror') ||
-                  containerRef.current?.parentElement;
-                const maxW = parent ? parent.clientWidth - 24 : 700;
-                const fullW = Math.round(maxW);
-                updateAttributes({ width: `${fullW}px` });
+                updateAttributes({ width: '100%' });
+                console.log('[MEDIA-PERSIST]', { type: 'image', width: '100%', alignment });
               }}
-              className="px-1.5 py-0.5 rounded text-[10px] font-medium hover:bg-[#f0eee9] text-[#4e453f] transition-colors cursor-pointer"
+              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+                initialWidthAttr === '100%'
+                  ? 'bg-[#68594d] text-white'
+                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
+              }`}
               title="100% da folha"
               aria-label="Redimensionar para 100% da folha"
             >

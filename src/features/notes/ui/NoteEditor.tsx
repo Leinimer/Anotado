@@ -113,6 +113,18 @@ export function NoteEditor({
         return;
       }
       hasUserEditedRef.current = true;
+
+      // Logs de verificação de persistência de mídias no documento
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === 'image' || node.type.name === 'documentAttachment' || node.type.name === 'youtube') {
+          console.log('[MEDIA-SAVE]', {
+            type: node.type.name,
+            width: node.attrs.width,
+            alignment: node.attrs.alignment,
+          });
+        }
+      });
+
       // Extrai Markdown real usando a extensão de markdown do Tiptap
       const storageRecord = editor.storage as unknown as Record<string, { getMarkdown?: () => string }>;
       const markdown = storageRecord?.markdown?.getMarkdown ? storageRecord.markdown.getMarkdown() : editor.getHTML();

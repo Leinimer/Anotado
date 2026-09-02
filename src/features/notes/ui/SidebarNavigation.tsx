@@ -29,6 +29,9 @@ import {
   Check,
   Loader2,
   Smartphone,
+  FolderInput,
+  Layers,
+  CheckSquare,
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { TagsModal } from './TagsModal';
@@ -182,6 +185,23 @@ export function SidebarNavigation({
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Estado para Seleção Múltipla e Marquee Selection (Bloco B)
+  const [selectedItems, setSelectedItems] = useState<Map<string, 'folder' | 'note'>>(new Map());
+  const lastSelectedIdRef = useRef<{ id: string; type: 'folder' | 'note' } | null>(null);
+  const [isMarqueeActive, setIsMarqueeActive] = useState(false);
+  const [marqueeRect, setMarqueeRect] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [showBatchMoveDialog, setShowBatchMoveDialog] = useState(false);
+  const [batchMoveFolderId, setBatchMoveFolderId] = useState<string | null>(null);
+  const [draggingMultiItems, setDraggingMultiItems] = useState<
+    { type: 'folder' | 'note'; id: string }[] | null
+  >(null);
+
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data }: any) => {
@@ -244,11 +264,33 @@ export function SidebarNavigation({
         if (confirmDelete) {
           setConfirmDelete(null);
         }
+        if (showBatchDeleteConfirm) {
+          setShowBatchDeleteConfirm(false);
+        }
+        if (showBatchMoveDialog) {
+          setShowBatchMoveDialog(false);
+        }
         if (smartConfigFolderId) {
           setSmartConfigFolderId(null);
         }
         if (showSearchModeMenu) {
           setShowSearchModeMenu(false);
+        }
+        if (selectedItems.size > 0) {
+          setSelectedItems(new Map());
+          lastSelectedIdRef.current = null;
+        }
+      }
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItems.size > 0) {
+        const activeEl = document.activeElement;
+        const isInput =
+          activeEl instanceof HTMLInputElement ||
+          activeEl instanceof HTMLTextAreaElement ||
+          activeEl?.getAttribute('contenteditable') === 'true';
+        if (!isInput && !confirmDelete && !showBatchDeleteConfirm) {
+          e.preventDefault();
+          setShowBatchDeleteConfirm(true);
         }
       }
     };
@@ -259,7 +301,15 @@ export function SidebarNavigation({
       window.removeEventListener('click', handleClickOutside);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [menuOpenId, showSearchModeMenu, confirmDelete, smartConfigFolderId]);
+  }, [
+    menuOpenId,
+    showSearchModeMenu,
+    confirmDelete,
+    smartConfigFolderId,
+    selectedItems.size,
+    showBatchDeleteConfirm,
+    showBatchMoveDialog,
+  ]);
 
   // Limpeza de timer do submenu de cores no unmount
   useEffect(() => {
@@ -477,7 +527,7 @@ export function SidebarNavigation({
   };
 
   // ==========================================
-  // DRAG & DROP INTELIGENTE (REORDENAR VS ENTRAR VS ARQUIVAR)
+  // DRAG & DROP INTELIGENTE (REORDENAR VS ENTRAR VS ARQUIVAR + MULTI-SELEÇÃO)
   // ==========================================
   const handleDragStart = (e: React.DragEvent, type: 'folder' | 'note', id: string) => {
     e.stopPropagation();
@@ -486,6 +536,21 @@ export function SidebarNavigation({
       e.preventDefault();
       return;
     }
+
+    // Se o item arrastado faz parte da seleção múltipla e há mais de 1 item selecionado
+    if (selectedItems.has(id) && selectedItems.size > 1) {
+      const multi = Array.from(selectedItems.entries()).map(([itemId, itemType]) => ({
+        id: itemId,
+        type: itemType,
+      }));
+      setDraggingMultiItems(multi);
+      setDraggingItem({ type, id });
+      e.dataTransfer.setData('text/plain', JSON.stringify({ type, id, multi: true }));
+      e.dataTransfer.effectAllowed = 'move';
+      return;
+    }
+
+    setDraggingMultiItems(null);
     setDraggingItem({ type, id });
     e.dataTransfer.setData('text/plain', JSON.stringify({ type, id }));
     e.dataTransfer.effectAllowed = 'move';
@@ -493,6 +558,7 @@ export function SidebarNavigation({
 
   const handleDragEnd = () => {
     setDraggingItem(null);
+    setDraggingMultiItems(null);
     setDropTarget(null);
   };
 
@@ -629,12 +695,41 @@ export function SidebarNavigation({
 
     if (!draggingItem || !dropTarget) {
       setDraggingItem(null);
+      setDraggingMultiItems(null);
+      setDropTarget(null);
+      return;
+    }
+
+    const { targetId, targetParentId, targetPosition, dropPosition } = dropTarget;
+
+    // Caso Especial: Multi-itens sendo arrastados juntos
+    if (draggingMultiItems && draggingMultiItems.length > 0) {
+      draggingMultiItems.forEach((item, index) => {
+        if (item.type === 'folder' && wouldCreateCycle(item.id, targetParentId, folders)) {
+          return;
+        }
+        if (targetId === SYSTEM_ARCHIVE_FOLDER_ID && item.type === 'note') {
+          if (onArchiveNote) onArchiveNote(item.id);
+          return;
+        }
+        const isArchived = notes.find((n) => n.id === item.id)?.is_archived;
+        if (isArchived && item.type === 'note' && onUnarchiveNote) {
+          onUnarchiveNote(item.id);
+        }
+        onMoveItem(item.type, item.id, targetParentId, targetPosition + index);
+      });
+
+      if (dropPosition === 'inside' && dropTarget.targetId) {
+        setOpenFolderIds((prev) => new Set(prev).add(dropTarget.targetId));
+      }
+      setSelectedItems(new Map());
+      setDraggingItem(null);
+      setDraggingMultiItems(null);
       setDropTarget(null);
       return;
     }
 
     const { type, id } = draggingItem;
-    const { targetId, targetParentId, targetPosition, dropPosition } = dropTarget;
 
     // Caso Especial: Soltar nota dentro da pasta "Notas arquivadas"
     if (targetId === SYSTEM_ARCHIVE_FOLDER_ID && type === 'note') {
@@ -642,6 +737,7 @@ export function SidebarNavigation({
         onArchiveNote(id);
       }
       setDraggingItem(null);
+      setDraggingMultiItems(null);
       setDropTarget(null);
       return;
     }
@@ -650,6 +746,7 @@ export function SidebarNavigation({
     if (type === 'folder') {
       if (wouldCreateCycle(id, targetParentId, folders)) {
         setDraggingItem(null);
+        setDraggingMultiItems(null);
         setDropTarget(null);
         return;
       }
@@ -673,6 +770,7 @@ export function SidebarNavigation({
     }
 
     setDraggingItem(null);
+    setDraggingMultiItems(null);
     setDropTarget(null);
   };
 
@@ -682,6 +780,21 @@ export function SidebarNavigation({
     e.stopPropagation();
 
     if (!draggingItem) return;
+
+    if (draggingMultiItems && draggingMultiItems.length > 0) {
+      draggingMultiItems.forEach((item, index) => {
+        const isArchived = notes.find((n) => n.id === item.id)?.is_archived;
+        if (isArchived && item.type === 'note' && onUnarchiveNote) {
+          onUnarchiveNote(item.id);
+        }
+        onMoveItem(item.type, item.id, null, folders.length + notes.length + index);
+      });
+      setSelectedItems(new Map());
+      setDraggingItem(null);
+      setDraggingMultiItems(null);
+      setDropTarget(null);
+      return;
+    }
 
     const { type, id } = draggingItem;
     const isArchivedNote = notes.find((n) => n.id === id)?.is_archived;
@@ -693,6 +806,7 @@ export function SidebarNavigation({
     onMoveItem(type, id, null, folders.length + notes.length);
 
     setDraggingItem(null);
+    setDraggingMultiItems(null);
     setDropTarget(null);
   };
 
@@ -772,6 +886,146 @@ export function SidebarNavigation({
     }
   };
 
+  // Obtém lista ordenada de itens visíveis na árvore para suporte a Shift+Clique
+  const getVisibleTreeItems = React.useCallback((): { id: string; type: 'folder' | 'note' }[] => {
+    const items: { id: string; type: 'folder' | 'note' }[] = [];
+    const traverseFolder = (folder: TreeFolderNode) => {
+      items.push({ id: folder.id, type: 'folder' });
+      if (openFolderIds.has(folder.id) || isFiltering) {
+        folder.subfolders.forEach(traverseFolder);
+        folder.notes.forEach((note) => items.push({ id: note.id, type: 'note' }));
+      }
+    };
+    filteredFolders.forEach(traverseFolder);
+    filteredNotes.forEach((note) => items.push({ id: note.id, type: 'note' }));
+    if (filteredArchivedFolder) {
+      traverseFolder(filteredArchivedFolder);
+    }
+    return items;
+  }, [filteredFolders, filteredNotes, filteredArchivedFolder, openFolderIds, isFiltering]);
+
+  // Exclusão em lote
+  const handleBatchConfirmDelete = () => {
+    if (selectedItems.size === 0) return;
+    selectedItems.forEach((type, id) => {
+      if (type === 'folder') {
+        onDeleteFolder(id);
+      } else {
+        onDeleteNote(id);
+      }
+    });
+    setSelectedItems(new Map());
+    lastSelectedIdRef.current = null;
+    setShowBatchDeleteConfirm(false);
+  };
+
+  // Movimentação em lote
+  const handleBatchMoveSubmit = (targetParentId: string | null) => {
+    if (selectedItems.size === 0) return;
+    let indexOffset = 0;
+    selectedItems.forEach((type, id) => {
+      if (type === 'folder' && wouldCreateCycle(id, targetParentId, folders)) {
+        return;
+      }
+      onMoveItem(type, id, targetParentId, indexOffset);
+      indexOffset += 1;
+    });
+    if (targetParentId) {
+      setOpenFolderIds((prev) => new Set(prev).add(targetParentId));
+    }
+    setSelectedItems(new Map());
+    lastSelectedIdRef.current = null;
+    setShowBatchMoveDialog(false);
+  };
+
+  // Handler para Marquee Selection na Área Vazia da Sidebar
+  const handleTreeAreaPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Apenas botão principal (esquerdo)
+    if (e.button !== 0) return;
+
+    // Se o clique ocorreu sobre algum elemento interativo ou item da árvore, não inicia marquee
+    const target = e.target as HTMLElement;
+    const isInteractive = target.closest(
+      '[data-tree-item], [id^="folder-item-"], [id^="note-item-"], button, input, a, [data-context-menu], [data-no-marquee]'
+    );
+
+    if (isInteractive) {
+      return;
+    }
+
+    const isCtrl = e.ctrlKey || e.metaKey;
+    if (!isCtrl) {
+      setSelectedItems(new Map());
+      lastSelectedIdRef.current = null;
+    }
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let hasStarted = false;
+    const baseSelection = new Map(isCtrl ? selectedItems : []);
+
+    const handlePointerMove = (moveEv: PointerEvent) => {
+      const dx = moveEv.clientX - startX;
+      const dy = moveEv.clientY - startY;
+
+      if (!hasStarted) {
+        if (Math.hypot(dx, dy) > 4) {
+          hasStarted = true;
+          setIsMarqueeActive(true);
+          document.body.style.userSelect = 'none';
+        } else {
+          return;
+        }
+      }
+
+      const curX = moveEv.clientX;
+      const curY = moveEv.clientY;
+      setMarqueeRect({ startX, startY, currentX: curX, currentY: curY });
+
+      const minX = Math.min(startX, curX);
+      const maxX = Math.max(startX, curX);
+      const minY = Math.min(startY, curY);
+      const maxY = Math.max(startY, curY);
+
+      const nextSelection = new Map(baseSelection);
+
+      // Hit-test contra todos os elementos com data-tree-item
+      const itemElements = document.querySelectorAll<HTMLElement>('[data-tree-item]');
+      itemElements.forEach((el) => {
+        const itemId = el.getAttribute('data-item-id');
+        const itemType = el.getAttribute('data-item-type') as 'folder' | 'note';
+        if (!itemId || !itemType) return;
+        if (itemId === SYSTEM_ARCHIVE_FOLDER_ID) return;
+
+        const rect = el.getBoundingClientRect();
+        const isOverlapping =
+          rect.left < maxX &&
+          rect.right > minX &&
+          rect.top < maxY &&
+          rect.bottom > minY;
+
+        if (isOverlapping) {
+          nextSelection.set(itemId, itemType);
+        } else if (!isCtrl) {
+          nextSelection.delete(itemId);
+        }
+      });
+
+      setSelectedItems(nextSelection);
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      document.body.style.userSelect = '';
+      setIsMarqueeActive(false);
+      setMarqueeRect(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: false });
+    window.addEventListener('pointerup', handlePointerUp, { passive: false });
+  };
+
   // Renderização Recursiva de Pasta (Com linha de inserção e destaque ao entrar)
   const renderFolderNode = (folder: TreeFolderNode) => {
     const isSystemArchive = folder.id === SYSTEM_ARCHIVE_FOLDER_ID || folder.isSystem;
@@ -779,6 +1033,7 @@ export function SidebarNavigation({
     const isEditing = editingItemId === folder.id && editingItemType === 'folder';
     const isSmart = folder.isSmart || (folder.smartTags && folder.smartTags.length > 0);
     const isMenuOpenForThisFolder = menuOpenId === folder.id;
+    const isSelectedInMulti = selectedItems.has(folder.id);
     const effectiveColor = folder.effectiveColor || folder.color;
     const iconColor = isSystemArchive
       ? '#8c6b4f'
@@ -791,6 +1046,52 @@ export function SidebarNavigation({
 
     const handleFolderClick = (e: React.MouseEvent) => {
       if (isEditing) return;
+
+      // Ctrl / Cmd + Clique para selecionar/deselecionar individualmente
+      if ((e.ctrlKey || e.metaKey) && !isSystemArchive) {
+        e.stopPropagation();
+        setSelectedItems((prev) => {
+          const next = new Map(prev);
+          if (next.has(folder.id)) {
+            next.delete(folder.id);
+          } else {
+            next.set(folder.id, 'folder');
+          }
+          return next;
+        });
+        lastSelectedIdRef.current = { id: folder.id, type: 'folder' };
+        return;
+      }
+
+      // Shift + Clique para seleção em intervalo (range selection)
+      if (e.shiftKey && lastSelectedIdRef.current && !isSystemArchive) {
+        e.stopPropagation();
+        const visibleItems = getVisibleTreeItems();
+        const lastIdx = visibleItems.findIndex((it) => it.id === lastSelectedIdRef.current?.id);
+        const currentIdx = visibleItems.findIndex((it) => it.id === folder.id);
+        if (lastIdx !== -1 && currentIdx !== -1) {
+          const start = Math.min(lastIdx, currentIdx);
+          const end = Math.max(lastIdx, currentIdx);
+          const rangeItems = visibleItems.slice(start, end + 1);
+          setSelectedItems((prev) => {
+            const next = new Map(prev);
+            rangeItems.forEach((it) => {
+              if (it.id !== SYSTEM_ARCHIVE_FOLDER_ID) {
+                next.set(it.id, it.type);
+              }
+            });
+            return next;
+          });
+          return;
+        }
+      }
+
+      // Clique simples: limpa multi-seleção se houver itens selecionados e este não for o único
+      if (selectedItems.size > 0 && !selectedItems.has(folder.id)) {
+        setSelectedItems(new Map());
+      }
+      lastSelectedIdRef.current = { id: folder.id, type: 'folder' };
+
       const now = Date.now();
       const last = lastClickRef.current;
       if (last && last.id === folder.id && last.type === 'folder' && now - last.time < 350) {
@@ -819,6 +1120,9 @@ export function SidebarNavigation({
 
         <div
           id={`folder-item-${folder.id}`}
+          data-tree-item="true"
+          data-item-id={folder.id}
+          data-item-type="folder"
           draggable={!isEditing && !isSystemArchive}
           onDragStart={(e) => handleDragStart(e, 'folder', folder.id)}
           onDragEnd={handleDragEnd}
@@ -837,7 +1141,9 @@ export function SidebarNavigation({
           }}
           style={{ paddingLeft: `${folder.depth * 16 + 12}px` }}
           className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-all relative ${
-            isDropInside
+            isSelectedInMulti
+              ? 'bg-[#e8decb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
+              : isDropInside
               ? 'bg-[#d7c3b0]/70 border-2 border-dashed border-[#68594d]'
               : isMenuOpenForThisFolder
               ? 'bg-[#e4e2dd]/90 text-[#1b1c19]'
@@ -947,6 +1253,7 @@ export function SidebarNavigation({
     const isEditing = editingItemId === note.id && editingItemType === 'note';
     const isArchived = Boolean(note.isArchived);
     const isMenuOpenForThisNote = menuOpenId === note.id;
+    const isSelectedInMulti = selectedItems.has(note.id);
 
     const isCurrentDropTarget = dropTarget?.targetId === note.id && dropTarget?.targetType === 'note';
     const isDropBefore = isCurrentDropTarget && dropTarget?.dropPosition === 'before';
@@ -954,6 +1261,52 @@ export function SidebarNavigation({
 
     const handleNoteClick = (e: React.MouseEvent) => {
       if (isEditing) return;
+
+      // Ctrl / Cmd + Clique para selecionar/deselecionar individualmente
+      if (e.ctrlKey || e.metaKey) {
+        e.stopPropagation();
+        setSelectedItems((prev) => {
+          const next = new Map(prev);
+          if (next.has(note.id)) {
+            next.delete(note.id);
+          } else {
+            next.set(note.id, 'note');
+          }
+          return next;
+        });
+        lastSelectedIdRef.current = { id: note.id, type: 'note' };
+        return;
+      }
+
+      // Shift + Clique para seleção em intervalo (range selection)
+      if (e.shiftKey && lastSelectedIdRef.current) {
+        e.stopPropagation();
+        const visibleItems = getVisibleTreeItems();
+        const lastIdx = visibleItems.findIndex((it) => it.id === lastSelectedIdRef.current?.id);
+        const currentIdx = visibleItems.findIndex((it) => it.id === note.id);
+        if (lastIdx !== -1 && currentIdx !== -1) {
+          const start = Math.min(lastIdx, currentIdx);
+          const end = Math.max(lastIdx, currentIdx);
+          const rangeItems = visibleItems.slice(start, end + 1);
+          setSelectedItems((prev) => {
+            const next = new Map(prev);
+            rangeItems.forEach((it) => {
+              if (it.id !== SYSTEM_ARCHIVE_FOLDER_ID) {
+                next.set(it.id, it.type);
+              }
+            });
+            return next;
+          });
+          return;
+        }
+      }
+
+      // Clique simples: limpa multi-seleção se houver itens selecionados e este não for o único
+      if (selectedItems.size > 0 && !selectedItems.has(note.id)) {
+        setSelectedItems(new Map());
+      }
+      lastSelectedIdRef.current = { id: note.id, type: 'note' };
+
       const now = Date.now();
       const last = lastClickRef.current;
       if (last && last.id === note.id && last.type === 'note' && now - last.time < 350) {
@@ -981,6 +1334,9 @@ export function SidebarNavigation({
 
         <div
           id={`note-item-${note.id}`}
+          data-tree-item="true"
+          data-item-id={note.id}
+          data-item-type="note"
           draggable={!isEditing}
           onDragStart={(e) => handleDragStart(e, 'note', note.id)}
           onDragEnd={handleDragEnd}
@@ -995,7 +1351,9 @@ export function SidebarNavigation({
           onContextMenu={(e) => handleContextMenu(e, note.id, 'note', isArchived)}
           style={{ paddingLeft: `${note.depth * 16 + 12}px` }}
           className={`group flex items-center justify-between pr-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative ${
-            isActive
+            isSelectedInMulti
+              ? 'bg-[#f4dfcb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
+              : isActive
               ? 'bg-[#f4dfcb] text-[#1b1c19] font-medium shadow-2xs'
               : isMenuOpenForThisNote
               ? 'bg-[#e4e2dd]/80 text-[#1b1c19]'
@@ -1193,14 +1551,66 @@ export function SidebarNavigation({
         </div>
       </div>
 
+      {/* Barra de Ações para Multi-Seleção (Bloco B) */}
+      {selectedItems.size > 0 && (
+        <div
+          id="sidebar-multi-select-bar"
+          data-no-marquee="true"
+          className="px-2.5 py-1.5 bg-[#eae5de] border border-[#d8d1c7] rounded-xl flex items-center justify-between shadow-xs mb-1 animate-in fade-in zoom-in-95 duration-100 font-sans-ui text-xs text-[#1b1c19]"
+        >
+          <div className="flex items-center gap-1.5 font-medium truncate">
+            <CheckSquare className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
+            <span>{selectedItems.size} selecionado{selectedItems.size > 1 ? 's' : ''}</span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              id="batch-move-btn"
+              onClick={() => setShowBatchMoveDialog(true)}
+              className="px-2 py-1 hover:bg-[#dcd4c8] text-[#4e453f] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
+              title="Mover selecionados para pasta"
+            >
+              <FolderInput className="w-3.5 h-3.5 text-[#68594d]" />
+              <span className="hidden sm:inline">Mover</span>
+            </button>
+
+            <button
+              type="button"
+              id="batch-delete-btn"
+              onClick={() => setShowBatchDeleteConfirm(true)}
+              className="px-2 py-1 hover:bg-[#fbdad4] text-[#ba1a1a] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
+              title="Excluir selecionados (Del)"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Excluir</span>
+            </button>
+
+            <button
+              type="button"
+              id="batch-clear-btn"
+              onClick={() => {
+                setSelectedItems(new Map());
+                lastSelectedIdRef.current = null;
+              }}
+              className="p-1 hover:bg-[#dcd4c8] text-[#7f756e] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer ml-0.5"
+              title="Limpar seleção (Esc)"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Árvore de Pastas e Notas */}
       <div
         id="sidebar-folder-tree-area"
+        onPointerDown={handleTreeAreaPointerDown}
         onDragOver={(e) => {
           e.preventDefault();
         }}
         onDrop={handleDropOnRoot}
-        className="flex-1 overflow-y-auto my-3 space-y-1 py-1 pr-1"
+        className="flex-1 overflow-y-auto my-1 space-y-1 py-1 pr-1 relative"
       >
         {isFiltering && (
           <div className="px-2 py-1 flex items-center justify-between text-[11px] font-sans-ui text-[#7f756e] bg-[#f0eee9]/60 rounded-lg mb-1">
@@ -1239,6 +1649,20 @@ export function SidebarNavigation({
           </div>
         )}
       </div>
+
+      {/* Overlay da Caixa de Seleção Marquee (Bloco B) */}
+      {isMarqueeActive && marqueeRect && (
+        <div
+          id="sidebar-marquee-selection-box"
+          className="fixed pointer-events-none z-50 bg-[#68594d]/15 border border-[#68594d]/60 rounded-xs shadow-xs"
+          style={{
+            left: `${Math.min(marqueeRect.startX, marqueeRect.currentX)}px`,
+            top: `${Math.min(marqueeRect.startY, marqueeRect.currentY)}px`,
+            width: `${Math.abs(marqueeRect.currentX - marqueeRect.startX)}px`,
+            height: `${Math.abs(marqueeRect.currentY - marqueeRect.startY)}px`,
+          }}
+        />
+      )}
 
       {/* Tags Globais Extraídas Dinamicamente */}
       {uniqueTags.length > 0 && !searchQuery && (
@@ -1749,6 +2173,133 @@ export function SidebarNavigation({
           </div>
         </div>
       )}
+      {/* Modal de Confirmação de Exclusão em Lote (Bloco B) */}
+      {showBatchDeleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#fbf9f4] border border-[#e4e2dd] rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95"
+          >
+            <div className="flex items-center gap-3 text-[#ba1a1a]">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <h3 className="font-serif-note font-bold text-lg text-[#1b1c19]">
+                Excluir {selectedItems.size} {selectedItems.size > 1 ? 'itens' : 'item'}?
+              </h3>
+            </div>
+
+            <p className="font-sans-ui text-sm text-[#4e453f] leading-relaxed">
+              Deseja realmente excluir os <strong>{selectedItems.size}</strong> itens selecionados?
+              <span className="block mt-2 text-xs text-[#ba1a1a] font-medium">
+                Esta ação removerá todas as notas e pastas selecionadas.
+              </span>
+            </p>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowBatchDeleteConfirm(false)}
+                className="px-4 py-2 rounded-xl text-xs font-sans-ui font-medium text-[#4e453f] hover:bg-[#e4e2dd] transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                id="batch-confirm-delete-action-btn"
+                onClick={handleBatchConfirmDelete}
+                className="px-4 py-2 rounded-xl text-xs font-sans-ui font-medium bg-[#ba1a1a] text-white hover:bg-[#961515] transition-colors cursor-pointer shadow-xs"
+              >
+                Excluir Selecionados
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Seleção de Pasta de Destino para Mover em Lote (Bloco B) */}
+      {showBatchMoveDialog && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#fbf9f4] border border-[#e4e2dd] rounded-2xl p-5 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95 font-sans-ui"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[#68594d]">
+                <FolderInput className="w-5 h-5" />
+                <h3 className="font-serif-note font-bold text-base text-[#1b1c19]">
+                  Mover {selectedItems.size} {selectedItems.size > 1 ? 'itens' : 'item'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowBatchMoveDialog(false)}
+                className="p-1 hover:bg-[#eae8e3] text-[#7f756e] rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#7f756e]">
+              Selecione o local de destino para os itens selecionados:
+            </p>
+
+            <div className="max-h-60 overflow-y-auto space-y-1 py-1 border border-[#eae8e3] bg-white rounded-xl p-1.5">
+              {/* Opção Raiz */}
+              <button
+                type="button"
+                onClick={() => setBatchMoveFolderId(null)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer text-left ${
+                  batchMoveFolderId === null
+                    ? 'bg-[#f4dfcb] font-semibold text-[#1b1c19]'
+                    : 'hover:bg-[#f0eee9] text-[#4e453f]'
+                }`}
+              >
+                <Layers className="w-4 h-4 text-[#68594d] shrink-0" />
+                <span>Raiz da Sidebar (Sem pasta)</span>
+              </button>
+
+              {/* Pastas Disponíveis */}
+              {folders
+                .filter((f) => !selectedItems.has(f.id) && f.id !== SYSTEM_ARCHIVE_FOLDER_ID)
+                .map((folder) => {
+                  const isSelected = batchMoveFolderId === folder.id;
+                  return (
+                    <button
+                      key={folder.id}
+                      type="button"
+                      onClick={() => setBatchMoveFolderId(folder.id)}
+                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer text-left ${
+                        isSelected
+                          ? 'bg-[#f4dfcb] font-semibold text-[#1b1c19]'
+                          : 'hover:bg-[#f0eee9] text-[#4e453f]'
+                      }`}
+                    >
+                      <Folder className="w-4 h-4 text-[#68594d] shrink-0" />
+                      <span className="truncate">{folder.name}</span>
+                    </button>
+                  );
+                })}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowBatchMoveDialog(false)}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-[#4e453f] hover:bg-[#e4e2dd] transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                id="batch-confirm-move-btn"
+                onClick={() => handleBatchMoveSubmit(batchMoveFolderId)}
+                className="px-4 py-1.5 rounded-xl text-xs font-medium bg-[#68594d] text-white hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
+              >
+                Mover para Cá
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de Configurações da Aplicação */}
       <SettingsModal
         isOpen={showSettingsModal}

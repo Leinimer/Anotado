@@ -38,7 +38,7 @@ export function DocumentNodeView(props: NodeViewProps) {
   const name = node.attrs.name || 'Documento';
   const size = Number(node.attrs.size || 0);
   const type = node.attrs.type || 'application/pdf';
-  const initialWidthAttr = node.attrs.width;
+  const initialWidthAttr = node.attrs.width || '50%';
   const alignment = (node.attrs.alignment as 'left' | 'center' | 'right') || 'left';
 
   const isPdf = name.toLowerCase().endsWith('.pdf') || type?.includes('pdf');
@@ -170,7 +170,11 @@ export function DocumentNodeView(props: NodeViewProps) {
   const currentDisplayWidth =
     resizingWidth !== null
       ? `${resizingWidth}px`
-      : initialWidthAttr || '100%';
+      : initialWidthAttr
+      ? typeof initialWidthAttr === 'number'
+        ? `${initialWidthAttr}px`
+        : initialWidthAttr
+      : '50%';
 
   const handleMove = (direction: 'up' | 'down') => {
     moveNodeBlock(editor as any, getPos as any, direction);
@@ -283,15 +287,17 @@ export function DocumentNodeView(props: NodeViewProps) {
         setIsResizing(false);
         setResizingWidth(null);
 
+        const finalWidth = `${Math.round(latestCalculatedWidth)}px`;
         updateAttributes({
-          width: `${Math.round(latestCalculatedWidth)}px`,
+          width: finalWidth,
         });
+        console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: finalWidth, alignment });
       };
 
       window.addEventListener('pointermove', handlePointerMove, { passive: false });
       window.addEventListener('pointerup', handlePointerUp, { passive: false });
     },
-    [updateAttributes]
+    [updateAttributes, alignment]
   );
 
   const handleOpenDocument = async (e: React.MouseEvent) => {
@@ -397,7 +403,10 @@ export function DocumentNodeView(props: NodeViewProps) {
             <div className="flex items-center gap-0.5">
               <button
                 type="button"
-                onClick={() => updateAttributes({ alignment: 'left' })}
+                onClick={() => {
+                  updateAttributes({ alignment: 'left' });
+                  console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: node.attrs.width, alignment: 'left' });
+                }}
                 className={`p-1 rounded-md transition-colors cursor-pointer ${
                   alignment === 'left'
                     ? 'bg-[#68594d] text-white shadow-2xs'
@@ -410,7 +419,10 @@ export function DocumentNodeView(props: NodeViewProps) {
               </button>
               <button
                 type="button"
-                onClick={() => updateAttributes({ alignment: 'center' })}
+                onClick={() => {
+                  updateAttributes({ alignment: 'center' });
+                  console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: node.attrs.width, alignment: 'center' });
+                }}
                 className={`p-1 rounded-md transition-colors cursor-pointer ${
                   alignment === 'center'
                     ? 'bg-[#68594d] text-white shadow-2xs'
@@ -423,7 +435,10 @@ export function DocumentNodeView(props: NodeViewProps) {
               </button>
               <button
                 type="button"
-                onClick={() => updateAttributes({ alignment: 'right' })}
+                onClick={() => {
+                  updateAttributes({ alignment: 'right' });
+                  console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: node.attrs.width, alignment: 'right' });
+                }}
                 className={`p-1 rounded-md transition-colors cursor-pointer ${
                   alignment === 'right'
                     ? 'bg-[#68594d] text-white shadow-2xs'
@@ -446,14 +461,14 @@ export function DocumentNodeView(props: NodeViewProps) {
             <button
               type="button"
               onClick={() => {
-                const parent =
-                  containerRef.current?.closest('.ProseMirror') ||
-                  containerRef.current?.parentElement;
-                const maxW = parent ? parent.clientWidth - 24 : 700;
-                const halfW = Math.round(maxW * 0.5);
-                updateAttributes({ width: `${halfW}px` });
+                updateAttributes({ width: '50%' });
+                console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: '50%', alignment });
               }}
-              className="px-1.5 py-0.5 rounded text-[10px] font-medium hover:bg-[#f0eee9] text-[#4e453f] transition-colors cursor-pointer"
+              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+                initialWidthAttr === '50%'
+                  ? 'bg-[#68594d] text-white'
+                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
+              }`}
               title="50% da folha"
               aria-label="Redimensionar para 50% da folha"
             >
@@ -462,14 +477,14 @@ export function DocumentNodeView(props: NodeViewProps) {
             <button
               type="button"
               onClick={() => {
-                const parent =
-                  containerRef.current?.closest('.ProseMirror') ||
-                  containerRef.current?.parentElement;
-                const maxW = parent ? parent.clientWidth - 24 : 700;
-                const fullW = Math.round(maxW);
-                updateAttributes({ width: `${fullW}px` });
+                updateAttributes({ width: '100%' });
+                console.log('[MEDIA-PERSIST]', { type: 'documentAttachment', width: '100%', alignment });
               }}
-              className="px-1.5 py-0.5 rounded text-[10px] font-medium hover:bg-[#f0eee9] text-[#4e453f] transition-colors cursor-pointer"
+              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+                initialWidthAttr === '100%'
+                  ? 'bg-[#68594d] text-white'
+                  : 'hover:bg-[#f0eee9] text-[#4e453f]'
+              }`}
               title="100% da folha"
               aria-label="Redimensionar para 100% da folha"
             >

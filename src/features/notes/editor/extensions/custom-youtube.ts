@@ -63,14 +63,65 @@ export const CustomYoutube = Node.create<CustomYoutubeOptions>({
     return [
       {
         tag: 'div[data-youtube-video]',
+        getAttrs: (element: HTMLElement | string) => {
+          if (typeof element === 'string') return {};
+          return {
+            src: element.getAttribute('data-youtube-video') || element.getAttribute('src'),
+            alignment:
+              element.getAttribute('data-alignment') ||
+              element.getAttribute('data-align') ||
+              'center',
+            width:
+              element.getAttribute('data-width') ||
+              element.getAttribute('width') ||
+              element.style?.width ||
+              '100%',
+          };
+        },
       },
       {
         tag: 'iframe[src*="youtube.com"]',
+        getAttrs: (element: HTMLElement | string) => {
+          if (typeof element === 'string') return {};
+          return {
+            src: element.getAttribute('src'),
+            alignment: 'center',
+            width: element.getAttribute('width') || '100%',
+          };
+        },
       },
       {
         tag: 'iframe[src*="youtu.be"]',
+        getAttrs: (element: HTMLElement | string) => {
+          if (typeof element === 'string') return {};
+          return {
+            src: element.getAttribute('src'),
+            alignment: 'center',
+            width: element.getAttribute('width') || '100%',
+          };
+        },
       },
     ];
+  },
+
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state: any, node: any) {
+          const attrs: string[] = [];
+          if (node.attrs.src) attrs.push(`data-youtube-video="${node.attrs.src}" src="${node.attrs.src}"`);
+          if (node.attrs.alignment) attrs.push(`data-alignment="${node.attrs.alignment}"`);
+          if (node.attrs.width) {
+            const w = typeof node.attrs.width === 'number' ? `${node.attrs.width}px` : node.attrs.width;
+            attrs.push(`data-width="${w}"`);
+            attrs.push(`style="width: ${w}; max-width: 100%; aspect-ratio: 16/9;"`);
+          }
+          state.write(`<div ${attrs.join(' ')}></div>`);
+          state.closeBlock(node);
+        },
+        parse: {},
+      },
+    };
   },
 
   renderHTML({ HTMLAttributes }) {
