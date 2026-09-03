@@ -17,6 +17,7 @@ import {
   ExtendedNote,
   ExtendedFolder,
 } from '../db/indexed-db';
+import { saveQueue } from './save-queue';
 import { networkMonitor } from './network-monitor';
 import { writeNoteMarkdown, deleteNoteMarkdown, readNoteMarkdown } from './notes-storage-api';
 import { normalizeTags } from '../utils/hashtag-extractor';
@@ -86,7 +87,11 @@ class SyncEngine {
   private hasPendingSyncRequest: boolean = false;
   private syncTimeout: NodeJS.Timeout | null = null;
   private watchdogInterval: NodeJS.Timeout | null = null;
+  private reconciliationInterval: NodeJS.Timeout | null = null;
+  private isPulling: boolean = false;
   private activeUserId: string | null = null;
+  private activeRealtimeUserId: string | null = null;
+  private realtimeStatus: 'SUBSCRIBED' | 'DISCONNECTED' | 'CONNECTING' = 'DISCONNECTED';
   private dataSubscribers: Set<DataSubscriber> = new Set();
   private lastKnownReachable: boolean = false;
   private realtimeChannel: any = null;
@@ -99,47 +104,59 @@ class SyncEngine {
     if (typeof window !== 'undefined') {
       this.lastKnownReachable = networkMonitor.getState().isBackendReachable;
 
-      // 1. Sincroniza imediatamente em transição de conectividade (OFFLINE -> ONLINE)
+      // 1. Transição de conectividade (OFFLINE -> ONLINE)
       networkMonitor.subscribe((state) => {
         const wasOffline = !this.lastKnownReachable;
         const isNowOnline = state.isBackendReachable;
         this.lastKnownReachable = isNowOnline;
 
         if (wasOffline && isNowOnline && this.activeUserId) {
-          console.log('[Realtime] RECONNECT');
-          this.setupRealtimeSubscription(this.activeUserId);
-          if (!this.isProcessing) {
-            this.scheduleSync(100);
-          }
+          console.log('[SyncEngine] Conexão restabelecida: reconectando Realtime e executando reconciliação silenciosa');
+          this.ensureRealtimeConnected(this.activeUserId);
+          this.performSilentReconciliation(this.activeUserId);
         }
       });
 
-      // 2. Quando a aba/janela ganha foco ou visibilidade
+      // 2. Window focus (ao focar a janela/navegador)
       window.addEventListener('focus', () => {
         if (this.activeUserId && navigator.onLine) {
-          if (!this.realtimeChannel) {
-            console.log('[Realtime] RECONNECT');
-            this.setupRealtimeSubscription(this.activeUserId);
-          }
-          if (!this.isProcessing) {
-            this.scheduleSync(50);
-          }
+          console.log('[SyncEngine] Window focus: garantindo Realtime e executando reconciliação silenciosa');
+          this.ensureRealtimeConnected(this.activeUserId);
+          this.performSilentReconciliation(this.activeUserId);
         }
       });
 
+      // 3. Document visibility change (retorno de segundo plano / desbloqueio no mobile)
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && this.activeUserId && navigator.onLine) {
-          if (!this.realtimeChannel) {
-            console.log('[Realtime] RECONNECT');
-            this.setupRealtimeSubscription(this.activeUserId);
-          }
-          if (!this.isProcessing) {
-            this.scheduleSync(50);
-          }
+          console.log('[SyncEngine] App retornou para primeiro plano (visibilitychange): reconciliação silenciosa');
+          this.ensureRealtimeConnected(this.activeUserId);
+          this.performSilentReconciliation(this.activeUserId);
         }
       });
 
-      // 3. Watchdog leve de segurança a cada 30 segundos (O(p) - consulta apenas a SyncQueue)
+      // 4. Evento nativo online
+      window.addEventListener('online', () => {
+        if (this.activeUserId) {
+          console.log('[SyncEngine] Evento online disparado: reconciliação silenciosa');
+          this.ensureRealtimeConnected(this.activeUserId);
+          this.performSilentReconciliation(this.activeUserId);
+        }
+      });
+
+      // 5. Reconciliação periódica moderada (a cada 25 segundos enquanto o app estiver ativo)
+      this.reconciliationInterval = setInterval(() => {
+        if (
+          this.activeUserId &&
+          navigator.onLine &&
+          typeof document !== 'undefined' &&
+          document.visibilityState === 'visible'
+        ) {
+          this.performSilentReconciliation(this.activeUserId);
+        }
+      }, 25000);
+
+      // 6. Watchdog leve de segurança a cada 30 segundos (O(p) - consulta apenas a SyncQueue local)
       this.watchdogInterval = setInterval(() => {
         if (this.activeUserId && !this.isProcessing && navigator.onLine) {
           this.checkWatchdog(this.activeUserId);
@@ -153,9 +170,11 @@ class SyncEngine {
     this.activeUserId = userId;
     this.updatePendingCount(userId);
 
-    if (isNewUser || !this.realtimeChannel) {
+    if (isNewUser || !this.realtimeChannel || this.realtimeStatus !== 'SUBSCRIBED' || this.activeRealtimeUserId !== userId) {
       this.setupRealtimeSubscription(userId);
     }
+    // Reconciliação silenciosa inicial
+    this.performSilentReconciliation(userId);
   }
 
   /**
@@ -183,7 +202,13 @@ class SyncEngine {
       clearInterval(this.watchdogInterval);
       this.watchdogInterval = null;
     }
+    if (this.reconciliationInterval) {
+      clearInterval(this.reconciliationInterval);
+      this.reconciliationInterval = null;
+    }
     this.activeUserId = null;
+    this.activeRealtimeUserId = null;
+    this.realtimeStatus = 'DISCONNECTED';
     this.hasPendingSyncRequest = false;
   }
 
@@ -216,6 +241,65 @@ class SyncEngine {
   }
 
   /**
+   * Executa a reconciliação silenciosa (PULL) e saúde do Realtime:
+   * 1. Garante que o Realtime esteja conectado.
+   * 2. Se houver itens pendentes na fila local elegíveis para PUSH, agenda o processamento da fila.
+   * 3. Executa o PULL silencioso de alterações remotas do Supabase (sem ativar "Sincronizando...").
+   * 4. Supabase é a fonte da verdade consolidada; IndexedDB é o estado local convergente.
+   */
+  public async performSilentReconciliation(userId: string): Promise<void> {
+    if (!userId || typeof window === 'undefined') return;
+    if (!navigator.onLine || !networkMonitor.getState().isBackendReachable) return;
+
+    // 1. Garante conexão Realtime ativa
+    this.ensureRealtimeConnected(userId);
+
+    try {
+      // 2. Verifica se há mutações locais na fila elegíveis para PUSH imediato
+      const queue = await indexedDBStorage.getPendingSyncItems(userId);
+      const now = Date.now();
+      const hasEligiblePush = queue.some((i) => !i.next_retry_at || now >= i.next_retry_at);
+
+      if (hasEligiblePush) {
+        // Se há PUSH local a enviar, agenda o processamento (que executará o PUSH com indicador ativo e finalizará com PULL)
+        this.scheduleSync(50);
+        return;
+      }
+
+      // 3. Se não há PUSH local, executa PULL silencioso para recuperar alterações remotas (ex: celular <-> computador)
+      if (!this.isProcessing && !this.isPulling) {
+        this.isPulling = true;
+        try {
+          await this.pullIncrementalChanges(userId);
+        } catch (err) {
+          console.warn('[SyncEngine] Falha silenciosa na reconciliação PULL:', err);
+        } finally {
+          this.isPulling = false;
+        }
+      }
+    } catch (err) {
+      console.warn('[SyncEngine] Falha ao verificar fila para reconciliação:', err);
+    }
+  }
+
+  /**
+   * Garante que o canal Supabase Realtime esteja conectado e saudável para o usuário.
+   */
+  public ensureRealtimeConnected(userId: string) {
+    if (!isSupabaseConfigured() || !userId || typeof window === 'undefined') return;
+
+    if (
+      this.realtimeChannel &&
+      this.activeRealtimeUserId === userId &&
+      this.realtimeStatus === 'SUBSCRIBED'
+    ) {
+      return;
+    }
+
+    this.setupRealtimeSubscription(userId);
+  }
+
+  /**
    * Trata reconexão do Supabase Realtime com debounce e backoff.
    */
   private handleRealtimeReconnect(userId: string) {
@@ -225,19 +309,22 @@ class SyncEngine {
       this.reconnectTimeout = null;
       if (this.activeUserId === userId && (typeof navigator === 'undefined' || navigator.onLine)) {
         this.setupRealtimeSubscription(userId);
-        this.scheduleSync(100);
+        this.performSilentReconciliation(userId);
       }
     }, 2000);
   }
 
   /**
    * Configura o ouvinte em tempo real (Supabase Realtime) para notes e folders.
+   * Garante exatamente 1 canal por userId e reutiliza adequadamente.
    */
   private setupRealtimeSubscription(userId: string) {
     if (!isSupabaseConfigured() || !userId || typeof window === 'undefined') return;
 
     try {
       const supabase = createClient();
+      this.activeRealtimeUserId = userId;
+      this.realtimeStatus = 'CONNECTING';
 
       if (this.realtimeChannel) {
         try {
@@ -248,7 +335,17 @@ class SyncEngine {
         this.realtimeChannel = null;
       }
 
+      // Remove canais órfãos ou duplicados para o mesmo tópico
       const channelName = `user-realtime-${userId}`;
+      const existingChannels = (supabase as any).getChannels?.() || [];
+      for (const ch of existingChannels) {
+        if (ch && (ch.topic === `realtime:${channelName}` || ch.topic === channelName)) {
+          try {
+            supabase.removeChannel(ch);
+          } catch {}
+        }
+      }
+
       this.realtimeChannel = supabase
         .channel(channelName)
         .on(
@@ -277,15 +374,18 @@ class SyncEngine {
         )
         .subscribe((status: any) => {
           if (status === 'SUBSCRIBED') {
+            this.realtimeStatus = 'SUBSCRIBED';
             console.log('[Realtime] CONNECTED');
             console.log('[Realtime] SUBSCRIBED');
           } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            this.realtimeStatus = 'DISCONNECTED';
             console.log(`[Realtime] RECONNECT (${status})`);
             this.handleRealtimeReconnect(userId);
           }
         });
     } catch (err) {
       console.warn('[Realtime] Falha ao configurar canal de tempo real:', err);
+      this.realtimeStatus = 'DISCONNECTED';
     }
   }
 
@@ -313,7 +413,12 @@ class SyncEngine {
 
       // Verifica se a nota possui alterações locais pendentes
       const existingLocalNote = await indexedDBStorage.getNoteById(userId, noteId);
-      const hasLocalPendingEdits = Boolean(existingLocalNote?.syncRequired || existingLocalNote?.needs_sync);
+      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+      const hasQueuePending = pendingQueue.some((q) => q.entity_id === noteId);
+      const isSaving = saveQueue.hasPendingSaveForNote(noteId);
+      const hasLocalPendingEdits = Boolean(
+        existingLocalNote?.syncRequired || existingLocalNote?.needs_sync || hasQueuePending || isSaving
+      );
 
       if (eventType === 'DELETE') {
         console.log(`[Realtime] DELETE noteId=${noteId}`);
@@ -406,10 +511,21 @@ class SyncEngine {
           existingLocalNote.title === newRecord.title &&
           (existingLocalNote.content || '').trim() === (finalContent || '').trim() &&
           existingLocalNote.folder_id === newRecord.folder_id &&
+          existingLocalNote.position === newRecord.position &&
           Boolean(existingLocalNote.is_archived) === Boolean(newRecord.is_archived) &&
           JSON.stringify(existingLocalNote.tags || []) === JSON.stringify(noteTags);
 
         if (isIdentical && !hasLocalPendingEdits) {
+          if ((existingLocalNote.revision || 0) < remoteRevision || existingLocalNote.updated_at !== newRecord.updated_at) {
+            await indexedDBStorage.putNote(userId, {
+              ...existingLocalNote,
+              revision: Math.max(remoteRevision, existingLocalNote.revision || 0),
+              updated_at: newRecord.updated_at || existingLocalNote.updated_at,
+              syncRequired: false,
+              syncStatus: 'synced',
+              needs_sync: false,
+            });
+          }
           return;
         }
 
@@ -418,6 +534,7 @@ class SyncEngine {
           ...newRecord,
           content: finalContent ?? '',
           tags: noteTags,
+          position: newRecord.position ?? 0,
           is_archived: Boolean(newRecord.is_archived),
           syncRequired: false,
           syncStatus: 'synced',
@@ -534,7 +651,9 @@ class SyncEngine {
       console.log(`[Realtime] REMOTE CHANGE [${eventType}] folderId=${folderId}`);
 
       const existingFolder = await indexedDBStorage.getFolderById(userId, folderId);
-      const isLocalPending = Boolean(existingFolder?.syncRequired || existingFolder?.needs_sync);
+      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+      const hasQueuePending = pendingQueue.some((q) => q.entity_id === folderId);
+      const isLocalPending = Boolean(existingFolder?.syncRequired || existingFolder?.needs_sync || hasQueuePending);
 
       if (isLocalPending) {
         console.log(`[Realtime] Pasta ${folderId} possui mutações locais pendentes. Preservando estado local.`);
@@ -555,6 +674,30 @@ class SyncEngine {
           console.log(`[Realtime] INSERT folderId=${folderId}`);
         } else {
           console.log(`[Realtime] UPDATE folderId=${folderId}`);
+        }
+
+        const isIdentical =
+          existingFolder &&
+          existingFolder.name === newRecord.name &&
+          existingFolder.parent_id === newRecord.parent_id &&
+          existingFolder.position === newRecord.position &&
+          existingFolder.color === newRecord.color &&
+          Boolean(existingFolder.is_smart) === Boolean(newRecord.is_smart) &&
+          JSON.stringify(existingFolder.smart_tags || []) === JSON.stringify(newRecord.smart_tags || []);
+
+        if (isIdentical && !isLocalPending) {
+          const remoteRev = typeof newRecord.revision === 'number' ? newRecord.revision : 0;
+          if ((existingFolder.revision || 0) < remoteRev || existingFolder.updated_at !== newRecord.updated_at) {
+            await indexedDBStorage.putFolder(userId, {
+              ...existingFolder,
+              revision: Math.max(remoteRev, existingFolder.revision || 0),
+              updated_at: newRecord.updated_at || existingFolder.updated_at,
+              syncRequired: false,
+              syncStatus: 'synced',
+              needs_sync: false,
+            });
+          }
+          return;
         }
 
         await indexedDBStorage.putFolder(userId, {
@@ -1927,6 +2070,7 @@ class SyncEngine {
 
       // 3. Notifica a aplicação se houver alterações para atualizar o React State
       if (remoteChangesCount > 0) {
+        networkMonitor.notifyRemoteChange();
         await this.notifyDataSubscribers(userId);
       }
 
