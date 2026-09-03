@@ -1,5 +1,5 @@
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
-import { Folder, Note } from '../types';
+import { Folder, Note, WorkspaceType } from '../types';
 import {
   readNoteMarkdown,
 } from './notes-storage-api';
@@ -186,14 +186,15 @@ async function syncTagsAndNoteRelations(
  * 2. Se o usuário estiver online, sincroniza de forma transparente e não-bloqueante com o Supabase.
  */
 export async function fetchFoldersAndNotes(
-  userId: string
+  userId: string,
+  workspaceType?: WorkspaceType
 ): Promise<{ folders: Folder[]; notes: Note[] }> {
   syncEngine.setActiveUser(userId);
 
-  // 1. Leitura imediata do IndexedDB
+  // 1. Leitura imediata do IndexedDB com filtro opcional por espaço
   try {
-    const localFolders = await indexedDBStorage.getAllFolders(userId);
-    const localNotes = await indexedDBStorage.getAllNotes(userId);
+    const localFolders = await indexedDBStorage.getAllFolders(userId, workspaceType);
+    const localNotes = await indexedDBStorage.getAllNotes(userId, workspaceType);
 
     if (localFolders.length > 0 || localNotes.length > 0) {
       // Dispara sync incremental em background se online
@@ -273,7 +274,10 @@ export async function fetchFoldersAndNotes(
     }
   }
 
-  // 3. Se for usuário novo ou sem registros, popula com o seed inicial
+  // 3. Se for usuário novo ou sem registros, popula com o seed inicial (apenas para o workspace de Notas)
+  if (workspaceType === 'diary') {
+    return { folders: [], notes: [] };
+  }
   return initializeLocalSeedIfNeeded(userId);
 }
 
@@ -348,7 +352,7 @@ export async function fetchNoteContent(
  */
 export async function createFolder(
   userId: string,
-  folderData: { name: string; parentId: string | null; position: number }
+  folderData: { name: string; parentId: string | null; position: number; workspaceType?: WorkspaceType }
 ): Promise<Folder> {
   const folderId = generateUUID();
   const newFolder: ExtendedFolder = {
@@ -357,6 +361,7 @@ export async function createFolder(
     name: folderData.name || 'Nova pasta',
     parent_id: folderData.parentId,
     position: folderData.position,
+    workspace_type: folderData.workspaceType || 'notes',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     syncRequired: true,
@@ -539,7 +544,18 @@ export async function deleteFolder(userId: string, folderId: string): Promise<bo
  */
 export async function createNote(
   userId: string,
-  noteData: { title: string; folderId: string | null; position: number; content?: string; tags?: string[] }
+  noteData: {
+    title: string;
+    folderId: string | null;
+    position: number;
+    content?: string;
+    tags?: string[];
+    workspaceType?: WorkspaceType;
+    entryDate?: string;
+    diaryYear?: number;
+    diaryMonth?: number;
+    diaryDay?: number;
+  }
 ): Promise<Note> {
   const noteId = generateUUID();
   const initialContent = noteData.content ?? '';
@@ -553,6 +569,11 @@ export async function createNote(
     content: initialContent,
     position: noteData.position,
     tags: initialTags,
+    workspace_type: noteData.workspaceType || 'notes',
+    entry_date: noteData.entryDate || null,
+    diary_year: noteData.diaryYear !== undefined ? noteData.diaryYear : null,
+    diary_month: noteData.diaryMonth !== undefined ? noteData.diaryMonth : null,
+    diary_day: noteData.diaryDay !== undefined ? noteData.diaryDay : null,
     is_archived: false,
     previous_folder_id: null,
     created_at: new Date().toISOString(),

@@ -1123,7 +1123,7 @@ class SyncEngine {
         console.log(`[NOTE] CONTENT PERSIST START noteId=${noteId} revision=${effectiveRevision}`);
 
         // 3. Grava na tabela notes (idempotente via upsert com mesmo noteId)
-        const { error: upsertError } = await supabase.from('notes').upsert({
+        const notePayload: Record<string, any> = {
           id: noteId,
           user_id: userId,
           folder_id: effectiveNote.folder_id || null,
@@ -1134,9 +1134,27 @@ class SyncEngine {
           is_archived: Boolean(effectiveNote.is_archived),
           previous_folder_id: effectiveNote.previous_folder_id || null,
           revision: effectiveRevision,
+          workspace_type: effectiveNote.workspace_type || 'notes',
+          entry_date: effectiveNote.entry_date || null,
+          diary_year: effectiveNote.diary_year !== undefined ? effectiveNote.diary_year : null,
+          diary_month: effectiveNote.diary_month !== undefined ? effectiveNote.diary_month : null,
+          diary_day: effectiveNote.diary_day !== undefined ? effectiveNote.diary_day : null,
           created_at: effectiveNote.created_at || new Date().toISOString(),
           updated_at: effectiveNote.updated_at || new Date().toISOString(),
-        });
+        };
+
+        let { error: upsertError } = await supabase.from('notes').upsert(notePayload);
+
+        // Fallback defensivo: se colunas novas ainda não existirem no Supabase, tenta sem elas
+        if (upsertError && upsertError.message && (upsertError.message.includes('column') || upsertError.message.includes('schema cache'))) {
+          delete notePayload.workspace_type;
+          delete notePayload.entry_date;
+          delete notePayload.diary_year;
+          delete notePayload.diary_month;
+          delete notePayload.diary_day;
+          const retry = await supabase.from('notes').upsert(notePayload);
+          upsertError = retry.error;
+        }
 
         if (upsertError) {
           console.error(`[NOTE] PERSIST ERROR noteId=${noteId}:`, upsertError.message || upsertError);
@@ -1472,7 +1490,7 @@ class SyncEngine {
         const folderId = folder.id || item.entity_id;
         const revision = item.revision || folder.revision || 1;
 
-        const { error } = await supabase.from('folders').upsert({
+        const folderPayload: Record<string, any> = {
           id: folderId,
           user_id: userId,
           name: folder.name || 'Nova pasta',
@@ -1482,9 +1500,23 @@ class SyncEngine {
           is_smart: Boolean(folder.is_smart),
           smart_tags: folder.smart_tags || [],
           revision,
+          workspace_type: folder.workspace_type || 'notes',
+          diary_year: folder.diary_year !== undefined ? folder.diary_year : null,
+          diary_month: folder.diary_month !== undefined ? folder.diary_month : null,
           created_at: folder.created_at || new Date().toISOString(),
           updated_at: folder.updated_at || new Date().toISOString(),
-        });
+        };
+
+        let { error } = await supabase.from('folders').upsert(folderPayload);
+
+        // Fallback defensivo: se colunas novas ainda não existirem no Supabase, tenta sem elas
+        if (error && error.message && (error.message.includes('column') || error.message.includes('schema cache'))) {
+          delete folderPayload.workspace_type;
+          delete folderPayload.diary_year;
+          delete folderPayload.diary_month;
+          const retry = await supabase.from('folders').upsert(folderPayload);
+          error = retry.error;
+        }
 
         if (error) {
           console.error(`[SyncGuard] PUSH ERROR folderId=${folderId}:`, error.message || error);

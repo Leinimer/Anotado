@@ -1,5 +1,7 @@
 export const SYSTEM_ARCHIVE_FOLDER_ID = 'system-archive-folder';
 
+export type WorkspaceType = 'notes' | 'diary';
+
 export type SearchMode = 'all' | 'title' | 'content' | 'tags' | 'folders' | 'archived';
 
 export interface Folder {
@@ -12,6 +14,9 @@ export interface Folder {
   is_smart?: boolean;
   smart_tags?: string[];
   is_system?: boolean;
+  workspace_type?: WorkspaceType;
+  diary_year?: number | null;
+  diary_month?: number | null;
   syncRequired?: boolean;
   syncStatus?: 'synced' | 'pending' | 'syncing' | 'error' | 'cancelled';
   revision?: number;
@@ -27,6 +32,11 @@ export interface Note {
   content: string;
   position: number;
   tags: string[];
+  workspace_type?: WorkspaceType;
+  entry_date?: string | null; // Formato YYYY-MM-DD
+  diary_year?: number | null;
+  diary_month?: number | null;
+  diary_day?: number | null;
   is_archived?: boolean;
   previous_folder_id?: string | null;
   syncRequired?: boolean;
@@ -47,6 +57,9 @@ export interface TreeFolderNode {
   isSmart?: boolean;
   smartTags?: string[];
   isSystem?: boolean;
+  workspace_type?: WorkspaceType;
+  diary_year?: number | null;
+  diary_month?: number | null;
   subfolders: TreeFolderNode[];
   notes: TreeNodeItem[];
   depth: number;
@@ -64,6 +77,11 @@ export interface TreeNodeItem {
   isFromSmartFolder?: boolean;
   isArchived?: boolean;
   previousFolderId?: string | null;
+  workspace_type?: WorkspaceType;
+  entry_date?: string | null;
+  diary_year?: number | null;
+  diary_month?: number | null;
+  diary_day?: number | null;
 }
 
 export type TreeItem = TreeFolderNode | TreeNodeItem;

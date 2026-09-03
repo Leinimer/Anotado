@@ -79,6 +79,11 @@ export function buildFolderTree(
         isFromSmartFolder: true,
         isArchived: false,
         previousFolderId: note.previous_folder_id ?? null,
+        workspace_type: note.workspace_type,
+        entry_date: note.entry_date,
+        diary_year: note.diary_year,
+        diary_month: note.diary_month,
+        diary_day: note.diary_day,
       }));
     } else {
       folderNotes = recursiveNotes;
@@ -97,6 +102,9 @@ export function buildFolderTree(
       isSmart: folder.is_smart,
       smartTags: folder.smart_tags,
       isSystem: false,
+      workspace_type: folder.workspace_type,
+      diary_year: folder.diary_year,
+      diary_month: folder.diary_month,
       subfolders,
       notes: folderNotes,
       depth,
@@ -114,6 +122,11 @@ export function buildFolderTree(
     tags: note.tags || [],
     isArchived: false,
     previousFolderId: note.previous_folder_id ?? null,
+    workspace_type: note.workspace_type,
+    entry_date: note.entry_date,
+    diary_year: note.diary_year,
+    diary_month: note.diary_month,
+    diary_day: note.diary_day,
   }));
 
   // Cria a pasta especial do sistema "Notas arquivadas"

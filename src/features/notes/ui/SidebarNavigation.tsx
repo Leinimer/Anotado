@@ -23,6 +23,9 @@ import {
   Loader2,
   FolderInput,
   CheckSquare,
+  Calendar,
+  CalendarDays,
+  CalendarPlus,
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { TagsModal } from './TagsModal';
@@ -37,9 +40,11 @@ import {
   SYSTEM_ARCHIVE_FOLDER_ID,
   TreeFolderNode,
   TreeNodeItem,
+  WorkspaceType,
 } from '../types';
 import { extractAllUniqueTags } from '../utils/hashtag-extractor';
 import { buildFolderTree, filterTree, wouldCreateCycle } from '../utils/tree-builder';
+import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
 import {
   SEARCH_MODES,
   DropTargetInfo,
@@ -74,6 +79,12 @@ interface SidebarNavigationProps {
     targetPosition: number
   ) => void;
   onCloseMobile?: () => void;
+  currentWorkspace?: WorkspaceType;
+  onToggleWorkspace?: () => void;
+  onWorkspaceChange?: (workspace: WorkspaceType) => void;
+  onOpenTodayDiary?: () => void;
+  onCreateDiaryYear?: () => void;
+  onCreateDiaryEntry?: () => void;
 }
 
 export function SidebarNavigation({
@@ -96,6 +107,12 @@ export function SidebarNavigation({
   onUpdateFolderSmartConfig,
   onMoveItem,
   onCloseMobile,
+  currentWorkspace = 'notes',
+  onToggleWorkspace,
+  onWorkspaceChange,
+  onOpenTodayDiary,
+  onCreateDiaryYear,
+  onCreateDiaryEntry,
 }: SidebarNavigationProps) {
   const { isStandalone, openInstallModal } = usePwa();
   const [searchQuery, setSearchQuery] = useState('');
@@ -1213,6 +1230,10 @@ export function SidebarNavigation({
                     className="w-4 h-4 shrink-0 stroke-[1.75]"
                     style={{ color: iconColor }}
                   />
+                ) : folder.workspace_type === 'diary' && folder.diary_year && !folder.diary_month ? (
+                  <Calendar
+                    className="w-4 h-4 shrink-0 stroke-[1.75] text-[#68594d]"
+                  />
                 ) : isOpen ? (
                   <FolderOpen
                     className="w-4 h-4 shrink-0 stroke-[1.75]"
@@ -1423,6 +1444,12 @@ export function SidebarNavigation({
                     isActive ? 'text-[#8c6b4f] stroke-[2]' : 'text-[#a1968e] stroke-[1.5]'
                   }`}
                 />
+              ) : note.workspace_type === 'diary' ? (
+                <Calendar
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    isActive ? 'text-[#68594d] stroke-[2]' : 'text-[#8c6b4f] stroke-[1.5]'
+                  }`}
+                />
               ) : (
                 <FileText
                   className={`w-4 h-4 shrink-0 ${
@@ -1485,7 +1512,7 @@ export function SidebarNavigation({
     >
       {/* Top Header: Brand Logo Centered in Sidebar & Search Bar */}
       <div className="space-y-3">
-        <div className="relative flex items-center justify-center py-1 px-1">
+        <div className="flex items-center justify-between py-1 px-1">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-[#68594d] text-white flex items-center justify-center font-serif-note font-bold text-sm shadow-xs">
               A
@@ -1495,16 +1522,26 @@ export function SidebarNavigation({
             </span>
           </div>
 
-          {onCloseMobile && (
-            <button
-              id="sidebar-close-mobile-btn"
-              onClick={onCloseMobile}
-              className="absolute right-0 top-1/2 -translate-y-1/2 p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg md:hidden cursor-pointer"
-              aria-label="Fechar Menu Lateral"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {/* Chavezinha / Switch Discreta e Elegante ao lado da Logo */}
+            {(onToggleWorkspace || onWorkspaceChange) && (
+              <WorkspaceSwitch
+                currentWorkspace={currentWorkspace}
+                onToggle={onToggleWorkspace || (() => onWorkspaceChange && onWorkspaceChange(currentWorkspace === 'diary' ? 'notes' : 'diary'))}
+              />
+            )}
+
+            {onCloseMobile && (
+              <button
+                id="sidebar-close-mobile-btn"
+                onClick={onCloseMobile}
+                className="p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg md:hidden cursor-pointer"
+                aria-label="Fechar Menu Lateral"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Search Bar with Mode Selector */}

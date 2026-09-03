@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { SidebarNavigation } from '@/src/features/notes/ui/SidebarNavigation';
 import { NoteCanvas } from '@/src/features/notes/ui/NoteCanvas';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
@@ -23,12 +24,15 @@ import {
   archiveFolderNotes,
   moveItem,
   flushNoteSaves,
+  flushAllPendingSaves,
 } from '@/src/features/notes/api/notes-api';
 import { syncEngine } from '@/src/features/notes/api/sync-engine';
 import { saveQueue } from '@/src/features/notes/api/save-queue';
 import { perfProfiler } from '@/src/features/notes/editor/utils/media-optimizer';
+import { WorkspaceType } from '@/src/features/notes/types';
 
 export function MainLayout() {
+  const router = useRouter();
   const [folders, setFolders] = useState<Folder[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
@@ -41,6 +45,9 @@ export function MainLayout() {
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
+    if (activeNoteId) {
+      sessionStorage.setItem('anotado_active_notes_id', activeNoteId);
+    }
   }, [activeNoteId]);
 
   // 1. Carregamento inicial do Supabase, ouvintes de autenticação e reatividade do SyncEngine
@@ -179,12 +186,20 @@ export function MainLayout() {
 
       // Carrega pastas e notas reais diretamente do Supabase/IndexedDB
       try {
-        const { folders: fetchedFolders, notes: fetchedNotes } = await fetchFoldersAndNotes(currentUserId);
+        const { folders: fetchedFolders, notes: fetchedNotes } = await fetchFoldersAndNotes(currentUserId, 'notes');
         if (!isMounted) return;
 
         setFolders(fetchedFolders);
         setNotes(fetchedNotes);
-        setActiveNoteId(null);
+
+        const savedActiveId = typeof window !== 'undefined' ? sessionStorage.getItem('anotado_active_notes_id') : null;
+        if (savedActiveId && fetchedNotes.some((n) => n.id === savedActiveId)) {
+          setActiveNoteId(savedActiveId);
+        } else if (fetchedNotes.length > 0) {
+          setActiveNoteId(fetchedNotes[0].id);
+        } else {
+          setActiveNoteId(null);
+        }
 
         // Dispara verificação imediata de sincronização PUSH/PULL
         syncEngine.scheduleSync(100);
@@ -289,6 +304,12 @@ export function MainLayout() {
     return notes.find((n) => n.id === activeNoteId) || null;
   }, [notes, activeNoteId]);
 
+  // Filtros de isolamento por espaço (Notas vs Diário)
+  const handleToggleWorkspace = useCallback(() => {
+    flushAllPendingSaves();
+    router.push('/diary');
+  }, [router]);
+
   // Handlers de Pastas
   const handleCreateFolder = useCallback(async () => {
     // Toda nova pasta nasce SEMPRE na raiz (parent_id: null)
@@ -297,6 +318,7 @@ export function MainLayout() {
       name: 'Nova pasta',
       parentId: null,
       position,
+      workspaceType: 'notes',
     });
 
     setFolders((prev) => [...prev, newFolder]);
@@ -371,6 +393,7 @@ export function MainLayout() {
       folderId: null,
       position,
       content: '',
+      workspaceType: 'notes',
     });
 
     setNotes((prev) => [...prev, newNote]);
@@ -582,6 +605,8 @@ export function MainLayout() {
             onUpdateFolderColor={handleUpdateFolderColor}
             onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
             onMoveItem={handleMoveItem}
+            currentWorkspace="notes"
+            onToggleWorkspace={handleToggleWorkspace}
           />
         </div>
 
@@ -622,11 +647,12 @@ export function MainLayout() {
                 onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
                 onMoveItem={handleMoveItem}
                 onCloseMobile={() => setMobileSidebarOpen(false)}
+                currentWorkspace="notes"
+                onToggleWorkspace={handleToggleWorkspace}
               />
             </div>
           </div>
         )}
-
 
         {/* Main Note Canvas */}
         <NoteCanvas

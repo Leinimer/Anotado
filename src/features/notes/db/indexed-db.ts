@@ -14,7 +14,7 @@
  * é controlado EXCLUSIVAMENTE pelo IndexedDB neste dispositivo, e NUNCA pelo Supabase.
  */
 
-import { Folder, Note } from '../types';
+import { Folder, Note, WorkspaceType } from '../types';
 
 export type SyncEntityStatus = 'synced' | 'pending' | 'syncing' | 'error' | 'cancelled';
 
@@ -124,7 +124,7 @@ export interface EntitiesRequiringSync {
   totalCount: number;
 }
 
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 class IndexedDBStorage {
   private dbInstances: Map<string, Promise<IDBDatabase>> = new Map();
@@ -166,6 +166,10 @@ class IndexedDBStorage {
           notesStore.createIndex('revision', 'revision', { unique: false });
           notesStore.createIndex('needs_sync', 'needs_sync', { unique: false });
           notesStore.createIndex('sync_status', 'sync_status', { unique: false });
+          notesStore.createIndex('workspace_type', 'workspace_type', { unique: false });
+          notesStore.createIndex('entry_date', 'entry_date', { unique: false });
+          notesStore.createIndex('diary_year', 'diary_year', { unique: false });
+          notesStore.createIndex('user_entry_date', ['user_id', 'entry_date'], { unique: false });
         } else {
           notesStore = tx.objectStore('notes');
           if (!notesStore.indexNames.contains('syncRequired')) {
@@ -176,6 +180,18 @@ class IndexedDBStorage {
           }
           if (!notesStore.indexNames.contains('revision')) {
             notesStore.createIndex('revision', 'revision', { unique: false });
+          }
+          if (!notesStore.indexNames.contains('workspace_type')) {
+            notesStore.createIndex('workspace_type', 'workspace_type', { unique: false });
+          }
+          if (!notesStore.indexNames.contains('entry_date')) {
+            notesStore.createIndex('entry_date', 'entry_date', { unique: false });
+          }
+          if (!notesStore.indexNames.contains('diary_year')) {
+            notesStore.createIndex('diary_year', 'diary_year', { unique: false });
+          }
+          if (!notesStore.indexNames.contains('user_entry_date')) {
+            notesStore.createIndex('user_entry_date', ['user_id', 'entry_date'], { unique: false });
           }
         }
 
@@ -191,6 +207,8 @@ class IndexedDBStorage {
           foldersStore.createIndex('syncStatus', 'syncStatus', { unique: false });
           foldersStore.createIndex('revision', 'revision', { unique: false });
           foldersStore.createIndex('needs_sync', 'needs_sync', { unique: false });
+          foldersStore.createIndex('workspace_type', 'workspace_type', { unique: false });
+          foldersStore.createIndex('diary_year', 'diary_year', { unique: false });
         } else {
           foldersStore = tx.objectStore('folders');
           if (!foldersStore.indexNames.contains('syncRequired')) {
@@ -201,6 +219,12 @@ class IndexedDBStorage {
           }
           if (!foldersStore.indexNames.contains('revision')) {
             foldersStore.createIndex('revision', 'revision', { unique: false });
+          }
+          if (!foldersStore.indexNames.contains('workspace_type')) {
+            foldersStore.createIndex('workspace_type', 'workspace_type', { unique: false });
+          }
+          if (!foldersStore.indexNames.contains('diary_year')) {
+            foldersStore.createIndex('diary_year', 'diary_year', { unique: false });
           }
         }
 
@@ -389,15 +413,33 @@ class IndexedDBStorage {
   // OPERAÇÕES: NOTAS
   // ==========================================
 
-  public async getAllNotes(userId: string): Promise<ExtendedNote[]> {
+  public async getAllNotes(userId: string, workspaceType?: WorkspaceType): Promise<ExtendedNote[]> {
     const db = await this.getDB(userId);
     return new Promise<ExtendedNote[]>((resolve, reject) => {
       const tx = db.transaction('notes', 'readonly');
       const store = tx.objectStore('notes');
       const request = store.getAll();
-      request.onsuccess = () => resolve((request.result || []) as ExtendedNote[]);
+      request.onsuccess = () => {
+        let list = (request.result || []) as ExtendedNote[];
+        if (workspaceType === 'diary') {
+          list = list.filter((n) => n.workspace_type === 'diary');
+        } else if (workspaceType === 'notes') {
+          list = list.filter((n) => !n.workspace_type || n.workspace_type === 'notes');
+        }
+        resolve(list);
+      };
       request.onerror = () => reject(request.error);
     });
+  }
+
+  /**
+   * Busca uma entrada do Diário para uma data específica (YYYY-MM-DD).
+   * Garante: "Não permitir duas entradas para o mesmo: usuário + data + diário."
+   */
+  public async getDiaryEntryByDate(userId: string, entryDate: string): Promise<ExtendedNote | null> {
+    const all = await this.getAllNotes(userId, 'diary');
+    const found = all.find((n) => n.entry_date === entryDate);
+    return found || null;
   }
 
   public async getNoteById(userId: string, noteId: string): Promise<ExtendedNote | null> {
@@ -425,6 +467,11 @@ class IndexedDBStorage {
       const record: ExtendedNote = {
         ...note,
         user_id: userId,
+        workspace_type: note.workspace_type || 'notes',
+        entry_date: note.entry_date || null,
+        diary_year: note.diary_year !== undefined ? note.diary_year : null,
+        diary_month: note.diary_month !== undefined ? note.diary_month : null,
+        diary_day: note.diary_day !== undefined ? note.diary_day : null,
         syncRequired: syncReq,
         syncStatus: status,
         needs_sync: syncReq,
@@ -513,13 +560,21 @@ class IndexedDBStorage {
   // OPERAÇÕES: PASTAS
   // ==========================================
 
-  public async getAllFolders(userId: string): Promise<ExtendedFolder[]> {
+  public async getAllFolders(userId: string, workspaceType?: WorkspaceType): Promise<ExtendedFolder[]> {
     const db = await this.getDB(userId);
     return new Promise<ExtendedFolder[]>((resolve, reject) => {
       const tx = db.transaction('folders', 'readonly');
       const store = tx.objectStore('folders');
       const request = store.getAll();
-      request.onsuccess = () => resolve((request.result || []) as ExtendedFolder[]);
+      request.onsuccess = () => {
+        let list = (request.result || []) as ExtendedFolder[];
+        if (workspaceType === 'diary') {
+          list = list.filter((f) => f.workspace_type === 'diary');
+        } else if (workspaceType === 'notes') {
+          list = list.filter((f) => !f.workspace_type || f.workspace_type === 'notes');
+        }
+        resolve(list);
+      };
       request.onerror = () => reject(request.error);
     });
   }
@@ -549,6 +604,9 @@ class IndexedDBStorage {
       const record: ExtendedFolder = {
         ...folder,
         user_id: userId,
+        workspace_type: folder.workspace_type || 'notes',
+        diary_year: folder.diary_year !== undefined ? folder.diary_year : null,
+        diary_month: folder.diary_month !== undefined ? folder.diary_month : null,
         syncRequired: syncReq,
         syncStatus: status,
         needs_sync: syncReq,

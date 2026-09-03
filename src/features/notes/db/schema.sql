@@ -21,6 +21,9 @@ ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS color TEXT DEFAULT NULL;
 ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS is_smart BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS smart_tags TEXT[] NOT NULL DEFAULT '{}'::text[];
 ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS workspace_type TEXT NOT NULL DEFAULT 'notes';
+ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS diary_year INTEGER DEFAULT NULL;
+ALTER TABLE public.folders ADD COLUMN IF NOT EXISTS diary_month INTEGER DEFAULT NULL;
 
 -- 2. Create notes metadata table
 CREATE TABLE IF NOT EXISTS public.notes (
@@ -33,6 +36,11 @@ CREATE TABLE IF NOT EXISTS public.notes (
     is_archived BOOLEAN NOT NULL DEFAULT FALSE,
     previous_folder_id UUID REFERENCES public.folders(id) ON DELETE SET NULL,
     revision BIGINT NOT NULL DEFAULT 0,
+    workspace_type TEXT NOT NULL DEFAULT 'notes',
+    entry_date DATE DEFAULT NULL,
+    diary_year INTEGER DEFAULT NULL,
+    diary_month INTEGER DEFAULT NULL,
+    diary_day INTEGER DEFAULT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
@@ -42,6 +50,11 @@ ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL D
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS previous_folder_id UUID REFERENCES public.folders(id) ON DELETE SET NULL;
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'::text[];
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS workspace_type TEXT NOT NULL DEFAULT 'notes';
+ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS entry_date DATE DEFAULT NULL;
+ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS diary_year INTEGER DEFAULT NULL;
+ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS diary_month INTEGER DEFAULT NULL;
+ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS diary_day INTEGER DEFAULT NULL;
 
 -- Normalized tags and note_tags relation for user-scoped tag persistence
 CREATE TABLE IF NOT EXISTS public.tags (

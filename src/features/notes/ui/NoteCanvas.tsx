@@ -8,12 +8,14 @@ import {
   Minus,
   Plus,
   Search,
+  Calendar,
 } from 'lucide-react';
 import { Editor } from '@tiptap/react';
 import { Note as NoteType } from '../types';
 import { NoteEditor } from './NoteEditor';
 import { EditorToolbar } from './EditorToolbar';
 import { NoteTagsBar } from './NoteTagsBar';
+import { formatDateReadable } from '../utils/diary-date';
 
 interface NoteCanvasProps {
   activeNote: NoteType | null;
@@ -276,6 +278,15 @@ export function NoteCanvas({
 
         {/* Note Title (Centralizado horizontalmente em relação à área principal) */}
         <div className="w-full max-w-[850px] mx-auto text-center px-10 min-w-0">
+          {activeNote.workspace_type === 'diary' && (
+            <div className="flex items-center justify-center mb-1.5">
+              <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-sans-ui font-medium bg-[#f4dfcb] text-[#68594d] border border-[#e8d2bd] capitalize shadow-2xs">
+                <Calendar className="w-3.5 h-3.5 text-[#68594d]" />
+                {activeNote.entry_date ? formatDateReadable(activeNote.entry_date) : 'Diário'}
+              </span>
+            </div>
+          )}
+
           {isEditingTitle ? (
             <input
               ref={titleInputRef}
