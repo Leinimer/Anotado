@@ -73,12 +73,33 @@ export function MainLayout() {
           const currentInState = prevNotesMap.get(n.id);
           if (!currentInState) return n;
 
-          // Se é a nota ativa aberta no Canvas, SEMPRE preserva o conteúdo local em exibição
+          // Se é a nota ativa aberta no Canvas
           if (n.id === currentActiveId) {
+            const isPending = (currentInState as any).syncRequired || (currentInState as any).needs_sync;
+            const isSaving = saveQueue.hasPendingSaveForNote(n.id);
+
+            // Se o usuário está ativamente editando, preserva o conteúdo do editor; se ocioso, aceita conteúdo resolvido
+            const chosenContent = (isPending || isSaving)
+              ? (currentInState.content !== undefined ? currentInState.content : n.content)
+              : (n.content !== undefined ? n.content : currentInState.content);
+
+            const chosenTags = currentInState.tags && currentInState.tags.length > 0 ? currentInState.tags : n.tags;
+
+            // Preserva a referência de objeto se não houve mudança substancial para evitar re-renders no Canvas
+            if (
+              currentInState.title === n.title &&
+              currentInState.content === chosenContent &&
+              currentInState.folder_id === n.folder_id &&
+              currentInState.position === n.position &&
+              JSON.stringify(currentInState.tags || []) === JSON.stringify(chosenTags || [])
+            ) {
+              return currentInState;
+            }
+
             return {
               ...n,
-              content: currentInState.content !== undefined ? currentInState.content : n.content,
-              tags: currentInState.tags && currentInState.tags.length > 0 ? currentInState.tags : n.tags,
+              content: chosenContent,
+              tags: chosenTags,
             };
           }
 

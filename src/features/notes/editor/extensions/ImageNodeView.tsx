@@ -17,7 +17,7 @@ import {
   isMediaInCache,
   perfProfiler,
 } from '../utils/media-optimizer';
-import { getMediaAlignmentClass } from '../utils/media-common';
+import { getMediaAlignmentClass, getCachedAttachmentUrl } from '../utils/media-common';
 import { useAttachmentSource } from '../hooks/use-attachment-source';
 import { useMediaResize } from '../hooks/use-media-resize';
 import { MediaResizeHandles } from '../ui/MediaResizeHandles';
@@ -46,11 +46,29 @@ export function ImageNodeView(props: NodeViewProps) {
   });
 
   // Estado de visibilidade via IntersectionObserver
-  const initialInCache = useMemo(() => isMediaInCache(rawSrc), [rawSrc]);
-  const [isVisibleInViewport, setIsVisibleInViewport] = useState(initialInCache);
-  const [isImageLoaded, setIsImageLoaded] = useState(initialInCache);
+  const cachedAttachment = useMemo(() => getCachedAttachmentUrl(rawSrc), [rawSrc]);
+  const initialInCache = useMemo(
+    () => isMediaInCache(rawSrc) || (cachedAttachment ? isMediaInCache(cachedAttachment) : false),
+    [rawSrc, cachedAttachment]
+  );
+  const [isVisibleInViewport, setIsVisibleInViewport] = useState(initialInCache || Boolean(cachedAttachment));
+  const [isImageLoaded, setIsImageLoaded] = useState(initialInCache || Boolean(cachedAttachment));
 
   const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
+
+  const transformInitialUrl = useCallback((url: string) => getOptimizedImageUrl(url, 850), []);
+  const onRemoteResolved = useCallback(
+    (remoteUrl: string) => {
+      if (
+        rawSrc !== remoteUrl &&
+        (rawSrc.startsWith('attachment://') || rawSrc.startsWith('local-attachment://'))
+      ) {
+        updateAttributes({ src: remoteUrl });
+      }
+    },
+    [rawSrc, updateAttributes]
+  );
+
   const {
     resolvedSrc: currentSrc,
     setResolvedSrc: setCurrentSrc,
@@ -59,14 +77,23 @@ export function ImageNodeView(props: NodeViewProps) {
   } = useAttachmentSource({
     rawSrc,
     currentUserId,
-    transformInitialUrl: (url) => getOptimizedImageUrl(url, 850),
-    onRemoteResolved: (remoteUrl) => {
-      const optUrl = getOptimizedImageUrl(remoteUrl, 850);
-      setCurrentSrc(optUrl);
-      updateAttributes({ src: remoteUrl });
-      setImageError(false);
-    },
+    isImage: true,
+    transformInitialUrl,
+    onRemoteResolved,
   });
+
+  // Fonte visual ativa contínua e buffer estável para transição 100% livre de flicker
+  const [displayedSrc, setDisplayedSrc] = useState<string>(() => currentSrc || cachedAttachment || rawSrc);
+  const [previousSrc, setPreviousSrc] = useState<string | null>(null);
+  const [prevCurrentSrc, setPrevCurrentSrc] = useState(currentSrc);
+
+  if (currentSrc && currentSrc !== prevCurrentSrc) {
+    setPrevCurrentSrc(currentSrc);
+    if (displayedSrc && displayedSrc !== currentSrc) {
+      setPreviousSrc(displayedSrc);
+    }
+    setDisplayedSrc(currentSrc);
+  }
 
   const { isResizing, resizingWidth, handleResizeStart } = useMediaResize({
     containerRef,
@@ -125,7 +152,10 @@ export function ImageNodeView(props: NodeViewProps) {
   // Calcula e memoriza a proporção original da imagem ao carregar
   const handleImageLoad = () => {
     setIsImageLoaded(true);
+    setPreviousSrc(null);
     markMediaAsLoaded(rawSrc);
+    if (displayedSrc) markMediaAsLoaded(displayedSrc);
+    if (currentSrc) markMediaAsLoaded(currentSrc);
     if (imgRef.current) {
       const naturalW = imgRef.current.naturalWidth;
       const naturalH = imgRef.current.naturalHeight;
@@ -143,6 +173,7 @@ export function ImageNodeView(props: NodeViewProps) {
     } else {
       setImageError(true);
       setIsImageLoaded(true);
+      setPreviousSrc(null);
     }
   };
 
@@ -308,8 +339,8 @@ export function ImageNodeView(props: NodeViewProps) {
           />
         )}
 
-        {/* Skeleton Placeholder durante o carregamento / fora da viewport (Zero Layout Shift) */}
-        {(!isImageLoaded || !isVisibleInViewport) && !imageError && (
+        {/* Skeleton Placeholder durante o carregamento inicial (Zero Layout Shift) */}
+        {(!isImageLoaded || !isVisibleInViewport) && !imageError && !previousSrc && !displayedSrc && (
           <div
             className="w-full rounded-xl bg-[#f5f3ee] border border-[#e4e2dd] flex items-center justify-center animate-pulse min-h-[160px] py-12 transition-opacity duration-300"
             style={{
@@ -332,21 +363,31 @@ export function ImageNodeView(props: NodeViewProps) {
           </div>
         )}
 
-        {/* Imagem Real com Lazy Loading nativo + decoding assíncrono */}
-        {isVisibleInViewport && !imageError && (
+        {/* Imagem anterior estável mantida por baixo para eliminar qualquer piscada durante a transição */}
+        {previousSrc && previousSrc !== displayedSrc && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={previousSrc}
+            alt={alt}
+            draggable={false}
+            className="rounded-xl block w-full h-auto object-contain border border-[#e4e2dd] shadow-xs pointer-events-none absolute top-0 left-0 z-0"
+          />
+        )}
+
+        {/* Imagem Real com decoding assíncrono */}
+        {isVisibleInViewport && !imageError && displayedSrc && (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
             ref={imgRef}
-            src={currentSrc}
+            src={displayedSrc}
             alt={alt}
             title={title}
-            loading="lazy"
             decoding="async"
             onLoad={handleImageLoad}
             onError={handleImageError}
             draggable={false}
-            className={`rounded-xl block w-full h-auto object-contain border border-[#e4e2dd] shadow-xs pointer-events-auto transition-opacity duration-200 ${
-              isImageLoaded ? 'opacity-100' : 'opacity-0 absolute top-0 left-0 pointer-events-none'
+            className={`rounded-xl block w-full h-auto object-contain border border-[#e4e2dd] shadow-xs pointer-events-auto relative z-1 transition-opacity duration-150 ${
+              isImageLoaded ? 'opacity-100' : previousSrc ? 'opacity-0' : 'opacity-0 absolute top-0 left-0 pointer-events-none'
             }`}
           />
         )}
@@ -397,7 +438,7 @@ export function ImageNodeView(props: NodeViewProps) {
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={currentSrc || rawSrc}
+                src={displayedSrc || currentSrc || rawSrc}
                 alt={alt || 'Visualização ampliada da imagem'}
                 className="max-w-[90vw] max-h-[88vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
               />

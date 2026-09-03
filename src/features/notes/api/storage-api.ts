@@ -3,6 +3,7 @@ import { indexedDBStorage, LocalAttachment } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
 import { base64AttachmentMigrator } from './base64-attachment-migrator';
 import { generateUUID } from '../utils/uuid';
+import { registerResolvedAttachmentUrl } from '../editor/utils/media-common';
 
 export const ATTACHMENTS_BUCKET_NAME = 'note-attachments';
 
@@ -195,6 +196,12 @@ export function replaceAttachmentReferencesInEditor(
 ): void {
   if (typeof window === 'undefined' || !noteId || !replacements || Object.keys(replacements).length === 0) {
     return;
+  }
+
+  for (const [attId, remoteUrl] of Object.entries(replacements)) {
+    if (attId && remoteUrl) {
+      registerResolvedAttachmentUrl(attId, remoteUrl);
+    }
   }
 
   window.dispatchEvent(

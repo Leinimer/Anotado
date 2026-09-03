@@ -30,6 +30,7 @@ import {
   uploadAttachmentBinary,
   ATTACHMENTS_BUCKET_NAME,
 } from './storage-api';
+import { registerResolvedAttachmentUrl } from '../editor/utils/media-common';
 
 export type DataChangePayload = {
   userId: string;
@@ -91,6 +92,7 @@ class SyncEngine {
   private realtimeChannel: any = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private uploadingAttachments: Set<string> = new Set();
+  private recentlySyncedNoteIds: Map<string, number> = new Map();
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -1552,6 +1554,15 @@ class SyncEngine {
               }
             }
 
+            // Registra a URL remota no cache em memória para acesso síncrono imediato
+            if (remoteUrl) {
+              registerResolvedAttachmentUrl(attachmentId, remoteUrl);
+            }
+
+            if (targetNoteId) {
+              this.recentlySyncedNoteIds.set(targetNoteId, Date.now() + 15000);
+            }
+
             // Emite evento interno e agenda sincronização imediata da fila
             if (typeof window !== 'undefined') {
               window.dispatchEvent(
@@ -1628,6 +1639,13 @@ class SyncEngine {
       const pendingFolderIds = new Set(pendingQueue.filter((q) => q.entity_type === 'folder').map((f) => f.entity_id));
       const pendingNoteIds = new Set(pendingQueue.filter((q) => q.entity_type === 'note').map((n) => n.entity_id));
       const pendingAttachmentIds = new Set(pendingQueue.filter((q) => q.entity_type === 'attachment' || q.action === 'UPLOAD_ATTACHMENT').map((a) => a.entity_id));
+
+      // Protege notas com uploads de anexos pendentes de serem sobrescritas prematuramente pelo PULL
+      for (const q of pendingQueue) {
+        if (q.action === 'UPLOAD_ATTACHMENT' && q.payload?.noteId) {
+          pendingNoteIds.add(q.payload.noteId);
+        }
+      }
 
       // 0. Sincroniza metadados de anexos remotos (note_attachments)
       try {
@@ -1753,6 +1771,45 @@ class SyncEngine {
 
             // Se a nota local tem alterações não sincronizadas e sua revisão é >= remota, protege a edição local
             if (existingNote && existingNote.syncRequired && (existingNote.revision || 0) >= (rNote.revision || 0)) {
+              continue;
+            }
+
+            // Proteção contra rollback de anexos recém-sincronizados:
+            // Se a nota local teve anexos sincronizados recentemente e a versão remota do PULL ainda possui referências pendentes, protege a nota local
+            const isRecentlySynced = this.recentlySyncedNoteIds.has(rNote.id) && Date.now() < (this.recentlySyncedNoteIds.get(rNote.id) || 0);
+            if (isRecentlySynced && existingNote) {
+              const localHasResolved = (existingNote.content || '').includes('https://') || (existingNote.content || '').includes('http://');
+              const remoteHasUnresolved = hasUnresolvedLocalMedia(rNote.content);
+              if (localHasResolved && remoteHasUnresolved) {
+                console.log(`[SyncGuard] PULL: Preservando nota local ${rNote.id} contra rollback remoto (anexos recém-sincronizados)`);
+                continue;
+              }
+            }
+
+            const normalizeContent = (str?: string) => (str || '').replace(/\r\n/g, '\n').trim();
+
+            // Preserva o estado local quando a versão local é equivalente à remota ou acabou de sincronizar
+            const functionalContentMatches =
+              existingNote &&
+              existingNote.title === rNote.title &&
+              normalizeContent(existingNote.content) === normalizeContent(rNote.content) &&
+              existingNote.folder_id === rNote.folder_id &&
+              existingNote.position === rNote.position &&
+              Boolean(existingNote.is_archived) === Boolean(rNote.is_archived) &&
+              existingNote.previous_folder_id === rNote.previous_folder_id &&
+              JSON.stringify(existingNote.tags || []) === JSON.stringify(noteTags);
+
+            if (functionalContentMatches) {
+              // Se apenas updated_at ou revision mudou no servidor, atualiza silenciosamente no IndexedDB sem disparar re-render
+              if (existingNote.updated_at !== rNote.updated_at || (existingNote.revision || 0) !== (rNote.revision || 0)) {
+                await indexedDBStorage.putNote(userId, {
+                  ...existingNote,
+                  revision: rNote.revision || existingNote.revision || 0,
+                  updated_at: rNote.updated_at,
+                  syncRequired: false,
+                  syncStatus: 'synced',
+                });
+              }
               continue;
             }
 

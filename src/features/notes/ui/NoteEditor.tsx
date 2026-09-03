@@ -138,15 +138,17 @@ export function NoteEditor({
       try {
         let hasChanges = false;
         const { tr } = editor.state;
+        tr.setMeta('addToHistory', false);
 
         editor.state.doc.descendants((node, pos) => {
           if (node.type.name === 'image' && node.attrs?.src) {
             const rawSrc = node.attrs.src;
             for (const [attId, remoteUrl] of Object.entries(replacements)) {
               if (
-                rawSrc === `attachment://${attId}` ||
+                (rawSrc === `attachment://${attId}` ||
                 rawSrc === `local-attachment://${attId}` ||
-                rawSrc === attId
+                rawSrc === attId) &&
+                rawSrc !== remoteUrl
               ) {
                 tr.setNodeMarkup(pos, undefined, {
                   ...node.attrs,
@@ -159,9 +161,10 @@ export function NoteEditor({
             const rawSrc = node.attrs.src || node.attrs['data-src'];
             for (const [attId, remoteUrl] of Object.entries(replacements)) {
               if (
-                rawSrc === `attachment://${attId}` ||
+                (rawSrc === `attachment://${attId}` ||
                 rawSrc === `local-attachment://${attId}` ||
-                rawSrc === attId
+                rawSrc === attId) &&
+                rawSrc !== remoteUrl
               ) {
                 tr.setNodeMarkup(pos, undefined, {
                   ...node.attrs,

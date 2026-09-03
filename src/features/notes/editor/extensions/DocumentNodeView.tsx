@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
 import { NodeSelection } from '@tiptap/pm/state';
 import {
@@ -37,13 +37,24 @@ export function DocumentNodeView(props: NodeViewProps) {
 
   const currentUserId = (editor as any)?.options?.editorProps?.attributes?.['data-user-id'] || 'anonymous';
 
-  // Hook unificado para resolução offline e online de anexos
+  const onRemoteResolved = useCallback(
+    (remoteUrl: string) => {
+      if (
+        rawSrc !== remoteUrl &&
+        (rawSrc.startsWith('attachment://') || rawSrc.startsWith('local-attachment://'))
+      ) {
+        updateAttributes({ src: remoteUrl });
+      }
+    },
+    [rawSrc, updateAttributes]
+  );
+
+  // Hook unificado para resolução offline e online de anexos (isImage: false impede tentativa de preloading de imagem para documentos/PDF)
   const { resolvedSrc } = useAttachmentSource({
     rawSrc,
     currentUserId,
-    onRemoteResolved: (remoteUrl) => {
-      updateAttributes({ src: remoteUrl });
-    },
+    isImage: false,
+    onRemoteResolved,
   });
 
   // Hook unificado de redimensionamento

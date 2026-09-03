@@ -124,6 +124,38 @@ export interface ResolvedAttachmentResult {
   blobUrl: string | null;
 }
 
+// Caches em memória para reuso estável de Blob URLs e URLs remotas (evita recriação e flicker)
+const attachmentBlobUrlCache = new Map<string, string>();
+const attachmentRemoteUrlCache = new Map<string, string>();
+
+/**
+ * Consulta síncrona do cache em memória para anexo já resolvido.
+ */
+export function getCachedAttachmentUrl(rawSrc: string): string | null {
+  if (!rawSrc) return null;
+  const attachmentId = extractAttachmentId(rawSrc);
+  if (!attachmentId) {
+    if (
+      rawSrc.startsWith('http://') ||
+      rawSrc.startsWith('https://') ||
+      rawSrc.startsWith('data:') ||
+      rawSrc.startsWith('blob:')
+    ) {
+      return rawSrc;
+    }
+    return null;
+  }
+  return attachmentRemoteUrlCache.get(attachmentId) || attachmentBlobUrlCache.get(attachmentId) || null;
+}
+
+/**
+ * Registra formalmente a URL remota resolvida de um anexo no cache em memória.
+ */
+export function registerResolvedAttachmentUrl(attachmentId: string, remoteUrl: string): void {
+  if (!attachmentId || !remoteUrl) return;
+  attachmentRemoteUrlCache.set(attachmentId, remoteUrl);
+}
+
 /**
  * Resolve assincronamente a URL de exibição de um anexo local ou remoto,
  * consultando IndexedDB e fazendo fallback no Supabase note_attachments se necessário.
@@ -137,6 +169,16 @@ export async function resolveAttachmentSource(
     return { resolvedUrl: rawSrc, remoteUrl: null, blobUrl: null };
   }
 
+  // 1. Verifica cache remoto em memória primeiro
+  if (attachmentRemoteUrlCache.has(attachmentId)) {
+    const remoteUrl = attachmentRemoteUrlCache.get(attachmentId)!;
+    return {
+      resolvedUrl: remoteUrl,
+      remoteUrl,
+      blobUrl: null,
+    };
+  }
+
   try {
     let attachment = await indexedDBStorage.getAttachment(currentUserId, attachmentId);
     if (!attachment && currentUserId !== 'anonymous') {
@@ -145,6 +187,7 @@ export async function resolveAttachmentSource(
 
     if (attachment) {
       if (attachment.remote_url) {
+        attachmentRemoteUrlCache.set(attachmentId, attachment.remote_url);
         return {
           resolvedUrl: attachment.remote_url,
           remoteUrl: attachment.remote_url,
@@ -153,7 +196,12 @@ export async function resolveAttachmentSource(
       }
 
       if (attachment.blob) {
-        const blobUrl = URL.createObjectURL(attachment.blob);
+        // Reutiliza Blob URL existente em vez de instanciar novos repetidamente
+        let blobUrl = attachmentBlobUrlCache.get(attachmentId);
+        if (!blobUrl) {
+          blobUrl = URL.createObjectURL(attachment.blob);
+          attachmentBlobUrlCache.set(attachmentId, blobUrl);
+        }
         return {
           resolvedUrl: blobUrl,
           remoteUrl: null,
@@ -179,6 +227,7 @@ export async function resolveAttachmentSource(
 
           if (pubData?.publicUrl) {
             const remoteUrl = pubData.publicUrl;
+            attachmentRemoteUrlCache.set(attachmentId, remoteUrl);
             await indexedDBStorage.putAttachment(currentUserId, {
               id: dbAtt.id,
               user_id: currentUserId,
@@ -209,6 +258,12 @@ export async function resolveAttachmentSource(
     }
   } catch (err) {
     console.warn('[AttachmentResolver] Falha ao resolver anexo local:', err);
+  }
+
+  // Fallback: se houver blob url no cache
+  if (attachmentBlobUrlCache.has(attachmentId)) {
+    const blobUrl = attachmentBlobUrlCache.get(attachmentId)!;
+    return { resolvedUrl: blobUrl, remoteUrl: null, blobUrl };
   }
 
   return { resolvedUrl: null, remoteUrl: null, blobUrl: null };
