@@ -93,6 +93,7 @@ class SyncEngine {
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private uploadingAttachments: Set<string> = new Set();
   private recentlySyncedNoteIds: Map<string, number> = new Map();
+  private minNextSyncTime: number = 0;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -629,13 +630,20 @@ class SyncEngine {
    * Se um processamento já estiver em andamento, sinaliza hasPendingSyncRequest para rodar ao finalizar.
    */
   public scheduleSync(delayMs: number = 300) {
+    const targetTime = Date.now() + delayMs;
+
     if (this.isProcessing) {
       this.hasPendingSyncRequest = true;
+      if (this.minNextSyncTime === 0 || targetTime > this.minNextSyncTime) {
+        this.minNextSyncTime = targetTime;
+      }
       return;
     }
 
     if (this.syncTimeout) clearTimeout(this.syncTimeout);
     this.syncTimeout = setTimeout(() => {
+      this.syncTimeout = null;
+      this.minNextSyncTime = 0;
       if (this.activeUserId) {
         this.processQueue(this.activeUserId);
       }
@@ -660,8 +668,9 @@ class SyncEngine {
 
   /**
    * Processa o ciclo completo de sincronização (SyncGuard):
-   * 1. PUSH: Processa operações pendentes da SyncQueue (O(p)).
-   * 2. PULL: Busca alterações remotas do Supabase e atualiza o IndexedDB de forma não-destrutiva.
+   * 1. PUSH (ACTIVE_SYNC): Processa operações pendentes da SyncQueue (O(p)).
+   *    Ativa setSyncing(true) SOMENTE se houver itens elegíveis reais para envio.
+   * 2. PULL (BACKGROUND_SYNC): Busca alterações remotas do Supabase e atualiza o IndexedDB de forma silenciosa.
    */
   public async processQueue(userId: string): Promise<{ success: boolean; processed: number }> {
     if (!userId) {
@@ -676,17 +685,19 @@ class SyncEngine {
     this.isProcessing = true;
     this.hasPendingSyncRequest = false;
     let processedCount = 0;
+    let didSetActiveSync = false;
 
     try {
       // 1. Verifica conectividade real antes de processar
       const reachable = await networkMonitor.checkBackendReachability();
       if (!reachable) {
+        await this.updatePendingCount(userId);
         return { success: false, processed: 0 };
       }
 
       const supabase = createClient();
 
-      // 2. Valida sessão de autenticação ativa no Supabase antes do PUSH
+      // 2. Valida sessão de autenticação ativa no Supabase antes de operações remotas
       let authenticatedUid: string | null = null;
       let hasValidSession = false;
       try {
@@ -708,16 +719,18 @@ class SyncEngine {
           }
         }
       } catch (authErr) {
-        console.warn('[SyncEngine] Falha ao verificar autenticação para PUSH:', authErr);
+        console.warn('[SyncEngine] Falha ao verificar autenticação para sync:', authErr);
       }
 
       if (userId !== 'demo-user') {
         if (!hasValidSession || !authenticatedUid) {
-          console.warn(`[AUTH] SESSION_NOT_READY: PUSH adiado para userId=${userId}. Aguardando sessão ativa.`);
+          console.warn(`[AUTH] SESSION_NOT_READY: Sync adiado para userId=${userId}. Aguardando sessão ativa.`);
+          await this.updatePendingCount(userId);
           return { success: false, processed: 0 };
         }
         if (authenticatedUid !== userId) {
-          console.warn(`[AUTH] USER_MISMATCH: PUSH pausado. Autenticado (${authenticatedUid}) diverge do userId local (${userId}).`);
+          console.warn(`[AUTH] USER_MISMATCH: Sync pausado. Autenticado (${authenticatedUid}) diverge do userId local (${userId}).`);
+          await this.updatePendingCount(userId);
           return { success: false, processed: 0 };
         }
       }
@@ -726,18 +739,17 @@ class SyncEngine {
       console.log('[AUTH] SESSION_READY');
       console.log('[AUTH] USER_READY');
 
-      networkMonitor.setSyncing(true);
-      // 1. ETAPA PUSH: Processamento de operações pendentes da SyncQueue (O(p))
+      // 1. ETAPA PUSH: Processamento de operações pendentes da SyncQueue (ACTIVE_SYNC)
       const queue = await indexedDBStorage.getPendingSyncItems(userId);
+      const now = Date.now();
+      const eligibleItems = queue.filter((item) => !item.next_retry_at || now >= item.next_retry_at);
 
-      if (queue.length > 0) {
-        console.log(`[QUEUE] COUNT=${queue.length}`);
-        // Prioridades estritas da fila:
-        // CREATE_NOTE = prioridade 0
-        // CREATE_FOLDER = prioridade 1
-        // UPLOAD_ATTACHMENT = prioridade 2
-        // UPDATE_NOTE_CONTENT = prioridade 3
-        // demais operações = prioridade 4
+      if (eligibleItems.length > 0) {
+        // Ativa indicador visual de sincronização SOMENTE durante PUSH ativo real
+        didSetActiveSync = true;
+        networkMonitor.setSyncing(true);
+
+        console.log(`[QUEUE] COUNT=${queue.length}, ELIGIBLE=${eligibleItems.length}`);
         const getActionPriority = (action: string) => {
           if (action === 'CREATE_NOTE') return 0;
           if (action === 'CREATE_FOLDER') return 1;
@@ -745,20 +757,16 @@ class SyncEngine {
           if (action === 'UPDATE_NOTE_CONTENT') return 3;
           return 4;
         };
-        queue.sort((a, b) => getActionPriority(a.action) - getActionPriority(b.action));
+        eligibleItems.sort((a, b) => getActionPriority(a.action) - getActionPriority(b.action));
 
-        console.log(`[SyncEngine] PROCESS: ${queue.length} OPERATIONS`);
+        console.log(`[SyncEngine] PROCESS: ${eligibleItems.length} OPERATIONS`);
 
-        const now = Date.now();
-        for (const item of queue) {
+        let earliestRetryAt: number | null = null;
+
+        for (const item of eligibleItems) {
           if (!navigator.onLine) {
             console.warn('[SyncEngine] Conexão interrompida durante o processamento da fila.');
             break;
-          }
-
-          // Respeita intervalo de backoff de retentativas
-          if (item.next_retry_at && now < item.next_retry_at) {
-            continue;
           }
 
           await indexedDBStorage.updateSyncItemStatus(userId, item.id, 'processing');
@@ -766,7 +774,6 @@ class SyncEngine {
           try {
             const itemSuccess = await this.executeQueueItem(userId, item, authenticatedUid);
             if (itemSuccess) {
-              // Remove da fila SOMENTE após confirmação de sucesso real no Supabase
               await indexedDBStorage.removeSyncQueueItem(userId, item.id);
               if (item.action === 'UPLOAD_ATTACHMENT') {
                 console.log('[ATTACHMENT] QUEUE_REMOVED');
@@ -780,6 +787,7 @@ class SyncEngine {
               const attempts = (item.attempts || 0) + 1;
               const backoffDelay = this.calculateBackoffDelay(attempts);
               const nextRetryAt = Date.now() + backoffDelay;
+              earliestRetryAt = earliestRetryAt === null ? nextRetryAt : Math.min(earliestRetryAt, nextRetryAt);
               const isWaitingAtt = item.action === 'CREATE_NOTE' || item.action === 'UPDATE_NOTE_CONTENT';
               const friendlyErr = isWaitingAtt
                 ? 'Aguardando sincronização de anexos pendentes'
@@ -792,12 +800,12 @@ class SyncEngine {
                 { reason: 'Execução retornou falso', attempts },
                 nextRetryAt
               );
-              this.scheduleSync(backoffDelay);
             }
           } catch (err: any) {
             const attempts = (item.attempts || 0) + 1;
             const backoffDelay = this.calculateBackoffDelay(attempts);
             const nextRetryAt = Date.now() + backoffDelay;
+            earliestRetryAt = earliestRetryAt === null ? nextRetryAt : Math.min(earliestRetryAt, nextRetryAt);
             console.error(`[SyncEngine] Falha ao processar item ${item.id} (${item.action}):`, err);
             const friendlyErr = formatFriendlyErrorMessage(err);
             await indexedDBStorage.updateSyncItemStatus(
@@ -813,7 +821,6 @@ class SyncEngine {
               },
               nextRetryAt
             );
-            this.scheduleSync(backoffDelay);
             if (err?.name === 'AbortError' || err?.message?.includes('fetch') || err?.message?.includes('network')) {
               break;
             }
@@ -821,11 +828,22 @@ class SyncEngine {
         }
 
         console.log('[SyncEngine] SUCCESS: PUSH COMPLETE');
+
+        if (earliestRetryAt !== null) {
+          const delay = Math.max(1000, earliestRetryAt - Date.now());
+          this.minNextSyncTime = Math.max(this.minNextSyncTime, Date.now() + delay);
+          this.hasPendingSyncRequest = true;
+        }
+
+        // Desliga indicador de PUSH imediatamente após envio
+        didSetActiveSync = false;
+        networkMonitor.setSyncing(false);
       }
 
       await this.updatePendingCount(userId);
 
-      // 2. ETAPA PULL: PULL incremental de novidades do servidor
+      // 2. ETAPA PULL: PULL incremental de novidades do servidor (BACKGROUND_SYNC silencioso)
+      // Supabase é a fonte da verdade para o estado convergente.
       await this.pullIncrementalChanges(userId);
 
       return { success: true, processed: processedCount };
@@ -834,17 +852,29 @@ class SyncEngine {
       return { success: false, processed: processedCount };
     } finally {
       this.isProcessing = false;
-      networkMonitor.setSyncing(false);
+      if (didSetActiveSync) {
+        networkMonitor.setSyncing(false);
+      }
       await this.updatePendingCount(userId);
 
-      // Se novas alterações chegaram durante o processamento, executa novo ciclo imediatamente
+      // Reagendamento seguro com backoff respeitado e sem loops infinitos
       if (this.hasPendingSyncRequest && this.activeUserId) {
         this.hasPendingSyncRequest = false;
-        setTimeout(() => {
-          if (this.activeUserId) {
-            this.processQueue(this.activeUserId);
-          }
-        }, 50);
+        const remainingQueue = await indexedDBStorage.getPendingSyncItems(this.activeUserId);
+        const nowAfter = Date.now();
+        const hasEligible = remainingQueue.some((i) => !i.next_retry_at || nowAfter >= i.next_retry_at);
+        const waitDelay = this.minNextSyncTime > nowAfter ? Math.max(100, this.minNextSyncTime - nowAfter) : (hasEligible ? 100 : 0);
+        this.minNextSyncTime = 0;
+
+        if (hasEligible || waitDelay >= 1000) {
+          if (this.syncTimeout) clearTimeout(this.syncTimeout);
+          this.syncTimeout = setTimeout(() => {
+            this.syncTimeout = null;
+            if (this.activeUserId) {
+              this.processQueue(this.activeUserId);
+            }
+          }, waitDelay);
+        }
       }
     }
   }
@@ -1699,45 +1729,73 @@ class SyncEngine {
       if (!foldersErr && remoteFolders) {
         const localFolders = await indexedDBStorage.getAllFolders(userId);
         const localFoldersMap = new Map(localFolders.map((f) => [f.id, f]));
+        const remoteFolderIds = new Set(remoteFolders.map((f: any) => f.id));
 
         for (const rFolder of remoteFolders) {
-          if (!pendingFolderIds.has(rFolder.id)) {
-            const existing = localFoldersMap.get(rFolder.id);
+          // Se existe operação pendente na SyncQueue, preserva o estado local
+          if (pendingFolderIds.has(rFolder.id)) {
+            continue;
+          }
 
-            // Se a pasta local tem alterações não sincronizadas e sua revisão é >= remota, protege edição local
-            if (existing && existing.syncRequired && (existing.revision || 0) >= (rFolder.revision || 0)) {
-              continue;
-            }
+          const existing = localFoldersMap.get(rFolder.id);
 
-            const isDifferent =
-              !existing ||
-              existing.name !== rFolder.name ||
-              existing.parent_id !== rFolder.parent_id ||
-              existing.position !== rFolder.position ||
-              existing.color !== rFolder.color ||
-              existing.is_smart !== Boolean(rFolder.is_smart) ||
-              JSON.stringify(existing.smart_tags || []) !== JSON.stringify(rFolder.smart_tags || []);
+          // Se a pasta local tem alterações não sincronizadas pendentes, preserva o estado local
+          if (existing && (existing.syncRequired || existing.needs_sync)) {
+            continue;
+          }
 
-            if (isDifferent) {
-              await indexedDBStorage.putFolder(userId, {
-                ...rFolder,
-                is_smart: Boolean(rFolder.is_smart),
-                revision: rFolder.revision || 0,
-                syncRequired: false,
-                syncStatus: 'synced',
-                needs_sync: false,
-                sync_status: 'synced',
-              });
-              remoteChangesCount++;
-            }
+          // Se não existe localmente: INSERIR no IndexedDB (convergência de outro dispositivo)
+          if (!existing) {
+            await indexedDBStorage.putFolder(userId, {
+              ...rFolder,
+              is_smart: Boolean(rFolder.is_smart),
+              revision: rFolder.revision || 0,
+              syncRequired: false,
+              syncStatus: 'synced',
+              needs_sync: false,
+              sync_status: 'synced',
+            });
+            console.log(`[SyncGuard] PULL: INSERT REMOTE FOLDER ${rFolder.id}`);
+            remoteChangesCount++;
+            continue;
+          }
+
+          // Se existe localmente e NÃO está pendente: compara propriedades e revisão
+          const isDifferent =
+            existing.name !== rFolder.name ||
+            existing.parent_id !== rFolder.parent_id ||
+            existing.position !== rFolder.position ||
+            existing.color !== rFolder.color ||
+            existing.is_smart !== Boolean(rFolder.is_smart) ||
+            (rFolder.revision || 0) > (existing.revision || 0) ||
+            JSON.stringify(existing.smart_tags || []) !== JSON.stringify(rFolder.smart_tags || []);
+
+          if (isDifferent) {
+            await indexedDBStorage.putFolder(userId, {
+              ...rFolder,
+              is_smart: Boolean(rFolder.is_smart),
+              revision: Math.max(rFolder.revision || 0, existing.revision || 0),
+              syncRequired: false,
+              syncStatus: 'synced',
+              needs_sync: false,
+              sync_status: 'synced',
+            });
+            console.log(`[SyncGuard] PULL: UPDATE FOLDER ${rFolder.id}`);
+            remoteChangesCount++;
           }
         }
 
-        // Detecta pastas deletadas remotamente
-        const remoteFolderIds = new Set(remoteFolders.map((f: any) => f.id));
+        // Detecta pastas deletadas remotamente (somente se não houver pendência local)
         for (const lFolder of localFolders) {
-          if (!remoteFolderIds.has(lFolder.id) && !pendingFolderIds.has(lFolder.id) && !lFolder.syncRequired && lFolder.syncStatus === 'synced') {
+          if (
+            !remoteFolderIds.has(lFolder.id) &&
+            !pendingFolderIds.has(lFolder.id) &&
+            !lFolder.syncRequired &&
+            !lFolder.needs_sync &&
+            lFolder.syncStatus === 'synced'
+          ) {
             await indexedDBStorage.deleteFolder(userId, lFolder.id);
+            console.log(`[SyncGuard] PULL: DELETE LOCAL FOLDER ${lFolder.id}`);
             remoteChangesCount++;
           }
         }
@@ -1752,100 +1810,114 @@ class SyncEngine {
       if (!notesErr && remoteNotes) {
         const localNotes = await indexedDBStorage.getAllNotes(userId);
         const localNotesMap = new Map(localNotes.map((n) => [n.id, n]));
+        const remoteNoteIds = new Set(remoteNotes.map((n: any) => n.id));
 
         for (const rNote of remoteNotes) {
-          if (!pendingNoteIds.has(rNote.id)) {
-            const rawTags = rNote.tags;
-            let noteTags: string[] = [];
-            if (Array.isArray(rawTags)) {
-              noteTags = normalizeTags(rawTags);
-            } else if (typeof rawTags === 'string') {
-              try {
-                noteTags = normalizeTags(JSON.parse(rawTags));
-              } catch {
-                noteTags = normalizeTags(rawTags.split(','));
-              }
+          // Se a nota está na fila de pendências locais, preserva a versão local
+          if (pendingNoteIds.has(rNote.id)) {
+            continue;
+          }
+
+          const rawTags = rNote.tags;
+          let noteTags: string[] = [];
+          if (Array.isArray(rawTags)) {
+            noteTags = normalizeTags(rawTags);
+          } else if (typeof rawTags === 'string') {
+            try {
+              noteTags = normalizeTags(JSON.parse(rawTags));
+            } catch {
+              noteTags = normalizeTags(rawTags.split(','));
             }
+          }
 
-            const existingNote = localNotesMap.get(rNote.id);
+          const existingNote = localNotesMap.get(rNote.id);
 
-            // Se a nota local tem alterações não sincronizadas e sua revisão é >= remota, protege a edição local
-            if (existingNote && existingNote.syncRequired && (existingNote.revision || 0) >= (rNote.revision || 0)) {
+          // Se a nota local tem alterações não sincronizadas, protege a edição local
+          if (existingNote && (existingNote.syncRequired || existingNote.needs_sync)) {
+            continue;
+          }
+
+          // Proteção contra rollback de anexos recém-sincronizados
+          const isRecentlySynced = this.recentlySyncedNoteIds.has(rNote.id) && Date.now() < (this.recentlySyncedNoteIds.get(rNote.id) || 0);
+          if (isRecentlySynced && existingNote) {
+            const localHasResolved = (existingNote.content || '').includes('https://') || (existingNote.content || '').includes('http://');
+            const remoteHasUnresolved = hasUnresolvedLocalMedia(rNote.content);
+            if (localHasResolved && remoteHasUnresolved) {
+              console.log(`[SyncGuard] PULL: Preservando nota local ${rNote.id} contra rollback remoto (anexos recém-sincronizados)`);
               continue;
             }
+          }
 
-            // Proteção contra rollback de anexos recém-sincronizados:
-            // Se a nota local teve anexos sincronizados recentemente e a versão remota do PULL ainda possui referências pendentes, protege a nota local
-            const isRecentlySynced = this.recentlySyncedNoteIds.has(rNote.id) && Date.now() < (this.recentlySyncedNoteIds.get(rNote.id) || 0);
-            if (isRecentlySynced && existingNote) {
-              const localHasResolved = (existingNote.content || '').includes('https://') || (existingNote.content || '').includes('http://');
-              const remoteHasUnresolved = hasUnresolvedLocalMedia(rNote.content);
-              if (localHasResolved && remoteHasUnresolved) {
-                console.log(`[SyncGuard] PULL: Preservando nota local ${rNote.id} contra rollback remoto (anexos recém-sincronizados)`);
-                continue;
-              }
-            }
+          // Se NÃO existe localmente: INSERIR no IndexedDB (convergência de outro dispositivo)
+          if (!existingNote) {
+            await indexedDBStorage.putNote(userId, {
+              ...rNote,
+              tags: noteTags,
+              revision: rNote.revision || 0,
+              syncRequired: false,
+              syncStatus: 'synced',
+              needs_sync: false,
+              is_archived: Boolean(rNote.is_archived),
+              sync_status: 'synced',
+            });
+            console.log(`[SyncGuard] PULL: INSERT REMOTE NOTE ${rNote.id}`);
+            remoteChangesCount++;
+            continue;
+          }
 
-            const normalizeContent = (str?: string) => (str || '').replace(/\r\n/g, '\n').trim();
+          const normalizeContent = (str?: string) => (str || '').replace(/\r\n/g, '\n').trim();
 
-            // Preserva o estado local quando a versão local é equivalente à remota ou acabou de sincronizar
-            const functionalContentMatches =
-              existingNote &&
-              existingNote.title === rNote.title &&
-              normalizeContent(existingNote.content) === normalizeContent(rNote.content) &&
-              existingNote.folder_id === rNote.folder_id &&
-              existingNote.position === rNote.position &&
-              Boolean(existingNote.is_archived) === Boolean(rNote.is_archived) &&
-              existingNote.previous_folder_id === rNote.previous_folder_id &&
-              JSON.stringify(existingNote.tags || []) === JSON.stringify(noteTags);
+          // Compara conteúdo funcional
+          const functionalContentMatches =
+            existingNote.title === rNote.title &&
+            normalizeContent(existingNote.content) === normalizeContent(rNote.content) &&
+            existingNote.folder_id === rNote.folder_id &&
+            existingNote.position === rNote.position &&
+            Boolean(existingNote.is_archived) === Boolean(rNote.is_archived) &&
+            existingNote.previous_folder_id === rNote.previous_folder_id &&
+            JSON.stringify(existingNote.tags || []) === JSON.stringify(noteTags);
 
-            if (functionalContentMatches) {
-              // Se apenas updated_at ou revision mudou no servidor, atualiza silenciosamente no IndexedDB sem disparar re-render
-              if (existingNote.updated_at !== rNote.updated_at || (existingNote.revision || 0) !== (rNote.revision || 0)) {
-                await indexedDBStorage.putNote(userId, {
-                  ...existingNote,
-                  revision: rNote.revision || existingNote.revision || 0,
-                  updated_at: rNote.updated_at,
-                  syncRequired: false,
-                  syncStatus: 'synced',
-                });
-              }
-              continue;
-            }
-
-            const isDifferent =
-              !existingNote ||
-              existingNote.title !== rNote.title ||
-              existingNote.content !== rNote.content ||
-              existingNote.folder_id !== rNote.folder_id ||
-              existingNote.position !== rNote.position ||
-              Boolean(existingNote.is_archived) !== Boolean(rNote.is_archived) ||
-              existingNote.previous_folder_id !== rNote.previous_folder_id ||
-              existingNote.updated_at !== rNote.updated_at ||
-              JSON.stringify(existingNote.tags || []) !== JSON.stringify(noteTags);
-
-            if (isDifferent) {
+          if (functionalContentMatches) {
+            // Se apenas updated_at ou revision mudou no servidor, atualiza silenciosamente no IndexedDB
+            if (existingNote.updated_at !== rNote.updated_at || (existingNote.revision || 0) < (rNote.revision || 0)) {
               await indexedDBStorage.putNote(userId, {
-                ...rNote,
-                tags: noteTags,
-                revision: rNote.revision || 0,
+                ...existingNote,
+                revision: Math.max(rNote.revision || 0, existingNote.revision || 0),
+                updated_at: rNote.updated_at,
                 syncRequired: false,
                 syncStatus: 'synced',
                 needs_sync: false,
-                is_archived: Boolean(rNote.is_archived),
-                sync_status: 'synced',
               });
-              console.log(`[SyncGuard] INDEXEDDB: UPSERT NOTE ${rNote.id} revision=${rNote.revision || 0}`);
-              remoteChangesCount++;
             }
+            continue;
           }
+
+          // Se existe localmente, NÃO tem pendência e difere da remota: aplica versão remota
+          await indexedDBStorage.putNote(userId, {
+            ...rNote,
+            tags: noteTags,
+            revision: Math.max(rNote.revision || 0, existingNote.revision || 0),
+            syncRequired: false,
+            syncStatus: 'synced',
+            needs_sync: false,
+            is_archived: Boolean(rNote.is_archived),
+            sync_status: 'synced',
+          });
+          console.log(`[SyncGuard] PULL: UPDATE NOTE ${rNote.id} revision=${rNote.revision || 0}`);
+          remoteChangesCount++;
         }
 
-        // Detecta notas deletadas remotamente
-        const remoteNoteIds = new Set(remoteNotes.map((n: any) => n.id));
+        // Detecta notas deletadas remotamente (somente se não houver pendência local)
         for (const lNote of localNotes) {
-          if (!remoteNoteIds.has(lNote.id) && !pendingNoteIds.has(lNote.id) && !lNote.syncRequired && lNote.syncStatus === 'synced') {
+          if (
+            !remoteNoteIds.has(lNote.id) &&
+            !pendingNoteIds.has(lNote.id) &&
+            !lNote.syncRequired &&
+            !lNote.needs_sync &&
+            lNote.syncStatus === 'synced'
+          ) {
             await indexedDBStorage.deleteNote(userId, lNote.id);
+            console.log(`[SyncGuard] PULL: DELETE LOCAL NOTE ${lNote.id}`);
             remoteChangesCount++;
           }
         }

@@ -120,17 +120,21 @@ class NetworkMonitor {
       this.isBackendReachable = reachable;
 
       if (reachable) {
-        if (this.currentStatus === 'offline' || this.currentStatus === 'pending_sync') {
+        if (this.currentStatus !== 'syncing' && this.currentStatus !== 'remote_change') {
           this.updateStatus(this.pendingCount > 0 ? 'pending_sync' : 'synced');
         }
       } else {
-        this.updateStatus(this.pendingCount > 0 ? 'pending_sync' : 'offline');
+        if (this.currentStatus !== 'syncing') {
+          this.updateStatus(this.pendingCount > 0 ? 'pending_sync' : 'offline');
+        }
       }
 
       return reachable;
     } catch {
       this.isBackendReachable = false;
-      this.updateStatus(this.pendingCount > 0 ? 'pending_sync' : 'offline');
+      if (this.currentStatus !== 'syncing') {
+        this.updateStatus(this.pendingCount > 0 ? 'pending_sync' : 'offline');
+      }
       return false;
     } finally {
       this.isCheckingProbe = false;
@@ -146,24 +150,29 @@ class NetworkMonitor {
 
   public updatePendingCount(count: number) {
     this.pendingCount = count;
-    if (count > 0 && !this.isBackendReachable) {
-      this.updateStatus('pending_sync');
-    } else if (count === 0 && this.isBackendReachable && this.currentStatus !== 'syncing') {
-      this.updateStatus('synced');
+    if (this.currentStatus !== 'syncing' && this.currentStatus !== 'remote_change') {
+      if (!this.isBackendReachable) {
+        this.updateStatus(count > 0 ? 'pending_sync' : 'offline');
+      } else if (count > 0) {
+        this.updateStatus('pending_sync');
+      } else {
+        this.updateStatus('synced');
+      }
+    } else {
+      this.notify();
     }
-    this.notify();
   }
 
   public setSyncing(isSyncing: boolean) {
     if (isSyncing) {
       this.updateStatus('syncing');
     } else {
-      if (this.pendingCount > 0) {
+      if (!this.isBackendReachable) {
+        this.updateStatus(this.pendingCount > 0 ? 'pending_sync' : 'offline');
+      } else if (this.pendingCount > 0) {
         this.updateStatus('pending_sync');
-      } else if (this.isBackendReachable) {
-        this.updateStatus('synced');
       } else {
-        this.updateStatus('offline');
+        this.updateStatus('synced');
       }
     }
   }

@@ -116,13 +116,18 @@ export function MainLayout() {
           };
         });
 
-        // Preserva notas criadas localmente que ainda estejam em processamento
+        // Preserva notas criadas localmente que ainda estejam em processamento ou com pendências
         for (const [id, pn] of prevNotesMap.entries()) {
           const isPending = (pn as any).syncRequired || (pn as any).needs_sync;
           const isSaving = saveQueue.hasPendingSaveForNote(id);
-          if ((isPending || isSaving || id === currentActiveId) && !merged.some((n) => n.id === id)) {
+          if ((isPending || isSaving) && !merged.some((n) => n.id === id)) {
             merged.push(pn);
           }
+        }
+
+        // Se a nota ativa foi excluída remotamente e não possui pendências locais, limpa a visualização
+        if (currentActiveId && !merged.some((n) => n.id === currentActiveId)) {
+          setTimeout(() => setActiveNoteId(null), 0);
         }
 
         return merged.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
