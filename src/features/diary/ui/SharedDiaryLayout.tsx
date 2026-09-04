@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -11,6 +11,7 @@ import {
   BookOpen,
   Eye,
   ShieldAlert,
+  Calendar,
 } from 'lucide-react';
 import {
   fetchSharedDiaryData,
@@ -21,6 +22,12 @@ import { SharedDiarySidebarNavigation } from './SharedDiarySidebarNavigation';
 import { NoteCanvas } from '@/src/features/notes/ui/NoteCanvas';
 import { Folder, Note } from '@/src/features/notes/types';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
+import {
+  getLocalDateString,
+  formatDateReadable,
+  buildDiaryDateString,
+  MONTH_NAMES_PT,
+} from '@/src/features/notes/utils/diary-date';
 
 interface SharedDiaryLayoutProps {
   shareId: string;
@@ -38,6 +45,12 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  const activeNoteIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeNoteIdRef.current = activeNoteId;
+  }, [activeNoteId]);
 
   // 1. Carrega dados iniciais do Diário compartilhado
   useEffect(() => {
@@ -63,9 +76,28 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
         setFolders(res.folders);
         setNotes(res.notes);
 
-        // Seleciona primeira nota se existir
-        if (res.notes.length > 0) {
-          setActiveNoteId(res.notes[0].id);
+        // Identifica data atual no fuso horário do Diário
+        const todayDateStr = getLocalDateString();
+        const now = new Date();
+        const curYear = now.getFullYear();
+        const curMonth = now.getMonth() + 1;
+        const curDay = now.getDate();
+
+        // Localiza estritamente se existe entrada para o dia de hoje
+        const todayNote = res.notes.find((n) => {
+          if (n.entry_date === todayDateStr) return true;
+          if (n.diary_year === curYear && n.diary_month === curMonth && n.diary_day === curDay) {
+            return true;
+          }
+          const dayFormatted = String(curDay).padStart(2, '0');
+          return Boolean(n.title && n.title.toLowerCase().startsWith(`dia ${dayFormatted}`));
+        });
+
+        // Se a nota de hoje existir, seleciona-a. Se não existir, permanece null (não cria e não abre nota aleatória)
+        if (todayNote) {
+          setActiveNoteId(todayNote.id);
+        } else {
+          setActiveNoteId(null);
         }
       } catch (err) {
         if (!isMounted) return;
@@ -83,7 +115,7 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
     };
   }, [shareId]);
 
-  // 2. Carrega conteúdo Markdown da nota ativa
+  // 2. Carrega conteúdo Markdown da nota ativa sob demanda
   useEffect(() => {
     let isCancelled = false;
 
@@ -143,11 +175,20 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
                   (a, b) => (a.position ?? 0) - (b.position ?? 0)
                 );
               });
+
+              // Se não havia nota aberta e a nova nota inserida for de hoje, abre-a
+              const todayStr = getLocalDateString();
+              if (!activeNoteIdRef.current && (newNote.entry_date === todayStr || (newNote.title || '').includes(todayStr))) {
+                setActiveNoteId(newNote.id);
+              }
             }
           } else if (payload.eventType === 'UPDATE') {
             const updatedNote = payload.new as Note;
             if (updatedNote.is_archived) {
               setNotes((prev) => prev.filter((n) => n.id !== updatedNote.id));
+              if (activeNoteIdRef.current === updatedNote.id) {
+                setActiveNoteId(null);
+              }
             } else {
               setNotes((prev) =>
                 prev.map((n) =>
@@ -156,12 +197,24 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
                     : n
                 )
               );
+              // Se a nota atualizada for a que está atualmente aberta na tela, busca seu markdown mais recente
+              if (activeNoteIdRef.current === updatedNote.id) {
+                fetchSharedNoteContent(ownerId, updatedNote.id).then(({ content, tags }) => {
+                  setNotes((prev) =>
+                    prev.map((n) =>
+                      n.id === updatedNote.id
+                        ? { ...n, content, tags: tags.length > 0 ? tags : n.tags }
+                        : n
+                    )
+                  );
+                });
+              }
             }
           } else if (payload.eventType === 'DELETE') {
             const deletedId = payload.old?.id;
             if (deletedId) {
               setNotes((prev) => prev.filter((n) => n.id !== deletedId));
-              if (activeNoteId === deletedId) {
+              if (activeNoteIdRef.current === deletedId) {
                 setActiveNoteId(null);
               }
             }
@@ -227,7 +280,7 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
         supabase.removeChannel(channel);
       } catch {}
     };
-  }, [share?.owner_id, shareId, activeNoteId]);
+  }, [share?.owner_id, shareId]);
 
   const activeNote = useMemo(() => {
     return notes.find((n) => n.id === activeNoteId) || null;
@@ -238,22 +291,22 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-[#faf8f5] p-6 text-center">
         <div className="max-w-md bg-white border border-red-200 rounded-2xl p-8 shadow-xl space-y-4">
-          <div className="w-14 h-14 rounded-2xl bg-red-100 text-red-600 mx-auto flex items-center justify-center">
-            <ShieldAlert className="w-7 h-7 stroke-[2]" />
+          <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-6 h-6" />
           </div>
-          <h2 className="font-serif-note font-bold text-xl text-[#1b1c19]">
+          <h2 className="font-serif-note font-bold text-lg text-[#1b1c19]">
             Acesso Revogado
           </h2>
-          <p className="font-sans-ui text-sm text-[#7f756e] leading-relaxed">
-            Este Diário não está mais compartilhado com você. O proprietário revogou o acesso de leitura.
+          <p className="text-xs text-[#7f756e] font-sans-ui leading-relaxed">
+            O proprietário encerrou o compartilhamento deste Diário. Você não tem mais permissão para visualizar estas entradas.
           </p>
           <div className="pt-2">
             <Link
               href="/"
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#68594d] text-white text-xs font-sans-ui font-medium rounded-xl hover:bg-[#52443a] transition-colors shadow-2xs"
             >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Voltar ao Meu Diário</span>
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Voltar para Meu Aplicativo</span>
             </Link>
           </div>
         </div>
@@ -264,11 +317,13 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
   // Estado de Carregamento
   if (loading) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#faf8f5] flex-col gap-3">
-        <Loader2 className="w-8 h-8 text-[#68594d] animate-spin" />
-        <p className="font-sans-ui text-xs text-[#7f756e]">
-          Carregando Diário compartilhado...
-        </p>
+      <div className="flex h-screen w-screen items-center justify-center bg-[#faf8f5]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-6 h-6 animate-spin text-[#68594d]" />
+          <p className="text-xs text-[#7f756e] font-sans-ui">
+            Carregando Diário compartilhado...
+          </p>
+        </div>
       </div>
     );
   }
@@ -278,22 +333,22 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-[#faf8f5] p-6 text-center">
         <div className="max-w-md bg-white border border-[#eae8e3] rounded-2xl p-8 shadow-xl space-y-4">
-          <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 mx-auto flex items-center justify-center">
-            <AlertCircle className="w-7 h-7 stroke-[2]" />
+          <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
+            <AlertCircle className="w-6 h-6" />
           </div>
-          <h2 className="font-serif-note font-bold text-xl text-[#1b1c19]">
-            Não foi possível carregar o Diário
+          <h2 className="font-serif-note font-bold text-lg text-[#1b1c19]">
+            Não foi possível abrir o Diário
           </h2>
-          <p className="font-sans-ui text-sm text-[#7f756e] leading-relaxed">
-            {error || 'Compartilhamento não encontrado ou acesso não autorizado.'}
+          <p className="text-xs text-[#7f756e] font-sans-ui leading-relaxed">
+            {error || 'O compartilhamento solicitado não existe ou você não possui permissão de leitura.'}
           </p>
           <div className="pt-2">
             <Link
               href="/"
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#68594d] text-white text-xs font-sans-ui font-medium rounded-xl hover:bg-[#52443a] transition-colors shadow-2xs"
             >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Voltar ao Início</span>
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Voltar ao Meu Início</span>
             </Link>
           </div>
         </div>
@@ -303,6 +358,7 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
 
   const ownerDisplayName = share.owner_name || share.owner_email?.split('@')[0] || 'Usuário';
   const ownerEmail = share.owner_email || '';
+  const todayDateFormatted = formatDateReadable(getLocalDateString());
 
   return (
     <div id="shared-diary-root" className="flex h-screen w-screen overflow-hidden bg-[#faf8f5]">
@@ -354,18 +410,38 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
         </div>
       )}
 
-      {/* Canvas do Editor em Modo Somente Leitura */}
-      <NoteCanvas
-        key={activeNote?.id || 'shared-diary-empty'}
-        activeNote={activeNote}
-        onUpdateTitle={() => {}}
-        onUpdateContent={() => {}}
-        onUpdateTags={() => {}}
-        onCreateNewNote={() => {}}
-        onOpenMobileMenu={() => setMobileSidebarOpen(true)}
-        userId={share.owner_id}
-        readOnly={true}
-      />
+      {/* Área Central: Canvas do Editor ou Mensagem Elegante de Leitura se Hoje não existir */}
+      <div className="flex-1 h-full flex flex-col min-w-0 bg-[#faf8f5] overflow-hidden">
+        {activeNote ? (
+          <NoteCanvas
+            key={activeNote.id}
+            activeNote={activeNote}
+            onUpdateTitle={() => {}}
+            onUpdateContent={() => {}}
+            onUpdateTags={() => {}}
+            onCreateNewNote={() => {}}
+            onOpenMobileMenu={() => setMobileSidebarOpen(true)}
+            userId={share.owner_id}
+            readOnly={true}
+          />
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none">
+            <div className="w-16 h-16 rounded-2xl bg-[#f0eee9] border border-[#e4dfd7] flex items-center justify-center text-[#68594d] mb-4 shadow-2xs">
+              <Calendar className="w-8 h-8 stroke-[1.5]" />
+            </div>
+            <h2 className="font-serif-note font-bold text-xl text-[#1b1c19] tracking-tight mb-2">
+              Nenhuma entrada registrada para hoje
+            </h2>
+            <p className="font-sans-ui text-sm text-[#7f756e] max-w-md mb-4 leading-relaxed">
+              O proprietário ({ownerDisplayName}) ainda não publicou uma entrada no diário para o dia de hoje. Você pode navegar pelas entradas anteriores na barra lateral à esquerda.
+            </p>
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#f4dfcb]/60 border border-[#e8d2bd] text-[#5e4b3e] text-xs font-sans-ui font-medium">
+              <Eye className="w-3.5 h-3.5" />
+              <span>Modo Leitura • {todayDateFormatted}</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -422,9 +422,13 @@ class IndexedDBStorage {
       request.onsuccess = () => {
         let list = (request.result || []) as ExtendedNote[];
         if (workspaceType === 'diary') {
-          list = list.filter((n) => n.workspace_type === 'diary');
+          list = list.filter((n) => n.workspace_type === 'diary' || Boolean(n.entry_date) || Boolean(n.diary_year));
         } else if (workspaceType === 'notes') {
-          list = list.filter((n) => !n.workspace_type || n.workspace_type === 'notes');
+          list = list.filter((n) => {
+            if (n.workspace_type === 'diary') return false;
+            if (n.entry_date || n.diary_year) return false;
+            return true;
+          });
         }
         resolve(list);
       };
@@ -588,10 +592,24 @@ class IndexedDBStorage {
       const request = store.getAll();
       request.onsuccess = () => {
         let list = (request.result || []) as ExtendedFolder[];
+        // Identifica IDs de pastas de ano do Diário (raiz com 4 dígitos no nome ou diary_year)
+        const diaryYearIds = new Set(
+          list
+            .filter((f) => !f.parent_id && (f.workspace_type === 'diary' || f.diary_year || /^\d{4}$/.test(f.name.trim())))
+            .map((f) => f.id)
+        );
+        const isDiaryFolder = (f: ExtendedFolder) => {
+          if (f.workspace_type === 'diary') return true;
+          if (f.diary_year || f.diary_month) return true;
+          if (!f.parent_id && /^\d{4}$/.test(f.name.trim())) return true;
+          if (f.parent_id && diaryYearIds.has(f.parent_id)) return true;
+          return false;
+        };
+
         if (workspaceType === 'diary') {
-          list = list.filter((f) => f.workspace_type === 'diary');
+          list = list.filter(isDiaryFolder);
         } else if (workspaceType === 'notes') {
-          list = list.filter((f) => !f.workspace_type || f.workspace_type === 'notes');
+          list = list.filter((f) => !isDiaryFolder(f));
         }
         resolve(list);
       };

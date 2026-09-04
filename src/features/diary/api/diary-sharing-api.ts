@@ -689,8 +689,22 @@ export async function fetchSharedDiaryData(
       console.error('[DiaryShare] Erro ao carregar notas do Diário compartilhado:', notesError);
     }
 
-    const rawFolders = (foldersData || []) as Folder[];
-    const rawNotes = (notesData || []) as Note[];
+    // 1. Deduplicação por ID para garantir listas limpas
+    const rawFoldersMap = new Map<string, Folder>();
+    for (const f of (foldersData || []) as Folder[]) {
+      if (f?.id && !rawFoldersMap.has(f.id)) {
+        rawFoldersMap.set(f.id, f);
+      }
+    }
+    const rawFolders = Array.from(rawFoldersMap.values());
+
+    const rawNotesMap = new Map<string, Note>();
+    for (const n of (notesData || []) as Note[]) {
+      if (n?.id && !rawNotesMap.has(n.id)) {
+        rawNotesMap.set(n.id, n);
+      }
+    }
+    const rawNotes = Array.from(rawNotesMap.values());
 
     // Identifica as pastas de Ano (pastas raiz com nome de 4 dígitos ou diary_year preenchido)
     const yearFolders = rawFolders.filter(
@@ -708,17 +722,29 @@ export async function fetchSharedDiaryData(
     const normalizedFolders: Folder[] = [...yearFolders, ...monthFolders].map((f) => {
       const isYear = !f.parent_id;
       const yearVal = isYear
-        ? f.diary_year || parseInt(f.name, 10) || f.position
+        ? f.diary_year || parseInt(f.name.trim(), 10) || f.position
         : rawFolders.find((y) => y.id === f.parent_id)?.diary_year ||
-          parseInt(rawFolders.find((y) => y.id === f.parent_id)?.name || '', 10) ||
+          parseInt(rawFolders.find((y) => y.id === f.parent_id)?.name.trim() || '', 10) ||
           new Date().getFullYear();
 
-      const monthVal = !isYear
-        ? f.diary_month ||
-          f.position ||
-          MONTH_NAMES_PT.indexOf(f.name as any) + 1 ||
-          1
-        : null;
+      let monthVal: number | null = null;
+      if (!isYear) {
+        if (typeof f.diary_month === 'number' && f.diary_month >= 1 && f.diary_month <= 12) {
+          monthVal = f.diary_month;
+        } else {
+          const ptIdx = MONTH_NAMES_PT.findIndex((m) => m.toLowerCase() === f.name.trim().toLowerCase());
+          if (ptIdx !== -1) {
+            monthVal = ptIdx + 1;
+          } else {
+            const parsedNum = parseInt(f.name.trim(), 10);
+            if (!isNaN(parsedNum) && parsedNum >= 1 && parsedNum <= 12) {
+              monthVal = parsedNum;
+            } else {
+              monthVal = typeof f.position === 'number' && f.position >= 1 && f.position <= 12 ? f.position : 1;
+            }
+          }
+        }
+      }
 
       return {
         ...f,
@@ -730,7 +756,7 @@ export async function fetchSharedDiaryData(
 
     // Normaliza metadados do Diário para as notas pertencentes aos meses do Diário
     const normalizedNotes: Note[] = rawNotes
-      .filter((n) => n.folder_id && monthFolderIds.has(n.folder_id))
+      .filter((n) => (n.folder_id && monthFolderIds.has(n.folder_id)) || Boolean(n.entry_date) || Boolean(n.diary_year))
       .map((n) => {
         const parentMonth = monthFolders.find((m) => m.id === n.folder_id);
         const parentYear = parentMonth
@@ -738,14 +764,16 @@ export async function fetchSharedDiaryData(
           : null;
         const yearVal =
           n.diary_year ||
-          (parentYear ? parseInt(parentYear.name, 10) : new Date().getFullYear());
-        const monthVal =
-          n.diary_month ||
-          (parentMonth
-            ? parentMonth.diary_month ||
-              parentMonth.position ||
-              MONTH_NAMES_PT.indexOf(parentMonth.name as any) + 1
-            : 1);
+          (parentYear ? parseInt(parentYear.name.trim(), 10) : new Date().getFullYear());
+        
+        let monthVal = n.diary_month;
+        if (!monthVal && parentMonth) {
+          const ptIdx = MONTH_NAMES_PT.findIndex((m) => m.toLowerCase() === parentMonth.name.trim().toLowerCase());
+          monthVal = ptIdx !== -1 ? ptIdx + 1 : parentMonth.diary_month || parentMonth.position || 1;
+        }
+        if (!monthVal) {
+          monthVal = 1;
+        }
 
         let dayVal = n.diary_day;
         if (!dayVal && n.entry_date) {

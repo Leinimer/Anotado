@@ -221,29 +221,59 @@ export async function resolveAttachmentSource(
           .maybeSingle();
 
         if (dbAtt && dbAtt.storage_path) {
-          const { data: pubData } = supabase.storage
-            .from(ATTACHMENTS_BUCKET_NAME)
-            .getPublicUrl(dbAtt.storage_path);
+          const bucketsToTry = [dbAtt.bucket_id, ATTACHMENTS_BUCKET_NAME, 'attachments'].filter(Boolean) as string[];
+          const uniqueBuckets = Array.from(new Set(bucketsToTry));
 
-          if (pubData?.publicUrl) {
-            const remoteUrl = pubData.publicUrl;
+          let remoteUrl: string | null = null;
+
+          for (const bucket of uniqueBuckets) {
+            // Tenta URL assinada (7200s = 2h) permitida para viewers pelas RLS de Storage
+            const { data: signedData, error: signedErr } = await supabase.storage
+              .from(bucket)
+              .createSignedUrl(dbAtt.storage_path, 7200);
+
+            if (!signedErr && signedData?.signedUrl) {
+              remoteUrl = signedData.signedUrl;
+              break;
+            }
+
+            // Fallback para getPublicUrl se o bucket for público
+            const { data: pubData } = supabase.storage
+              .from(bucket)
+              .getPublicUrl(dbAtt.storage_path);
+
+            if (pubData?.publicUrl) {
+              remoteUrl = pubData.publicUrl;
+              break;
+            }
+          }
+
+          if (remoteUrl) {
             attachmentRemoteUrlCache.set(attachmentId, remoteUrl);
-            await indexedDBStorage.putAttachment(currentUserId, {
-              id: dbAtt.id,
-              user_id: currentUserId,
-              note_id: dbAtt.note_id,
-              file_name: dbAtt.file_name,
-              file_type: dbAtt.mime_type,
-              mime_type: dbAtt.mime_type,
-              file_size: dbAtt.file_size,
-              storage_path: dbAtt.storage_path,
-              remote_url: remoteUrl,
-              syncRequired: false,
-              syncStatus: 'synced',
-              sync_status: 'synced',
-              created_at: dbAtt.created_at,
-              updated_at: dbAtt.updated_at,
-            });
+
+            // Regra de Isolamento: Apenas persiste no IndexedDB se for o próprio proprietário do anexo
+            if (currentUserId && currentUserId !== 'anonymous' && currentUserId === dbAtt.user_id) {
+              try {
+                await indexedDBStorage.putAttachment(currentUserId, {
+                  id: dbAtt.id,
+                  user_id: currentUserId,
+                  note_id: dbAtt.note_id,
+                  file_name: dbAtt.file_name,
+                  file_type: dbAtt.mime_type,
+                  mime_type: dbAtt.mime_type,
+                  file_size: dbAtt.file_size,
+                  storage_path: dbAtt.storage_path,
+                  remote_url: remoteUrl,
+                  syncRequired: false,
+                  syncStatus: 'synced',
+                  sync_status: 'synced',
+                  created_at: dbAtt.created_at,
+                  updated_at: dbAtt.updated_at,
+                });
+              } catch (saveErr) {
+                console.warn('[AttachmentResolver] Aviso ao persistir anexo local:', saveErr);
+              }
+            }
 
             return {
               resolvedUrl: remoteUrl,

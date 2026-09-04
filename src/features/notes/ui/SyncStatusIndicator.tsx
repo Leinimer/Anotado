@@ -20,6 +20,7 @@ interface SyncStatusIndicatorProps {
   onSelectFolder?: (folderId: string | null) => void;
   folders?: FolderType[];
   notes?: NoteType[];
+  readOnly?: boolean;
 }
 
 export function SyncStatusIndicator({
@@ -29,6 +30,7 @@ export function SyncStatusIndicator({
   onSelectFolder,
   folders = [],
   notes = [],
+  readOnly = false,
 }: SyncStatusIndicatorProps) {
   const [networkState, setNetworkState] = useState<NetworkState>(networkMonitor.getState());
   const [isHovered, setIsHovered] = useState(false);
@@ -44,6 +46,8 @@ export function SyncStatusIndicator({
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (readOnly) return;
+
     if (clickTimeoutRef.current) {
       clearTimeout(clickTimeoutRef.current);
       clickTimeoutRef.current = null;
@@ -63,6 +67,8 @@ export function SyncStatusIndicator({
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (readOnly) return;
+
     if (clickTimeoutRef.current) {
       clearTimeout(clickTimeoutRef.current);
       clickTimeoutRef.current = null;
@@ -72,6 +78,24 @@ export function SyncStatusIndicator({
 
   // Definição visual conforme o estado
   const getStatusConfig = () => {
+    if (readOnly) {
+      if (!networkState.isOnline || !networkState.isBackendReachable) {
+        return {
+          icon: CloudOff,
+          iconClass: 'text-[#ba1a1a]',
+          dotClass: 'bg-[#ba1a1a]',
+          label: 'Offline (Leitura)',
+          tooltip: 'Você está offline. Novas entradas do proprietário serão carregadas quando a conexão for restaurada.',
+        };
+      }
+      return {
+        icon: CheckCircle2,
+        iconClass: 'text-[#68594d]',
+        dotClass: 'bg-[#68594d]',
+        label: 'Em tempo real (Leitura)',
+        tooltip: 'Conectado em tempo real via Supabase • Modo somente leitura',
+      };
+    }
     if (networkState.status === 'remote_change') {
       return {
         icon: Sparkles,

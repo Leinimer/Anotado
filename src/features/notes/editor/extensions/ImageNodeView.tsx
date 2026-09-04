@@ -305,19 +305,19 @@ export function ImageNodeView(props: NodeViewProps) {
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
-      draggable={true}
+      draggable={editor?.isEditable ?? false}
     >
       <div
         className={`relative inline-block max-w-full transition-shadow duration-150 ${
-          isSelected ? 'ring-2 ring-[#68594d] ring-offset-2 ring-offset-white rounded-xl' : ''
+          isSelected && editor?.isEditable ? 'ring-2 ring-[#68594d] ring-offset-2 ring-offset-white rounded-xl' : ''
         }`}
         style={{
           width: currentDisplayWidth,
           maxWidth: '100%',
         }}
       >
-        {/* Barra Flutuante de Informação e Ações Rápidas (Aparece ao selecionar) */}
-        {isSelected && (
+        {/* Barra Flutuante de Informação e Ações Rápidas (Aparece ao selecionar apenas se editável) */}
+        {isSelected && editor?.isEditable && (
           <MediaFloatingToolbar
             onMove={handleMove}
             alignment={alignment}
@@ -392,8 +392,8 @@ export function ImageNodeView(props: NodeViewProps) {
           />
         )}
 
-        {/* Handles de Redimensionamento Interativos (Visíveis ao Selecionar) */}
-        {isSelected && (
+        {/* Handles de Redimensionamento Interativos (Visíveis ao Selecionar apenas se editável) */}
+        {isSelected && editor?.isEditable && (
           <MediaResizeHandles
             onResizeStart={handleResizeStart}
             showTopHandles={true}

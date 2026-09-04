@@ -56,8 +56,37 @@ export function MainLayout() {
     const supabase = createClient();
 
     // Inscrição reativa para atualizações provenientes do SyncEngine e Supabase Realtime
-    const unsubscribeSync = syncEngine.subscribeToData(({ folders: newFolders, notes: newNotes }) => {
+    const unsubscribeSync = syncEngine.subscribeToData(({ folders: rawSyncFolders, notes: rawSyncNotes }) => {
       if (!isMounted) return;
+
+      // Isolamento rigoroso: A página Notas NÃO deve exibir pastas ou notas pertencentes ao Diário
+      const diaryYearIds = new Set(
+        rawSyncFolders
+          .filter((f) => !f.parent_id && (f.workspace_type === 'diary' || f.diary_year || /^\d{4}$/.test(f.name.trim())))
+          .map((f) => f.id)
+      );
+      const isDiaryFolder = (f: any) => {
+        if (f.workspace_type === 'diary') return true;
+        if (f.diary_year || f.diary_month) return true;
+        if (!f.parent_id && /^\d{4}$/.test(String(f.name || '').trim())) return true;
+        if (f.parent_id && diaryYearIds.has(f.parent_id)) return true;
+        return false;
+      };
+
+      const newFolders = rawSyncFolders.filter((f) => !isDiaryFolder(f));
+      const diaryFolderIds = new Set([
+        ...Array.from(diaryYearIds),
+        ...rawSyncFolders.filter((f) => f.parent_id && diaryYearIds.has(f.parent_id)).map((f) => f.id),
+      ]);
+      const newNotes = rawSyncNotes.filter(
+        (n) =>
+          !(
+            n.workspace_type === 'diary' ||
+            Boolean(n.entry_date) ||
+            Boolean(n.diary_year) ||
+            (n.folder_id && diaryFolderIds.has(n.folder_id))
+          )
+      );
 
       setFolders((prevFolders) => {
         const pendingFolderMap = new Map(

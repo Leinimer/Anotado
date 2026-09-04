@@ -4,22 +4,23 @@ import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Calendar,
-  CalendarDays,
   ChevronDown,
   ChevronRight,
   Search,
   X,
   BookOpen,
   ArrowLeft,
-  FileText,
   Eye,
+  CalendarDays,
 } from 'lucide-react';
 import { Folder, Note } from '@/src/features/notes/types';
 import {
   MONTH_NAMES_PT,
   formatDateReadable,
   formatDateDisplayWithWeekday,
+  getLocalDateString,
 } from '@/src/features/notes/utils/diary-date';
+import { SyncStatusIndicator } from '@/src/features/notes/ui/SyncStatusIndicator';
 
 interface SharedDiarySidebarNavigationProps {
   ownerName: string;
@@ -45,110 +46,160 @@ export function SharedDiarySidebarNavigation({
   const today = useMemo(() => new Date(), []);
   const todayYear = today.getFullYear();
   const todayMonth = today.getMonth() + 1;
+  const todayDay = today.getDate();
+  const todayDateStr = getLocalDateString(today);
   const currentMonthKey = `${todayYear}-${todayMonth}`;
 
-  // Estado de expansão de meses: por padrão, apenas o mês atual fica aberto
-  const [collapsedYears, setCollapsedYears] = useState<Set<string>>(new Set());
-  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(
-    () => new Set([currentMonthKey])
-  );
+  // Estado de expansão: SOMENTE o ano atual e SOMENTE o mês atual iniciam abertos
+  const [openYears, setOpenYears] = useState<Set<number>>(() => new Set([todayYear]));
+  const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set([currentMonthKey]));
 
-  const toggleYear = (yearId: string) => {
-    setCollapsedYears((prev) => {
+  const toggleYear = (yearNum: number) => {
+    setOpenYears((prev) => {
       const next = new Set(prev);
-      if (next.has(yearId)) next.delete(yearId);
-      else next.add(yearId);
-      return next;
-    });
-  };
-
-  const toggleMonth = (key: string, folderId?: string) => {
-    setExpandedMonths((prev) => {
-      const next = new Set(prev);
-      const isOpen = next.has(key) || (folderId ? next.has(folderId) : false);
-      if (isOpen) {
-        next.delete(key);
-        if (folderId) next.delete(folderId);
+      if (next.has(yearNum)) {
+        next.delete(yearNum);
       } else {
-        next.add(key);
+        next.add(yearNum);
       }
       return next;
     });
   };
 
-  // Monta a árvore hierárquica do Diário do proprietário
+  const toggleMonth = (monthKey: string) => {
+    setOpenMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(monthKey)) {
+        next.delete(monthKey);
+      } else {
+        next.add(monthKey);
+      }
+      return next;
+    });
+  };
+
+  // Monta a árvore hierárquica do Diário do proprietário com deduplicação estrita
   const diaryTree = useMemo(() => {
-    const yearFolders = folders
-      .filter((f) => !f.parent_id && (f.diary_year !== undefined || /^\d{4}$/.test(f.name.trim())))
-      .sort((a, b) => {
-        const yearA = a.diary_year || parseInt(a.name, 10) || a.position || 0;
-        const yearB = b.diary_year || parseInt(b.name, 10) || b.position || 0;
-        return yearB - yearA;
-      });
+    // 1. Agrupa por ano numérico para garantir que cada ano apareça exatamente 1 vez
+    const yearsMap = new Map<number, { yearFolder: Folder; folderIds: Set<string> }>();
 
-    return yearFolders.map((yearFolder) => {
-      const yearNum = yearFolder.diary_year || parseInt(yearFolder.name, 10) || todayYear;
-      const monthFolders = folders
-        .filter((f) => f.parent_id === yearFolder.id)
-        .sort((a, b) => {
-          const mA =
-            a.diary_month ||
-            a.position ||
-            MONTH_NAMES_PT.indexOf(a.name as any) + 1 ||
-            0;
-          const mB =
-            b.diary_month ||
-            b.position ||
-            MONTH_NAMES_PT.indexOf(b.name as any) + 1 ||
-            0;
-          return mA - mB;
-        });
+    for (const f of folders) {
+      if (!f.parent_id && (f.diary_year !== undefined || /^\d{4}$/.test(f.name.trim()))) {
+        const yNum = f.diary_year || parseInt(f.name.trim(), 10);
+        if (yNum) {
+          if (!yearsMap.has(yNum)) {
+            yearsMap.set(yNum, { yearFolder: f, folderIds: new Set([f.id]) });
+          } else {
+            yearsMap.get(yNum)!.folderIds.add(f.id);
+          }
+        }
+      }
+    }
 
-      const monthsData = monthFolders.map((monthFolder) => {
-        const monthNum =
-          monthFolder.diary_month ||
-          monthFolder.position ||
-          MONTH_NAMES_PT.indexOf(monthFolder.name as any) + 1 ||
-          1;
-        const monthNotes = notes
-          .filter((n) => n.folder_id === monthFolder.id && !n.is_archived)
-          .sort((a, b) => {
-            if (a.entry_date && b.entry_date) {
-              return a.entry_date.localeCompare(b.entry_date);
-            }
-            return (a.position ?? 0) - (b.position ?? 0);
-          });
+    const sortedYearNums = Array.from(yearsMap.keys()).sort((a, b) => b - a);
 
-        const notesByDay: Record<number, Note> = {};
-        monthNotes.forEach((n) => {
-          if (n.entry_date) {
-            const parts = n.entry_date.split('-');
-            if (parts.length === 3) {
-              const d = parseInt(parts[2], 10);
-              if (!isNaN(d)) notesByDay[d] = n;
+    return sortedYearNums.map((yearNum) => {
+      const { yearFolder, folderIds: yearFolderIds } = yearsMap.get(yearNum)!;
+
+      // 2. Agrupa por mês numérico (1..12) para que nenhum mês seja duplicado
+      const monthsMap = new Map<number, { monthFolder: Folder; folderIds: Set<string> }>();
+
+      for (const f of folders) {
+        if (f.parent_id && yearFolderIds.has(f.parent_id)) {
+          let mNum: number | null = null;
+          if (typeof f.diary_month === 'number' && f.diary_month >= 1 && f.diary_month <= 12) {
+            mNum = f.diary_month;
+          } else {
+            const ptIdx = MONTH_NAMES_PT.findIndex(
+              (m) => m.toLowerCase() === f.name.trim().toLowerCase()
+            );
+            if (ptIdx !== -1) {
+              mNum = ptIdx + 1;
+            } else {
+              const parsed = parseInt(f.name.trim(), 10);
+              if (!isNaN(parsed) && parsed >= 1 && parsed <= 12) {
+                mNum = parsed;
+              } else if (typeof f.position === 'number' && f.position >= 1 && f.position <= 12) {
+                mNum = f.position;
+              }
             }
           }
+
+          if (mNum !== null) {
+            if (!monthsMap.has(mNum)) {
+              monthsMap.set(mNum, { monthFolder: f, folderIds: new Set([f.id]) });
+            } else {
+              monthsMap.get(mNum)!.folderIds.add(f.id);
+            }
+          }
+        }
+      }
+
+      const sortedMonthNums = Array.from(monthsMap.keys()).sort((a, b) => a - b);
+      let totalYearNotes = 0;
+
+      const months = sortedMonthNums.map((monthNum) => {
+        const { monthFolder, folderIds: monthFolderIds } = monthsMap.get(monthNum)!;
+
+        // Notas pertencentes a esse mês
+        const monthNotesList = notes.filter(
+          (n) =>
+            !n.is_archived &&
+            ((n.folder_id && monthFolderIds.has(n.folder_id)) ||
+              (n.diary_year === yearNum && n.diary_month === monthNum))
+        );
+
+        // Deduplica notas por id
+        const uniqueNotesMap = new Map<string, Note>();
+        for (const n of monthNotesList) {
+          uniqueNotesMap.set(n.id, n);
+        }
+
+        const sortedNotes = Array.from(uniqueNotesMap.values()).sort((a, b) => {
+          if (a.entry_date && b.entry_date) {
+            return a.entry_date.localeCompare(b.entry_date);
+          }
+          return (a.position ?? 0) - (b.position ?? 0);
         });
+
+        totalYearNotes += sortedNotes.length;
 
         return {
           monthFolder,
           yearNum,
           monthNum,
-          monthNotes,
-          notesByDay,
+          monthNotes: sortedNotes,
         };
       });
-
-      const totalYearNotes = monthsData.reduce((acc, m) => acc + m.monthNotes.length, 0);
 
       return {
         yearFolder,
         yearNum,
-        months: monthsData,
+        months,
         totalNotes: totalYearNotes,
       };
     });
-  }, [folders, notes, todayYear]);
+  }, [folders, notes]);
+
+  // Handler rápido para abrir "Hoje"
+  const handleOpenToday = () => {
+    setOpenYears((prev) => new Set([...Array.from(prev), todayYear]));
+    setOpenMonths((prev) => new Set([...Array.from(prev), currentMonthKey]));
+
+    // Localiza a nota correspondente a hoje se existir
+    const todayNote = notes.find((n) => {
+      if (n.entry_date === todayDateStr) return true;
+      if (n.diary_year === todayYear && n.diary_month === todayMonth && n.diary_day === todayDay) {
+        return true;
+      }
+      const dayFormatted = String(todayDay).padStart(2, '0');
+      return Boolean(n.title && n.title.toLowerCase().startsWith(`dia ${dayFormatted}`));
+    });
+
+    if (todayNote) {
+      onSelectNote(todayNote.id);
+    }
+  };
 
   // Resultados de busca filtrados
   const searchResults = useMemo(() => {
@@ -173,16 +224,16 @@ export function SharedDiarySidebarNavigation({
         <div className="flex items-center justify-between">
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 text-xs font-sans-ui font-medium text-[#68594d] hover:text-[#1b1c19] px-2.5 py-1.5 rounded-xl hover:bg-[#eae8e3] transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-sans-ui font-medium text-[#68594d] hover:text-[#1b1c19] px-2 py-1 rounded-xl hover:bg-[#eae8e3] transition-colors cursor-pointer"
             title="Voltar ao Meu Diário e Notas"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Voltar</span>
           </Link>
 
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans-ui font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
-            <Eye className="w-3 h-3 text-emerald-600" />
-            Somente Leitura
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-sans-ui font-semibold bg-[#eae8e3] text-[#5e4b3e] border border-[#d1c4bc]">
+            <Eye className="w-3 h-3 text-[#68594d]" />
+            Modo Leitura
           </span>
 
           {onCloseMobile && (
@@ -205,6 +256,22 @@ export function SharedDiarySidebarNavigation({
             {ownerEmail}
           </p>
         </div>
+
+        {/* Botão Rápido de Acesso ao Dia Atual */}
+        <button
+          type="button"
+          onClick={handleOpenToday}
+          className="w-full flex items-center justify-between px-3 py-1.5 bg-[#f0eee9] hover:bg-[#eae8e3] text-[#1b1c19] rounded-xl text-xs font-sans-ui transition-colors cursor-pointer border border-[#eae8e3]/60 shadow-2xs"
+          title="Abrir ano e mês de hoje"
+        >
+          <div className="flex items-center gap-2">
+            <CalendarDays className="w-3.5 h-3.5 text-[#68594d]" />
+            <span className="font-medium">Hoje</span>
+          </div>
+          <span className="text-[10px] text-[#7f756e]">
+            {formatDateReadable(todayDateStr)}
+          </span>
+        </button>
 
         {/* Campo de Busca */}
         <div className="relative">
@@ -251,17 +318,17 @@ export function SharedDiarySidebarNavigation({
                     onClick={() => onSelectNote(note.id)}
                     className={`w-full flex items-start gap-2.5 px-3 py-2 rounded-xl text-left transition-colors cursor-pointer ${
                       isSelected
-                        ? 'bg-[#68594d] text-white shadow-2xs'
+                        ? 'bg-[#f4dfcb] text-[#5e4b3e] font-semibold border border-[#e8d2bd] shadow-2xs'
                         : 'hover:bg-[#eae8e3]/70 text-[#1b1c19]'
                     }`}
                   >
-                    <Calendar className={`w-4 h-4 mt-0.5 shrink-0 ${isSelected ? 'text-white' : 'text-[#68594d]'}`} />
+                    <Calendar className={`w-4 h-4 mt-0.5 shrink-0 ${isSelected ? 'text-[#68594d] stroke-[2]' : 'text-[#8a8178]'}`} />
                     <div className="min-w-0 flex-1">
                       <p className="font-serif-note font-semibold text-xs truncate">
                         {note.title || 'Sem título'}
                       </p>
                       {note.entry_date && (
-                        <p className={`text-[10px] font-sans-ui ${isSelected ? 'text-white/80' : 'text-[#7f756e]'}`}>
+                        <p className={`text-[10px] font-sans-ui ${isSelected ? 'text-[#5e4b3e]/80' : 'text-[#7f756e]'}`}>
                           {formatDateDisplayWithWeekday(note.entry_date)}
                         </p>
                       )}
@@ -279,18 +346,18 @@ export function SharedDiarySidebarNavigation({
             </p>
           </div>
         ) : (
-          diaryTree.map(({ yearFolder, months, totalNotes }) => {
-            const isYearOpen = !collapsedYears.has(yearFolder.id);
+          diaryTree.map(({ yearFolder, yearNum, months, totalNotes }) => {
+            const isYearOpen = openYears.has(yearNum);
 
             return (
               <div
-                key={yearFolder.id}
+                key={yearNum}
                 className="rounded-xl overflow-hidden bg-white/40 border border-[#eae8e3]/80 shadow-2xs"
               >
                 {/* 1. Nível: ANO */}
                 <button
                   type="button"
-                  onClick={() => toggleYear(yearFolder.id)}
+                  onClick={() => toggleYear(yearNum)}
                   className="w-full flex items-center justify-between px-2.5 py-2 hover:bg-[#eae8e3]/60 transition-colors text-left cursor-pointer group"
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -303,7 +370,7 @@ export function SharedDiarySidebarNavigation({
                     </span>
                     <Calendar className="w-4 h-4 text-[#68594d] shrink-0" />
                     <span className="font-serif-note font-bold text-sm text-[#1b1c19] tracking-wide">
-                      {yearFolder.name}
+                      {yearNum}
                     </span>
                   </div>
                   <span className="text-[10px] font-sans-ui font-medium text-[#7f756e] px-1.5 py-0.5 rounded-full bg-[#f0eee9]">
@@ -314,18 +381,17 @@ export function SharedDiarySidebarNavigation({
                 {/* 2. Nível: MESES */}
                 {isYearOpen && (
                   <div className="pl-3 pr-1 py-1 space-y-1 bg-[#faf8f4]/40 border-t border-[#eae8e3]/60">
-                    {months.map(({ monthFolder, yearNum, monthNum, monthNotes }) => {
+                    {months.map(({ monthFolder, monthNum, monthNotes }) => {
                       const monthKey = `${yearNum}-${monthNum}`;
-                      const isMonthOpen =
-                        expandedMonths.has(monthKey) || expandedMonths.has(monthFolder.id);
+                      const isMonthOpen = openMonths.has(monthKey);
                       const monthName = MONTH_NAMES_PT[monthNum - 1] || `Mês ${monthNum}`;
 
                       return (
-                        <div key={monthFolder.id} className="rounded-lg overflow-hidden">
+                        <div key={monthKey} className="rounded-lg overflow-hidden">
                           {/* Botão do Mês */}
                           <button
                             type="button"
-                            onClick={() => toggleMonth(monthKey, monthFolder.id)}
+                            onClick={() => toggleMonth(monthKey)}
                             className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-[#eae8e3]/60 rounded-lg text-left transition-colors cursor-pointer group"
                           >
                             <div className="flex items-center gap-1.5 min-w-0">
@@ -355,9 +421,9 @@ export function SharedDiarySidebarNavigation({
                               ) : (
                                 monthNotes.map((note) => {
                                   const isSelected = note.id === activeNoteId;
-                                  const dayLabel = note.entry_date
-                                    ? formatDateDisplayWithWeekday(note.entry_date)
-                                    : note.title || 'Entrada';
+                                  const isToday = note.entry_date === todayDateStr;
+                                  const hasContent = Boolean((note.content || '').trim().length > 0);
+                                  const dayLabel = note.title || (note.entry_date ? formatDateDisplayWithWeekday(note.entry_date) : 'Entrada');
 
                                   return (
                                     <button
@@ -366,18 +432,35 @@ export function SharedDiarySidebarNavigation({
                                       onClick={() => onSelectNote(note.id)}
                                       className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer text-xs font-sans-ui ${
                                         isSelected
-                                          ? 'bg-[#68594d] text-white font-medium shadow-2xs'
-                                          : 'hover:bg-[#eae8e3]/70 text-[#1b1c19]'
+                                          ? 'bg-[#f4dfcb] text-[#5e4b3e] font-semibold border border-[#e8d2bd] shadow-2xs'
+                                          : 'text-[#4e453f] hover:bg-[#eae8e3]/70 hover:text-[#1b1c19]'
                                       }`}
                                     >
-                                      <span
-                                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                          isSelected ? 'bg-white' : 'bg-[#68594d]'
+                                      <Calendar
+                                        className={`w-3.5 h-3.5 shrink-0 ${
+                                          isSelected ? 'text-[#68594d] stroke-[2]' : 'text-[#8a8178]'
                                         }`}
                                       />
                                       <span className="truncate flex-1 font-medium">
                                         {dayLabel}
                                       </span>
+
+                                      {/* Indicador de conteúdo */}
+                                      {hasContent && (
+                                        <span
+                                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                            isSelected ? 'bg-[#5e4b3e]' : 'bg-[#68594d]/40'
+                                          }`}
+                                          title="Possui anotações"
+                                        />
+                                      )}
+
+                                      {/* Badge "Hoje" */}
+                                      {isToday && (
+                                        <span className="text-[9px] font-semibold uppercase px-1.5 py-0.2 rounded-md bg-[#68594d] text-white shrink-0">
+                                          Hoje
+                                        </span>
+                                      )}
                                     </button>
                                   );
                                 })
@@ -393,6 +476,14 @@ export function SharedDiarySidebarNavigation({
             );
           })
         )}
+      </div>
+
+      {/* Rodapé com Status em Tempo Real e Indicador de Modo Somente Leitura */}
+      <div className="p-3 border-t border-[#eae8e3] bg-white/70 backdrop-blur-xs flex items-center justify-between">
+        <SyncStatusIndicator readOnly={true} />
+        <span className="text-[10px] font-sans-ui text-[#7f756e]">
+          Espelho em tempo real
+        </span>
       </div>
     </aside>
   );

@@ -210,20 +210,20 @@ export function DocumentNodeView(props: NodeViewProps) {
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
-      draggable={true}
+      draggable={editor?.isEditable ?? false}
     >
       <div
         ref={cardRef}
         className={`relative inline-block max-w-full transition-shadow duration-150 ${
-          isSelected ? 'ring-2 ring-[#68594d] ring-offset-2 ring-offset-white rounded-2xl' : ''
+          isSelected && editor?.isEditable ? 'ring-2 ring-[#68594d] ring-offset-2 ring-offset-white rounded-2xl' : ''
         }`}
         style={{
           width: currentDisplayWidth,
           maxWidth: '100%',
         }}
       >
-        {/* Barra Flutuante de Ações (Aparece ao selecionar) */}
-        {isSelected && (
+        {/* Barra Flutuante de Ações (Aparece ao selecionar apenas se editável) */}
+        {isSelected && editor?.isEditable && (
           <MediaFloatingToolbar
             onMove={handleMove}
             alignment={alignment}
@@ -288,7 +288,7 @@ export function DocumentNodeView(props: NodeViewProps) {
         </div>
 
         {/* Handles de Redimensionamento Interativos */}
-        {isSelected && (
+        {isSelected && editor?.isEditable && (
           <MediaResizeHandles
             onResizeStart={handleResizeStart}
             showTopHandles={true}
