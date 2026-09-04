@@ -136,63 +136,130 @@ export async function fetchIncomingShares(userId: string): Promise<DiaryShare[]>
   }
 }
 
+export interface FoundUser {
+  id: string;
+  email: string;
+}
+
+export type FindUserResult =
+  | { success: true; user: FoundUser; error?: null }
+  | { success: false; user: null; notFound: boolean; error: string };
+
 /**
- * Localiza um usuário cadastrado pelo endereço de e-mail (case-insensitive)
+ * Localiza um usuário cadastrado no Supabase Auth pelo endereço de e-mail através da RPC segura public.find_user_by_email.
+ *
+ * Requisitos de Negócio:
+ * - A identidade oficial reside estritamente em auth.users.id.
+ * - A busca é executada via RPC SECURITY DEFINER find_user_by_email diretamente em auth.users.
+ * - Somente usuários autenticados podem invocar a função (validado por auth.uid()).
+ * - Retorna exclusivamente: id (UUID) e email (TEXT).
+ * - Tratamento de erros rigoroso:
+ *     * 0 usuários encontrados: "Nenhum usuário cadastrado foi encontrado com este endereço de e-mail."
+ *     * Erro de RPC, RLS, rede, banco ou Supabase: "Não foi possível verificar este usuário. Tente novamente."
+ *     * NUNCA converte falhas de conexão/banco em "usuário não encontrado".
  */
-export async function lookupUserByEmail(
-  email: string
-): Promise<{ id: string; email: string; display_name?: string } | null> {
+export async function findUserByEmail(email: string): Promise<FindUserResult> {
   const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail) return null;
+  if (!cleanEmail) {
+    return {
+      success: false,
+      user: null,
+      notFound: false,
+      error: 'Por favor, informe o e-mail da pessoa.',
+    };
+  }
 
   if (!isSupabaseConfigured()) {
-    // Modo demo local
+    // Modo demo local offline (quando variáveis de ambiente do Supabase não foram fornecidas)
     if (cleanEmail.includes('@')) {
       return {
-        id: `mock-user-${cleanEmail.replace(/[^a-zA-Z0-9]/g, '-')}`,
-        email: cleanEmail,
-        display_name: cleanEmail.split('@')[0],
+        success: true,
+        user: {
+          id: `mock-user-${cleanEmail.replace(/[^a-zA-Z0-9]/g, '-')}`,
+          email: cleanEmail,
+        },
       };
     }
-    return null;
+    return {
+      success: false,
+      user: null,
+      notFound: true,
+      error: 'Nenhum usuário cadastrado foi encontrado com este endereço de e-mail.',
+    };
   }
 
   const supabase = createClient();
 
-  // 1. Tenta via RPC lookup_user_by_email
   try {
-    const { data, error } = await supabase.rpc('lookup_user_by_email', { p_email: cleanEmail });
-    if (!error && data && data.length > 0) {
+    // 1. Invoca a RPC segura public.find_user_by_email(email_input text)
+    const { data, error } = await supabase.rpc('find_user_by_email', {
+      email_input: cleanEmail,
+    });
+
+    if (error) {
+      console.error('[findUserByEmail] Erro retornado pela RPC find_user_by_email:', error);
+      // NUNCA transforma erro de banco/RLS/conexão em "usuário não encontrado"
       return {
-        id: data[0].id,
-        email: data[0].email,
-        display_name: data[0].display_name || data[0].email.split('@')[0],
+        success: false,
+        user: null,
+        notFound: false,
+        error: 'Não foi possível verificar este usuário. Tente novamente.',
       };
     }
-  } catch (rpcErr) {
-    console.warn('[DiaryShare] RPC lookup_user_by_email indisponível, tentando fallback em profiles:', rpcErr);
-  }
 
-  // 2. Fallback direto na tabela public.profiles
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, email, display_name')
-      .ilike('email', cleanEmail)
-      .maybeSingle();
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
 
-    if (!error && data) {
+    if (rows.length === 0) {
       return {
-        id: data.id,
-        email: data.email,
-        display_name: data.display_name || data.email.split('@')[0],
+        success: false,
+        user: null,
+        notFound: true,
+        error: 'Nenhum usuário cadastrado foi encontrado com este endereço de e-mail.',
       };
     }
-  } catch (profilesErr) {
-    console.warn('[DiaryShare] Erro ao consultar profiles:', profilesErr);
-  }
 
-  return null;
+    const matched = rows[0];
+    if (!matched?.id) {
+      return {
+        success: false,
+        user: null,
+        notFound: true,
+        error: 'Nenhum usuário cadastrado foi encontrado com este endereço de e-mail.',
+      };
+    }
+
+    return {
+      success: true,
+      user: {
+        id: matched.id,
+        email: matched.email || cleanEmail,
+      },
+    };
+  } catch (err) {
+    console.error('[findUserByEmail] Falha de comunicação com o Supabase:', err);
+    // Erros de rede, exceções ou falhas de conexão
+    return {
+      success: false,
+      user: null,
+      notFound: false,
+      error: 'Não foi possível verificar este usuário. Tente novamente.',
+    };
+  }
+}
+
+/**
+ * Função legado para manter compatibilidade, delegando para a RPC segura findUserByEmail.
+ */
+export async function lookupUserByEmail(
+  email: string
+): Promise<{ id: string; email: string; display_name?: string } | null> {
+  const res = await findUserByEmail(email);
+  if (!res.success || !res.user) return null;
+  return {
+    id: res.user.id,
+    email: res.user.email,
+    display_name: res.user.email.split('@')[0],
+  };
 }
 
 /**
@@ -219,21 +286,17 @@ export async function createDiaryShare(
     return { success: false, error: 'Você não pode compartilhar o Diário com você mesmo.' };
   }
 
-  // Localiza o usuário convidado
-  const targetUser = await lookupUserByEmail(cleanTargetEmail);
-  if (!targetUser) {
-    return {
-      success: false,
-      error: 'Nenhum usuário cadastrado foi encontrado com este endereço de e-mail.',
-    };
-  }
-
-  if (targetUser.id === ownerId) {
-    return { success: false, error: 'Você não pode compartilhar o Diário com você mesmo.' };
-  }
-
   if (!isSupabaseConfigured()) {
-    // Modo local
+    // Modo local offline
+    const searchRes = await findUserByEmail(cleanTargetEmail);
+    if (!searchRes.success || !searchRes.user) {
+      return { success: false, error: searchRes.error };
+    }
+    const targetUser = searchRes.user;
+    if (targetUser.id === ownerId) {
+      return { success: false, error: 'Você não pode compartilhar o Diário com você mesmo.' };
+    }
+
     const localShares = getLocalShares();
     const existingIndex = localShares.findIndex(
       (s) => s.owner_id === ownerId && s.viewer_id === targetUser.id
@@ -271,17 +334,65 @@ export async function createDiaryShare(
 
   const supabase = createClient();
 
+  // 1. Obter usuário autenticado real do Supabase Auth para validar a identidade oficial
+  let realOwnerId = ownerId;
+  let realOwnerEmail = cleanOwnerEmail;
+
   try {
-    // Verifica se já existe registro prévio entre este owner e viewer
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user?.id) {
+      console.error('[createDiaryShare] Usuário não autenticado:', authError);
+      return {
+        success: false,
+        error: 'Você precisa estar autenticado para compartilhar seu Diário.',
+      };
+    }
+    realOwnerId = user.id;
+    if (user.email) {
+      realOwnerEmail = user.email.trim().toLowerCase();
+    }
+  } catch (authErr) {
+    console.error('[createDiaryShare] Erro ao obter auth.users.id:', authErr);
+    return {
+      success: false,
+      error: 'Não foi possível verificar sua sessão de usuário. Tente novamente.',
+    };
+  }
+
+  if (cleanTargetEmail === realOwnerEmail) {
+    return { success: false, error: 'Você não pode compartilhar o Diário com você mesmo.' };
+  }
+
+  // 2. Busca o usuário real do Supabase Auth através da RPC segura find_user_by_email
+  const findResult = await findUserByEmail(cleanTargetEmail);
+  if (!findResult.success || !findResult.user) {
+    // Retorna a mensagem correta sem mascarar erro como "não encontrado":
+    // "Nenhum usuário cadastrado foi encontrado com este endereço de e-mail." OU
+    // "Não foi possível verificar este usuário. Tente novamente."
+    return {
+      success: false,
+      error: findResult.error,
+    };
+  }
+
+  const targetUser = findResult.user;
+
+  // Garante que o viewer_id não é o próprio owner_id
+  if (targetUser.id === realOwnerId) {
+    return { success: false, error: 'Você não pode compartilhar o Diário com você mesmo.' };
+  }
+
+  // 3. Criação do convite na tabela diary_shares usando o UUID exato de auth.users.id
+  try {
     const { data: existing, error: checkError } = await supabase
       .from('diary_shares')
       .select('*')
-      .eq('owner_id', ownerId)
+      .eq('owner_id', realOwnerId)
       .eq('viewer_id', targetUser.id)
       .maybeSingle();
 
     if (checkError) {
-      console.warn('[DiaryShare] Erro ao verificar compartilhamento existente:', checkError.message);
+      console.warn('[createDiaryShare] Aviso ao verificar compartilhamento existente:', checkError.message);
     }
 
     const now = new Date().toISOString();
@@ -299,7 +410,7 @@ export async function createDiaryShare(
         .from('diary_shares')
         .update({
           status: 'pending',
-          owner_email: cleanOwnerEmail,
+          owner_email: realOwnerEmail,
           viewer_email: cleanTargetEmail,
           updated_at: now,
           accepted_at: null,
@@ -310,19 +421,20 @@ export async function createDiaryShare(
         .single();
 
       if (updateError) {
-        return { success: false, error: updateError.message || 'Falha ao reativar convite.' };
+        console.error('[createDiaryShare] Erro ao reativar convite:', updateError);
+        return { success: false, error: 'Não foi possível reativar o convite. Tente novamente.' };
       }
 
       return { success: true, share: updated as DiaryShare };
     }
 
-    // Insere novo convite
+    // Insere novo convite com viewer_id = UUID real de auth.users.id
     const { data: created, error: insertError } = await supabase
       .from('diary_shares')
       .insert({
-        owner_id: ownerId,
+        owner_id: realOwnerId,
         viewer_id: targetUser.id,
-        owner_email: cleanOwnerEmail,
+        owner_email: realOwnerEmail,
         viewer_email: cleanTargetEmail,
         status: 'pending',
         permission: 'viewer',
@@ -336,13 +448,14 @@ export async function createDiaryShare(
       if (insertError.code === '23505') {
         return { success: false, error: 'Já existe um convite ou compartilhamento ativo com este usuário.' };
       }
-      return { success: false, error: insertError.message || 'Falha ao criar compartilhamento.' };
+      console.error('[createDiaryShare] Erro ao criar convite:', insertError);
+      return { success: false, error: 'Não foi possível enviar o convite. Tente novamente.' };
     }
 
     return { success: true, share: created as DiaryShare };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Erro inesperado ao compartilhar Diário.';
-    return { success: false, error: msg };
+    console.error('[createDiaryShare] Erro inesperado ao compartilhar Diário:', err);
+    return { success: false, error: 'Não foi possível enviar o convite. Tente novamente.' };
   }
 }
 

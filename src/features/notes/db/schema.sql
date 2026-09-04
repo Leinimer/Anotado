@@ -308,3 +308,115 @@ CREATE POLICY "Users can delete their attachments"
         bucket_id = 'note-attachments' AND
         (storage.foldername(name))[1] = auth.uid()::text
     );
+
+-- 11. Read-Only Shared Diary System (diary_shares, find_user_by_email RPC, RLS)
+CREATE TABLE IF NOT EXISTS public.diary_shares (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    viewer_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    owner_email TEXT,
+    viewer_email TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected', 'revoked')),
+    permission TEXT NOT NULL DEFAULT 'viewer' CHECK (permission IN ('viewer')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    accepted_at TIMESTAMPTZ DEFAULT NULL,
+    revoked_at TIMESTAMPTZ DEFAULT NULL,
+    CONSTRAINT uq_diary_shares_owner_viewer UNIQUE (owner_id, viewer_id),
+    CONSTRAINT chk_diary_shares_not_self CHECK (owner_id != viewer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_diary_shares_owner_id ON public.diary_shares(owner_id);
+CREATE INDEX IF NOT EXISTS idx_diary_shares_viewer_id ON public.diary_shares(viewer_id);
+CREATE INDEX IF NOT EXISTS idx_diary_shares_status ON public.diary_shares(status);
+
+ALTER TABLE public.diary_shares ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view their related shares" ON public.diary_shares;
+CREATE POLICY "Users can view their related shares"
+    ON public.diary_shares FOR SELECT
+    TO authenticated
+    USING (auth.uid() = owner_id OR auth.uid() = viewer_id);
+
+DROP POLICY IF EXISTS "Owners can create shares" ON public.diary_shares;
+CREATE POLICY "Owners can create shares"
+    ON public.diary_shares FOR INSERT
+    TO authenticated
+    WITH CHECK (auth.uid() = owner_id AND auth.uid() != viewer_id);
+
+DROP POLICY IF EXISTS "Owners and viewers can update their shares" ON public.diary_shares;
+CREATE POLICY "Owners and viewers can update their shares"
+    ON public.diary_shares FOR UPDATE
+    TO authenticated
+    USING (auth.uid() = owner_id OR auth.uid() = viewer_id)
+    WITH CHECK (auth.uid() = owner_id OR auth.uid() = viewer_id);
+
+DROP POLICY IF EXISTS "Owners can delete their shares" ON public.diary_shares;
+CREATE POLICY "Owners can delete their shares"
+    ON public.diary_shares FOR DELETE
+    TO authenticated
+    USING (auth.uid() = owner_id);
+
+-- Secure RPC to find registered users by email in auth.users
+CREATE OR REPLACE FUNCTION public.find_user_by_email(email_input TEXT)
+RETURNS TABLE (
+  id UUID,
+  email TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    u.id,
+    u.email::TEXT
+  FROM auth.users u
+  WHERE lower(trim(u.email)) = lower(trim(email_input))
+  LIMIT 1;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.find_user_by_email(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.find_user_by_email(TEXT) TO authenticated;
+
+-- Function to check if viewer has accepted access to owner's diary
+CREATE OR REPLACE FUNCTION public.has_diary_access(target_owner_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+  IF auth.uid() = target_owner_id THEN
+    RETURN TRUE;
+  END IF;
+
+  RETURN EXISTS (
+    SELECT 1
+    FROM public.diary_shares
+    WHERE owner_id = target_owner_id
+      AND viewer_id = auth.uid()
+      AND status = 'accepted'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Viewer SELECT policies for shared diary notes and folders
+DROP POLICY IF EXISTS "Viewers can view shared diary folders" ON public.folders;
+CREATE POLICY "Viewers can view shared diary folders"
+    ON public.folders FOR SELECT
+    TO authenticated
+    USING (
+      workspace_type = 'diary' AND public.has_diary_access(user_id)
+    );
+
+DROP POLICY IF EXISTS "Viewers can view shared diary notes" ON public.notes;
+CREATE POLICY "Viewers can view shared diary notes"
+    ON public.notes FOR SELECT
+    TO authenticated
+    USING (
+      workspace_type = 'diary' AND public.has_diary_access(user_id)
+    );
+

@@ -110,21 +110,59 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
--- 5. Função Segura para Localizar Usuário Registrado por E-mail (Case-Insensitive)
-CREATE OR REPLACE FUNCTION public.lookup_user_by_email(p_email TEXT)
-RETURNS TABLE (id UUID, email TEXT, display_name TEXT) AS $$
+-- 5. Função Segura para Localizar Usuário Registrado por E-mail no Supabase Auth (Case-Insensitive)
+CREATE OR REPLACE FUNCTION public.find_user_by_email(email_input TEXT)
+RETURNS TABLE (
+  id UUID,
+  email TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Not authenticated';
   END IF;
 
   RETURN QUERY
-  SELECT p.id, p.email, p.display_name
-  FROM public.profiles p
-  WHERE lower(p.email) = lower(trim(p_email))
+  SELECT
+    u.id,
+    u.email::TEXT
+  FROM auth.users u
+  WHERE lower(trim(u.email)) = lower(trim(email_input))
   LIMIT 1;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
+
+REVOKE ALL ON FUNCTION public.find_user_by_email(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.find_user_by_email(TEXT) TO authenticated;
+
+-- Função auxiliar lookup_user_by_email
+CREATE OR REPLACE FUNCTION public.lookup_user_by_email(p_email TEXT)
+RETURNS TABLE (id UUID, email TEXT, display_name TEXT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  RETURN QUERY
+  SELECT 
+    u.id, 
+    u.email::TEXT, 
+    COALESCE(u.raw_user_meta_data->>'full_name', split_part(u.email, '@', 1))::TEXT AS display_name
+  FROM auth.users u
+  WHERE lower(trim(u.email)) = lower(trim(p_email))
+  LIMIT 1;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.lookup_user_by_email(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.lookup_user_by_email(TEXT) TO authenticated;
 
 -- 6. Habilita RLS em public.diary_shares
 ALTER TABLE public.diary_shares ENABLE ROW LEVEL SECURITY;
