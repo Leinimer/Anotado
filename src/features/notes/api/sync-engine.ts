@@ -894,13 +894,23 @@ class SyncEngine {
 
         console.log(`[QUEUE] COUNT=${queue.length}, ELIGIBLE=${eligibleItems.length}`);
         const getActionPriority = (action: string) => {
-          if (action === 'CREATE_NOTE') return 0;
-          if (action === 'CREATE_FOLDER') return 1;
-          if (action === 'UPLOAD_ATTACHMENT') return 2;
-          if (action === 'UPDATE_NOTE_CONTENT') return 3;
-          return 4;
+          if (action === 'CREATE_FOLDER') return 0;
+          if (action === 'UPDATE_FOLDER') return 1;
+          if (action === 'CREATE_NOTE') return 2;
+          if (action === 'UPLOAD_ATTACHMENT') return 3;
+          if (action === 'UPDATE_NOTE_CONTENT') return 4;
+          return 5;
         };
-        eligibleItems.sort((a, b) => getActionPriority(a.action) - getActionPriority(b.action));
+        eligibleItems.sort((a, b) => {
+          const prioDiff = getActionPriority(a.action) - getActionPriority(b.action);
+          if (prioDiff !== 0) return prioDiff;
+          if (a.action === 'CREATE_FOLDER' && b.action === 'CREATE_FOLDER') {
+            const aHasParent = (a.payload as any)?.parent_id ? 1 : 0;
+            const bHasParent = (b.payload as any)?.parent_id ? 1 : 0;
+            return aHasParent - bHasParent;
+          }
+          return 0;
+        });
 
         console.log(`[SyncEngine] PROCESS: ${eligibleItems.length} OPERATIONS`);
 
@@ -1122,6 +1132,11 @@ class SyncEngine {
         console.log(`[NOTE] READY_TO_SYNC noteId=${noteId}`);
         console.log(`[NOTE] CONTENT PERSIST START noteId=${noteId} revision=${effectiveRevision}`);
 
+        // Garante preventivamente que a pasta exista no Supabase antes de vincular a nota
+        if (effectiveNote.folder_id) {
+          await this.ensureFolderSyncedToSupabase(supabase, userId, effectiveNote.folder_id);
+        }
+
         // 3. Grava na tabela notes (idempotente via upsert com mesmo noteId)
         const notePayload: Record<string, any> = {
           id: noteId,
@@ -1144,6 +1159,34 @@ class SyncEngine {
         };
 
         let { error: upsertError } = await supabase.from('notes').upsert(notePayload);
+
+        // Tratamento de violação de Foreign Key (notes_folder_id_fkey / code 23503)
+        if (
+          upsertError &&
+          (upsertError.code === '23503' ||
+            (upsertError.message && upsertError.message.includes('notes_folder_id_fkey')))
+        ) {
+          console.warn(`[SyncEngine] Violação de chave estrangeira (notes_folder_id_fkey) para nota ${noteId}. Tentando recuperar pasta ${notePayload.folder_id}...`);
+          let resolved = false;
+          if (notePayload.folder_id) {
+            resolved = await this.ensureFolderSyncedToSupabase(supabase, userId, notePayload.folder_id);
+            if (resolved) {
+              const retryWithFolder = await supabase.from('notes').upsert(notePayload);
+              upsertError = retryWithFolder.error;
+            }
+          }
+          // Se ainda falhar (pasta não existe remotamente nem no IndexedDB), salvar com folder_id = null para nunca perder dados do usuário
+          if (
+            upsertError &&
+            (upsertError.code === '23503' ||
+              (upsertError.message && upsertError.message.includes('notes_folder_id_fkey')))
+          ) {
+            console.warn(`[SyncEngine] Pasta id=${notePayload.folder_id} inacessível no Supabase. Persistindo nota ${noteId} com folder_id=null para preservar dados.`);
+            notePayload.folder_id = null;
+            const retryNoFolder = await supabase.from('notes').upsert(notePayload);
+            upsertError = retryNoFolder.error;
+          }
+        }
 
         // Fallback defensivo: se colunas novas ainda não existirem no Supabase, tenta sem elas
         if (upsertError && upsertError.message && (upsertError.message.includes('column') || upsertError.message.includes('schema cache'))) {
@@ -1426,7 +1469,10 @@ class SyncEngine {
       case 'MOVE_NOTE': {
         const { noteId, newFolderId, newPosition } = item.payload;
         const revision = item.revision || 1;
-        const { error } = await supabase
+        if (newFolderId) {
+          await this.ensureFolderSyncedToSupabase(supabase, userId, newFolderId);
+        }
+        let { error } = await supabase
           .from('notes')
           .update({
             folder_id: newFolderId,
@@ -1436,6 +1482,37 @@ class SyncEngine {
           })
           .eq('id', noteId)
           .eq('user_id', userId);
+
+        if (error && (error.code === '23503' || (error.message && error.message.includes('notes_folder_id_fkey')))) {
+          console.warn(`[SyncEngine] MOVE_NOTE falhou por chave estrangeira da pasta ${newFolderId}. Tentando sincronizar pasta...`);
+          const synced = newFolderId ? await this.ensureFolderSyncedToSupabase(supabase, userId, newFolderId) : false;
+          if (synced) {
+            const retry = await supabase
+              .from('notes')
+              .update({
+                folder_id: newFolderId,
+                position: newPosition,
+                revision,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', noteId)
+              .eq('user_id', userId);
+            error = retry.error;
+          }
+          if (error && (error.code === '23503' || (error.message && error.message.includes('notes_folder_id_fkey')))) {
+            const fallbackRetry = await supabase
+              .from('notes')
+              .update({
+                folder_id: null,
+                position: newPosition,
+                revision,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', noteId)
+              .eq('user_id', userId);
+            error = fallbackRetry.error;
+          }
+        }
 
         if (error) throw error;
         await indexedDBStorage.markNoteSynced(userId, noteId, revision);
@@ -1467,7 +1544,10 @@ class SyncEngine {
       case 'UNARCHIVE_NOTE': {
         const { noteId, destinationFolderId } = item.payload;
         const revision = item.revision || 1;
-        const { error } = await supabase
+        if (destinationFolderId) {
+          await this.ensureFolderSyncedToSupabase(supabase, userId, destinationFolderId);
+        }
+        let { error } = await supabase
           .from('notes')
           .update({
             is_archived: false,
@@ -1478,6 +1558,38 @@ class SyncEngine {
           })
           .eq('id', noteId)
           .eq('user_id', userId);
+
+        if (error && (error.code === '23503' || (error.message && error.message.includes('notes_folder_id_fkey')))) {
+          const synced = destinationFolderId ? await this.ensureFolderSyncedToSupabase(supabase, userId, destinationFolderId) : false;
+          if (synced) {
+            const retry = await supabase
+              .from('notes')
+              .update({
+                is_archived: false,
+                folder_id: destinationFolderId,
+                previous_folder_id: null,
+                revision,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', noteId)
+              .eq('user_id', userId);
+            error = retry.error;
+          }
+          if (error && (error.code === '23503' || (error.message && error.message.includes('notes_folder_id_fkey')))) {
+            const retryNoFolder = await supabase
+              .from('notes')
+              .update({
+                is_archived: false,
+                folder_id: null,
+                previous_folder_id: null,
+                revision,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', noteId)
+              .eq('user_id', userId);
+            error = retryNoFolder.error;
+          }
+        }
 
         if (error) throw error;
         await indexedDBStorage.markNoteSynced(userId, noteId, revision);
@@ -1788,6 +1900,92 @@ class SyncEngine {
       default:
         console.warn(`[SyncEngine] Ação desconhecida: ${(item as any).action}`);
         return true;
+    }
+  }
+
+  /**
+   * Assegura preventivamente que uma pasta (e suas pastas pai) existam no Supabase antes de vincular uma nota.
+   * Evita violações de chave estrangeira (foreign key constraint "notes_folder_id_fkey" / código 23503).
+   */
+  private async ensureFolderSyncedToSupabase(
+    supabase: any,
+    userId: string,
+    folderId: string
+  ): Promise<boolean> {
+    if (!folderId || !userId) return false;
+
+    try {
+      // 1. Verifica se a pasta já existe no Supabase
+      const { data: existingRemote, error: selectErr } = await supabase
+        .from('folders')
+        .select('id')
+        .eq('id', folderId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (!selectErr && existingRemote && existingRemote.id) {
+        return true;
+      }
+
+      // 2. Se não existir no Supabase, busca do IndexedDB local
+      const localFolder = await indexedDBStorage.getFolderById(userId, folderId);
+      if (!localFolder) {
+        console.warn(`[SyncEngine] Pasta com id=${folderId} não encontrada localmente no IndexedDB.`);
+        return false;
+      }
+
+      // 3. Se a pasta local possuir parent_id, assegura recursivamente que a pasta pai exista primeiro
+      if (localFolder.parent_id) {
+        await this.ensureFolderSyncedToSupabase(supabase, userId, localFolder.parent_id);
+      }
+
+      // 4. Upsert da pasta no Supabase
+      const folderPayload: Record<string, any> = {
+        id: localFolder.id,
+        user_id: userId,
+        name: localFolder.name || 'Nova pasta',
+        parent_id: localFolder.parent_id || null,
+        position: localFolder.position ?? 0,
+        color: localFolder.color || null,
+        is_smart: Boolean(localFolder.is_smart),
+        smart_tags: localFolder.smart_tags || [],
+        revision: localFolder.revision || 1,
+        workspace_type: localFolder.workspace_type || 'notes',
+        diary_year: localFolder.diary_year !== undefined ? localFolder.diary_year : null,
+        diary_month: localFolder.diary_month !== undefined ? localFolder.diary_month : null,
+        created_at: localFolder.created_at || new Date().toISOString(),
+        updated_at: localFolder.updated_at || new Date().toISOString(),
+      };
+
+      let { error: upsertErr } = await supabase.from('folders').upsert(folderPayload);
+
+      // Fallback defensivo para colunas que possam não existir no schema cache
+      if (
+        upsertErr &&
+        upsertErr.message &&
+        (upsertErr.message.includes('column') || upsertErr.message.includes('schema cache'))
+      ) {
+        delete folderPayload.workspace_type;
+        delete folderPayload.diary_year;
+        delete folderPayload.diary_month;
+        const retry = await supabase.from('folders').upsert(folderPayload);
+        upsertErr = retry.error;
+      }
+
+      if (upsertErr) {
+        console.error(
+          `[SyncEngine] Falha ao sincronizar pasta id=${folderId} no Supabase:`,
+          upsertErr.message || upsertErr
+        );
+        return false;
+      }
+
+      await indexedDBStorage.markFolderSynced(userId, localFolder.id, localFolder.revision || 1);
+      console.log(`[SyncEngine] Pasta id=${folderId} sincronizada preventivamente no Supabase com sucesso.`);
+      return true;
+    } catch (err) {
+      console.warn(`[SyncEngine] Erro ao assegurar pasta id=${folderId} no Supabase:`, err);
+      return false;
     }
   }
 

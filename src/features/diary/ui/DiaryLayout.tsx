@@ -26,6 +26,13 @@ import {
   getOrCreateDiaryEntry,
   createDiaryYear,
 } from '@/src/features/notes/api/diary-api';
+import { formatDiaryDate } from '@/src/features/notes/utils/diary-date';
+import { ShareDiaryModal } from './ShareDiaryModal';
+import { PendingInvitationModal } from './PendingInvitationModal';
+import {
+  fetchIncomingShares,
+  DiaryShare,
+} from '../api/diary-sharing-api';
 
 export function DiaryLayout() {
   const router = useRouter();
@@ -33,10 +40,14 @@ export function DiaryLayout() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>('');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
   const [isDiaryEntryModalOpen, setIsDiaryEntryModalOpen] = useState(false);
   const [isDiaryYearModalOpen, setIsDiaryYearModalOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [pendingInvitation, setPendingInvitation] = useState<DiaryShare | null>(null);
+  const [acceptedIncomingShares, setAcceptedIncomingShares] = useState<DiaryShare[]>([]);
 
   const activeNoteIdRef = useRef<string | null>(null);
 
@@ -137,6 +148,8 @@ export function DiaryLayout() {
       });
     });
 
+    let sharesChannel: any = null;
+
     const initAuthAndData = async () => {
       let uid = 'local-user';
 
@@ -145,6 +158,9 @@ export function DiaryLayout() {
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user?.id) {
             uid = session.user.id;
+            if (session.user.email) {
+              setUserEmail(session.user.email);
+            }
           }
         } catch {
           // Ignora falha offline
@@ -153,6 +169,58 @@ export function DiaryLayout() {
 
       if (!isMounted) return;
       setUserId(uid);
+
+      // Carrega compartilhamentos recebidos e assina mudanças em tempo real
+      if (uid && uid !== 'local-user') {
+        fetchIncomingShares(uid).then((shares) => {
+          if (!isMounted) return;
+          const accepted = shares.filter((s) => s.status === 'accepted');
+          setAcceptedIncomingShares(accepted);
+          const pending = shares.find((s) => s.status === 'pending');
+          if (pending) {
+            setPendingInvitation(pending);
+          }
+        }).catch((err) => {
+          console.warn('[DiaryLayout] Erro ao carregar compartilhamentos recebidos:', err);
+        });
+
+        // Escuta convites e alterações em tempo real na tabela diary_shares
+        sharesChannel = supabase
+          .channel(`viewer_shares_${uid}`)
+          .on(
+            'postgres_changes' as any,
+            {
+              event: '*',
+              schema: 'public',
+              table: 'diary_shares',
+              filter: `viewer_id=eq.${uid}`,
+            },
+            (payload: any) => {
+              if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                const updated = payload.new as DiaryShare;
+                if (updated.status === 'pending') {
+                  setPendingInvitation(updated);
+                } else if (updated.status === 'accepted') {
+                  setPendingInvitation((curr) => (curr?.id === updated.id ? null : curr));
+                  setAcceptedIncomingShares((prev) => {
+                    const filtered = prev.filter((s) => s.id !== updated.id);
+                    return [...filtered, updated];
+                  });
+                } else if (updated.status === 'rejected' || updated.status === 'revoked') {
+                  setPendingInvitation((curr) => (curr?.id === updated.id ? null : curr));
+                  setAcceptedIncomingShares((prev) => prev.filter((s) => s.id !== updated.id));
+                }
+              } else if (payload.eventType === 'DELETE') {
+                const deletedId = payload.old?.id;
+                if (deletedId) {
+                  setPendingInvitation((curr) => (curr?.id === deletedId ? null : curr));
+                  setAcceptedIncomingShares((prev) => prev.filter((s) => s.id !== deletedId));
+                }
+              }
+            }
+          )
+          .subscribe();
+      }
 
       try {
         // Carrega exclusivamente pastas e notas do Diário
@@ -193,6 +261,9 @@ export function DiaryLayout() {
     return () => {
       isMounted = false;
       unsubscribeSync();
+      if (sharesChannel) {
+        supabase.removeChannel(sharesChannel);
+      }
     };
   }, []);
 
@@ -299,6 +370,15 @@ export function DiaryLayout() {
       }
     },
     [userId]
+  );
+
+  // Abertura ou criação LAZY de um dia específico (ex: 2026, 9, 3 -> '2026-09-03')
+  const handleOpenOrCreateDay = useCallback(
+    async (year: number, month: number, day: number) => {
+      const dateStr = formatDiaryDate(year, month, day);
+      await handleConfirmCreateDiaryEntry(dateStr);
+    },
+    [handleConfirmCreateDiaryEntry]
   );
 
   // Criar novo ano
@@ -410,7 +490,9 @@ export function DiaryLayout() {
           folders={folders}
           notes={notes}
           activeNoteId={activeNoteId}
+          userId={userId}
           onSelectNote={handleSelectNote}
+          onOpenOrCreateDay={handleOpenOrCreateDay}
           onCreateYear={() => setIsDiaryYearModalOpen(true)}
           onCreateEntry={() => setIsDiaryEntryModalOpen(true)}
           onOpenToday={handleOpenToday}
@@ -418,6 +500,8 @@ export function DiaryLayout() {
           onRenameNote={handleUpdateTitle}
           onMoveItem={handleMoveItem}
           onToggleWorkspace={handleToggleWorkspace}
+          onOpenShareModal={() => setIsShareModalOpen(true)}
+          acceptedSharedDiaries={acceptedIncomingShares}
         />
       </div>
 
@@ -433,8 +517,13 @@ export function DiaryLayout() {
               folders={folders}
               notes={notes}
               activeNoteId={activeNoteId}
+              userId={userId}
               onSelectNote={(id) => {
                 handleSelectNote(id);
+                setMobileSidebarOpen(false);
+              }}
+              onOpenOrCreateDay={(y, m, d) => {
+                handleOpenOrCreateDay(y, m, d);
                 setMobileSidebarOpen(false);
               }}
               onCreateYear={() => {
@@ -454,6 +543,11 @@ export function DiaryLayout() {
               onMoveItem={handleMoveItem}
               onToggleWorkspace={handleToggleWorkspace}
               onCloseMobile={() => setMobileSidebarOpen(false)}
+              onOpenShareModal={() => {
+                setIsShareModalOpen(true);
+                setMobileSidebarOpen(false);
+              }}
+              acceptedSharedDiaries={acceptedIncomingShares}
             />
           </div>
         </div>
@@ -486,6 +580,30 @@ export function DiaryLayout() {
         onClose={() => setIsDiaryYearModalOpen(false)}
         onConfirm={handleConfirmCreateDiaryYear}
         existingYears={existingDiaryYears}
+      />
+
+      {/* Modal de Compartilhamento do Diário (Convidar e Gerenciar) */}
+      <ShareDiaryModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        userId={userId}
+        userEmail={userEmail}
+      />
+
+      {/* Modal de Notificação / Aceite de Convite Recebido */}
+      <PendingInvitationModal
+        invitation={pendingInvitation}
+        onAccepted={(shareId) => {
+          setPendingInvitation(null);
+          if (userId && userId !== 'local-user') {
+            fetchIncomingShares(userId).then((shares) => {
+              setAcceptedIncomingShares(shares.filter((s) => s.status === 'accepted'));
+            });
+          }
+        }}
+        onRejected={() => {
+          setPendingInvitation(null);
+        }}
       />
     </div>
   );

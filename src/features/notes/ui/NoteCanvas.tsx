@@ -27,6 +27,7 @@ interface NoteCanvasProps {
   onCreateNewNote: () => void;
   onOpenMobileMenu?: () => void;
   isNewNoteJustCreated?: boolean;
+  readOnly?: boolean;
 }
 
 export function NoteCanvas({
@@ -38,8 +39,9 @@ export function NoteCanvas({
   onCreateNewNote,
   onOpenMobileMenu,
   isNewNoteJustCreated = false,
+  readOnly = false,
 }: NoteCanvasProps) {
-  const [isEditingTitle, setIsEditingTitle] = useState(isNewNoteJustCreated);
+  const [isEditingTitle, setIsEditingTitle] = useState(isNewNoteJustCreated && !readOnly);
   const [localTitle, setLocalTitle] = useState(activeNote?.title || '');
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
 
@@ -189,7 +191,7 @@ export function NoteCanvas({
   // Handler de alteração no editor Tiptap com debounce de 400ms e rastreamento de pendência
   const handleEditorChange = useCallback(
     (htmlContent: string) => {
-      if (!activeNote) return;
+      if (readOnly || !activeNote) return;
 
       lastPendingContentRef.current = htmlContent;
 
@@ -203,7 +205,7 @@ export function NoteCanvas({
         onUpdateContent(activeNote.id, htmlContent);
       }, 400);
     },
-    [activeNote, onUpdateContent]
+    [activeNote, onUpdateContent, readOnly]
   );
 
   // Estado Vazio: Nenhuma nota selecionada
@@ -231,21 +233,25 @@ export function NoteCanvas({
             <FileText className="w-8 h-8 stroke-[1.5]" />
           </div>
           <h2 className="font-serif-note font-bold text-2xl text-[#1b1c19]">
-            Nenhuma nota selecionada
+            {readOnly ? 'Nenhuma entrada selecionada' : 'Nenhuma nota selecionada'}
           </h2>
           <p className="font-sans-ui text-sm text-[#7f756e] leading-relaxed">
-            Selecione uma nota na barra lateral para começar a ler ou editar, ou crie uma nova anotação agora.
+            {readOnly
+              ? 'Selecione uma entrada no menu lateral para visualizar seu conteúdo.'
+              : 'Selecione uma nota na barra lateral para começar a ler ou editar, ou crie uma nova anotação agora.'}
           </p>
-          <div className="pt-2">
-            <button
-              id="empty-state-new-note-btn"
-              onClick={onCreateNewNote}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
-            >
-              <FilePlus className="w-4 h-4" />
-              <span>Criar Nova Nota</span>
-            </button>
-          </div>
+          {!readOnly && (
+            <div className="pt-2">
+              <button
+                id="empty-state-new-note-btn"
+                onClick={onCreateNewNote}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
+              >
+                <FilePlus className="w-4 h-4" />
+                <span>Criar Nova Nota</span>
+              </button>
+            </div>
+          )}
         </div>
       </main>
     );
@@ -287,7 +293,7 @@ export function NoteCanvas({
             </div>
           )}
 
-          {isEditingTitle ? (
+          {!readOnly && isEditingTitle ? (
             <input
               ref={titleInputRef}
               id="header-title-input"
@@ -309,11 +315,16 @@ export function NoteCanvas({
             <h1
               id="header-note-title"
               onClick={() => {
+                if (readOnly) return;
                 setLocalTitle(activeNote.title || '');
                 setIsEditingTitle(true);
               }}
-              className="font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] cursor-pointer hover:opacity-80 transition-opacity tracking-tight truncate inline-block max-w-full"
-              title="Clique para editar o título"
+              className={`font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] tracking-tight truncate inline-block max-w-full ${
+                readOnly
+                  ? 'cursor-default select-text'
+                  : 'cursor-pointer hover:opacity-80 transition-opacity'
+              }`}
+              title={readOnly ? undefined : 'Clique para editar o título'}
             >
               {activeNote.title || 'Sem título'}
             </h1>
@@ -325,7 +336,11 @@ export function NoteCanvas({
       <div id="note-tags-section-wrapper" className="w-full shrink-0 pt-2 pb-1 bg-[#fbf9f4]">
         <NoteTagsBar
           tags={activeNote.tags || []}
-          onUpdateTags={(newTags) => onUpdateTags(activeNote.id, newTags)}
+          onUpdateTags={(newTags) => {
+            if (readOnly) return;
+            onUpdateTags(activeNote.id, newTags);
+          }}
+          disabled={readOnly}
         />
       </div>
 
@@ -350,6 +365,7 @@ export function NoteCanvas({
             content={activeNote.content}
             onChange={handleEditorChange}
             onEditorReady={setEditorInstance}
+            editable={!readOnly}
           />
         </article>
       </div>
@@ -422,12 +438,14 @@ export function NoteCanvas({
         </button>
       </div>
 
-      {/* Barra de Ferramentas Rica no Rodapé */}
-      <EditorToolbar
-        editor={editorInstance}
-        activeNoteId={activeNote.id}
-        userId={userId || activeNote.user_id}
-      />
+      {/* Barra de Ferramentas Rica no Rodapé (Oculta em Modo Somente Leitura) */}
+      {!readOnly && (
+        <EditorToolbar
+          editor={editorInstance}
+          activeNoteId={activeNote.id}
+          userId={userId || activeNote.user_id}
+        />
+      )}
     </main>
   );
 }

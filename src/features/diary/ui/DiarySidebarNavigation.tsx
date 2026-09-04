@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Calendar,
   CalendarDays,
@@ -15,18 +16,27 @@ import {
   Trash2,
   CheckSquare,
   Plus,
+  Users,
 } from 'lucide-react';
 import { Folder, Note } from '@/src/features/notes/types';
 import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
 import { SettingsModal } from '@/src/features/notes/ui/SettingsModal';
 import { createClient } from '@/src/features/auth/api/supabase-client';
-import { getLocalDateString } from '@/src/features/notes/utils/diary-date';
+import { DiaryShare } from '../api/diary-sharing-api';
+import {
+  getLocalDateString,
+  getDaysInMonth,
+  parseDiaryDate,
+  MONTH_NAMES,
+} from '@/src/features/notes/utils/diary-date';
 
 interface DiarySidebarNavigationProps {
   folders: Folder[];
   notes: Note[];
   activeNoteId: string | null;
+  userId?: string;
   onSelectNote: (noteId: string) => void;
+  onOpenOrCreateDay?: (year: number, month: number, day: number) => void;
   onCreateYear: () => void;
   onCreateEntry: () => void;
   onOpenToday: () => void;
@@ -40,13 +50,17 @@ interface DiarySidebarNavigationProps {
   ) => void;
   onToggleWorkspace: () => void;
   onCloseMobile?: () => void;
+  onOpenShareModal?: () => void;
+  acceptedSharedDiaries?: DiaryShare[];
 }
 
 export function DiarySidebarNavigation({
   folders,
   notes,
   activeNoteId,
+  userId = '',
   onSelectNote,
+  onOpenOrCreateDay,
   onCreateYear,
   onCreateEntry,
   onOpenToday,
@@ -55,17 +69,43 @@ export function DiarySidebarNavigation({
   onMoveItem,
   onToggleWorkspace,
   onCloseMobile,
+  onOpenShareModal,
+  acceptedSharedDiaries = [],
 }: DiarySidebarNavigationProps) {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
+  const shareMenuRef = useRef<HTMLDivElement>(null);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [monthFilter, setMonthFilter] = useState<Record<string, 'all' | 'created'>>({});
 
   // Drag and drop state exclusivo para entradas diárias (anos e meses são estruturais fixos)
   const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
   const [dragOverMonthId, setDragOverMonthId] = useState<string | null>(null);
+
+  // Fechar menu de compartilhamento ao clicar fora
+  useEffect(() => {
+    if (!isShareMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (shareMenuRef.current && !shareMenuRef.current.contains(e.target as Node)) {
+        setIsShareMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isShareMenuOpen]);
+
+  const handleShareClick = () => {
+    if (!acceptedSharedDiaries || acceptedSharedDiaries.length === 0) {
+      if (onOpenShareModal) onOpenShareModal();
+    } else {
+      setIsShareMenuOpen((prev) => !prev);
+    }
+  };
 
   // Carrega email do usuário
   useEffect(() => {
@@ -86,12 +126,21 @@ export function DiarySidebarNavigation({
     };
   }, []);
 
-  // Ano atual para atalhos
-  const currentYear = new Date().getFullYear();
+  // Ano e data de hoje para destacar o dia atual
+  const today = useMemo(() => new Date(), []);
+  const todayYear = today.getFullYear();
+  const todayMonth = today.getMonth() + 1;
+  const todayDay = today.getDate();
+  const currentYear = todayYear;
 
-  // Estado de recolhimento de anos e meses (por padrão iniciam expandidos)
+  // Chave do mês atual para expansão inicial (ex.: "2026-9" para setembro de 2026)
+  const currentMonthKey = `${todayYear}-${todayMonth}`;
+
+  // Estado de expansão de meses: na inicialização, SOMENTE o mês atual inicia aberto
   const [collapsedYears, setCollapsedYears] = useState<Set<string>>(new Set());
-  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(
+    () => new Set([currentMonthKey])
+  );
 
   // Alternadores de acordeão
   const toggleYear = (yearId: string) => {
@@ -103,11 +152,16 @@ export function DiarySidebarNavigation({
     });
   };
 
-  const toggleMonth = (monthId: string) => {
-    setCollapsedMonths((prev) => {
+  const toggleMonth = (key: string, folderId?: string) => {
+    setExpandedMonths((prev) => {
       const next = new Set(prev);
-      if (next.has(monthId)) next.delete(monthId);
-      else next.add(monthId);
+      const isOpen = next.has(key) || (folderId ? next.has(folderId) : false);
+      if (isOpen) {
+        next.delete(key);
+        if (folderId) next.delete(folderId);
+      } else {
+        next.add(key);
+      }
       return next;
     });
   };
@@ -131,17 +185,52 @@ export function DiarySidebarNavigation({
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0)); // 1 a 12 (Janeiro a Dezembro)
 
       const monthsWithNotes = monthFolders.map((monthFolder) => {
-        // 3. Entradas deste mês (folder_id === monthFolder.id)
-        let monthNotes = notes.filter((n) => n.folder_id === monthFolder.id);
+        const yearNum =
+          monthFolder.diary_year ||
+          yearFolder.diary_year ||
+          parseInt(yearFolder.name, 10) ||
+          currentYear;
+        const monthNum =
+          monthFolder.diary_month ||
+          MONTH_NAMES.indexOf(monthFolder.name as any) + 1 ||
+          1;
+        const daysInMonth = getDaysInMonth(yearNum, monthNum);
+
+        // 3. Entradas deste mês
+        let monthNotes = notes.filter((n) => {
+          if (n.workspace_type !== 'diary') return false;
+          if (n.folder_id === monthFolder.id) return true;
+          if (n.diary_year === yearNum && n.diary_month === monthNum) return true;
+          if (
+            n.entry_date &&
+            n.entry_date.startsWith(`${yearNum}-${String(monthNum).padStart(2, '0')}`)
+          ) {
+            return true;
+          }
+          return false;
+        });
 
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
           monthNotes = monthNotes.filter(
             (n) =>
               n.title.toLowerCase().includes(q) ||
-              (n.entry_date && n.entry_date.includes(q))
+              (n.entry_date && n.entry_date.includes(q)) ||
+              (n.content && n.content.toLowerCase().includes(q))
           );
         }
+
+        // Mapa de notas existentes por dia
+        const notesByDay = new Map<number, Note>();
+        monthNotes.forEach((note) => {
+          let day = note.diary_day;
+          if (!day && note.entry_date) {
+            day = parseDiaryDate(note.entry_date).day;
+          }
+          if (day && day >= 1 && day <= daysInMonth && !notesByDay.has(day)) {
+            notesByDay.set(day, note);
+          }
+        });
 
         // Ordena dias em ordem cronológica (Dia 01, Dia 02...)
         monthNotes.sort((a, b) => {
@@ -152,7 +241,11 @@ export function DiarySidebarNavigation({
 
         return {
           monthFolder,
+          yearNum,
+          monthNum,
+          daysInMonth,
           notes: monthNotes,
+          notesByDay,
         };
       });
 
@@ -165,7 +258,7 @@ export function DiarySidebarNavigation({
         totalNotes: totalNotesInYear,
       };
     });
-  }, [folders, notes, searchQuery]);
+  }, [folders, notes, searchQuery, currentYear]);
 
   // Manipulação de seleção múltipla
   const handleToggleSelectNote = (noteId: string, e: React.MouseEvent) => {
@@ -241,6 +334,79 @@ export function DiarySidebarNavigation({
           <div className="flex items-center gap-1.5">
             {/* Chavezinha / Switch Discreta e Elegante */}
             <WorkspaceSwitch currentWorkspace="diary" onToggle={onToggleWorkspace} />
+
+            {/* Botão Circular de Compartilhamento do Diário */}
+            <div className="relative" ref={shareMenuRef}>
+              <button
+                type="button"
+                id="diary-share-trigger-btn"
+                onClick={handleShareClick}
+                className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all cursor-pointer relative ${
+                  acceptedSharedDiaries && acceptedSharedDiaries.length > 0
+                    ? 'bg-[#f4dfcb] text-[#68594d] border-[#e8d2bd] hover:bg-[#ebd0b7]'
+                    : 'bg-[#ffffff] text-[#7f756e] border-[#eae8e3] hover:text-[#1b1c19] hover:bg-[#f0eee9]'
+                }`}
+                title={
+                  acceptedSharedDiaries && acceptedSharedDiaries.length > 0
+                    ? 'Compartilhamento do Diário (Diário compartilhado disponível)'
+                    : 'Compartilhar Diário'
+                }
+                aria-label="Compartilhamento do Diário"
+              >
+                <Users className="w-3.5 h-3.5" />
+                {acceptedSharedDiaries && acceptedSharedDiaries.length > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-[#fbf9f4]" />
+                )}
+              </button>
+
+              {/* Menu Rápido se houver múltiplos cenários */}
+              {isShareMenuOpen && (
+                <div
+                  id="diary-share-quick-menu"
+                  className="absolute right-0 mt-1.5 w-56 bg-white border border-[#eae8e3] rounded-2xl shadow-xl py-1.5 z-50 text-xs font-sans-ui text-[#1b1c19] animate-in fade-in zoom-in-95 duration-100"
+                >
+                  <div className="px-3 py-1.5 border-b border-[#f0eee9] text-[10px] font-semibold text-[#7f756e] uppercase tracking-wider">
+                    Compartilhamento
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsShareMenuOpen(false);
+                      if (onOpenShareModal) onOpenShareModal();
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-[#f0eee9] flex items-center gap-2 cursor-pointer transition-colors"
+                  >
+                    <Users className="w-3.5 h-3.5 text-[#68594d]" />
+                    <span className="font-medium">Compartilhar meu Diário</span>
+                  </button>
+
+                  {acceptedSharedDiaries && acceptedSharedDiaries.length > 0 && (
+                    <div className="border-t border-[#f0eee9] my-1 pt-1">
+                      <div className="px-3 py-1 text-[10px] font-semibold text-[#7f756e] uppercase tracking-wider">
+                        Diários Compartilhados
+                      </div>
+                      {acceptedSharedDiaries.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            setIsShareMenuOpen(false);
+                            router.push(`/shared-diary/${s.id}`);
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-[#f0eee9] flex items-center gap-2 cursor-pointer transition-colors"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                          <span className="truncate">
+                            Diário de {s.owner_name || s.owner_email}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {onCloseMobile && (
               <button
@@ -373,116 +539,281 @@ export function DiarySidebarNavigation({
                 {/* 2. Nível: MESES */}
                 {isYearOpen && (
                   <div className="pl-3 pr-1 py-1 space-y-1 bg-[#faf8f4]/40 border-t border-[#eae8e3]/60">
-                    {months.map(({ monthFolder, notes: monthNotes }) => {
-                      const isMonthOpen = !collapsedMonths.has(monthFolder.id);
-                      const isDragOver = dragOverMonthId === monthFolder.id;
+                    {months.map(
+                      ({
+                        monthFolder,
+                        yearNum,
+                        monthNum,
+                        daysInMonth,
+                        notes: monthNotes,
+                        notesByDay,
+                      }) => {
+                        const monthKey = `${yearNum}-${monthNum}`;
+                        const isMonthOpen =
+                          expandedMonths.has(monthKey) ||
+                          expandedMonths.has(monthFolder.id);
+                        const isDragOver = dragOverMonthId === monthFolder.id;
+                        const filterMode = monthFilter[monthFolder.id] || 'all';
 
-                      return (
-                        <div
-                          key={monthFolder.id}
-                          onDragOver={(e) => handleMonthDragOver(e, monthFolder.id)}
-                          onDragLeave={handleMonthDragLeave}
-                          onDrop={(e) => handleMonthDrop(e, monthFolder.id)}
-                          className={`rounded-lg transition-colors ${
-                            isDragOver ? 'bg-[#f4dfcb]/80 ring-2 ring-[#68594d]' : ''
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => toggleMonth(monthFolder.id)}
-                            className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-[#eae8e3]/60 rounded-lg transition-colors text-left cursor-pointer group"
+                        return (
+                          <div
+                            key={monthFolder.id}
+                            onDragOver={(e) => handleMonthDragOver(e, monthFolder.id)}
+                            onDragLeave={handleMonthDragLeave}
+                            onDrop={(e) => handleMonthDrop(e, monthFolder.id)}
+                            className={`rounded-lg transition-colors ${
+                              isDragOver ? 'bg-[#f4dfcb]/80 ring-2 ring-[#68594d]' : ''
+                            }`}
                           >
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <span className="text-[#a1968e] group-hover:text-[#1b1c19]">
-                                {isMonthOpen ? (
-                                  <ChevronDown className="w-3 h-3 stroke-[2]" />
-                                ) : (
-                                  <ChevronRight className="w-3 h-3 stroke-[2]" />
-                                )}
-                              </span>
-                              <span
-                                className={`font-sans-ui text-xs truncate ${
-                                  monthNotes.length > 0
-                                    ? 'font-medium text-[#2d2824]'
-                                    : 'text-[#7f756e]'
-                                }`}
-                              >
-                                {monthFolder.name}
-                              </span>
-                            </div>
-                            {monthNotes.length > 0 && (
-                              <span className="text-[10px] font-sans-ui text-[#7f756e] px-1 rounded bg-[#f0eee9]">
-                                {monthNotes.length}
-                              </span>
-                            )}
-                          </button>
-
-                          {/* 3. Nível: DIAS */}
-                          {isMonthOpen && (
-                            <div className="pl-4 pr-1 py-0.5 space-y-0.5 border-l border-[#e4e0d7] ml-3 mt-0.5">
-                              {monthNotes.length === 0 ? (
-                                <p className="text-[11px] text-[#a1968e] py-1 px-2 italic font-sans-ui">
-                                  Nenhuma entrada
-                                </p>
+                            <button
+                              type="button"
+                              onClick={() => toggleMonth(monthKey, monthFolder.id)}
+                              className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-[#eae8e3]/60 rounded-lg transition-colors text-left cursor-pointer group"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="text-[#a1968e] group-hover:text-[#1b1c19]">
+                                  {isMonthOpen ? (
+                                    <ChevronDown className="w-3 h-3 stroke-[2]" />
+                                  ) : (
+                                    <ChevronRight className="w-3 h-3 stroke-[2]" />
+                                  )}
+                                </span>
+                                <span
+                                  className={`font-sans-ui text-xs truncate ${
+                                    notesByDay.size > 0
+                                      ? 'font-medium text-[#2d2824]'
+                                      : 'text-[#7f756e]'
+                                  }`}
+                                >
+                                  {monthFolder.name}
+                                </span>
+                              </div>
+                              {notesByDay.size > 0 ? (
+                                <span className="text-[10px] font-sans-ui text-[#68594d] px-1.5 py-0.2 rounded-full bg-[#f4dfcb] font-medium">
+                                  {notesByDay.size}
+                                </span>
                               ) : (
-                                monthNotes.map((note) => {
-                                  const isActive = note.id === activeNoteId;
-                                  const isSelected = selectedNoteIds.has(note.id);
+                                <span className="text-[10px] font-sans-ui text-[#a1968e] px-1">
+                                  {daysInMonth}d
+                                </span>
+                              )}
+                            </button>
 
+                            {/* 3. Nível: DIAS DO MÊS */}
+                            {isMonthOpen && (
+                              <div className="pl-3 pr-1 py-0.5 space-y-0.5 border-l border-[#e4e0d7] ml-3 mt-0.5">
+                                {/* Barra de filtro rápida se houver notas criadas */}
+                                {notesByDay.size > 0 && (
+                                  <div className="flex items-center justify-between px-1.5 py-1 mb-0.5 text-[10px] font-sans-ui text-[#7f756e]">
+                                    <span>
+                                      {notesByDay.size} de {daysInMonth} dias
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setMonthFilter((prev) => ({
+                                            ...prev,
+                                            [monthFolder.id]: 'all',
+                                          }));
+                                        }}
+                                        className={`px-1.5 py-0.5 rounded transition-colors ${
+                                          filterMode === 'all'
+                                            ? 'bg-[#e4dfd7] text-[#2d2824] font-medium'
+                                            : 'text-[#8a8178] hover:text-[#2d2824]'
+                                        }`}
+                                      >
+                                        Todos
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setMonthFilter((prev) => ({
+                                            ...prev,
+                                            [monthFolder.id]: 'created',
+                                          }));
+                                        }}
+                                        className={`px-1.5 py-0.5 rounded transition-colors ${
+                                          filterMode === 'created'
+                                            ? 'bg-[#e4dfd7] text-[#2d2824] font-medium'
+                                            : 'text-[#8a8178] hover:text-[#2d2824]'
+                                        }`}
+                                      >
+                                        Anotados ({notesByDay.size})
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Lista de dias (Dia 01 ... Dia 30/31) com criação Lazy */}
+                                {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((dayNum) => {
+                                  const existingNote = notesByDay.get(dayNum);
+                                  if (filterMode === 'created' && !existingNote) return null;
+
+                                  const dayFormatted = String(dayNum).padStart(2, '0');
+                                  const defaultTitle = `Dia ${dayFormatted}`;
+                                  const displayTitle = existingNote ? existingNote.title : defaultTitle;
+                                  const isToday =
+                                    todayYear === yearNum &&
+                                    todayMonth === monthNum &&
+                                    todayDay === dayNum;
+                                  const isActive = existingNote ? existingNote.id === activeNoteId : false;
+                                  const isSelected = existingNote
+                                    ? selectedNoteIds.has(existingNote.id)
+                                    : false;
+                                  const hasContent = Boolean(
+                                    existingNote && (existingNote.content || '').trim().length > 0
+                                  );
+
+                                  if (searchQuery.trim()) {
+                                    const q = searchQuery.toLowerCase();
+                                    const matches =
+                                      displayTitle.toLowerCase().includes(q) ||
+                                      dayFormatted.includes(q) ||
+                                      (existingNote?.content &&
+                                        existingNote.content.toLowerCase().includes(q));
+                                    if (!matches) return null;
+                                  }
+
+                                  if (existingNote) {
+                                    return (
+                                      <div
+                                        key={existingNote.id}
+                                        id={`diary-entry-${existingNote.id}`}
+                                        draggable
+                                        onDragStart={(e) => handleNoteDragStart(e, existingNote.id)}
+                                        onClick={(e) => {
+                                          if (e.ctrlKey || e.metaKey || isMultiSelectMode) {
+                                            handleToggleSelectNote(existingNote.id, e);
+                                          } else {
+                                            onSelectNote(existingNote.id);
+                                          }
+                                        }}
+                                        className={`group/entry relative flex items-center justify-between px-2 py-1 rounded-lg text-xs font-sans-ui transition-all cursor-pointer ${
+                                          isActive
+                                            ? 'bg-[#f4dfcb] text-[#5e4b3e] font-semibold border border-[#e8d2bd] shadow-2xs'
+                                            : isSelected
+                                            ? 'bg-[#eae5de] text-[#1b1c19]'
+                                            : 'text-[#4e453f] hover:bg-[#eae8e3]/70 hover:text-[#1b1c19]'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                          <Calendar
+                                            className={`w-3.5 h-3.5 shrink-0 ${
+                                              isActive
+                                                ? 'text-[#68594d] stroke-[2]'
+                                                : 'text-[#8c6b4f] stroke-[1.5]'
+                                            }`}
+                                          />
+                                          <span className="truncate">{displayTitle}</span>
+                                          {hasContent && (
+                                            <span
+                                              className="w-1.5 h-1.5 rounded-full bg-[#68594d]/60 shrink-0"
+                                              title="Possui conteúdo escrito"
+                                            />
+                                          )}
+                                          {isToday && (
+                                            <span className="shrink-0 text-[9px] font-sans-ui font-medium px-1.5 py-0.2 rounded-full bg-[#e8d2bd] text-[#5e4b3e]">
+                                              Hoje
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {/* Ações na entrada (hover) */}
+                                        <div className="flex items-center opacity-0 group-hover/entry:opacity-100 transition-opacity">
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onDeleteNote(existingNote.id);
+                                            }}
+                                            className="p-1 text-[#7f756e] hover:text-red-600 rounded cursor-pointer"
+                                            title="Excluir entrada"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  // Dia sem entrada ainda: criação LAZY ao clicar
                                   return (
                                     <div
-                                      key={note.id}
-                                      draggable
-                                      onDragStart={(e) => handleNoteDragStart(e, note.id)}
-                                      onClick={(e) => {
-                                        if (e.ctrlKey || e.metaKey || isMultiSelectMode) {
-                                          handleToggleSelectNote(note.id, e);
-                                        } else {
-                                          onSelectNote(note.id);
+                                      key={`lazy-day-${yearNum}-${monthNum}-${dayNum}`}
+                                      id={`diary-lazy-day-${yearNum}-${monthNum}-${dayNum}`}
+                                      onClick={() => {
+                                        if (onOpenOrCreateDay) {
+                                          onOpenOrCreateDay(yearNum, monthNum, dayNum);
                                         }
                                       }}
-                                      className={`group/entry relative flex items-center justify-between px-2 py-1 rounded-lg text-xs font-sans-ui transition-all cursor-pointer ${
-                                        isActive
-                                          ? 'bg-[#f4dfcb] text-[#5e4b3e] font-semibold border border-[#e8d2bd] shadow-2xs'
-                                          : isSelected
-                                          ? 'bg-[#eae5de] text-[#1b1c19]'
-                                          : 'text-[#4e453f] hover:bg-[#eae8e3]/70 hover:text-[#1b1c19]'
-                                      }`}
+                                      className="group/lazy relative flex items-center justify-between px-2 py-1 rounded-lg text-xs font-sans-ui text-[#8a8178] hover:text-[#1b1c19] hover:bg-[#eae8e3]/60 transition-colors cursor-pointer"
                                     >
                                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                        <Calendar
-                                          className={`w-3.5 h-3.5 shrink-0 ${
-                                            isActive
-                                              ? 'text-[#68594d] stroke-[2]'
-                                              : 'text-[#8c6b4f] stroke-[1.5]'
-                                          }`}
-                                        />
-                                        <span className="truncate">{note.title}</span>
+                                        <Calendar className="w-3.5 h-3.5 shrink-0 text-[#b5aba2] stroke-[1.2] group-hover/lazy:text-[#68594d]" />
+                                        <span className="truncate">{defaultTitle}</span>
+                                        {isToday && (
+                                          <span className="shrink-0 text-[9px] font-sans-ui font-medium px-1.5 py-0.2 rounded-full bg-[#eae5de] text-[#7f756e] group-hover/lazy:bg-[#e8d2bd] group-hover/lazy:text-[#5e4b3e]">
+                                            Hoje
+                                          </span>
+                                        )}
                                       </div>
+                                      <span className="text-[10px] font-sans-ui text-[#8a8178] opacity-0 group-hover/lazy:opacity-100 transition-opacity flex items-center gap-0.5">
+                                        <Plus className="w-2.5 h-2.5" /> Escrever
+                                      </span>
+                                    </div>
+                                  );
+                                })}
 
-                                      {/* Ações na entrada (hover) */}
-                                      <div className="flex items-center opacity-0 group-hover/entry:opacity-100 transition-opacity">
+                                {/* Entradas adicionais que possam não ter o diary_day preenchido */}
+                                {monthNotes
+                                  .filter((n) => {
+                                    let d = n.diary_day;
+                                    if (!d && n.entry_date) d = parseDiaryDate(n.entry_date).day;
+                                    return !d || d < 1 || d > daysInMonth;
+                                  })
+                                  .map((note) => {
+                                    const isActive = note.id === activeNoteId;
+                                    const isSelected = selectedNoteIds.has(note.id);
+
+                                    return (
+                                      <div
+                                        key={note.id}
+                                        id={`diary-entry-extra-${note.id}`}
+                                        onClick={() => onSelectNote(note.id)}
+                                        className={`group/extra relative flex items-center justify-between px-2 py-1 rounded-lg text-xs font-sans-ui transition-all cursor-pointer ${
+                                          isActive
+                                            ? 'bg-[#f4dfcb] text-[#5e4b3e] font-semibold border border-[#e8d2bd] shadow-2xs'
+                                            : isSelected
+                                            ? 'bg-[#eae5de] text-[#1b1c19]'
+                                            : 'text-[#4e453f] hover:bg-[#eae8e3]/70 hover:text-[#1b1c19]'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                          <Calendar className="w-3.5 h-3.5 shrink-0 text-[#8c6b4f]" />
+                                          <span className="truncate">{note.title}</span>
+                                        </div>
                                         <button
                                           type="button"
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             onDeleteNote(note.id);
                                           }}
-                                          className="p-1 text-[#7f756e] hover:text-red-600 rounded cursor-pointer"
-                                          title="Excluir entrada"
+                                          className="p-1 text-[#7f756e] hover:text-red-600 rounded cursor-pointer opacity-0 group-hover/extra:opacity-100 transition-opacity"
                                         >
                                           <Trash2 className="w-3 h-3" />
                                         </button>
                                       </div>
-                                    </div>
-                                  );
-                                })
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                                    );
+                                  })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                    )}
                   </div>
                 )}
               </div>
@@ -588,7 +919,10 @@ export function DiarySidebarNavigation({
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        userEmail={userEmail || undefined}
+        userId={userId}
+        notes={notes}
+        userEmail={userEmail || ''}
+        onOpenShareModal={onOpenShareModal}
       />
     </aside>
   );

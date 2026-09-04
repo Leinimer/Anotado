@@ -266,7 +266,15 @@ export async function fetchFoldersAndNotes(
           // Salva no IndexedDB como sincronizados (sem syncRequired)
           await indexedDBStorage.putFoldersBatch(userId, folders);
           await indexedDBStorage.putNotesBatch(userId, notes);
-          return { folders, notes };
+
+          const filteredFolders = workspaceType
+            ? folders.filter((f) => (f.workspace_type || 'notes') === workspaceType)
+            : folders;
+          const filteredNotes = workspaceType
+            ? notes.filter((n) => (n.workspace_type || 'notes') === workspaceType)
+            : notes;
+
+          return { folders: filteredFolders, notes: filteredNotes };
         }
       }
     } catch (err) {

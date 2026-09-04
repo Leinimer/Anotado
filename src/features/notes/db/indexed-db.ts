@@ -438,7 +438,27 @@ class IndexedDBStorage {
    */
   public async getDiaryEntryByDate(userId: string, entryDate: string): Promise<ExtendedNote | null> {
     const all = await this.getAllNotes(userId, 'diary');
-    const found = all.find((n) => n.entry_date === entryDate);
+    const clean = entryDate.trim();
+    const parts = clean.split('-');
+    const y = parts.length === 3 ? parseInt(parts[0], 10) : null;
+    const m = parts.length === 3 ? parseInt(parts[1], 10) : null;
+    const d = parts.length === 3 ? parseInt(parts[2], 10) : null;
+
+    const found = all.find((n) => {
+      if (n.is_archived) return false;
+      if (n.entry_date && n.entry_date.trim() === clean) return true;
+      if (
+        y !== null &&
+        m !== null &&
+        d !== null &&
+        n.diary_year === y &&
+        n.diary_month === m &&
+        n.diary_day === d
+      ) {
+        return true;
+      }
+      return false;
+    });
     return found || null;
   }
 

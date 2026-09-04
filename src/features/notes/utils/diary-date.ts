@@ -20,6 +20,8 @@ export const MONTH_NAMES: readonly string[] = [
   'Dezembro',
 ] as const;
 
+export const MONTH_NAMES_PT = MONTH_NAMES;
+
 export const MONTH_SHORT_NAMES: readonly string[] = [
   'Jan',
   'Fev',
@@ -95,6 +97,8 @@ export function buildDiaryDateString(year: number, month: number, day: number): 
   const d = String(day).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+export const formatDiaryDate = buildDiaryDateString;
 
 /**
  * Formata o título canônico da entrada diária.
@@ -174,4 +178,15 @@ export function getWeekdayName(dateStr: string): string {
  */
 export function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
+}
+
+/**
+ * Retorna o dia com dia da semana abreviado (ex: "Dia 03 (Qui)").
+ */
+export function formatDateDisplayWithWeekday(dateStr: string): string {
+  const { day } = parseDiaryDate(dateStr);
+  const weekday = getWeekdayName(dateStr);
+  const shortWeekday = weekday ? weekday.slice(0, 3) : '';
+  const dayStr = `Dia ${String(day).padStart(2, '0')}`;
+  return shortWeekday ? `${dayStr} (${shortWeekday})` : dayStr;
 }

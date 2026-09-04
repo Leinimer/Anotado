@@ -17,11 +17,13 @@ import {
   PlusSquare,
   Sparkles,
   Monitor,
+  Users,
 } from 'lucide-react';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { Note } from '../types';
 import { exportNonArchivedNotesToZip, ExportProgress } from '../utils/export-notes';
 import { usePwa } from '@/src/features/pwa/PwaProvider';
+import { SettingsSharingTab } from '@/src/features/diary/ui/SettingsSharingTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -29,9 +31,11 @@ interface SettingsModalProps {
   userId: string;
   notes: Note[];
   userEmail?: string;
+  initialTab?: TabType;
+  onOpenShareModal?: () => void;
 }
 
-type TabType = 'password' | 'email' | 'export' | 'pwa';
+type TabType = 'password' | 'email' | 'export' | 'pwa' | 'sharing';
 
 export function SettingsModal({
   isOpen,
@@ -39,8 +43,15 @@ export function SettingsModal({
   userId,
   notes,
   userEmail: initialUserEmail = '',
+  initialTab = 'password',
+  onOpenShareModal,
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('password');
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [prevInitialTab, setPrevInitialTab] = useState<TabType>(initialTab);
+  if (initialTab !== prevInitialTab) {
+    setPrevInitialTab(initialTab);
+    setActiveTab(initialTab);
+  }
   const [userEmail, setUserEmail] = useState<string>(initialUserEmail);
   const { isStandalone, canInstall, isIos, promptInstall } = usePwa();
 
@@ -352,6 +363,20 @@ export function SettingsModal({
           >
             <Smartphone className="w-3.5 h-3.5" />
             Aplicativo (PWA)
+          </button>
+
+          <button
+            type="button"
+            id="settings-tab-sharing"
+            onClick={() => setActiveTab('sharing')}
+            className={`flex items-center gap-1.5 py-3 px-3 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'sharing'
+                ? 'border-[#68594d] text-[#68594d]'
+                : 'border-transparent text-[#7f756e] hover:text-[#1b1c19]'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            Compartilhamento
           </button>
         </div>
 
@@ -744,6 +769,23 @@ export function SettingsModal({
                 </p>
               </div>
             </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* ABA 5: COMPARTILHAMENTO DO DIÁRIO                            */}
+          {/* ============================================================ */}
+          {activeTab === 'sharing' && (
+            <SettingsSharingTab
+              userId={userId}
+              userEmail={userEmail}
+              onOpenInviteModal={() => {
+                if (onOpenShareModal) {
+                  onClose();
+                  onOpenShareModal();
+                }
+              }}
+              onCloseSettings={onClose}
+            />
           )}
         </div>
       </div>

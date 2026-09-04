@@ -13,7 +13,18 @@
 
 import { indexedDBStorage, ExtendedFolder, ExtendedNote } from '../db/indexed-db';
 import { syncEngine } from './sync-engine';
-import { MONTH_NAMES, parseDiaryDate, formatDiaryTitle, getLocalDateString } from '../utils/diary-date';
+import { networkMonitor } from './network-monitor';
+import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
+import {
+  MONTH_NAMES,
+  parseDiaryDate,
+  formatDiaryTitle,
+  getLocalDateString,
+  buildDiaryDateString,
+  getDaysInMonth,
+} from '../utils/diary-date';
+import { generateUUID } from '../utils/uuid';
+import { Note } from '../types';
 
 /**
  * Garante que a estrutura de pastas para um determinado ano exista no Diário.
@@ -37,7 +48,7 @@ export async function ensureDiaryYearFolders(
   );
 
   if (!yearFolder) {
-    const yearFolderId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `diary-year-${year}-${Date.now()}`;
+    const yearFolderId = generateUUID();
     yearFolder = {
       id: yearFolderId,
       user_id: userId,
@@ -79,7 +90,7 @@ export async function ensureDiaryYearFolders(
     );
 
     if (!monthFolder) {
-      const monthFolderId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `diary-month-${year}-${m}-${Date.now()}`;
+      const monthFolderId = generateUUID();
       monthFolder = {
         id: monthFolderId,
         user_id: userId,
@@ -128,22 +139,53 @@ export async function getOrCreateDiaryEntry(
     throw new Error('UserId obrigatório para entrada do Diário.');
   }
 
-  const cleanDate = dateStr.trim();
-  const { year, month, day } = parseDiaryDate(cleanDate);
+  const { year, month, day } = parseDiaryDate(dateStr);
+  const cleanDate = buildDiaryDateString(year, month, day);
 
-  // 1. Verifica se já existe entrada para este dia no Diário
-  const existing = await indexedDBStorage.getDiaryEntryByDate(userId, cleanDate);
-  if (existing) {
-    console.log(`[Diary] Entrada existente encontrada para data=${cleanDate}, noteId=${existing.id}`);
-    return { note: existing, isNew: false };
+  // 1. Verifica se já existe entrada para este dia no IndexedDB local
+  const existingLocal = await indexedDBStorage.getDiaryEntryByDate(userId, cleanDate);
+  if (existingLocal) {
+    console.log(`[Diary] Entrada local existente encontrada para data=${cleanDate}, noteId=${existingLocal.id}`);
+    return { note: existingLocal, isNew: false };
   }
 
-  // 2. Garante que as pastas do Ano e Mês existam
+  // 2. Se online e Supabase estiver configurado, verifica se outro dispositivo criou a entrada
+  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+    try {
+      const supabase = createClient();
+      const { data: remoteNotes } = await supabase
+        .from('notes')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('workspace_type', 'diary')
+        .eq('entry_date', cleanDate)
+        .eq('is_archived', false)
+        .limit(1);
+
+      if (remoteNotes && remoteNotes.length > 0) {
+        const remoteRecord = remoteNotes[0];
+        const remoteNote: ExtendedNote = {
+          ...remoteRecord,
+          syncRequired: false,
+          syncStatus: 'synced',
+          sync_status: 'synced',
+          needs_sync: false,
+        };
+        await indexedDBStorage.putNote(userId, remoteNote);
+        console.log(`[Diary] Entrada remota existente importada para data=${cleanDate}, noteId=${remoteNote.id}`);
+        return { note: remoteNote, isNew: false };
+      }
+    } catch (err) {
+      console.warn('[Diary] Verificação remota de duplicidade falhou, prosseguindo com criação local:', err);
+    }
+  }
+
+  // 3. Garante que as pastas do Ano e Mês existam estruturalmente
   const { monthFolders } = await ensureDiaryYearFolders(userId, year);
   const targetMonthFolder = monthFolders.find((f) => f.diary_month === month) || monthFolders[month - 1];
 
-  // 3. Cria a nova entrada diária
-  const noteId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `diary-note-${cleanDate}-${Date.now()}`;
+  // 4. Cria a nova entrada diária LAZY (apenas este dia, sem criar os 365 dias)
+  const noteId = generateUUID();
   const title = formatDiaryTitle(day, customTitle);
 
   const newDiaryNote: ExtendedNote = {
@@ -196,4 +238,114 @@ export async function createDiaryYear(userId: string, year: number): Promise<Ext
 export async function getOrCreateTodayDiaryEntry(userId: string): Promise<{ note: ExtendedNote; isNew: boolean }> {
   const todayStr = getLocalDateString();
   return getOrCreateDiaryEntry(userId, todayStr);
+}
+
+/**
+ * Status individual de um dia do mês para o Diário.
+ */
+export interface DiaryDayStatus {
+  day: number;
+  dateStr: string;
+  hasEntry: boolean;
+  hasContent: boolean;
+  note: Note | null;
+}
+
+/**
+ * Sumário estrutural de um mês do Diário.
+ * Prepara o modelo de dados para calendários e métricas futuras:
+ * - quais dias possuem entrada
+ * - quais dias não possuem
+ * - quantidade de entradas
+ * - dias com conteúdo
+ * - dias sem conteúdo
+ */
+export interface DiaryMonthSummary {
+  year: number;
+  month: number;
+  daysInMonth: number;
+  totalEntries: number;
+  daysWithContentCount: number;
+  daysEmptyCount: number;
+  daysWithoutEntryCount: number;
+  daysWithContent: number[];
+  daysEmpty: number[];
+  daysWithoutEntry: number[];
+  days: DiaryDayStatus[];
+  entriesByDay: Record<number, Note>;
+}
+
+/**
+ * Computa o resumo estrutural completo de um mês do Diário a partir das notas em memória/armazenamento.
+ */
+export function computeDiaryMonthSummary(
+  notes: Note[],
+  year: number,
+  month: number
+): DiaryMonthSummary {
+  const daysInMonth = getDaysInMonth(year, month);
+  const monthNotes = notes.filter((n) => {
+    if (n.workspace_type !== 'diary') return false;
+    if (n.is_archived) return false;
+    if (n.diary_year === year && n.diary_month === month) return true;
+    if (n.entry_date) {
+      const p = parseDiaryDate(n.entry_date);
+      return p.year === year && p.month === month;
+    }
+    return false;
+  });
+
+  const entriesByDay: Record<number, Note> = {};
+  monthNotes.forEach((note) => {
+    let day = note.diary_day;
+    if (!day && note.entry_date) {
+      day = parseDiaryDate(note.entry_date).day;
+    }
+    if (day && day >= 1 && day <= daysInMonth && !entriesByDay[day]) {
+      entriesByDay[day] = note;
+    }
+  });
+
+  const daysWithContent: number[] = [];
+  const daysEmpty: number[] = [];
+  const daysWithoutEntry: number[] = [];
+  const days: DiaryDayStatus[] = [];
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const entry = entriesByDay[d] || null;
+    const dateStr = buildDiaryDateString(year, month, d);
+    const hasEntry = Boolean(entry);
+    const hasContent = Boolean(entry && (entry.content || '').trim().length > 0);
+
+    if (!entry) {
+      daysWithoutEntry.push(d);
+    } else if (hasContent) {
+      daysWithContent.push(d);
+    } else {
+      daysEmpty.push(d);
+    }
+
+    days.push({
+      day: d,
+      dateStr,
+      hasEntry,
+      hasContent,
+      note: entry,
+    });
+  }
+
+  return {
+    year,
+    month,
+    daysInMonth,
+    totalEntries: Object.keys(entriesByDay).length,
+    daysWithContentCount: daysWithContent.length,
+    daysEmptyCount: daysEmpty.length,
+    daysWithoutEntryCount: daysWithoutEntry.length,
+    daysWithContent,
+    daysEmpty,
+    daysWithoutEntry,
+    days,
+    entriesByDay,
+  };
 }
