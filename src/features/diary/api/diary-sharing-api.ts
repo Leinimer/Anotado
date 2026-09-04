@@ -8,6 +8,11 @@
 
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { Folder, Note } from '@/src/features/notes/types';
+import {
+  MONTH_NAMES_PT,
+  parseDiaryDate,
+  buildDiaryDateString,
+} from '@/src/features/notes/utils/diary-date';
 
 export type ShareStatus = 'pending' | 'accepted' | 'rejected' | 'revoked';
 export type SharePermission = 'viewer';
@@ -191,13 +196,38 @@ export async function findUserByEmail(email: string): Promise<FindUserResult> {
   const supabase = createClient();
 
   try {
+    // 0. Verifica se o usuário atual possui sessão autenticada antes de chamar a RPC
+    const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !currentUser?.id) {
+      console.error('[Compartilhamento] Usuário não autenticado ao buscar destinatário:', authError);
+      return {
+        success: false,
+        user: null,
+        notFound: false,
+        error: 'Você precisa estar autenticado para compartilhar o Diário.',
+      };
+    }
+
     // 1. Invoca a RPC segura public.find_user_by_email(email_input text)
     const { data, error } = await supabase.rpc('find_user_by_email', {
       email_input: cleanEmail,
     });
 
     if (error) {
-      console.error('[findUserByEmail] Erro retornado pela RPC find_user_by_email:', error);
+      console.error('[Compartilhamento] Erro ao buscar usuário:', {
+        message: error?.message,
+        code: error?.code,
+        details: error?.details,
+        hint: error?.hint,
+      });
+
+      if (error.code === 'PGRST202') {
+        console.warn(
+          '[Compartilhamento] ATENÇÃO: A função RPC public.find_user_by_email(email_input) não foi encontrada no banco do Supabase (PGRST202). ' +
+          'Execute o arquivo migration_find_user_by_email.sql no SQL Editor do painel do Supabase.'
+        );
+      }
+
       // NUNCA transforma erro de banco/RLS/conexão em "usuário não encontrado"
       return {
         success: false,
@@ -236,7 +266,7 @@ export async function findUserByEmail(email: string): Promise<FindUserResult> {
       },
     };
   } catch (err) {
-    console.error('[findUserByEmail] Falha de comunicação com o Supabase:', err);
+    console.error('[Compartilhamento] Falha de comunicação com o Supabase:', err);
     // Erros de rede, exceções ou falhas de conexão
     return {
       success: false,
@@ -636,24 +666,22 @@ export async function fetchSharedDiaryData(
 
     const ownerId = share.owner_id;
 
-    // 2. Busca pastas do Diário do proprietário
+    // 2. Busca pastas do proprietário permitidas pelas policies do Diário
     const { data: foldersData, error: foldersError } = await supabase
       .from('folders')
       .select('*')
       .eq('user_id', ownerId)
-      .eq('workspace_type', 'diary')
       .order('position', { ascending: true });
 
     if (foldersError) {
       console.error('[DiaryShare] Erro ao carregar pastas do Diário compartilhado:', foldersError);
     }
 
-    // 3. Busca notas do Diário do proprietário
+    // 3. Busca notas do proprietário permitidas pelas policies do Diário (não arquivadas)
     const { data: notesData, error: notesError } = await supabase
       .from('notes')
       .select('*')
       .eq('user_id', ownerId)
-      .eq('workspace_type', 'diary')
       .eq('is_archived', false)
       .order('position', { ascending: true });
 
@@ -661,10 +689,92 @@ export async function fetchSharedDiaryData(
       console.error('[DiaryShare] Erro ao carregar notas do Diário compartilhado:', notesError);
     }
 
+    const rawFolders = (foldersData || []) as Folder[];
+    const rawNotes = (notesData || []) as Note[];
+
+    // Identifica as pastas de Ano (pastas raiz com nome de 4 dígitos ou diary_year preenchido)
+    const yearFolders = rawFolders.filter(
+      (f) => !f.parent_id && (f.diary_year || /^\d{4}$/.test(f.name.trim()))
+    );
+    const yearFolderIds = new Set(yearFolders.map((f) => f.id));
+
+    // Identifica as pastas de Mês (pastas filhas das pastas de Ano)
+    const monthFolders = rawFolders.filter(
+      (f) => f.parent_id && yearFolderIds.has(f.parent_id)
+    );
+    const monthFolderIds = new Set(monthFolders.map((f) => f.id));
+
+    // Normaliza metadados do Diário para todas as pastas de ano e mês
+    const normalizedFolders: Folder[] = [...yearFolders, ...monthFolders].map((f) => {
+      const isYear = !f.parent_id;
+      const yearVal = isYear
+        ? f.diary_year || parseInt(f.name, 10) || f.position
+        : rawFolders.find((y) => y.id === f.parent_id)?.diary_year ||
+          parseInt(rawFolders.find((y) => y.id === f.parent_id)?.name || '', 10) ||
+          new Date().getFullYear();
+
+      const monthVal = !isYear
+        ? f.diary_month ||
+          f.position ||
+          MONTH_NAMES_PT.indexOf(f.name as any) + 1 ||
+          1
+        : null;
+
+      return {
+        ...f,
+        workspace_type: 'diary' as const,
+        diary_year: yearVal,
+        diary_month: monthVal,
+      };
+    });
+
+    // Normaliza metadados do Diário para as notas pertencentes aos meses do Diário
+    const normalizedNotes: Note[] = rawNotes
+      .filter((n) => n.folder_id && monthFolderIds.has(n.folder_id))
+      .map((n) => {
+        const parentMonth = monthFolders.find((m) => m.id === n.folder_id);
+        const parentYear = parentMonth
+          ? yearFolders.find((y) => y.id === parentMonth.parent_id)
+          : null;
+        const yearVal =
+          n.diary_year ||
+          (parentYear ? parseInt(parentYear.name, 10) : new Date().getFullYear());
+        const monthVal =
+          n.diary_month ||
+          (parentMonth
+            ? parentMonth.diary_month ||
+              parentMonth.position ||
+              MONTH_NAMES_PT.indexOf(parentMonth.name as any) + 1
+            : 1);
+
+        let dayVal = n.diary_day;
+        if (!dayVal && n.entry_date) {
+          dayVal = parseDiaryDate(n.entry_date).day;
+        }
+        if (!dayVal && n.title) {
+          const match = n.title.match(/^dia\s+(\d{1,2})/i);
+          if (match) dayVal = parseInt(match[1], 10);
+        }
+        if (!dayVal) {
+          dayVal = n.position || 1;
+        }
+
+        const entryDate = n.entry_date || buildDiaryDateString(yearVal, monthVal, dayVal);
+
+        return {
+          ...n,
+          workspace_type: 'diary' as const,
+          diary_year: yearVal,
+          diary_month: monthVal,
+          diary_day: dayVal,
+          entry_date: entryDate,
+        };
+      });
+
     return {
       share: share as DiaryShare,
-      folders: (foldersData || []) as Folder[],
-      notes: (notesData || []) as Note[],
+      folders: normalizedFolders,
+      notes: normalizedNotes,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Falha ao carregar Diário compartilhado.';

@@ -79,17 +79,37 @@ export function SharedDiarySidebarNavigation({
   // Monta a árvore hierárquica do Diário do proprietário
   const diaryTree = useMemo(() => {
     const yearFolders = folders
-      .filter((f) => f.diary_year !== undefined && f.diary_year !== null && !f.parent_id)
-      .sort((a, b) => (b.diary_year ?? 0) - (a.diary_year ?? 0));
+      .filter((f) => !f.parent_id && (f.diary_year !== undefined || /^\d{4}$/.test(f.name.trim())))
+      .sort((a, b) => {
+        const yearA = a.diary_year || parseInt(a.name, 10) || a.position || 0;
+        const yearB = b.diary_year || parseInt(b.name, 10) || b.position || 0;
+        return yearB - yearA;
+      });
 
     return yearFolders.map((yearFolder) => {
-      const yearNum = yearFolder.diary_year!;
+      const yearNum = yearFolder.diary_year || parseInt(yearFolder.name, 10) || todayYear;
       const monthFolders = folders
-        .filter((f) => f.parent_id === yearFolder.id && f.diary_month !== undefined)
-        .sort((a, b) => (a.diary_month ?? 0) - (b.diary_month ?? 0));
+        .filter((f) => f.parent_id === yearFolder.id)
+        .sort((a, b) => {
+          const mA =
+            a.diary_month ||
+            a.position ||
+            MONTH_NAMES_PT.indexOf(a.name as any) + 1 ||
+            0;
+          const mB =
+            b.diary_month ||
+            b.position ||
+            MONTH_NAMES_PT.indexOf(b.name as any) + 1 ||
+            0;
+          return mA - mB;
+        });
 
       const monthsData = monthFolders.map((monthFolder) => {
-        const monthNum = monthFolder.diary_month!;
+        const monthNum =
+          monthFolder.diary_month ||
+          monthFolder.position ||
+          MONTH_NAMES_PT.indexOf(monthFolder.name as any) + 1 ||
+          1;
         const monthNotes = notes
           .filter((n) => n.folder_id === monthFolder.id && !n.is_archived)
           .sort((a, b) => {
@@ -128,7 +148,7 @@ export function SharedDiarySidebarNavigation({
         totalNotes: totalYearNotes,
       };
     });
-  }, [folders, notes]);
+  }, [folders, notes, todayYear]);
 
   // Resultados de busca filtrados
   const searchResults = useMemo(() => {

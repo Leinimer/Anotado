@@ -136,22 +136,26 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
         async (payload: any) => {
           if (payload.eventType === 'INSERT') {
             const newNote = payload.new as Note;
-            if (newNote.workspace_type === 'diary' && !newNote.is_archived) {
+            if (!newNote.is_archived) {
               setNotes((prev) => {
                 if (prev.some((n) => n.id === newNote.id)) return prev;
-                return [...prev, newNote].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+                return [...prev, { ...newNote, workspace_type: 'diary' as const }].sort(
+                  (a, b) => (a.position ?? 0) - (b.position ?? 0)
+                );
               });
             }
           } else if (payload.eventType === 'UPDATE') {
             const updatedNote = payload.new as Note;
-            if (updatedNote.workspace_type === 'diary') {
-              if (updatedNote.is_archived) {
-                setNotes((prev) => prev.filter((n) => n.id !== updatedNote.id));
-              } else {
-                setNotes((prev) =>
-                  prev.map((n) => (n.id === updatedNote.id ? { ...n, ...updatedNote } : n))
-                );
-              }
+            if (updatedNote.is_archived) {
+              setNotes((prev) => prev.filter((n) => n.id !== updatedNote.id));
+            } else {
+              setNotes((prev) =>
+                prev.map((n) =>
+                  n.id === updatedNote.id
+                    ? { ...n, ...updatedNote, workspace_type: 'diary' as const }
+                    : n
+                )
+              );
             }
           } else if (payload.eventType === 'DELETE') {
             const deletedId = payload.old?.id;
@@ -176,19 +180,21 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
         (payload: any) => {
           if (payload.eventType === 'INSERT') {
             const newFolder = payload.new as Folder;
-            if (newFolder.workspace_type === 'diary') {
-              setFolders((prev) => {
-                if (prev.some((f) => f.id === newFolder.id)) return prev;
-                return [...prev, newFolder].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-              });
-            }
+            setFolders((prev) => {
+              if (prev.some((f) => f.id === newFolder.id)) return prev;
+              return [...prev, { ...newFolder, workspace_type: 'diary' as const }].sort(
+                (a, b) => (a.position ?? 0) - (b.position ?? 0)
+              );
+            });
           } else if (payload.eventType === 'UPDATE') {
             const updatedFolder = payload.new as Folder;
-            if (updatedFolder.workspace_type === 'diary') {
-              setFolders((prev) =>
-                prev.map((f) => (f.id === updatedFolder.id ? { ...f, ...updatedFolder } : f))
-              );
-            }
+            setFolders((prev) =>
+              prev.map((f) =>
+                f.id === updatedFolder.id
+                  ? { ...f, ...updatedFolder, workspace_type: 'diary' as const }
+                  : f
+              )
+            );
           } else if (payload.eventType === 'DELETE') {
             const deletedId = payload.old?.id;
             if (deletedId) {

@@ -230,14 +230,29 @@ export async function fetchFoldersAndNotes(
       ]);
 
       if (!foldersRes.error && !notesRes.error) {
-        const folders = (foldersRes.data || []).map((f: any) => ({
-          ...f,
-          syncRequired: false,
-          syncStatus: 'synced',
-          sync_status: 'synced',
-          needs_sync: false,
-          revision: f.revision || 0,
-        })) as ExtendedFolder[];
+        const rawFolderList = foldersRes.data || [];
+        const rawYearIds = new Set(
+          rawFolderList
+            .filter((f: any) => !f.parent_id && (f.workspace_type === 'diary' || /^\d{4}$/.test(String(f.name || '').trim())))
+            .map((f: any) => f.id)
+        );
+        const rawDiaryFolderIds = new Set([
+          ...Array.from(rawYearIds),
+          ...rawFolderList.filter((f: any) => f.parent_id && rawYearIds.has(f.parent_id)).map((f: any) => f.id),
+        ]);
+
+        const folders = rawFolderList.map((f: any) => {
+          const isDiary = f.workspace_type === 'diary' || rawDiaryFolderIds.has(f.id);
+          return {
+            ...f,
+            workspace_type: (isDiary ? 'diary' : f.workspace_type || 'notes') as WorkspaceType,
+            syncRequired: false,
+            syncStatus: 'synced',
+            sync_status: 'synced',
+            needs_sync: false,
+            revision: f.revision || 0,
+          };
+        }) as ExtendedFolder[];
 
         const notes = (notesRes.data || []).map((n: any) => {
           let noteTags: string[] = [];
@@ -251,8 +266,10 @@ export async function fetchFoldersAndNotes(
               noteTags = normalizeTags(n.tags.split(','));
             }
           }
+          const isDiary = n.workspace_type === 'diary' || (n.folder_id && rawDiaryFolderIds.has(n.folder_id));
           return {
             ...n,
+            workspace_type: (isDiary ? 'diary' : n.workspace_type || 'notes') as WorkspaceType,
             tags: noteTags,
             syncRequired: false,
             syncStatus: 'synced',
