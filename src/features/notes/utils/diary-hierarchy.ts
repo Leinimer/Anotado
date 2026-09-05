@@ -33,6 +33,8 @@ export interface MinimalNote {
   diary_day?: number | null;
   title?: string;
   is_archived?: boolean | null;
+  tags?: string[] | null;
+  workspace_type?: string | null;
 }
 
 /**
@@ -130,10 +132,16 @@ export function isDiaryFolder(folder: MinimalFolder, allFolders: MinimalFolder[]
  * Retorna true se a nota pertencer ao Diário.
  */
 export function isDiaryNote(note: MinimalNote, allFolders: MinimalFolder[] = []): boolean {
+  if (note.workspace_type === 'diary') {
+    return true;
+  }
   if (note.entry_date && /^\d{4}-\d{2}-\d{2}/.test(note.entry_date.trim())) {
     return true;
   }
   if (note.diary_year && note.diary_day) {
+    return true;
+  }
+  if (Array.isArray(note.tags) && note.tags.some((t) => t === 'diary' || t.startsWith('diary:') || t.startsWith('day:'))) {
     return true;
   }
   if (note.folder_id) {
@@ -144,3 +152,18 @@ export function isDiaryNote(note: MinimalNote, allFolders: MinimalFolder[] = [])
   }
   return false;
 }
+
+/**
+ * Retorna true se a pasta pertencer exclusivamente ao workspace Notas.
+ */
+export function isNotesFolder(folder: MinimalFolder, allFolders: MinimalFolder[] = []): boolean {
+  return !isDiaryFolder(folder, allFolders);
+}
+
+/**
+ * Retorna true se a nota pertencer exclusivamente ao workspace Notas.
+ */
+export function isNotesNote(note: MinimalNote, allFolders: MinimalFolder[] = []): boolean {
+  return !isDiaryNote(note, allFolders);
+}
+

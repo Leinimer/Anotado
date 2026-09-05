@@ -32,7 +32,12 @@ import {
   isDiaryFolder,
   isDiaryNote,
 } from '../utils/diary-hierarchy';
-import { generateUUID } from '../utils/uuid';
+import {
+  generateUUID,
+  getDeterministicDiaryYearFolderId,
+  getDeterministicDiaryMonthFolderId,
+  getDeterministicDiaryNoteId,
+} from '../utils/uuid';
 import { Note } from '../types';
 
 // Mutex em memória para evitar concorrência e duplicidade por cliques rápidos ou renderizações paralelas
@@ -42,7 +47,7 @@ const inFlightEntryCreations = new Map<string, Promise<{ note: ExtendedNote; isN
 /**
  * Garante que a estrutura de pastas para um determinado ano exista no Diário.
  * Cria a pasta do Ano (ex: "2026") e exatamente as 12 subpastas dos meses (Janeiro a Dezembro)
- * sem NUNCA duplicar pastas existentes.
+ * sem NUNCA duplicar pastas existentes e utilizando chaves determinísticas.
  */
 export async function ensureDiaryYearFolders(
   userId: string,
@@ -61,50 +66,79 @@ export async function ensureDiaryYearFolders(
   const promise = (async () => {
     try {
       const yearStr = String(year);
+      const canonicalYearId = getDeterministicDiaryYearFolderId(userId, year);
       const allLocalFolders = await indexedDBStorage.getAllFolders(userId);
 
-      // 1. Procura pasta de ano existente localmente (baseado na hierarquia real, sem depender de workspace_type)
+      // 1. Procura pasta de ano existente localmente (baseado na hierarquia real ou ID determinístico)
       let yearFolders = allLocalFolders.filter(
-        (f) => isDiaryYearFolder(f) && extractDiaryYear(f) === year
+        (f) => f.id === canonicalYearId || (isDiaryYearFolder(f) && extractDiaryYear(f) === year)
       );
 
       let yearFolder: ExtendedFolder | null = null;
 
-      // Se houver mais de uma pasta para o mesmo ano, elege a canônica e consolida
+      // Se houver pasta(s) para o mesmo ano, prioriza o ID determinístico ou a mais antiga
       if (yearFolders.length > 0) {
-        yearFolders.sort((a, b) => {
-          const tA = new Date(a.created_at || 0).getTime();
-          const tB = new Date(b.created_at || 0).getTime();
-          return tA - tB;
-        });
-        yearFolder = yearFolders[0];
+        const exactDeterministic = yearFolders.find((f) => f.id === canonicalYearId);
+        if (exactDeterministic) {
+          yearFolder = exactDeterministic;
+        } else {
+          yearFolders.sort((a, b) => {
+            const tA = new Date(a.created_at || 0).getTime();
+            const tB = new Date(b.created_at || 0).getTime();
+            return tA - tB;
+          });
+          yearFolder = yearFolders[0];
+        }
       }
 
       // Se não encontrou no IndexedDB local, verifica se existe no Supabase antes de criar
       if (!yearFolder && isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
         try {
           const supabase = createClient();
-          const { data: remoteYearFolders } = await supabase
+          // Busca primeiro pelo ID determinístico
+          const { data: remoteById } = await supabase
             .from('folders')
             .select('*')
-            .eq('user_id', userId)
-            .is('parent_id', null)
-            .order('created_at', { ascending: true });
+            .eq('id', canonicalYearId)
+            .limit(1);
 
-          if (remoteYearFolders && remoteYearFolders.length > 0) {
-            const match = remoteYearFolders.find(
-              (rf: any) => isDiaryYearFolder(rf) && extractDiaryYear(rf) === year
-            );
-            if (match) {
-              const matchedFolder: ExtendedFolder = {
-                ...match,
-                syncRequired: false,
-                syncStatus: 'synced',
-                sync_status: 'synced',
-                needs_sync: false,
-              };
-              yearFolder = matchedFolder;
-              await indexedDBStorage.putFolder(userId, matchedFolder);
+          if (remoteById && remoteById.length > 0) {
+            const matched: ExtendedFolder = {
+              ...remoteById[0],
+              workspace_type: 'diary',
+              diary_year: year,
+              syncRequired: false,
+              syncStatus: 'synced',
+              sync_status: 'synced',
+              needs_sync: false,
+            };
+            yearFolder = matched;
+            await indexedDBStorage.putFolder(userId, matched);
+          } else {
+            const { data: remoteYearFolders } = await supabase
+              .from('folders')
+              .select('*')
+              .eq('user_id', userId)
+              .is('parent_id', null)
+              .order('created_at', { ascending: true });
+
+            if (remoteYearFolders && remoteYearFolders.length > 0) {
+              const match = remoteYearFolders.find(
+                (rf: any) => isDiaryYearFolder(rf) && extractDiaryYear(rf) === year
+              );
+              if (match) {
+                const matchedFolder: ExtendedFolder = {
+                  ...match,
+                  workspace_type: 'diary',
+                  diary_year: year,
+                  syncRequired: false,
+                  syncStatus: 'synced',
+                  sync_status: 'synced',
+                  needs_sync: false,
+                };
+                yearFolder = matchedFolder;
+                await indexedDBStorage.putFolder(userId, matchedFolder);
+              }
             }
           }
         } catch (remoteErr) {
@@ -112,11 +146,10 @@ export async function ensureDiaryYearFolders(
         }
       }
 
-      // Se realmente não existir, cria a única pasta canônica do ano
+      // Se realmente não existir, cria a única pasta canônica do ano usando ID determinístico
       if (!yearFolder) {
-        const yearFolderId = generateUUID();
         const newFolder: ExtendedFolder = {
-          id: yearFolderId,
+          id: canonicalYearId,
           user_id: userId,
           name: yearStr,
           parent_id: null,
@@ -147,7 +180,6 @@ export async function ensureDiaryYearFolders(
       const activeYearFolder: ExtendedFolder = yearFolder;
 
       // 2. Garante exatamente os 12 meses sob a pasta do Ano
-      // Recarrega pastas locais para ver os meses sob esta pasta de ano
       const currentFolders = await indexedDBStorage.getAllFolders(userId);
       const existingMonths = currentFolders.filter((f) => f.parent_id === activeYearFolder.id);
 
@@ -155,9 +187,11 @@ export async function ensureDiaryYearFolders(
 
       for (let m = 1; m <= 12; m++) {
         const monthName = MONTH_NAMES[m - 1];
+        const canonicalMonthId = getDeterministicDiaryMonthFolderId(userId, year, m);
 
-        // Procura mês pelo número ou nome (case-insensitive)
+        // Procura mês pelo ID determinístico, número ou nome (case-insensitive)
         let monthFolder = existingMonths.find((f) => {
+          if (f.id === canonicalMonthId) return true;
           if (f.diary_month === m) return true;
           if (extractDiaryMonth(f) === m) return true;
           const clean = String(f.name || '').trim().toLowerCase();
@@ -168,29 +202,53 @@ export async function ensureDiaryYearFolders(
         if (!monthFolder && isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
           try {
             const supabase = createClient();
-            const { data: remoteMonths } = await supabase
+            const { data: remoteById } = await supabase
               .from('folders')
               .select('*')
-              .eq('user_id', userId)
-              .eq('parent_id', activeYearFolder.id);
+              .eq('id', canonicalMonthId)
+              .limit(1);
 
-            if (remoteMonths && remoteMonths.length > 0) {
-              const rMatch = remoteMonths.find((rf: any) => {
-                if (rf.diary_month === m) return true;
-                if (extractDiaryMonth(rf) === m) return true;
-                const clean = String(rf.name || '').trim().toLowerCase();
-                return clean === monthName.toLowerCase();
-              });
-              if (rMatch) {
-                const matchedMonth: ExtendedFolder = {
-                  ...rMatch,
-                  syncRequired: false,
-                  syncStatus: 'synced',
-                  sync_status: 'synced',
-                  needs_sync: false,
-                };
-                monthFolder = matchedMonth;
-                await indexedDBStorage.putFolder(userId, matchedMonth);
+            if (remoteById && remoteById.length > 0) {
+              const matchedMonth: ExtendedFolder = {
+                ...remoteById[0],
+                workspace_type: 'diary',
+                diary_year: year,
+                diary_month: m,
+                syncRequired: false,
+                syncStatus: 'synced',
+                sync_status: 'synced',
+                needs_sync: false,
+              };
+              monthFolder = matchedMonth;
+              await indexedDBStorage.putFolder(userId, matchedMonth);
+            } else {
+              const { data: remoteMonths } = await supabase
+                .from('folders')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('parent_id', activeYearFolder.id);
+
+              if (remoteMonths && remoteMonths.length > 0) {
+                const rMatch = remoteMonths.find((rf: any) => {
+                  if (rf.diary_month === m) return true;
+                  if (extractDiaryMonth(rf) === m) return true;
+                  const clean = String(rf.name || '').trim().toLowerCase();
+                  return clean === monthName.toLowerCase();
+                });
+                if (rMatch) {
+                  const matchedMonth: ExtendedFolder = {
+                    ...rMatch,
+                    workspace_type: 'diary',
+                    diary_year: year,
+                    diary_month: m,
+                    syncRequired: false,
+                    syncStatus: 'synced',
+                    sync_status: 'synced',
+                    needs_sync: false,
+                  };
+                  monthFolder = matchedMonth;
+                  await indexedDBStorage.putFolder(userId, matchedMonth);
+                }
               }
             }
           } catch (rErr) {
@@ -198,11 +256,10 @@ export async function ensureDiaryYearFolders(
           }
         }
 
-        // Se não existir, cria a pasta deste mês
+        // Se não existir, cria a pasta deste mês com ID determinístico
         if (!monthFolder) {
-          const monthFolderId = generateUUID();
           const newMonth: ExtendedFolder = {
-            id: monthFolderId,
+            id: canonicalMonthId,
             user_id: userId,
             name: monthName,
             parent_id: activeYearFolder.id,
@@ -247,12 +304,14 @@ export async function ensureDiaryYearFolders(
 /**
  * Reconcilia e deduplica totalmente pastas e notas do Diário.
  * Corrige duplicações existentes no IndexedDB e no Supabase:
- * - Unifica múltiplos anos do mesmo ano (ex: múltiplos "2026").
- * - Reassocia meses à pasta do ano canônica.
- * - Unifica meses duplicados (ex: dois "Janeiro" sob 2026).
- * - Move notas de meses duplicados para o mês canônico.
- * - Exclui pastas duplicadas que ficarem vazias no IndexedDB e no Supabase.
- * - Preserva 100% dos dados, conteúdos e anexos do usuário.
+ * - Unifica múltiplos anos do mesmo ano (ex: múltiplos "2026") sob uma pasta canônica.
+ * - Unifica meses duplicados (ex: múltiplos "Setembro" sob 2026) sob um mês canônico.
+ * - Reassocia todas as notas às pastas canônicas correspondentes.
+ * - Deduplica notas do mesmo dia DE FORMA NÃO DESTRUTIVA:
+ *   * se uma tiver conteúdo e outra vazia, preserva a com conteúdo;
+ *   * se ambas tiverem conteúdo distinto, unifica os textos e tags preservando tudo;
+ *   * exclui com segurança apenas os registros duplicados redundantes/vazios;
+ *   * garante que nenhum anexo ou texto do usuário seja perdido.
  */
 export async function reconcileAndDeduplicateDiary(userId: string): Promise<void> {
   if (!userId || userId === 'local-user') return;
@@ -261,7 +320,7 @@ export async function reconcileAndDeduplicateDiary(userId: string): Promise<void
     const allLocalFolders = await indexedDBStorage.getAllFolders(userId);
     const allLocalNotes = await indexedDBStorage.getAllNotes(userId);
 
-    // Identifica todas as pastas de ano
+    // 1. Identifica todas as pastas de ano
     const yearFoldersMap = new Map<number, ExtendedFolder[]>();
     for (const f of allLocalFolders) {
       if (isDiaryYearFolder(f)) {
@@ -275,22 +334,32 @@ export async function reconcileAndDeduplicateDiary(userId: string): Promise<void
     }
 
     const foldersToDelete = new Set<string>();
+    const notesToDelete = new Set<string>();
     const foldersToUpdate: ExtendedFolder[] = [];
     const notesToUpdate: ExtendedNote[] = [];
 
-    // 1. Processa deduplicação de anos
+    // Processa deduplicação de anos
     for (const [yearNum, foldersForYear] of yearFoldersMap.entries()) {
       if (foldersForYear.length <= 1) continue;
 
-      // Ordena: o mais antigo é o canônico
-      foldersForYear.sort((a, b) => {
-        const tA = new Date(a.created_at || 0).getTime();
-        const tB = new Date(b.created_at || 0).getTime();
-        return tA - tB;
-      });
+      const canonicalId = getDeterministicDiaryYearFolderId(userId, yearNum);
+      const exactMatch = foldersForYear.find((f) => f.id === canonicalId);
 
-      const canonicalYear = foldersForYear[0];
-      const duplicateYears = foldersForYear.slice(1);
+      let canonicalYear: ExtendedFolder;
+      let duplicateYears: ExtendedFolder[];
+
+      if (exactMatch) {
+        canonicalYear = exactMatch;
+        duplicateYears = foldersForYear.filter((f) => f.id !== canonicalId);
+      } else {
+        foldersForYear.sort((a, b) => {
+          const tA = new Date(a.created_at || 0).getTime();
+          const tB = new Date(b.created_at || 0).getTime();
+          return tA - tB;
+        });
+        canonicalYear = foldersForYear[0];
+        duplicateYears = foldersForYear.slice(1);
+      }
 
       for (const dupYear of duplicateYears) {
         foldersToDelete.add(dupYear.id);
@@ -318,6 +387,9 @@ export async function reconcileAndDeduplicateDiary(userId: string): Promise<void
     const yearFolders = refreshedFolders.filter((f) => isDiaryYearFolder(f));
 
     for (const yearF of yearFolders) {
+      const yNum = extractDiaryYear(yearF);
+      if (!yNum) continue;
+
       const childMonths = refreshedFolders.filter((f) => f.parent_id === yearF.id);
       const monthsByNum = new Map<number, ExtendedFolder[]>();
 
@@ -331,44 +403,156 @@ export async function reconcileAndDeduplicateDiary(userId: string): Promise<void
       }
 
       for (const [mNum, foldersForMonth] of monthsByNum.entries()) {
-        if (foldersForMonth.length <= 1) continue;
+        const canonicalMonthId = getDeterministicDiaryMonthFolderId(userId, yNum, mNum);
+        const exactMonth = foldersForMonth.find((f) => f.id === canonicalMonthId);
 
-        // Ordena: o mais antigo é o canônico
-        foldersForMonth.sort((a, b) => {
-          const tA = new Date(a.created_at || 0).getTime();
-          const tB = new Date(b.created_at || 0).getTime();
-          return tA - tB;
-        });
+        let canonicalMonth: ExtendedFolder;
+        let duplicateMonths: ExtendedFolder[];
 
-        const canonicalMonth = foldersForMonth[0];
-        const duplicateMonths = foldersForMonth.slice(1);
+        if (exactMonth) {
+          canonicalMonth = exactMonth;
+          duplicateMonths = foldersForMonth.filter((f) => f.id !== canonicalMonthId);
+        } else {
+          foldersForMonth.sort((a, b) => {
+            const tA = new Date(a.created_at || 0).getTime();
+            const tB = new Date(b.created_at || 0).getTime();
+            return tA - tB;
+          });
+          canonicalMonth = foldersForMonth[0];
+          duplicateMonths = foldersForMonth.slice(1);
+        }
 
+        // Reatribui notas de meses duplicados para o mês canônico
         for (const dupMonth of duplicateMonths) {
           foldersToDelete.add(dupMonth.id);
 
-          // Move todas as notas do mês duplicado para o mês canônico
           for (const note of allLocalNotes) {
             if (note.folder_id === dupMonth.id) {
               note.folder_id = canonicalMonth.id;
+              note.diary_year = yNum;
               note.diary_month = mNum;
               notesToUpdate.push(note);
             }
           }
         }
+
+        // 3. DEDUPLICAÇÃO DEFENSIVA DE NOTAS DO MESMO DIA SOB ESTE MÊS
+        const allMonthFolderIds = new Set([canonicalMonth.id, ...duplicateMonths.map((d) => d.id)]);
+        const notesInMonth = allLocalNotes.filter(
+          (n) => !n.is_archived && (
+            (n.folder_id && allMonthFolderIds.has(n.folder_id)) ||
+            (n.diary_year === yNum && n.diary_month === mNum)
+          )
+        );
+
+        // Agrupa notas por dia (1..31)
+        const notesByDayMap = new Map<number, ExtendedNote[]>();
+        for (const n of notesInMonth) {
+          let day = n.diary_day;
+          if (!day && n.entry_date) {
+            day = parseDiaryDate(n.entry_date).day;
+          }
+          if (!day && typeof n.position === 'number' && n.position >= 1 && n.position <= 31) {
+            day = n.position;
+          }
+          if (!day && n.title) {
+            const match = n.title.match(/(?:Dia\s+|#\s*)0*([1-9]|[12]\d|3[01])\b/i);
+            if (match) day = parseInt(match[1], 10);
+          }
+
+          if (day && day >= 1 && day <= 31) {
+            const list = notesByDayMap.get(day) || [];
+            list.push(n);
+            notesByDayMap.set(day, list);
+          }
+        }
+
+        for (const [dayNum, dayNotes] of notesByDayMap.entries()) {
+          if (dayNotes.length <= 1) continue;
+
+          // Mais de uma nota para o mesmo dia! Unificação segura e não destrutiva:
+          // Ordena priorizando: ID determinístico > conteúdo mais rico > mais recente
+          const canonicalNoteId = getDeterministicDiaryNoteId(userId, yNum, mNum, dayNum);
+          dayNotes.sort((a, b) => {
+            if (a.id === canonicalNoteId) return -1;
+            if (b.id === canonicalNoteId) return 1;
+            const lenA = (a.content || '').trim().length;
+            const lenB = (b.content || '').trim().length;
+            if (lenA !== lenB) return lenB - lenA; // Conteúdo mais longo primeiro
+            return new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime();
+          });
+
+          const canonicalNote = dayNotes[0];
+          const duplicateNotes = dayNotes.slice(1);
+
+          const norm = (s?: string) => (s || '').trim();
+          let mergedContent = norm(canonicalNote.content);
+          let mergedTags = new Set(canonicalNote.tags || []);
+
+          for (const dupNote of duplicateNotes) {
+            notesToDelete.add(dupNote.id);
+
+            const dupText = norm(dupNote.content);
+            if (dupText && !mergedContent.includes(dupText)) {
+              if (mergedContent) {
+                mergedContent = `${mergedContent}\n\n---\n\n${dupText}`;
+              } else {
+                mergedContent = dupText;
+              }
+            }
+
+            if (Array.isArray(dupNote.tags)) {
+              for (const t of dupNote.tags) mergedTags.add(t);
+            }
+
+            // Reatribui anexos da nota duplicada para a nota canônica no IndexedDB
+            try {
+              const dupAttachments = await indexedDBStorage.getAttachmentsByNoteId(userId, dupNote.id);
+              for (const att of dupAttachments) {
+                await indexedDBStorage.putAttachment(userId, {
+                  ...att,
+                  note_id: canonicalNote.id,
+                });
+              }
+            } catch (attErr) {
+              console.warn('[Diary] Erro ao reassociar anexos de nota duplicada:', attErr);
+            }
+          }
+
+          const cleanDate = buildDiaryDateString(yNum, mNum, dayNum);
+          mergedTags.add('diary');
+          mergedTags.add(`diary:${cleanDate}`);
+          mergedTags.add(`day:${dayNum}`);
+
+          canonicalNote.content = mergedContent;
+          canonicalNote.tags = Array.from(mergedTags);
+          canonicalNote.folder_id = canonicalMonth.id;
+          canonicalNote.diary_year = yNum;
+          canonicalNote.diary_month = mNum;
+          canonicalNote.diary_day = dayNum;
+          canonicalNote.entry_date = cleanDate;
+          canonicalNote.position = dayNum;
+          canonicalNote.workspace_type = 'diary';
+          canonicalNote.updated_at = new Date().toISOString();
+          canonicalNote.syncRequired = true;
+
+          notesToUpdate.push(canonicalNote);
+        }
       }
     }
 
-    // Aplica atualizações no IndexedDB
+    // Aplica atualizações e deduplicações no IndexedDB
     for (const f of foldersToUpdate) {
       await indexedDBStorage.putFolder(userId, f);
     }
     for (const n of notesToUpdate) {
       await indexedDBStorage.putNote(userId, n);
     }
-
-    // Exclui pastas duplicadas do IndexedDB
     for (const delId of foldersToDelete) {
       await indexedDBStorage.deleteFolder(userId, delId);
+    }
+    for (const delNoteId of notesToDelete) {
+      await indexedDBStorage.deleteNote(userId, delNoteId);
     }
 
     // Se estiver online com o Supabase, sincroniza a exclusão e atualizações no banco remoto
@@ -377,7 +561,14 @@ export async function reconcileAndDeduplicateDiary(userId: string): Promise<void
 
       if (notesToUpdate.length > 0) {
         for (const n of notesToUpdate) {
-          await supabase.from('notes').update({ folder_id: n.folder_id }).eq('id', n.id);
+          await supabase.from('notes').update({
+            folder_id: n.folder_id,
+            content: n.content,
+            tags: n.tags,
+            title: n.title,
+            position: n.position,
+            updated_at: n.updated_at,
+          }).eq('id', n.id);
         }
       }
 
@@ -392,6 +583,12 @@ export async function reconcileAndDeduplicateDiary(userId: string): Promise<void
         await supabase.from('folders').delete().in('id', toDeleteArr);
         console.log(`[Diary] Limpeza remota: ${toDeleteArr.length} pastas duplicadas excluídas do Supabase.`);
       }
+
+      if (notesToDelete.size > 0) {
+        const toDeleteNotesArr = Array.from(notesToDelete);
+        await supabase.from('notes').delete().in('id', toDeleteNotesArr);
+        console.log(`[Diary] Limpeza remota: ${toDeleteNotesArr.length} notas duplicadas excluídas do Supabase.`);
+      }
     }
   } catch (err) {
     console.error('[Diary] Erro ao reconciliar e deduplicar diário:', err);
@@ -401,7 +598,8 @@ export async function reconcileAndDeduplicateDiary(userId: string): Promise<void
 /**
  * Obtém ou cria a entrada diária para uma determinada data (YYYY-MM-DD).
  * Regra obrigatória: 1 ANO + 1 MÊS + 1 DIA = NO MÁXIMO 1 NOTA.
- * A criação é rigorosamente idempotente e protegida contra concorrência e cliques rápidos.
+ * A criação é rigorosamente idempotente e protegida contra concorrência e cliques rápidos
+ * utilizando chave determinística (owner + ano + mês + dia).
  */
 export async function getOrCreateDiaryEntry(
   userId: string,
@@ -414,6 +612,7 @@ export async function getOrCreateDiaryEntry(
 
   const { year, month, day } = parseDiaryDate(dateStr);
   const cleanDate = buildDiaryDateString(year, month, day);
+  const deterministicNoteId = getDeterministicDiaryNoteId(userId, year, month, day);
 
   const mutexKey = `${userId}:${cleanDate}`;
   const existingInFlight = inFlightEntryCreations.get(mutexKey);
@@ -423,35 +622,61 @@ export async function getOrCreateDiaryEntry(
 
   const promise = (async () => {
     try {
-      // 1. Verifica no IndexedDB local se já existe nota para este dia
+      // 1. Garante que as pastas canônicas do Ano e Mês existam estruturalmente
+      const { monthFolders } = await ensureDiaryYearFolders(userId, year);
+      const targetMonthFolder =
+        monthFolders.find((f) => extractDiaryMonth(f) === month) || monthFolders[month - 1];
+
+      // 2. Verifica no IndexedDB local se já existe nota para este dia
       const allNotes = await indexedDBStorage.getAllNotes(userId);
-      const existingLocal = allNotes.find((n) => {
-        if (n.is_archived) return false;
-        if (n.entry_date && n.entry_date.trim() === cleanDate) return true;
-        if (n.diary_year === year && n.diary_month === month && n.diary_day === day) return true;
-        return false;
-      });
+
+      // Prioridade 1: ID determinístico
+      let existingLocal = allNotes.find((n) => n.id === deterministicNoteId && !n.is_archived);
+
+      // Prioridade 2: Metadados estruturais de data
+      if (!existingLocal) {
+        existingLocal = allNotes.find((n) => {
+          if (n.is_archived) return false;
+          if (n.entry_date && n.entry_date.trim() === cleanDate) return true;
+          if (n.diary_year === year && n.diary_month === month && n.diary_day === day) return true;
+          if (
+            targetMonthFolder &&
+            n.folder_id === targetMonthFolder.id &&
+            (n.diary_day === day || n.position === day)
+          ) {
+            return true;
+          }
+          return false;
+        });
+      }
 
       if (existingLocal) {
         return { note: existingLocal, isNew: false };
       }
 
-      // 2. Se online, verifica no Supabase se já foi criada em outro lugar
+      // 3. Se online, verifica no Supabase se já foi criada em outro lugar
       if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
         try {
           const supabase = createClient();
-          const { data: remoteNotes } = await supabase
+
+          // 3.1 Busca primeiro pelo ID determinístico
+          const { data: remoteById } = await supabase
             .from('notes')
             .select('*')
-            .eq('user_id', userId)
-            .eq('entry_date', cleanDate)
+            .eq('id', deterministicNoteId)
             .eq('is_archived', false)
             .limit(1);
 
-          if (remoteNotes && remoteNotes.length > 0) {
-            const remoteRecord = remoteNotes[0];
+          if (remoteById && remoteById.length > 0) {
+            const remoteRecord = remoteById[0];
             const remoteNote: ExtendedNote = {
               ...remoteRecord,
+              workspace_type: 'diary',
+              entry_date: cleanDate,
+              diary_year: year,
+              diary_month: month,
+              diary_day: day,
+              position: day,
               syncRequired: false,
               syncStatus: 'synced',
               sync_status: 'synced',
@@ -460,28 +685,53 @@ export async function getOrCreateDiaryEntry(
             await indexedDBStorage.putNote(userId, remoteNote);
             return { note: remoteNote, isNew: false };
           }
+
+          // 3.2 Busca se existe nota na pasta do mês com esta posição
+          if (targetMonthFolder) {
+            const { data: remoteByFolder } = await supabase
+              .from('notes')
+              .select('*')
+              .eq('user_id', userId)
+              .eq('folder_id', targetMonthFolder.id)
+              .eq('position', day)
+              .eq('is_archived', false)
+              .limit(1);
+
+            if (remoteByFolder && remoteByFolder.length > 0) {
+              const remoteRecord = remoteByFolder[0];
+              const remoteNote: ExtendedNote = {
+                ...remoteRecord,
+                workspace_type: 'diary',
+                entry_date: cleanDate,
+                diary_year: year,
+                diary_month: month,
+                diary_day: day,
+                position: day,
+                syncRequired: false,
+                syncStatus: 'synced',
+                sync_status: 'synced',
+                needs_sync: false,
+              };
+              await indexedDBStorage.putNote(userId, remoteNote);
+              return { note: remoteNote, isNew: false };
+            }
+          }
         } catch (err) {
           console.warn('[Diary] Verificação remota de nota falhou, prosseguindo com criação:', err);
         }
       }
 
-      // 3. Garante que as pastas canônicas do Ano e Mês existam estruturalmente
-      const { monthFolders } = await ensureDiaryYearFolders(userId, year);
-      const targetMonthFolder =
-        monthFolders.find((f) => extractDiaryMonth(f) === month) || monthFolders[month - 1];
-
-      // 4. Cria a nova nota diária (LAZY)
-      const noteId = generateUUID();
+      // 4. Cria a nova nota diária usando a chave determinística (LAZY)
       const title = formatDiaryTitle(day, customTitle);
 
       const newDiaryNote: ExtendedNote = {
-        id: noteId,
+        id: deterministicNoteId,
         user_id: userId,
         folder_id: targetMonthFolder ? targetMonthFolder.id : null,
         title,
         content: '',
         position: day,
-        tags: [],
+        tags: ['diary', `diary:${cleanDate}`, `day:${day}`],
         workspace_type: 'diary',
         entry_date: cleanDate,
         diary_year: year,
@@ -499,7 +749,7 @@ export async function getOrCreateDiaryEntry(
       await indexedDBStorage.enqueueSyncItem(userId, {
         action: 'CREATE_NOTE',
         entity_type: 'note',
-        entity_id: noteId,
+        entity_id: deterministicNoteId,
         payload: newDiaryNote,
         revision: 1,
       });

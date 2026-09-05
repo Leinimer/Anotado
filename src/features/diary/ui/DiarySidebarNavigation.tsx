@@ -335,14 +335,31 @@ export function DiarySidebarNavigation({
         }
 
         // Mapa de notas existentes por dia (1 nota por dia)
+        // Se houver mais de uma nota para o mesmo dia, prioriza a que tem conteúdo ou a nota ativa
         const notesByDay = new Map<number, Note>();
         monthNotes.forEach((note) => {
           let day = note.diary_day;
           if (!day && note.entry_date) {
             day = parseDiaryDate(note.entry_date).day;
           }
-          if (day && day >= 1 && day <= daysInMonth && !notesByDay.has(day)) {
-            notesByDay.set(day, note);
+          if (!day && typeof note.position === 'number' && note.position >= 1 && note.position <= daysInMonth) {
+            day = note.position;
+          }
+          if (!day && note.title) {
+            const m = note.title.match(/(?:Dia\s+|#\s*)0*([1-9]|[12]\d|3[01])\b/i);
+            if (m) day = parseInt(m[1], 10);
+          }
+          if (day && day >= 1 && day <= daysInMonth) {
+            const existing = notesByDay.get(day);
+            if (!existing) {
+              notesByDay.set(day, note);
+            } else {
+              const currentContent = (note.content || '').trim();
+              const existingContent = (existing.content || '').trim();
+              if (note.id === activeNoteId || (!existingContent && currentContent)) {
+                notesByDay.set(day, note);
+              }
+            }
           }
         });
 
@@ -368,7 +385,7 @@ export function DiarySidebarNavigation({
         totalNotes: totalNotesInYear,
       };
     });
-  }, [folders, notes, searchQuery, currentYear, userId]);
+  }, [folders, notes, searchQuery, currentYear, userId, activeNoteId]);
 
   // Drag and Drop para Entradas Diárias
   const handleNoteDragStart = (e: React.DragEvent, noteId: string) => {

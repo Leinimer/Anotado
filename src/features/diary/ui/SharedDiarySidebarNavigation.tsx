@@ -135,11 +135,14 @@ export function SharedDiarySidebarNavigation({
         }
       }
 
-      const sortedMonthNums = Array.from(monthsMap.keys()).sort((a, b) => a - b);
+      // 3. Garante exatamente os 12 meses (Janeiro a Dezembro) para cada ano
+      const all12Months = Array.from({ length: 12 }, (_, i) => i + 1);
       let totalYearNotes = 0;
 
-      const months = sortedMonthNums.map((monthNum) => {
-        const { monthFolder, folderIds: monthFolderIds } = monthsMap.get(monthNum)!;
+      const months = all12Months.map((monthNum) => {
+        const monthData = monthsMap.get(monthNum);
+        const monthFolder = monthData?.monthFolder;
+        const monthFolderIds = monthData?.folderIds || new Set<string>();
 
         // Notas pertencentes a esse mês
         const monthNotesList = notes.filter(
@@ -149,13 +152,38 @@ export function SharedDiarySidebarNavigation({
               (n.diary_year === yearNum && n.diary_month === monthNum))
         );
 
-        // Deduplica notas por id
-        const uniqueNotesMap = new Map<string, Note>();
+        // Deduplica notas por DIA (1 nota por dia)
+        // Se houver mais de uma nota para o mesmo dia, prioriza a que tem conteúdo ou a ativa
+        const notesByDay = new Map<number, Note>();
         for (const n of monthNotesList) {
-          uniqueNotesMap.set(n.id, n);
+          let day = n.diary_day;
+          if (!day && n.entry_date) {
+            const parts = n.entry_date.split('-');
+            if (parts.length === 3) day = parseInt(parts[2], 10);
+          }
+          if (!day && typeof n.position === 'number' && n.position >= 1 && n.position <= 31) {
+            day = n.position;
+          }
+          if (!day && n.title) {
+            const m = n.title.match(/(?:Dia\s+|#\s*)0*([1-9]|[12]\d|3[01])\b/i);
+            if (m) day = parseInt(m[1], 10);
+          }
+
+          if (day && day >= 1 && day <= 31) {
+            const existing = notesByDay.get(day);
+            if (!existing) {
+              notesByDay.set(day, n);
+            } else {
+              const currentContent = (n.content || '').trim();
+              const existingContent = (existing.content || '').trim();
+              if (n.id === activeNoteId || (!existingContent && currentContent)) {
+                notesByDay.set(day, n);
+              }
+            }
+          }
         }
 
-        const sortedNotes = Array.from(uniqueNotesMap.values()).sort((a, b) => {
+        const sortedNotes = Array.from(notesByDay.values()).sort((a, b) => {
           if (a.entry_date && b.entry_date) {
             return a.entry_date.localeCompare(b.entry_date);
           }
@@ -179,7 +207,7 @@ export function SharedDiarySidebarNavigation({
         totalNotes: totalYearNotes,
       };
     });
-  }, [folders, notes]);
+  }, [folders, notes, activeNoteId]);
 
   // Handler rápido para abrir "Hoje"
   const handleOpenToday = () => {
