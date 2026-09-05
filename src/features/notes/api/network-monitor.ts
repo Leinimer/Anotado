@@ -91,6 +91,11 @@ class NetworkMonitor {
     this.isCheckingProbe = true;
 
     try {
+      if (!isSupabaseConfigured()) {
+        this.isBackendReachable = true;
+        return true;
+      }
+
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
       if (!supabaseUrl || !anonKey) {
@@ -102,10 +107,10 @@ class NetworkMonitor {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-      // Probe leve no endpoint health ou rest do Supabase
-      const pingUrl = `${supabaseUrl}/rest/v1/`;
+      // Probe leve no endpoint oficial de health do Supabase Auth (retorna 200 OK sem requerer secret key)
+      const pingUrl = `${supabaseUrl}/auth/v1/health`;
       const response = await fetch(pingUrl, {
-        method: 'HEAD',
+        method: 'GET',
         headers: {
           apikey: anonKey,
         },
@@ -115,7 +120,7 @@ class NetworkMonitor {
 
       clearTimeout(timeoutId);
 
-      const reachable = response.status >= 200 && response.status < 500;
+      const reachable = response.ok;
       this.isOnline = true;
       this.isBackendReachable = reachable;
 

@@ -91,9 +91,9 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Aplica o middleware em todas as rotas exceto arquivos estáticos,
-     * imagens e rotas internas do Next.js
+     * Aplica o middleware em rotas da aplicação, exceto arquivos estáticos,
+     * manifestos, imagens e rotas de suporte da infraestrutura
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest|manifest\\.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|html|js|css)$).*)',
   ],
 };

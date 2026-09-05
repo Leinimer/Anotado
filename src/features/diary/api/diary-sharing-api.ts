@@ -197,9 +197,8 @@ export async function findUserByEmail(email: string): Promise<FindUserResult> {
 
   try {
     // 0. Verifica se o usuário atual possui sessão autenticada antes de chamar a RPC
-    const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser();
-    if (authError || !currentUser?.id) {
-      console.error('[Compartilhamento] Usuário não autenticado ao buscar destinatário:', authError);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) {
       return {
         success: false,
         user: null,
@@ -220,6 +219,15 @@ export async function findUserByEmail(email: string): Promise<FindUserResult> {
         details: error?.details,
         hint: error?.hint,
       });
+
+      if (error.code === '42501' || (error as any).status === 401) {
+        return {
+          success: false,
+          user: null,
+          notFound: false,
+          error: 'Sessão não autorizada ou expirada. Faça login novamente.',
+        };
+      }
 
       if (error.code === 'PGRST202') {
         console.warn(

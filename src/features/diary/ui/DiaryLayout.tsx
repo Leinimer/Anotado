@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { Calendar, Plus, Menu } from 'lucide-react';
 import { DiarySidebarNavigation } from './DiarySidebarNavigation';
 import { NoteCanvas } from '@/src/features/notes/ui/NoteCanvas';
 import { CreateDiaryEntryModal } from '@/src/features/notes/ui/CreateDiaryEntryModal';
@@ -25,8 +26,21 @@ import {
   getOrCreateTodayDiaryEntry,
   getOrCreateDiaryEntry,
   createDiaryYear,
+  ensureDiaryYearFolders,
+  reconcileAndDeduplicateDiary,
+  deleteDiaryFolder,
+  renameDiaryFolder,
 } from '@/src/features/notes/api/diary-api';
-import { formatDiaryDate } from '@/src/features/notes/utils/diary-date';
+import {
+  formatDiaryDate,
+  getLocalDateString,
+  buildDiaryDateString,
+  formatDateReadable,
+} from '@/src/features/notes/utils/diary-date';
+import {
+  isDiaryFolder,
+  isDiaryNote,
+} from '@/src/features/notes/utils/diary-hierarchy';
 import { ShareDiaryModal } from './ShareDiaryModal';
 import { PendingInvitationModal } from './PendingInvitationModal';
 import {
@@ -66,9 +80,9 @@ export function DiaryLayout() {
     const unsubscribeSync = syncEngine.subscribeToData(({ folders: newFolders, notes: newNotes }) => {
       if (!isMounted) return;
 
-      // Filtra apenas dados do Diário
-      const diaryNewFolders = newFolders.filter((f) => f.workspace_type === 'diary');
-      const diaryNewNotes = newNotes.filter((n) => n.workspace_type === 'diary');
+      // Filtra usando a hierarquia real do Diário (sem depender exclusivamente de workspace_type)
+      const diaryNewFolders = newFolders.filter((f) => isDiaryFolder(f, newFolders));
+      const diaryNewNotes = newNotes.filter((n) => isDiaryNote(n, newFolders));
 
       setFolders((prevFolders) => {
         const pendingFolderMap = new Map(
@@ -184,7 +198,6 @@ export function DiaryLayout() {
           console.warn('[DiaryLayout] Erro ao carregar compartilhamentos recebidos:', err);
         });
 
-        // Escuta convites e alterações em tempo real na tabela diary_shares
         sharesChannel = supabase
           .channel(`viewer_shares_${uid}`)
           .on(
@@ -223,33 +236,36 @@ export function DiaryLayout() {
       }
 
       try {
-        // Carrega exclusivamente pastas e notas do Diário
+        // Reconcilia e deduplica pastas de ano e meses no Diário
+        await reconcileAndDeduplicateDiary(uid);
+
+        // Garante que o ano atual (2026) e seus 12 meses existam na estrutura
+        const currentYear = new Date().getFullYear();
+        await ensureDiaryYearFolders(uid, currentYear);
+
+        // Carrega pastas e notas
         const initialData = await fetchFoldersAndNotes(uid, 'diary');
         if (!isMounted) return;
 
-        let loadedFolders = initialData.folders.filter((f) => f.workspace_type === 'diary');
-        let loadedNotes = initialData.notes.filter((n) => n.workspace_type === 'diary');
-
-        // Se o Diário estiver vazio, cria automaticamente a entrada de Hoje e a estrutura do ano
-        if (loadedNotes.length === 0) {
-          try {
-            const { note: todayNote } = await getOrCreateTodayDiaryEntry(uid);
-            loadedNotes = [todayNote];
-            loadedFolders = await indexedDBStorage.getAllFolders(uid, 'diary');
-          } catch (diaryInitErr) {
-            console.warn('[DiaryLayout] Aviso ao auto-criar entrada de hoje:', diaryInitErr);
-          }
-        }
+        const allFolders = initialData.folders;
+        const loadedFolders = allFolders.filter((f) => isDiaryFolder(f, allFolders));
+        const loadedNotes = initialData.notes.filter((n) => isDiaryNote(n, allFolders));
 
         setFolders(loadedFolders);
         setNotes(loadedNotes);
 
-        // Restaura entrada ativa salva na sessão ou seleciona a primeira
-        const savedActiveId = sessionStorage.getItem('anotado_active_diary_id');
-        if (savedActiveId && loadedNotes.some((n) => n.id === savedActiveId)) {
-          setActiveNoteId(savedActiveId);
-        } else if (loadedNotes.length > 0) {
-          setActiveNoteId(loadedNotes[0].id);
+        // REGRA 3: Ao abrir o Diário:
+        // - seleciona o dia atual;
+        // - se a nota do dia atual existir, abre seu conteúdo;
+        // - se NÃO existir, NÃO cria automaticamente. A nota só nasce quando o usuário clicar no dia.
+        const todayStr = getLocalDateString();
+        const todayNote = loadedNotes.find((n) => n.entry_date === todayStr);
+
+        if (todayNote) {
+          setActiveNoteId(todayNote.id);
+        } else {
+          // Não cria automaticamente!
+          setActiveNoteId(null);
         }
       } catch (err) {
         console.error('[DiaryLayout] Erro na inicialização:', err);
@@ -258,9 +274,29 @@ export function DiaryLayout() {
 
     initAuthAndData();
 
+    let authSubscription: any = null;
+    if (isSupabaseConfigured()) {
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((event: any, session: any) => {
+        if (!isMounted) return;
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+          if (session?.user?.id && session.user.id !== userId) {
+            setUserId(session.user.id);
+            if (session.user.email) setUserEmail(session.user.email);
+            initAuthAndData();
+          }
+        }
+      });
+      authSubscription = subscription;
+    }
+
     return () => {
       isMounted = false;
       unsubscribeSync();
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
       if (sharesChannel) {
         supabase.removeChannel(sharesChannel);
       }
@@ -323,7 +359,6 @@ export function DiaryLayout() {
 
   // Alterna suavemente para a página de Notas
   const handleToggleWorkspace = useCallback(() => {
-    // Salva pendências antes da troca
     flushAllPendingSaves();
     router.push('/notes');
   }, [router]);
@@ -338,13 +373,14 @@ export function DiaryLayout() {
   const handleOpenToday = useCallback(async () => {
     if (!userId) return;
     try {
-      const { note: todayNote } = await getOrCreateTodayDiaryEntry(userId);
+      const { note: todayNote, isNew } = await getOrCreateTodayDiaryEntry(userId);
       setNotes((prev) => {
         if (prev.some((n) => n.id === todayNote.id)) return prev;
         return [todayNote, ...prev];
       });
-      const updatedFolders = await indexedDBStorage.getAllFolders(userId, 'diary');
-      setFolders(updatedFolders);
+      const allFolders = await indexedDBStorage.getAllFolders(userId);
+      setFolders(allFolders.filter((f) => isDiaryFolder(f, allFolders)));
+      setIsNewNoteJustCreated(isNew);
       setActiveNoteId(todayNote.id);
     } catch (err) {
       console.error('[DiaryLayout] Erro ao abrir entrada de hoje:', err);
@@ -356,15 +392,17 @@ export function DiaryLayout() {
     async (dateStr: string, customTitle?: string) => {
       if (!userId) return;
       try {
-        const { note: entryNote } = await getOrCreateDiaryEntry(userId, dateStr, customTitle);
+        const { note: entryNote, isNew } = await getOrCreateDiaryEntry(userId, dateStr, customTitle);
         setNotes((prev) => {
-          if (prev.some((n) => n.id === entryNote.id)) return prev;
+          if (prev.some((n) => n.id === entryNote.id)) {
+            return prev.map((n) => (n.id === entryNote.id ? entryNote : n));
+          }
           return [entryNote, ...prev];
         });
-        const updatedFolders = await indexedDBStorage.getAllFolders(userId, 'diary');
-        setFolders(updatedFolders);
+        const allFolders = await indexedDBStorage.getAllFolders(userId);
+        setFolders(allFolders.filter((f) => isDiaryFolder(f, allFolders)));
+        setIsNewNoteJustCreated(isNew);
         setActiveNoteId(entryNote.id);
-        setIsNewNoteJustCreated(true);
       } catch (err) {
         console.error('[DiaryLayout] Erro ao criar entrada de diário:', err);
       }
@@ -372,10 +410,10 @@ export function DiaryLayout() {
     [userId]
   );
 
-  // Abertura ou criação LAZY de um dia específico (ex: 2026, 9, 3 -> '2026-09-03')
+  // Abertura ou criação LAZY de um dia específico
   const handleOpenOrCreateDay = useCallback(
     async (year: number, month: number, day: number) => {
-      const dateStr = formatDiaryDate(year, month, day);
+      const dateStr = buildDiaryDateString(year, month, day);
       await handleConfirmCreateDiaryEntry(dateStr);
     },
     [handleConfirmCreateDiaryEntry]
@@ -387,8 +425,8 @@ export function DiaryLayout() {
       if (!userId) return;
       try {
         await createDiaryYear(userId, year);
-        const updatedFolders = await indexedDBStorage.getAllFolders(userId, 'diary');
-        setFolders(updatedFolders);
+        const allFolders = await indexedDBStorage.getAllFolders(userId);
+        setFolders(allFolders.filter((f) => isDiaryFolder(f, allFolders)));
       } catch (err) {
         console.error('[DiaryLayout] Erro ao criar ano de diário:', err);
       }
@@ -434,12 +472,38 @@ export function DiaryLayout() {
     async (noteId: string) => {
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
       if (activeNoteId === noteId) {
-        const remaining = notes.filter((n) => n.id !== noteId);
-        setActiveNoteId(remaining.length > 0 ? remaining[0].id : null);
+        setActiveNoteId(null);
       }
       await deleteNote(userId, noteId);
     },
-    [userId, activeNoteId, notes]
+    [userId, activeNoteId]
+  );
+
+  // Exclusão de pasta (Ano ou Mês) com suporte a exclusão em cascata
+  const handleDeleteFolder = useCallback(
+    async (folderId: string, cascade: boolean) => {
+      if (!userId) return;
+      await deleteDiaryFolder(userId, folderId, cascade);
+      const updatedFolders = await indexedDBStorage.getAllFolders(userId);
+      const updatedNotes = await indexedDBStorage.getAllNotes(userId);
+      setFolders(updatedFolders.filter((f) => isDiaryFolder(f, updatedFolders)));
+      setNotes(updatedNotes.filter((n) => isDiaryNote(n, updatedFolders)));
+      if (activeNote && (activeNote.folder_id === folderId || !updatedNotes.some((n) => n.id === activeNote.id))) {
+        setActiveNoteId(null);
+      }
+    },
+    [userId, activeNote]
+  );
+
+  // Renomear pasta (Ano ou Mês)
+  const handleRenameFolder = useCallback(
+    async (folderId: string, newName: string) => {
+      if (!userId) return;
+      await renameDiaryFolder(userId, folderId, newName);
+      const updatedFolders = await indexedDBStorage.getAllFolders(userId);
+      setFolders(updatedFolders.filter((f) => isDiaryFolder(f, updatedFolders)));
+    },
+    [userId]
   );
 
   // Mover entrada entre meses
@@ -467,6 +531,8 @@ export function DiaryLayout() {
     [userId]
   );
 
+  const todayReadable = useMemo(() => formatDateReadable(getLocalDateString()), []);
+
   return (
     <div id="diary-layout-root" className="flex h-screen w-screen overflow-hidden bg-[#faf8f5]">
       {/* Botão Hambúrguer Mobile */}
@@ -478,9 +544,7 @@ export function DiaryLayout() {
           className="p-2 bg-[#fbf9f4] border border-[#eae8e3] rounded-xl shadow-xs text-[#1b1c19] hover:bg-[#eae8e3] transition-colors cursor-pointer"
           aria-label="Abrir Menu do Diário"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
+          <Menu className="w-5 h-5" />
         </button>
       </div>
 
@@ -498,6 +562,8 @@ export function DiaryLayout() {
           onOpenToday={handleOpenToday}
           onDeleteNote={handleDeleteNote}
           onRenameNote={handleUpdateTitle}
+          onDeleteFolder={handleDeleteFolder}
+          onRenameFolder={handleRenameFolder}
           onMoveItem={handleMoveItem}
           onToggleWorkspace={handleToggleWorkspace}
           onOpenShareModal={() => setIsShareModalOpen(true)}
@@ -518,8 +584,8 @@ export function DiaryLayout() {
               notes={notes}
               activeNoteId={activeNoteId}
               userId={userId}
-              onSelectNote={(id) => {
-                handleSelectNote(id);
+              onSelectNote={(noteId) => {
+                handleSelectNote(noteId);
                 setMobileSidebarOpen(false);
               }}
               onOpenOrCreateDay={(y, m, d) => {
@@ -540,6 +606,8 @@ export function DiaryLayout() {
               }}
               onDeleteNote={handleDeleteNote}
               onRenameNote={handleUpdateTitle}
+              onDeleteFolder={handleDeleteFolder}
+              onRenameFolder={handleRenameFolder}
               onMoveItem={handleMoveItem}
               onToggleWorkspace={handleToggleWorkspace}
               onCloseMobile={() => setMobileSidebarOpen(false)}
@@ -553,19 +621,57 @@ export function DiaryLayout() {
         </div>
       )}
 
-      {/* Canvas do Editor (mesmo editor rico de Notas) */}
-      <NoteCanvas
-        key={activeNote?.id || 'diary-empty'}
-        activeNote={activeNote}
-        onUpdateTitle={handleUpdateTitle}
-        onUpdateContent={handleUpdateContent}
-        onUpdateTags={handleUpdateTags}
-        onDeleteNote={handleDeleteNote}
-        onCreateNewNote={() => setIsDiaryEntryModalOpen(true)}
-        onOpenMobileMenu={() => setMobileSidebarOpen(true)}
-        userId={userId}
-        isNewNoteJustCreated={isNewNoteJustCreated}
-      />
+      {/* Canvas do Editor ou Estado Vazio elegante do Diário */}
+      {activeNote ? (
+        <NoteCanvas
+          key={activeNote.id}
+          activeNote={activeNote}
+          onUpdateTitle={handleUpdateTitle}
+          onUpdateContent={handleUpdateContent}
+          onUpdateTags={handleUpdateTags}
+          onDeleteNote={handleDeleteNote}
+          onCreateNewNote={() => setIsDiaryEntryModalOpen(true)}
+          onOpenMobileMenu={() => setMobileSidebarOpen(true)}
+          userId={userId}
+          isNewNoteJustCreated={isNewNoteJustCreated}
+        />
+      ) : (
+        <main
+          id="diary-empty-canvas"
+          className="flex-1 flex flex-col h-full bg-[#fbf9f4] items-center justify-center p-6 text-center select-none relative"
+        >
+          <div className="max-w-md space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-[#f4dfcb] text-[#68594d] mx-auto flex items-center justify-center shadow-xs">
+              <Calendar className="w-8 h-8 stroke-[1.5]" />
+            </div>
+
+            <div className="space-y-1">
+              <h2 className="font-serif-note font-bold text-2xl text-[#1b1c19]">
+                Hoje, {todayReadable}
+              </h2>
+              <p className="font-sans-ui text-sm text-[#7f756e]">
+                Nenhuma anotação criada para hoje ainda.
+              </p>
+            </div>
+
+            <p className="font-sans-ui text-xs text-[#a1968e] max-w-xs mx-auto leading-relaxed">
+              O diário mantém seus dias virtuais organizados. A anotação só nasce quando você começar a escrever.
+            </p>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                id="diary-start-today-btn"
+                onClick={handleOpenToday}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Começar a Escrever Hoje</span>
+              </button>
+            </div>
+          </div>
+        </main>
+      )}
 
       {/* Modais do Diário */}
       <CreateDiaryEntryModal
@@ -582,7 +688,7 @@ export function DiaryLayout() {
         existingYears={existingDiaryYears}
       />
 
-      {/* Modal de Compartilhamento do Diário (Convidar e Gerenciar) */}
+      {/* Modal de Compartilhamento do Diário */}
       <ShareDiaryModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
@@ -593,7 +699,7 @@ export function DiaryLayout() {
       {/* Modal de Notificação / Aceite de Convite Recebido */}
       <PendingInvitationModal
         invitation={pendingInvitation}
-        onAccepted={(shareId) => {
+        onAccepted={() => {
           setPendingInvitation(null);
           if (userId && userId !== 'local-user') {
             fetchIncomingShares(userId).then((shares) => {

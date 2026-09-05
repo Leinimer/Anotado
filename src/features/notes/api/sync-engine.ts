@@ -319,7 +319,7 @@ class SyncEngine {
    * Garante exatamente 1 canal por userId e reutiliza adequadamente.
    */
   private setupRealtimeSubscription(userId: string) {
-    if (!isSupabaseConfigured() || !userId || typeof window === 'undefined') return;
+    if (!isSupabaseConfigured() || !userId || userId === 'demo-user' || userId === 'local-user' || typeof window === 'undefined') return;
 
     try {
       const supabase = createClient();
