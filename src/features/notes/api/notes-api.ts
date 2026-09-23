@@ -180,10 +180,13 @@ async function syncTagsAndNoteRelations(
   }
 }
 
+const inFlightFetchFoldersAndNotes = new Map<string, Promise<{ folders: Folder[]; notes: Note[] }>>();
+const inFlightFetchNoteContent = new Map<string, Promise<{ content: string; tags?: string[] }>>();
+
 /**
  * Busca todas as pastas e notas:
  * 1. Lê instantaneamente do IndexedDB (latência < 5ms).
- * 2. Se o usuário estiver online, sincroniza de forma transparente e não-bloqueante com o Supabase.
+ * 2. Se o IndexedDB estiver vazio e estivermos online, popula do Supabase.
  */
 export async function fetchFoldersAndNotes(
   userId: string,
@@ -191,135 +194,145 @@ export async function fetchFoldersAndNotes(
 ): Promise<{ folders: Folder[]; notes: Note[] }> {
   syncEngine.setActiveUser(userId);
 
-  // 1. Leitura imediata do IndexedDB com filtro opcional por espaço
-  try {
-    const localFolders = await indexedDBStorage.getAllFolders(userId, workspaceType);
-    const localNotes = await indexedDBStorage.getAllNotes(userId, workspaceType);
-
-    if (localFolders.length > 0 || localNotes.length > 0) {
-      // Dispara sync incremental em background se online
-      if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-        syncEngine.scheduleSync(500);
-      }
-      return {
-        folders: localFolders.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
-        notes: localNotes.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
-      };
-    }
-  } catch (idbErr) {
-    console.warn('[NotesAPI] Aviso ao ler do IndexedDB:', idbErr);
+  const cacheKey = `${userId}:${workspaceType || 'all'}`;
+  if (inFlightFetchFoldersAndNotes.has(cacheKey)) {
+    return inFlightFetchFoldersAndNotes.get(cacheKey)!;
   }
 
-  // 2. Se o IndexedDB está vazio e estamos online com o Supabase, carrega do servidor e popula o IndexedDB
-  if (
-    isSupabaseConfigured() &&
-    networkMonitor.getState().isBackendReachable &&
-    !networkMonitor.getIsQuotaExceeded()
-  ) {
+  const task = (async (): Promise<{ folders: Folder[]; notes: Note[] }> => {
     try {
-      const supabase = createClient();
-      const [foldersRes, notesRes] = await Promise.all([
-        supabase
-          .from('folders')
-          .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, created_at, updated_at')
-          .eq('user_id', userId)
-          .order('position', { ascending: true })
-          .order('created_at', { ascending: true }),
-        supabase
-          .from('notes')
-          .select('id, user_id, folder_id, title, position, is_archived, previous_folder_id, revision, tags, created_at, updated_at')
-          .eq('user_id', userId)
-          .order('position', { ascending: true })
-          .order('created_at', { ascending: true }),
-      ]);
+      // 1. Leitura imediata do IndexedDB com filtro opcional por espaço
+      try {
+        const localFolders = await indexedDBStorage.getAllFolders(userId, workspaceType);
+        const localNotes = await indexedDBStorage.getAllNotes(userId, workspaceType);
 
-      if (foldersRes.error) {
-        if ((foldersRes.error as any)?.status === 402 || foldersRes.error.message?.includes('exceed_egress_quota')) {
-          networkMonitor.setQuotaExceeded(true, foldersRes.error.message);
-        }
-      }
-      if (notesRes.error) {
-        if ((notesRes.error as any)?.status === 402 || notesRes.error.message?.includes('exceed_egress_quota')) {
-          networkMonitor.setQuotaExceeded(true, notesRes.error.message);
-        }
-      }
-
-      if (!foldersRes.error && !notesRes.error) {
-        const rawFolderList = foldersRes.data || [];
-        const rawYearIds = new Set(
-          rawFolderList
-            .filter((f: any) => !f.parent_id && (f.workspace_type === 'diary' || /^\d{4}$/.test(String(f.name || '').trim())))
-            .map((f: any) => f.id)
-        );
-        const rawDiaryFolderIds = new Set([
-          ...Array.from(rawYearIds),
-          ...rawFolderList.filter((f: any) => f.parent_id && rawYearIds.has(f.parent_id)).map((f: any) => f.id),
-        ]);
-
-        const folders = rawFolderList.map((f: any) => {
-          const isDiary = f.workspace_type === 'diary' || rawDiaryFolderIds.has(f.id);
+        if (localFolders.length > 0 || localNotes.length > 0) {
           return {
-            ...f,
-            workspace_type: (isDiary ? 'diary' : f.workspace_type || 'notes') as WorkspaceType,
-            syncRequired: false,
-            syncStatus: 'synced',
-            sync_status: 'synced',
-            needs_sync: false,
-            revision: f.revision || 0,
+            folders: localFolders.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
+            notes: localNotes.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
           };
-        }) as ExtendedFolder[];
+        }
+      } catch (idbErr) {
+        console.warn('[NotesAPI] Aviso ao ler do IndexedDB:', idbErr);
+      }
 
-        const notes = (notesRes.data || []).map((n: any) => {
-          let noteTags: string[] = [];
-          if (Array.isArray(n.tags)) {
-            noteTags = normalizeTags(n.tags);
-          } else if (typeof n.tags === 'string') {
-            try {
-              const parsed = JSON.parse(n.tags);
-              noteTags = Array.isArray(parsed) ? normalizeTags(parsed) : [];
-            } catch {
-              noteTags = normalizeTags(n.tags.split(','));
+      // 2. Se o IndexedDB está vazio e estamos online com o Supabase, carrega do servidor e popula o IndexedDB
+      if (
+        isSupabaseConfigured() &&
+        networkMonitor.getState().isBackendReachable &&
+        !networkMonitor.getIsQuotaExceeded()
+      ) {
+        try {
+          const supabase = createClient();
+          const [foldersRes, notesRes] = await Promise.all([
+            supabase
+              .from('folders')
+              .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, created_at, updated_at')
+              .eq('user_id', userId)
+              .order('position', { ascending: true })
+              .order('created_at', { ascending: true }),
+            supabase
+              .from('notes')
+              .select('id, user_id, folder_id, title, position, is_archived, previous_folder_id, revision, tags, created_at, updated_at')
+              .eq('user_id', userId)
+              .order('position', { ascending: true })
+              .order('created_at', { ascending: true }),
+          ]);
+
+          if (foldersRes.error) {
+            if ((foldersRes.error as any)?.status === 402 || foldersRes.error.message?.includes('exceed_egress_quota')) {
+              networkMonitor.setQuotaExceeded(true, foldersRes.error.message);
             }
           }
-          const isDiary = n.workspace_type === 'diary' || (n.folder_id && rawDiaryFolderIds.has(n.folder_id));
-          return {
-            ...n,
-            workspace_type: (isDiary ? 'diary' : n.workspace_type || 'notes') as WorkspaceType,
-            tags: noteTags,
-            syncRequired: false,
-            syncStatus: 'synced',
-            sync_status: 'synced',
-            needs_sync: false,
-            revision: n.revision || 0,
-          };
-        }) as ExtendedNote[];
+          if (notesRes.error) {
+            if ((notesRes.error as any)?.status === 402 || notesRes.error.message?.includes('exceed_egress_quota')) {
+              networkMonitor.setQuotaExceeded(true, notesRes.error.message);
+            }
+          }
 
-        if (folders.length > 0 || notes.length > 0) {
-          // Salva no IndexedDB como sincronizados (sem syncRequired)
-          await indexedDBStorage.putFoldersBatch(userId, folders);
-          await indexedDBStorage.putNotesBatch(userId, notes);
-          await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', new Date().toISOString());
+          if (!foldersRes.error && !notesRes.error) {
+            const rawFolderList = foldersRes.data || [];
+            const rawYearIds = new Set(
+              rawFolderList
+                .filter((f: any) => !f.parent_id && (f.workspace_type === 'diary' || /^\d{4}$/.test(String(f.name || '').trim())))
+                .map((f: any) => f.id)
+            );
+            const rawDiaryFolderIds = new Set([
+              ...Array.from(rawYearIds),
+              ...rawFolderList.filter((f: any) => f.parent_id && rawYearIds.has(f.parent_id)).map((f: any) => f.id),
+            ]);
 
-          const filteredFolders = workspaceType
-            ? folders.filter((f) => (f.workspace_type || 'notes') === workspaceType)
-            : folders;
-          const filteredNotes = workspaceType
-            ? notes.filter((n) => (n.workspace_type || 'notes') === workspaceType)
-            : notes;
+            const folders = rawFolderList.map((f: any) => {
+              const isDiary = f.workspace_type === 'diary' || rawDiaryFolderIds.has(f.id);
+              return {
+                ...f,
+                workspace_type: (isDiary ? 'diary' : f.workspace_type || 'notes') as WorkspaceType,
+                syncRequired: false,
+                syncStatus: 'synced',
+                sync_status: 'synced',
+                needs_sync: false,
+                revision: f.revision || 0,
+              };
+            }) as ExtendedFolder[];
 
-          return { folders: filteredFolders, notes: filteredNotes };
+            const notes = (notesRes.data || []).map((n: any) => {
+              let noteTags: string[] = [];
+              if (Array.isArray(n.tags)) {
+                noteTags = normalizeTags(n.tags);
+              } else if (typeof n.tags === 'string') {
+                try {
+                  const parsed = JSON.parse(n.tags);
+                  noteTags = Array.isArray(parsed) ? normalizeTags(parsed) : [];
+                } catch {
+                  noteTags = normalizeTags(n.tags.split(','));
+                }
+              }
+              const isDiary = n.workspace_type === 'diary' || (n.folder_id && rawDiaryFolderIds.has(n.folder_id));
+              return {
+                ...n,
+                workspace_type: (isDiary ? 'diary' : n.workspace_type || 'notes') as WorkspaceType,
+                tags: noteTags,
+                syncRequired: false,
+                syncStatus: 'synced',
+                sync_status: 'synced',
+                needs_sync: false,
+                revision: n.revision || 0,
+              };
+            }) as ExtendedNote[];
+
+            if (folders.length > 0 || notes.length > 0) {
+              // Salva no IndexedDB como sincronizados (sem syncRequired)
+              await indexedDBStorage.putFoldersBatch(userId, folders);
+              await indexedDBStorage.putNotesBatch(userId, notes);
+              await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', new Date().toISOString());
+
+              const filteredFolders = workspaceType
+                ? folders.filter((f) => (f.workspace_type || 'notes') === workspaceType)
+                : folders;
+              const filteredNotes = workspaceType
+                ? notes.filter((n) => (n.workspace_type || 'notes') === workspaceType)
+                : notes;
+
+              return { folders: filteredFolders, notes: filteredNotes };
+            }
+          }
+        } catch (err) {
+          console.warn('[NotesAPI] Falha ao carregar do Supabase:', err);
         }
       }
-    } catch (err) {
-      console.warn('[NotesAPI] Falha ao carregar do Supabase:', err);
-    }
-  }
 
-  // 3. Se for usuário novo ou sem registros, popula com o seed inicial (apenas para o workspace de Notas)
-  if (workspaceType === 'diary') {
-    return { folders: [], notes: [] };
-  }
-  return initializeLocalSeedIfNeeded(userId);
+      // 3. Se for usuário novo ou sem registros, popula com o seed inicial (apenas para o workspace de Notas)
+      if (workspaceType === 'diary') {
+        return { folders: [], notes: [] };
+      }
+      return initializeLocalSeedIfNeeded(userId);
+    } finally {
+      inFlightFetchFoldersAndNotes.delete(cacheKey);
+    }
+  })();
+
+  inFlightFetchFoldersAndNotes.set(cacheKey, task);
+  return task;
 }
 
 /**
@@ -331,67 +344,81 @@ export async function fetchNoteContent(
 ): Promise<{ content: string; tags?: string[] }> {
   if (!userId || !note) return { content: '', tags: [] };
 
-  // 1. Consulta IndexedDB
-  let localNoteContent: string | null = null;
-  let localTags: string[] | null = null;
-  try {
-    const localNote = await indexedDBStorage.getNoteById(userId, note.id);
-    if (localNote) {
-      localTags = Array.isArray(localNote.tags) ? localNote.tags : null;
-      if (localNote.content !== undefined && localNote.content !== null) {
-        localNoteContent = localNote.content;
-      }
-    }
-  } catch (err) {
-    console.warn('[NotesAPI] Erro ao buscar nota no IndexedDB:', err);
+  const cacheKey = `${userId}:${note.id}`;
+  if (inFlightFetchNoteContent.has(cacheKey)) {
+    return inFlightFetchNoteContent.get(cacheKey)!;
   }
 
-  // Se temos conteúdo local presente (mesmo que vazio ""), retorna de imediato
-  if (localNoteContent !== null && localNoteContent !== undefined) {
-    const noteTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
-    return { content: localNoteContent, tags: noteTags };
-  }
-
-  // Se o próprio objeto note fornecido já contiver o content, salva no IndexedDB e retorna
-  if (note.content !== null && note.content !== undefined) {
-    const noteTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
-    return { content: note.content, tags: noteTags };
-  }
-
-  // 2. Se o conteúdo local for ausente e estivermos online com quota válida, busca do Supabase Storage (.md)
-  const isOnline = networkMonitor.getState().isBackendReachable && !networkMonitor.getIsQuotaExceeded();
-  if (isOnline && isSupabaseConfigured()) {
+  const task = (async (): Promise<{ content: string; tags?: string[] }> => {
     try {
-      const storageContent = await readNoteMarkdown(userId, note.id);
-      if (storageContent !== null && storageContent.trim() !== '') {
-        const { tags: extractedTags, body } = parseMarkdownWithTags(storageContent);
-        const noteHasExplicitTags = Array.isArray(note.tags) && note.tags.length > 0;
-        const finalTags = noteHasExplicitTags ? note.tags : extractedTags;
-
-        // Atualiza IndexedDB local com o documento canônico completo
-        try {
-          await indexedDBStorage.putNote(userId, {
-            ...note,
-            content: body,
-            tags: finalTags,
-            syncRequired: false,
-            syncStatus: 'synced',
-            sync_status: 'synced',
-            needs_sync: false,
-          });
-        } catch {}
-
-        return { content: body, tags: finalTags };
+      // 1. Consulta IndexedDB
+      let localNoteContent: string | null = null;
+      let localTags: string[] | null = null;
+      try {
+        const localNote = await indexedDBStorage.getNoteById(userId, note.id);
+        if (localNote) {
+          localTags = Array.isArray(localNote.tags) ? localNote.tags : null;
+          if (localNote.content !== undefined && localNote.content !== null) {
+            localNoteContent = localNote.content;
+          }
+        }
+      } catch (err) {
+        console.warn('[NotesAPI] Erro ao buscar nota no IndexedDB:', err);
       }
-    } catch (storageErr) {
-      console.warn('[NotesAPI] Erro ao buscar .md no Storage:', storageErr);
-    }
-  }
 
-  // 3. Fallback para o conteúdo existente local ou da nota
-  const fallbackContent = localNoteContent !== null ? localNoteContent : (note.content || '');
-  const fallbackTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
-  return { content: fallbackContent, tags: fallbackTags };
+      // Se temos conteúdo local presente (mesmo que vazio ""), retorna de imediato
+      if (localNoteContent !== null && localNoteContent !== undefined) {
+        const noteTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
+        return { content: localNoteContent, tags: noteTags };
+      }
+
+      // Se o próprio objeto note fornecido já contiver o content, salva no IndexedDB e retorna
+      if (note.content !== null && note.content !== undefined) {
+        const noteTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
+        return { content: note.content, tags: noteTags };
+      }
+
+      // 2. Se o conteúdo local for ausente e estivermos online com quota válida, busca do Supabase Storage (.md)
+      const isOnline = networkMonitor.getState().isBackendReachable && !networkMonitor.getIsQuotaExceeded();
+      if (isOnline && isSupabaseConfigured()) {
+        try {
+          const storageContent = await readNoteMarkdown(userId, note.id);
+          if (storageContent !== null && storageContent.trim() !== '') {
+            const { tags: extractedTags, body } = parseMarkdownWithTags(storageContent);
+            const noteHasExplicitTags = Array.isArray(note.tags) && note.tags.length > 0;
+            const finalTags = noteHasExplicitTags ? note.tags : extractedTags;
+
+            // Atualiza IndexedDB local com o documento canônico completo
+            try {
+              await indexedDBStorage.putNote(userId, {
+                ...note,
+                content: body,
+                tags: finalTags,
+                syncRequired: false,
+                syncStatus: 'synced',
+                sync_status: 'synced',
+                needs_sync: false,
+              });
+            } catch {}
+
+            return { content: body, tags: finalTags };
+          }
+        } catch (storageErr) {
+          console.warn('[NotesAPI] Erro ao buscar .md no Storage:', storageErr);
+        }
+      }
+
+      // 3. Fallback para o conteúdo existente local ou da nota
+      const fallbackContent = localNoteContent !== null ? localNoteContent : (note.content || '');
+      const fallbackTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
+      return { content: fallbackContent, tags: fallbackTags };
+    } finally {
+      inFlightFetchNoteContent.delete(cacheKey);
+    }
+  })();
+
+  inFlightFetchNoteContent.set(cacheKey, task);
+  return task;
 }
 
 /**

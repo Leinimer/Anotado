@@ -14,6 +14,8 @@ export function getNoteStoragePath(userId: string, noteId: string): string {
   return `${cleanUserId}/${cleanNoteId}.md`;
 }
 
+const inFlightReadMarkdown = new Map<string, Promise<string | null>>();
+
 /**
  * Lê o arquivo Markdown de uma nota:
  * 1. Consulta primeiro a cópia local no IndexedDB para carregamento instantâneo (<5ms).
@@ -22,50 +24,64 @@ export function getNoteStoragePath(userId: string, noteId: string): string {
 export async function readNoteMarkdown(userId: string, noteId: string): Promise<string | null> {
   if (!userId || !noteId) return null;
 
-  // 1. Tenta recuperar do IndexedDB
-  try {
-    const localNote = await indexedDBStorage.getNoteById(userId, noteId);
-    if (localNote && localNote.content !== undefined && localNote.content !== null) {
-      return localNote.content;
-    }
-  } catch (err) {
-    console.warn('[NotesStorage] Erro ao ler nota do IndexedDB:', err);
+  const dedupKey = `${userId}:${noteId}`;
+  if (inFlightReadMarkdown.has(dedupKey)) {
+    return inFlightReadMarkdown.get(dedupKey)!;
   }
 
-  // 2. Se online, configurado e quota válida, busca do Supabase Storage
-  const isOnline = networkMonitor.getState().isBackendReachable && !networkMonitor.getIsQuotaExceeded();
-  if (isOnline && isSupabaseConfigured()) {
+  const task = (async (): Promise<string | null> => {
     try {
-      const supabase = createClient();
-      const filePath = getNoteStoragePath(userId, noteId);
-
-      const { data, error } = await supabase.storage
-        .from(NOTES_BUCKET_NAME)
-        .download(filePath);
-
-      if (error) {
-        if ((error as any)?.status === 402 || error.message?.includes('exceed_egress_quota')) {
-          networkMonitor.setQuotaExceeded(true, error.message);
+      // 1. Tenta recuperar do IndexedDB
+      try {
+        const localNote = await indexedDBStorage.getNoteById(userId, noteId);
+        if (localNote && localNote.content !== undefined && localNote.content !== null) {
+          return localNote.content;
         }
-      } else if (data) {
-        const text = await data.text();
-        try {
-          const current = await indexedDBStorage.getNoteById(userId, noteId);
-          if (current) {
-            await indexedDBStorage.putNote(userId, {
-              ...current,
-              content: text,
-            });
-          }
-        } catch {}
-        return text;
+      } catch (err) {
+        console.warn('[NotesStorage] Erro ao ler nota do IndexedDB:', err);
       }
-    } catch (err) {
-      console.warn('[NotesStorage] Erro ao baixar nota do Supabase Storage:', err);
-    }
-  }
 
-  return null;
+      // 2. Se online, configurado e quota válida, busca do Supabase Storage
+      const isOnline = networkMonitor.getState().isBackendReachable && !networkMonitor.getIsQuotaExceeded();
+      if (isOnline && isSupabaseConfigured()) {
+        try {
+          const supabase = createClient();
+          const filePath = getNoteStoragePath(userId, noteId);
+
+          const { data, error } = await supabase.storage
+            .from(NOTES_BUCKET_NAME)
+            .download(filePath);
+
+          if (error) {
+            if ((error as any)?.status === 402 || error.message?.includes('exceed_egress_quota')) {
+              networkMonitor.setQuotaExceeded(true, error.message);
+            }
+          } else if (data) {
+            const text = await data.text();
+            try {
+              const current = await indexedDBStorage.getNoteById(userId, noteId);
+              if (current) {
+                await indexedDBStorage.putNote(userId, {
+                  ...current,
+                  content: text,
+                });
+              }
+            } catch {}
+            return text;
+          }
+        } catch (err) {
+          console.warn('[NotesStorage] Erro ao baixar nota do Supabase Storage:', err);
+        }
+      }
+
+      return null;
+    } finally {
+      inFlightReadMarkdown.delete(dedupKey);
+    }
+  })();
+
+  inFlightReadMarkdown.set(dedupKey, task);
+  return task;
 }
 
 /**

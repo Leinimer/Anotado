@@ -183,7 +183,7 @@ export class AttachmentReconciler {
     // 2. Consultar note_attachments existentes no Supabase
     const { data: existingAttachments, error: attErr } = await supabase
       .from('note_attachments')
-      .select('*')
+      .select('id, user_id, note_id, file_name, mime_type, file_size, storage_path, bucket_id, created_at, updated_at')
       .eq('user_id', userId);
 
     if (attErr) {

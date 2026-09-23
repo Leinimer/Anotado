@@ -628,6 +628,8 @@ export async function revokeDiaryShare(
   }
 }
 
+const inFlightSharedDiary = new Map<string, Promise<{ share: DiaryShare | null; folders: Folder[]; notes: Note[]; error?: string }>>();
+
 /**
  * Carrega os dados de um Diário compartilhado (pastas e notas do owner com workspace_type = 'diary')
  */
@@ -636,16 +638,25 @@ export async function fetchSharedDiaryData(
 ): Promise<{ share: DiaryShare | null; folders: Folder[]; notes: Note[]; error?: string }> {
   if (!shareId) return { share: null, folders: [], notes: [], error: 'ID inválido.' };
 
-  if (!isSupabaseConfigured()) {
-    const shares = getLocalShares();
-    const share = shares.find((s) => s.id === shareId && s.status === 'accepted') || null;
-    return { share, folders: [], notes: [] };
+  if (networkMonitor.getIsQuotaExceeded()) {
+    return { share: null, folders: [], notes: [], error: 'Sincronização temporariamente suspensa por limite de cota.' };
   }
 
-  const supabase = createClient();
+  if (inFlightSharedDiary.has(shareId)) {
+    return inFlightSharedDiary.get(shareId)!;
+  }
 
-  try {
-    // 1. Obtém metadados do compartilhamento
+  const task = (async (): Promise<{ share: DiaryShare | null; folders: Folder[]; notes: Note[]; error?: string }> => {
+    try {
+      if (!isSupabaseConfigured()) {
+        const shares = getLocalShares();
+        const share = shares.find((s) => s.id === shareId && s.status === 'accepted') || null;
+        return { share, folders: [], notes: [] };
+      }
+
+      const supabase = createClient();
+
+      // 1. Obtém metadados do compartilhamento
     const { data: share, error: shareError } = await supabase
       .from('diary_shares')
       .select('id, owner_id, owner_email, viewer_id, viewer_email, status, permission, share_year, share_month, created_at, updated_at')
@@ -816,10 +827,17 @@ export async function fetchSharedDiaryData(
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Falha ao carregar Diário compartilhado.';
     return { share: null, folders: [], notes: [], error: msg };
+  } finally {
+    inFlightSharedDiary.delete(shareId);
   }
+  })();
+
+  inFlightSharedDiary.set(shareId, task);
+  return task;
 }
 
 const sharedNoteCache = new Map<string, { content: string; tags: string[]; cachedAt: number }>();
+const inFlightSharedNoteContent = new Map<string, Promise<{ content: string; tags: string[] }>>();
 
 /**
  * Carrega o conteúdo Markdown de uma nota específica de um Diário compartilhado
@@ -839,62 +857,73 @@ export async function fetchSharedNoteContent(
     return { content: cached.content, tags: cached.tags };
   }
 
-  const supabase = createClient();
+  if (inFlightSharedNoteContent.has(cacheKey)) {
+    return inFlightSharedNoteContent.get(cacheKey)!;
+  }
 
-  try {
-    // 1. Busca do banco
-    const { data: noteRow, error: dbErr } = await supabase
-      .from('notes')
-      .select('content, tags')
-      .eq('id', noteId)
-      .eq('user_id', ownerId)
-      .maybeSingle();
+  const task = (async (): Promise<{ content: string; tags: string[] }> => {
+    try {
+      const supabase = createClient();
 
-    if (dbErr) {
-      if ((dbErr as any)?.status === 402 || dbErr.message?.includes('exceed_egress_quota')) {
-        networkMonitor.setQuotaExceeded(true, dbErr.message);
+      // 1. Busca do banco
+      const { data: noteRow, error: dbErr } = await supabase
+        .from('notes')
+        .select('content, tags')
+        .eq('id', noteId)
+        .eq('user_id', ownerId)
+        .maybeSingle();
+
+      if (dbErr) {
+        if ((dbErr as any)?.status === 402 || dbErr.message?.includes('exceed_egress_quota')) {
+          networkMonitor.setQuotaExceeded(true, dbErr.message);
+        }
       }
-    }
 
-    if (noteRow?.content) {
-      const res = {
-        content: noteRow.content,
-        tags: Array.isArray(noteRow.tags) ? noteRow.tags : [],
-      };
-      sharedNoteCache.set(cacheKey, { ...res, cachedAt: Date.now() });
-      return res;
-    }
-
-    // Se a quota acabou durante a operação, não tenta storage
-    if (networkMonitor.getIsQuotaExceeded()) {
-      return { content: '', tags: [] };
-    }
-
-    // 2. Tenta download do storage se estiver vazio na tabela
-    const filePath = `${ownerId}/${noteId}.md`;
-    const { data: blob, error } = await supabase.storage.from('notes').download(filePath);
-    if (error) {
-      if ((error as any)?.status === 402 || error.message?.includes('exceed_egress_quota')) {
-        networkMonitor.setQuotaExceeded(true, error.message);
+      if (noteRow?.content) {
+        const res = {
+          content: noteRow.content,
+          tags: Array.isArray(noteRow.tags) ? noteRow.tags : [],
+        };
+        sharedNoteCache.set(cacheKey, { ...res, cachedAt: Date.now() });
+        return res;
       }
-    } else if (blob) {
-      const text = await blob.text();
-      const res = {
-        content: text,
+
+      // Se a quota acabou durante a operação, não tenta storage
+      if (networkMonitor.getIsQuotaExceeded()) {
+        return { content: '', tags: [] };
+      }
+
+      // 2. Tenta download do storage se estiver vazio na tabela
+      const filePath = `${ownerId}/${noteId}.md`;
+      const { data: blob, error } = await supabase.storage.from('notes').download(filePath);
+      if (error) {
+        if ((error as any)?.status === 402 || error.message?.includes('exceed_egress_quota')) {
+          networkMonitor.setQuotaExceeded(true, error.message);
+        }
+      } else if (blob) {
+        const text = await blob.text();
+        const res = {
+          content: text,
+          tags: Array.isArray(noteRow?.tags) ? noteRow.tags : [],
+        };
+        sharedNoteCache.set(cacheKey, { ...res, cachedAt: Date.now() });
+        return res;
+      }
+
+      const fallbackRes = {
+        content: noteRow?.content || '',
         tags: Array.isArray(noteRow?.tags) ? noteRow.tags : [],
       };
-      sharedNoteCache.set(cacheKey, { ...res, cachedAt: Date.now() });
-      return res;
+      sharedNoteCache.set(cacheKey, { ...fallbackRes, cachedAt: Date.now() });
+      return fallbackRes;
+    } catch (err) {
+      console.warn('[DiaryShare] Erro ao baixar conteúdo da nota compartilhada:', err);
+      return { content: '', tags: [] };
+    } finally {
+      inFlightSharedNoteContent.delete(cacheKey);
     }
+  })();
 
-    const fallbackRes = {
-      content: noteRow?.content || '',
-      tags: Array.isArray(noteRow?.tags) ? noteRow.tags : [],
-    };
-    sharedNoteCache.set(cacheKey, { ...fallbackRes, cachedAt: Date.now() });
-    return fallbackRes;
-  } catch (err) {
-    console.warn('[DiaryShare] Erro ao baixar conteúdo da nota compartilhada:', err);
-    return { content: '', tags: [] };
-  }
+  inFlightSharedNoteContent.set(cacheKey, task);
+  return task;
 }

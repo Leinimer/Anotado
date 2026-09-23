@@ -183,6 +183,9 @@ class NetworkMonitor {
       this.quotaErrorMessage = null;
       if (changed) {
         this.startPeriodicCheck(60000);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('supabase-quota-restored'));
+        }
       }
     }
     this.notify();

@@ -1,6 +1,7 @@
 import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { ATTACHMENTS_BUCKET_NAME } from '@/src/features/notes/api/storage-api';
+import { networkMonitor } from '@/src/features/notes/api/network-monitor';
 
 export type ResizeDirection =
   | 'top-left'
@@ -156,6 +157,8 @@ export function registerResolvedAttachmentUrl(attachmentId: string, remoteUrl: s
   attachmentRemoteUrlCache.set(attachmentId, remoteUrl);
 }
 
+const inFlightAttachmentResolutions = new Map<string, Promise<ResolvedAttachmentResult>>();
+
 /**
  * Resolve assincronamente a URL de exibição de um anexo local ou remoto,
  * consultando IndexedDB e fazendo fallback no Supabase note_attachments se necessário.
@@ -179,122 +182,150 @@ export async function resolveAttachmentSource(
     };
   }
 
-  try {
-    let attachment = await indexedDBStorage.getAttachment(currentUserId, attachmentId);
-    if (!attachment && currentUserId !== 'anonymous') {
-      attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
-    }
+  const dedupKey = `${currentUserId}:${attachmentId}`;
+  if (inFlightAttachmentResolutions.has(dedupKey)) {
+    return inFlightAttachmentResolutions.get(dedupKey)!;
+  }
 
-    if (attachment) {
-      if (attachment.remote_url) {
-        attachmentRemoteUrlCache.set(attachmentId, attachment.remote_url);
-        return {
-          resolvedUrl: attachment.remote_url,
-          remoteUrl: attachment.remote_url,
-          blobUrl: null,
-        };
+  const task = (async (): Promise<ResolvedAttachmentResult> => {
+    try {
+      let attachment = await indexedDBStorage.getAttachment(currentUserId, attachmentId);
+      if (!attachment && currentUserId !== 'anonymous') {
+        attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
       }
 
-      if (attachment.blob) {
-        // Reutiliza Blob URL existente em vez de instanciar novos repetidamente
-        let blobUrl = attachmentBlobUrlCache.get(attachmentId);
-        if (!blobUrl) {
-          blobUrl = URL.createObjectURL(attachment.blob);
-          attachmentBlobUrlCache.set(attachmentId, blobUrl);
+      if (attachment) {
+        if (attachment.remote_url) {
+          attachmentRemoteUrlCache.set(attachmentId, attachment.remote_url);
+          return {
+            resolvedUrl: attachment.remote_url,
+            remoteUrl: attachment.remote_url,
+            blobUrl: null,
+          };
         }
-        return {
-          resolvedUrl: blobUrl,
-          remoteUrl: null,
-          blobUrl,
-        };
+
+        if (attachment.blob) {
+          // Reutiliza Blob URL existente em vez de instanciar novos repetidamente
+          let blobUrl = attachmentBlobUrlCache.get(attachmentId);
+          if (!blobUrl) {
+            blobUrl = URL.createObjectURL(attachment.blob);
+            attachmentBlobUrlCache.set(attachmentId, blobUrl);
+          }
+          return {
+            resolvedUrl: blobUrl,
+            remoteUrl: null,
+            blobUrl,
+          };
+        }
       }
-    }
 
-    // Se não encontrou no IndexedDB local, consulta Supabase se online
-    if (isSupabaseConfigured() && typeof navigator !== 'undefined' && navigator.onLine) {
-      try {
-        const supabase = createClient();
-        const { data: dbAtt } = await supabase
-          .from('note_attachments')
-          .select('*')
-          .eq('id', attachmentId)
-          .maybeSingle();
+      // Se não encontrou no IndexedDB local, consulta Supabase se online e sem cota excedida
+      if (
+        isSupabaseConfigured() &&
+        typeof navigator !== 'undefined' &&
+        navigator.onLine &&
+        !networkMonitor.getIsQuotaExceeded()
+      ) {
+        try {
+          const supabase = createClient();
+          const { data: dbAtt, error: attError } = await supabase
+            .from('note_attachments')
+            .select('id, user_id, note_id, file_name, mime_type, file_size, storage_path, bucket_id, created_at, updated_at')
+            .eq('id', attachmentId)
+            .maybeSingle();
 
-        if (dbAtt && dbAtt.storage_path) {
-          const bucketsToTry = [dbAtt.bucket_id, ATTACHMENTS_BUCKET_NAME, 'attachments'].filter(Boolean) as string[];
-          const uniqueBuckets = Array.from(new Set(bucketsToTry));
-
-          let remoteUrl: string | null = null;
-
-          for (const bucket of uniqueBuckets) {
-            // Tenta URL assinada (7200s = 2h) permitida para viewers pelas RLS de Storage
-            const { data: signedData, error: signedErr } = await supabase.storage
-              .from(bucket)
-              .createSignedUrl(dbAtt.storage_path, 7200);
-
-            if (!signedErr && signedData?.signedUrl) {
-              remoteUrl = signedData.signedUrl;
-              break;
-            }
-
-            // Fallback para getPublicUrl se o bucket for público
-            const { data: pubData } = supabase.storage
-              .from(bucket)
-              .getPublicUrl(dbAtt.storage_path);
-
-            if (pubData?.publicUrl) {
-              remoteUrl = pubData.publicUrl;
-              break;
+          if (attError) {
+            if ((attError as any)?.status === 402 || attError.message?.includes('exceed_egress_quota')) {
+              networkMonitor.setQuotaExceeded(true, attError.message);
             }
           }
 
-          if (remoteUrl) {
-            attachmentRemoteUrlCache.set(attachmentId, remoteUrl);
+          if (dbAtt && dbAtt.storage_path) {
+            const bucketsToTry = [dbAtt.bucket_id, ATTACHMENTS_BUCKET_NAME, 'attachments'].filter(Boolean) as string[];
+            const uniqueBuckets = Array.from(new Set(bucketsToTry));
 
-            // Regra de Isolamento: Apenas persiste no IndexedDB se for o próprio proprietário do anexo
-            if (currentUserId && currentUserId !== 'anonymous' && currentUserId === dbAtt.user_id) {
-              try {
-                await indexedDBStorage.putAttachment(currentUserId, {
-                  id: dbAtt.id,
-                  user_id: currentUserId,
-                  note_id: dbAtt.note_id,
-                  file_name: dbAtt.file_name,
-                  file_type: dbAtt.mime_type,
-                  mime_type: dbAtt.mime_type,
-                  file_size: dbAtt.file_size,
-                  storage_path: dbAtt.storage_path,
-                  remote_url: remoteUrl,
-                  syncRequired: false,
-                  syncStatus: 'synced',
-                  sync_status: 'synced',
-                  created_at: dbAtt.created_at,
-                  updated_at: dbAtt.updated_at,
-                });
-              } catch (saveErr) {
-                console.warn('[AttachmentResolver] Aviso ao persistir anexo local:', saveErr);
+            let remoteUrl: string | null = null;
+
+            for (const bucket of uniqueBuckets) {
+              // Tenta URL assinada (7200s = 2h) permitida para viewers pelas RLS de Storage
+              const { data: signedData, error: signedErr } = await supabase.storage
+                .from(bucket)
+                .createSignedUrl(dbAtt.storage_path, 7200);
+
+              if (signedErr && ((signedErr as any)?.status === 402 || signedErr.message?.includes('exceed_egress_quota'))) {
+                networkMonitor.setQuotaExceeded(true, signedErr.message);
+                break;
+              }
+
+              if (!signedErr && signedData?.signedUrl) {
+                remoteUrl = signedData.signedUrl;
+                break;
+              }
+
+              // Fallback para getPublicUrl se o bucket for público
+              const { data: pubData } = supabase.storage
+                .from(bucket)
+                .getPublicUrl(dbAtt.storage_path);
+
+              if (pubData?.publicUrl) {
+                remoteUrl = pubData.publicUrl;
+                break;
               }
             }
 
-            return {
-              resolvedUrl: remoteUrl,
-              remoteUrl,
-              blobUrl: null,
-            };
+            if (remoteUrl) {
+              attachmentRemoteUrlCache.set(attachmentId, remoteUrl);
+
+              // Regra de Isolamento: Apenas persiste no IndexedDB se for o próprio proprietário do anexo
+              if (currentUserId && currentUserId !== 'anonymous' && currentUserId === dbAtt.user_id) {
+                try {
+                  await indexedDBStorage.putAttachment(currentUserId, {
+                    id: dbAtt.id,
+                    user_id: currentUserId,
+                    note_id: dbAtt.note_id,
+                    file_name: dbAtt.file_name,
+                    file_type: dbAtt.mime_type,
+                    mime_type: dbAtt.mime_type,
+                    file_size: dbAtt.file_size,
+                    storage_path: dbAtt.storage_path,
+                    remote_url: remoteUrl,
+                    syncRequired: false,
+                    syncStatus: 'synced',
+                    sync_status: 'synced',
+                    created_at: dbAtt.created_at,
+                    updated_at: dbAtt.updated_at,
+                  });
+                } catch (saveErr) {
+                  console.warn('[AttachmentResolver] Aviso ao persistir anexo local:', saveErr);
+                }
+              }
+
+              return {
+                resolvedUrl: remoteUrl,
+                remoteUrl,
+                blobUrl: null,
+              };
+            }
           }
+        } catch (fetchErr) {
+          console.warn('[AttachmentResolver] Falha ao consultar Supabase:', fetchErr);
         }
-      } catch (fetchErr) {
-        console.warn('[AttachmentResolver] Falha ao consultar Supabase:', fetchErr);
       }
+    } catch (err) {
+      console.warn('[AttachmentResolver] Falha ao resolver anexo local:', err);
+    } finally {
+      inFlightAttachmentResolutions.delete(dedupKey);
     }
-  } catch (err) {
-    console.warn('[AttachmentResolver] Falha ao resolver anexo local:', err);
-  }
 
-  // Fallback: se houver blob url no cache
-  if (attachmentBlobUrlCache.has(attachmentId)) {
-    const blobUrl = attachmentBlobUrlCache.get(attachmentId)!;
-    return { resolvedUrl: blobUrl, remoteUrl: null, blobUrl };
-  }
+    // Fallback: se houver blob url no cache
+    if (attachmentBlobUrlCache.has(attachmentId)) {
+      const blobUrl = attachmentBlobUrlCache.get(attachmentId)!;
+      return { resolvedUrl: blobUrl, remoteUrl: null, blobUrl };
+    }
 
-  return { resolvedUrl: null, remoteUrl: null, blobUrl: null };
+    return { resolvedUrl: null, remoteUrl: null, blobUrl: null };
+  })();
+
+  inFlightAttachmentResolutions.set(dedupKey, task);
+  return task;
 }

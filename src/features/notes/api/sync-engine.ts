@@ -157,6 +157,15 @@ class SyncEngine {
         }
       });
 
+      // 4b. Evento de quota restaurada (retoma sincronização de forma suave)
+      window.addEventListener('supabase-quota-restored', () => {
+        if (this.activeUserId && navigator.onLine) {
+          console.log('[SyncEngine] Quota do Supabase restaurada! Retomando sincronização...');
+          this.ensureRealtimeConnected(this.activeUserId);
+          this.scheduleSync(1000);
+        }
+      });
+
       // 5. Reconciliação periódica de segurança de baixa frequência (10 minutos): SOMENTE se Realtime NÃO estiver conectado
       // Se o Realtime estiver SUBSCRIBED, todas as alterações chegam instantaneamente via websocket sem tráfego de polling!
       this.reconciliationInterval = setInterval(() => {

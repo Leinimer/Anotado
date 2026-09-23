@@ -180,7 +180,7 @@ export class AttachmentRefMigrator {
         try {
           const { data: dbAtt, error: dbErr } = await supabase
             .from('note_attachments')
-            .select('*')
+            .select('id, user_id, note_id, file_name, mime_type, file_size, storage_path, bucket_id, created_at, updated_at')
             .eq('id', attachmentId)
             .maybeSingle();
 

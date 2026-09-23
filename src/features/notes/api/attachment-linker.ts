@@ -293,7 +293,7 @@ export class AttachmentLinker {
     // 1. Carregar todos os note_attachments do usuário autenticado
     const { data: attachments, error: attErr } = await supabase
       .from('note_attachments')
-      .select('*')
+      .select('id, user_id, note_id, file_name, mime_type, file_size, storage_path, bucket_id, created_at, updated_at')
       .eq('user_id', authenticatedUserId);
 
     if (attErr || !Array.isArray(attachments)) {
