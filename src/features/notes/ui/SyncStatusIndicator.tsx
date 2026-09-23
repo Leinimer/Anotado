@@ -96,6 +96,16 @@ export function SyncStatusIndicator({
         tooltip: 'Conectado em tempo real via Supabase • Modo somente leitura',
       };
     }
+    if (networkState.isQuotaExceeded || networkState.status === 'quota_exceeded') {
+      return {
+        icon: CloudOff,
+        iconClass: 'text-[#b45309]',
+        dotClass: 'bg-[#f59e0b]',
+        label: 'Offline (Cota Excedida)',
+        tooltip: 'A cota de transferência (egress) do projeto Supabase foi atingida. O app está operando com segurança no armazenamento local (IndexedDB).',
+      };
+    }
+
     if (networkState.status === 'remote_change') {
       return {
         icon: Sparkles,

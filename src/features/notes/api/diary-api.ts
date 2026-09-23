@@ -98,7 +98,7 @@ export async function ensureDiaryYearFolders(
           // Busca primeiro pelo ID determinístico
           const { data: remoteById } = await supabase
             .from('folders')
-            .select('*')
+            .select('id, user_id, name, parent_id, position, color, created_at, updated_at')
             .eq('id', canonicalYearId)
             .limit(1);
 
@@ -117,7 +117,7 @@ export async function ensureDiaryYearFolders(
           } else {
             const { data: remoteYearFolders } = await supabase
               .from('folders')
-              .select('*')
+              .select('id, user_id, name, parent_id, position, color, created_at, updated_at')
               .eq('user_id', userId)
               .is('parent_id', null)
               .order('created_at', { ascending: true });
@@ -183,6 +183,34 @@ export async function ensureDiaryYearFolders(
       const currentFolders = await indexedDBStorage.getAllFolders(userId);
       const existingMonths = currentFolders.filter((f) => f.parent_id === activeYearFolder.id);
 
+      // Se faltar algum mês localmente e estiver online com quota válida, busca TODOS os meses do ano no Supabase em uma única query
+      let remoteMonthsPool: any[] = [];
+      if (
+        existingMonths.length < 12 &&
+        isSupabaseConfigured() &&
+        networkMonitor.getState().isBackendReachable &&
+        !networkMonitor.getIsQuotaExceeded()
+      ) {
+        try {
+          const supabase = createClient();
+          const { data: remoteMonths, error } = await supabase
+            .from('folders')
+            .select('id, user_id, name, parent_id, position, color, created_at, updated_at')
+            .eq('user_id', userId)
+            .eq('parent_id', activeYearFolder.id);
+
+          if (error) {
+            if ((error as any)?.status === 402 || error.message?.includes('exceed_egress_quota')) {
+              networkMonitor.setQuotaExceeded(true, error.message);
+            }
+          } else if (remoteMonths) {
+            remoteMonthsPool = remoteMonths;
+          }
+        } catch (rErr) {
+          console.warn('[Diary] Verificação remota em lote de meses falhou:', rErr);
+        }
+      }
+
       const monthFolders: ExtendedFolder[] = [];
 
       for (let m = 1; m <= 12; m++) {
@@ -198,61 +226,28 @@ export async function ensureDiaryYearFolders(
           return clean === monthName.toLowerCase();
         });
 
-        // Se não encontrou localmente, verifica se existe remotamente no Supabase
-        if (!monthFolder && isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-          try {
-            const supabase = createClient();
-            const { data: remoteById } = await supabase
-              .from('folders')
-              .select('*')
-              .eq('id', canonicalMonthId)
-              .limit(1);
-
-            if (remoteById && remoteById.length > 0) {
-              const matchedMonth: ExtendedFolder = {
-                ...remoteById[0],
-                workspace_type: 'diary',
-                diary_year: year,
-                diary_month: m,
-                syncRequired: false,
-                syncStatus: 'synced',
-                sync_status: 'synced',
-                needs_sync: false,
-              };
-              monthFolder = matchedMonth;
-              await indexedDBStorage.putFolder(userId, matchedMonth);
-            } else {
-              const { data: remoteMonths } = await supabase
-                .from('folders')
-                .select('*')
-                .eq('user_id', userId)
-                .eq('parent_id', activeYearFolder.id);
-
-              if (remoteMonths && remoteMonths.length > 0) {
-                const rMatch = remoteMonths.find((rf: any) => {
-                  if (rf.diary_month === m) return true;
-                  if (extractDiaryMonth(rf) === m) return true;
-                  const clean = String(rf.name || '').trim().toLowerCase();
-                  return clean === monthName.toLowerCase();
-                });
-                if (rMatch) {
-                  const matchedMonth: ExtendedFolder = {
-                    ...rMatch,
-                    workspace_type: 'diary',
-                    diary_year: year,
-                    diary_month: m,
-                    syncRequired: false,
-                    syncStatus: 'synced',
-                    sync_status: 'synced',
-                    needs_sync: false,
-                  };
-                  monthFolder = matchedMonth;
-                  await indexedDBStorage.putFolder(userId, matchedMonth);
-                }
-              }
-            }
-          } catch (rErr) {
-            console.warn('[Diary] Verificação remota de mês falhou:', rErr);
+        // Se não encontrou localmente, verifica no pool remoto obtido em lote
+        if (!monthFolder && remoteMonthsPool.length > 0) {
+          const rMatch = remoteMonthsPool.find((rf: any) => {
+            if (rf.id === canonicalMonthId) return true;
+            if (rf.diary_month === m) return true;
+            if (extractDiaryMonth(rf) === m) return true;
+            const clean = String(rf.name || '').trim().toLowerCase();
+            return clean === monthName.toLowerCase();
+          });
+          if (rMatch) {
+            const matchedMonth: ExtendedFolder = {
+              ...rMatch,
+              workspace_type: 'diary',
+              diary_year: year,
+              diary_month: m,
+              syncRequired: false,
+              syncStatus: 'synced',
+              sync_status: 'synced',
+              needs_sync: false,
+            };
+            monthFolder = matchedMonth;
+            await indexedDBStorage.putFolder(userId, matchedMonth);
           }
         }
 
@@ -555,20 +550,27 @@ export async function reconcileAndDeduplicateDiary(userId: string): Promise<void
       await indexedDBStorage.deleteNote(userId, delNoteId);
     }
 
-    // Se estiver online com o Supabase, sincroniza a exclusão e atualizações no banco remoto
-    if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+    // Se estiver online com o Supabase e quota válida, sincroniza a exclusão e atualizações no banco remoto
+    if (
+      isSupabaseConfigured() &&
+      networkMonitor.getState().isBackendReachable &&
+      !networkMonitor.getIsQuotaExceeded()
+    ) {
       const supabase = createClient();
 
       if (notesToUpdate.length > 0) {
         for (const n of notesToUpdate) {
-          await supabase.from('notes').update({
+          const updatePayload: any = {
             folder_id: n.folder_id,
-            content: n.content,
             tags: n.tags,
             title: n.title,
             position: n.position,
             updated_at: n.updated_at,
-          }).eq('id', n.id);
+          };
+          if (n.content !== undefined && n.content !== null) {
+            updatePayload.content = n.content;
+          }
+          await supabase.from('notes').update(updatePayload).eq('id', n.id);
         }
       }
 
@@ -654,20 +656,28 @@ export async function getOrCreateDiaryEntry(
         return { note: existingLocal, isNew: false };
       }
 
-      // 3. Se online, verifica no Supabase se já foi criada em outro lugar
-      if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+      // 3. Se online com quota válida, verifica no Supabase se já foi criada em outro lugar
+      if (
+        isSupabaseConfigured() &&
+        networkMonitor.getState().isBackendReachable &&
+        !networkMonitor.getIsQuotaExceeded()
+      ) {
         try {
           const supabase = createClient();
 
-          // 3.1 Busca primeiro pelo ID determinístico
-          const { data: remoteById } = await supabase
+          // 3.1 Busca primeiro pelo ID determinístico (apenas metadados para economizar egress)
+          const { data: remoteById, error: errById } = await supabase
             .from('notes')
-            .select('*')
+            .select('id, user_id, folder_id, title, position, revision, tags, created_at, updated_at, is_archived')
             .eq('id', deterministicNoteId)
             .eq('is_archived', false)
             .limit(1);
 
-          if (remoteById && remoteById.length > 0) {
+          if (errById) {
+            if ((errById as any)?.status === 402 || errById.message?.includes('exceed_egress_quota')) {
+              networkMonitor.setQuotaExceeded(true, errById.message);
+            }
+          } else if (remoteById && remoteById.length > 0) {
             const remoteRecord = remoteById[0];
             const remoteNote: ExtendedNote = {
               ...remoteRecord,
@@ -687,17 +697,21 @@ export async function getOrCreateDiaryEntry(
           }
 
           // 3.2 Busca se existe nota na pasta do mês com esta posição
-          if (targetMonthFolder) {
-            const { data: remoteByFolder } = await supabase
+          if (targetMonthFolder && !networkMonitor.getIsQuotaExceeded()) {
+            const { data: remoteByFolder, error: errByFolder } = await supabase
               .from('notes')
-              .select('*')
+              .select('id, user_id, folder_id, title, position, revision, tags, created_at, updated_at, is_archived')
               .eq('user_id', userId)
               .eq('folder_id', targetMonthFolder.id)
               .eq('position', day)
               .eq('is_archived', false)
               .limit(1);
 
-            if (remoteByFolder && remoteByFolder.length > 0) {
+            if (errByFolder) {
+              if ((errByFolder as any)?.status === 402 || errByFolder.message?.includes('exceed_egress_quota')) {
+                networkMonitor.setQuotaExceeded(true, errByFolder.message);
+              }
+            } else if (remoteByFolder && remoteByFolder.length > 0) {
               const remoteRecord = remoteByFolder[0];
               const remoteNote: ExtendedNote = {
                 ...remoteRecord,

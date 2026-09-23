@@ -211,23 +211,38 @@ export async function fetchFoldersAndNotes(
   }
 
   // 2. Se o IndexedDB está vazio e estamos online com o Supabase, carrega do servidor e popula o IndexedDB
-  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+  if (
+    isSupabaseConfigured() &&
+    networkMonitor.getState().isBackendReachable &&
+    !networkMonitor.getIsQuotaExceeded()
+  ) {
     try {
       const supabase = createClient();
       const [foldersRes, notesRes] = await Promise.all([
         supabase
           .from('folders')
-          .select('*')
+          .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, created_at, updated_at')
           .eq('user_id', userId)
           .order('position', { ascending: true })
           .order('created_at', { ascending: true }),
         supabase
           .from('notes')
-          .select('*')
+          .select('id, user_id, folder_id, title, position, is_archived, previous_folder_id, revision, tags, created_at, updated_at')
           .eq('user_id', userId)
           .order('position', { ascending: true })
           .order('created_at', { ascending: true }),
       ]);
+
+      if (foldersRes.error) {
+        if ((foldersRes.error as any)?.status === 402 || foldersRes.error.message?.includes('exceed_egress_quota')) {
+          networkMonitor.setQuotaExceeded(true, foldersRes.error.message);
+        }
+      }
+      if (notesRes.error) {
+        if ((notesRes.error as any)?.status === 402 || notesRes.error.message?.includes('exceed_egress_quota')) {
+          networkMonitor.setQuotaExceeded(true, notesRes.error.message);
+        }
+      }
 
       if (!foldersRes.error && !notesRes.error) {
         const rawFolderList = foldersRes.data || [];
@@ -283,6 +298,7 @@ export async function fetchFoldersAndNotes(
           // Salva no IndexedDB como sincronizados (sem syncRequired)
           await indexedDBStorage.putFoldersBatch(userId, folders);
           await indexedDBStorage.putNotesBatch(userId, notes);
+          await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', new Date().toISOString());
 
           const filteredFolders = workspaceType
             ? folders.filter((f) => (f.workspace_type || 'notes') === workspaceType)
@@ -330,14 +346,20 @@ export async function fetchNoteContent(
     console.warn('[NotesAPI] Erro ao buscar nota no IndexedDB:', err);
   }
 
-  // Se temos conteúdo local robusto (não-vazio), retorna de imediato
-  if (localNoteContent !== null && localNoteContent.trim() !== '') {
+  // Se temos conteúdo local presente (mesmo que vazio ""), retorna de imediato
+  if (localNoteContent !== null && localNoteContent !== undefined) {
     const noteTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
     return { content: localNoteContent, tags: noteTags };
   }
 
-  // 2. Se o conteúdo local for vazio ou ausente, e estivermos online, busca a versão canônica completa do Supabase Storage (.md)
-  const isOnline = networkMonitor.getState().isBackendReachable;
+  // Se o próprio objeto note fornecido já contiver o content, salva no IndexedDB e retorna
+  if (note.content !== null && note.content !== undefined) {
+    const noteTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
+    return { content: note.content, tags: noteTags };
+  }
+
+  // 2. Se o conteúdo local for ausente e estivermos online com quota válida, busca do Supabase Storage (.md)
+  const isOnline = networkMonitor.getState().isBackendReachable && !networkMonitor.getIsQuotaExceeded();
   if (isOnline && isSupabaseConfigured()) {
     try {
       const storageContent = await readNoteMarkdown(userId, note.id);

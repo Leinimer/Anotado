@@ -40,6 +40,9 @@ import {
 import {
   isDiaryFolder,
   isDiaryNote,
+  isDiaryYearFolder,
+  extractDiaryYear,
+  extractDiaryMonth,
 } from '@/src/features/notes/utils/diary-hierarchy';
 import { ShareDiaryModal } from './ShareDiaryModal';
 import { PendingInvitationModal } from './PendingInvitationModal';
@@ -64,6 +67,11 @@ export function DiaryLayout() {
   const [acceptedIncomingShares, setAcceptedIncomingShares] = useState<DiaryShare[]>([]);
 
   const activeNoteIdRef = useRef<string | null>(null);
+  const notesRef = useRef<Note[]>(notes);
+
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
@@ -162,8 +170,6 @@ export function DiaryLayout() {
       });
     });
 
-    let sharesChannel: any = null;
-
     const initAuthAndData = async () => {
       let uid = 'local-user';
 
@@ -184,62 +190,29 @@ export function DiaryLayout() {
       if (!isMounted) return;
       setUserId(uid);
 
-      // Carrega compartilhamentos recebidos e assina mudanças em tempo real
-      if (uid && uid !== 'local-user') {
-        fetchIncomingShares(uid).then((shares) => {
-          if (!isMounted) return;
-          const accepted = shares.filter((s) => s.status === 'accepted');
-          setAcceptedIncomingShares(accepted);
-          const pending = shares.find((s) => s.status === 'pending');
-          if (pending) {
-            setPendingInvitation(pending);
-          }
-        }).catch((err) => {
-          console.warn('[DiaryLayout] Erro ao carregar compartilhamentos recebidos:', err);
-        });
-
-        sharesChannel = supabase
-          .channel(`viewer_shares_${uid}`)
-          .on(
-            'postgres_changes' as any,
-            {
-              event: '*',
-              schema: 'public',
-              table: 'diary_shares',
-              filter: `viewer_id=eq.${uid}`,
-            },
-            (payload: any) => {
-              if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-                const updated = payload.new as DiaryShare;
-                if (updated.status === 'pending') {
-                  setPendingInvitation(updated);
-                } else if (updated.status === 'accepted') {
-                  setPendingInvitation((curr) => (curr?.id === updated.id ? null : curr));
-                  setAcceptedIncomingShares((prev) => {
-                    const filtered = prev.filter((s) => s.id !== updated.id);
-                    return [...filtered, updated];
-                  });
-                } else if (updated.status === 'rejected' || updated.status === 'revoked') {
-                  setPendingInvitation((curr) => (curr?.id === updated.id ? null : curr));
-                  setAcceptedIncomingShares((prev) => prev.filter((s) => s.id !== updated.id));
-                }
-              } else if (payload.eventType === 'DELETE') {
-                const deletedId = payload.old?.id;
-                if (deletedId) {
-                  setPendingInvitation((curr) => (curr?.id === deletedId ? null : curr));
-                  setAcceptedIncomingShares((prev) => prev.filter((s) => s.id !== deletedId));
-                }
-              }
-            }
-          )
-          .subscribe();
-      }
-
       try {
-        // Reconcilia e deduplica pastas de ano e meses no Diário
-        await reconcileAndDeduplicateDiary(uid);
+        // Verifica se há evidência de inconsistência local antes de reconciliar
+        const localFolders = await indexedDBStorage.getAllFolders(uid);
+        const yearFolders = localFolders.filter((f) => isDiaryYearFolder(f));
+        const yearNums = yearFolders.map((f) => extractDiaryYear(f)).filter(Boolean);
+        const hasDuplicateYears = new Set(yearNums).size !== yearNums.length;
 
-        // Garante que o ano atual (2026) e seus 12 meses existam na estrutura
+        let hasDuplicateMonths = false;
+        for (const yf of yearFolders) {
+          const childMonths = localFolders.filter((f) => f.parent_id === yf.id);
+          const mNums = childMonths.map((m) => extractDiaryMonth(m)).filter(Boolean);
+          if (new Set(mNums).size !== mNums.length) {
+            hasDuplicateMonths = true;
+            break;
+          }
+        }
+
+        // Executa reconciliação somente quando houver duplicatas ou inconsistência estrutural
+        if (hasDuplicateYears || hasDuplicateMonths) {
+          await reconcileAndDeduplicateDiary(uid);
+        }
+
+        // Garante que o ano atual e seus 12 meses existam na estrutura
         const currentYear = new Date().getFullYear();
         await ensureDiaryYearFolders(uid, currentYear);
 
@@ -281,7 +254,7 @@ export function DiaryLayout() {
       } = supabase.auth.onAuthStateChange((event: any, session: any) => {
         if (!isMounted) return;
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-          if (session?.user?.id && session.user.id !== userId) {
+          if (session?.user?.id && session.user.id !== activeNoteIdRef.current) {
             setUserId(session.user.id);
             if (session.user.email) setUserEmail(session.user.email);
             initAuthAndData();
@@ -297,18 +270,80 @@ export function DiaryLayout() {
       if (authSubscription) {
         authSubscription.unsubscribe();
       }
-      if (sharesChannel) {
-        supabase.removeChannel(sharesChannel);
-      }
     };
   }, []);
+
+  // 1.1 Gerenciamento isolado da subscrição Realtime de compartilhamentos recebidos
+  useEffect(() => {
+    if (!userId || userId === 'local-user' || !isSupabaseConfigured()) return;
+    const supabase = createClient();
+    let isCancelled = false;
+
+    // Carrega compartilhamentos recebidos
+    fetchIncomingShares(userId)
+      .then((shares) => {
+        if (isCancelled) return;
+        const accepted = shares.filter((s) => s.status === 'accepted');
+        setAcceptedIncomingShares(accepted);
+        const pending = shares.find((s) => s.status === 'pending');
+        if (pending) {
+          setPendingInvitation(pending);
+        }
+      })
+      .catch((err) => {
+        console.warn('[DiaryLayout] Erro ao carregar compartilhamentos recebidos:', err);
+      });
+
+    const sharesChannel = supabase
+      .channel(`viewer_shares_${userId}`)
+      .on(
+        'postgres_changes' as any,
+        {
+          event: '*',
+          schema: 'public',
+          table: 'diary_shares',
+          filter: `viewer_id=eq.${userId}`,
+        },
+        (payload: any) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const updated = payload.new as DiaryShare;
+            if (updated.status === 'pending') {
+              setPendingInvitation(updated);
+            } else if (updated.status === 'accepted') {
+              setPendingInvitation((curr) => (curr?.id === updated.id ? null : curr));
+              setAcceptedIncomingShares((prev) => {
+                const filtered = prev.filter((s) => s.id !== updated.id);
+                return [...filtered, updated];
+              });
+            } else if (updated.status === 'rejected' || updated.status === 'revoked') {
+              setPendingInvitation((curr) => (curr?.id === updated.id ? null : curr));
+              setAcceptedIncomingShares((prev) => prev.filter((s) => s.id !== updated.id));
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old?.id;
+            if (deletedId) {
+              setPendingInvitation((curr) => (curr?.id === deletedId ? null : curr));
+              setAcceptedIncomingShares((prev) => prev.filter((s) => s.id !== deletedId));
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isCancelled = true;
+      try {
+        supabase.removeChannel(sharesChannel);
+      } catch {}
+    };
+  }, [userId]);
 
   // 2. Carregamento de conteúdo Markdown sob demanda para a entrada selecionada
   useEffect(() => {
     let isCancelled = false;
 
     if (activeNoteId && userId) {
-      const currentNote = notes.find((n) => n.id === activeNoteId);
+      const currentNote = notesRef.current.find((n) => n.id === activeNoteId);
       if (currentNote && (currentNote.content === undefined || currentNote.content === null)) {
         fetchNoteContent(userId, currentNote).then(({ content, tags }) => {
           if (!isCancelled) {
@@ -332,7 +367,7 @@ export function DiaryLayout() {
     return () => {
       isCancelled = true;
     };
-  }, [activeNoteId, userId, notes]);
+  }, [activeNoteId, userId]);
 
   // Nota atualmente ativa no editor
   const activeNote = useMemo(() => {

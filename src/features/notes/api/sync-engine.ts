@@ -96,6 +96,8 @@ class SyncEngine {
   private lastKnownReachable: boolean = false;
   private realtimeChannel: any = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private reconnectAttempts: number = 0;
+  private lastReconciliationTime: number = 0;
   private uploadingAttachments: Set<string> = new Set();
   private recentlySyncedNoteIds: Map<string, number> = new Map();
   private minNextSyncTime: number = 0;
@@ -110,58 +112,72 @@ class SyncEngine {
         const isNowOnline = state.isBackendReachable;
         this.lastKnownReachable = isNowOnline;
 
-        if (wasOffline && isNowOnline && this.activeUserId) {
-          console.log('[SyncEngine] Conexão restabelecida: reconectando Realtime e executando reconciliação silenciosa');
+        if (wasOffline && isNowOnline && this.activeUserId && !networkMonitor.getIsQuotaExceeded()) {
+          console.log('[SyncEngine] Conexão restabelecida: restabelecendo Realtime e verificando pendências locais');
           this.ensureRealtimeConnected(this.activeUserId);
-          this.performSilentReconciliation(this.activeUserId);
+          this.checkWatchdog(this.activeUserId);
         }
       });
 
-      // 2. Window focus (ao focar a janela/navegador)
+      // 2. Window focus (ao focar a janela/navegador - apenas verifica pendências locais ou reconexão Realtime)
       window.addEventListener('focus', () => {
-        if (this.activeUserId && navigator.onLine) {
-          console.log('[SyncEngine] Window focus: garantindo Realtime e executando reconciliação silenciosa');
+        if (this.activeUserId && navigator.onLine && !networkMonitor.getIsQuotaExceeded()) {
           this.ensureRealtimeConnected(this.activeUserId);
-          this.performSilentReconciliation(this.activeUserId);
+          this.checkWatchdog(this.activeUserId);
+          // Somente reconcilia via rede se Realtime estiver fora do ar há mais de 5 minutos
+          if (this.realtimeStatus !== 'SUBSCRIBED' && Date.now() - this.lastReconciliationTime > 300000) {
+            this.performSilentReconciliation(this.activeUserId);
+          }
         }
       });
 
-      // 3. Document visibility change (retorno de segundo plano / desbloqueio no mobile)
+      // 3. Document visibility change (retorno de segundo plano)
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && this.activeUserId && navigator.onLine) {
-          console.log('[SyncEngine] App retornou para primeiro plano (visibilitychange): reconciliação silenciosa');
+        if (
+          document.visibilityState === 'visible' &&
+          this.activeUserId &&
+          navigator.onLine &&
+          !networkMonitor.getIsQuotaExceeded()
+        ) {
           this.ensureRealtimeConnected(this.activeUserId);
-          this.performSilentReconciliation(this.activeUserId);
+          this.checkWatchdog(this.activeUserId);
+          // Somente reconcilia via rede se Realtime estiver desconectado há mais de 5 minutos
+          if (this.realtimeStatus !== 'SUBSCRIBED' && Date.now() - this.lastReconciliationTime > 300000) {
+            this.performSilentReconciliation(this.activeUserId);
+          }
         }
       });
 
-      // 4. Evento nativo online
+      // 4. Evento nativo online (verifica fila local e reabre Realtime se necessário)
       window.addEventListener('online', () => {
-        if (this.activeUserId) {
-          console.log('[SyncEngine] Evento online disparado: reconciliação silenciosa');
+        if (this.activeUserId && !networkMonitor.getIsQuotaExceeded()) {
+          console.log('[SyncEngine] Evento online disparado: reconexão leve');
           this.ensureRealtimeConnected(this.activeUserId);
-          this.performSilentReconciliation(this.activeUserId);
+          this.checkWatchdog(this.activeUserId);
         }
       });
 
-      // 5. Reconciliação periódica moderada (a cada 25 segundos enquanto o app estiver ativo)
+      // 5. Reconciliação periódica de segurança de baixa frequência (10 minutos): SOMENTE se Realtime NÃO estiver conectado
+      // Se o Realtime estiver SUBSCRIBED, todas as alterações chegam instantaneamente via websocket sem tráfego de polling!
       this.reconciliationInterval = setInterval(() => {
         if (
           this.activeUserId &&
           navigator.onLine &&
           typeof document !== 'undefined' &&
-          document.visibilityState === 'visible'
+          document.visibilityState === 'visible' &&
+          this.realtimeStatus !== 'SUBSCRIBED' &&
+          !networkMonitor.getIsQuotaExceeded()
         ) {
           this.performSilentReconciliation(this.activeUserId);
         }
-      }, 25000);
+      }, 600000);
 
-      // 6. Watchdog leve de segurança a cada 30 segundos (O(p) - consulta apenas a SyncQueue local)
+      // 6. Watchdog de segurança a cada 60 segundos (O(p) - consulta apenas a SyncQueue local do IndexedDB)
       this.watchdogInterval = setInterval(() => {
-        if (this.activeUserId && !this.isProcessing && navigator.onLine) {
+        if (this.activeUserId && !this.isProcessing && navigator.onLine && !networkMonitor.getIsQuotaExceeded()) {
           this.checkWatchdog(this.activeUserId);
         }
-      }, 30000);
+      }, 60000);
     }
   }
 
@@ -251,6 +267,8 @@ class SyncEngine {
     if (!userId || typeof window === 'undefined') return;
     if (!navigator.onLine || !networkMonitor.getState().isBackendReachable) return;
 
+    this.lastReconciliationTime = Date.now();
+
     // 1. Garante conexão Realtime ativa
     this.ensureRealtimeConnected(userId);
 
@@ -287,6 +305,7 @@ class SyncEngine {
    */
   public ensureRealtimeConnected(userId: string) {
     if (!isSupabaseConfigured() || !userId || typeof window === 'undefined') return;
+    if (networkMonitor.getIsQuotaExceeded()) return;
 
     if (
       this.realtimeChannel &&
@@ -300,18 +319,34 @@ class SyncEngine {
   }
 
   /**
-   * Trata reconexão do Supabase Realtime com debounce e backoff.
+   * Trata reconexão do Supabase Realtime com backoff exponencial e proteção de quota.
    */
   private handleRealtimeReconnect(userId: string) {
     if (this.reconnectTimeout) return;
-    console.log('[Realtime] RECONNECT');
+    if (networkMonitor.getIsQuotaExceeded()) {
+      console.log('[Realtime] Reconexão suspensa: Quota de egress excedida.');
+      return;
+    }
+
+    this.reconnectAttempts++;
+    // Backoff exponencial: 5s, 10s, 20s, 40s, até max 120s
+    const delay = Math.min(120000, 5000 * Math.pow(1.8, Math.min(this.reconnectAttempts, 6)));
+    console.log(`[Realtime] RECONNECT agendado em ${Math.round(delay / 1000)}s (tentativa ${this.reconnectAttempts})`);
+
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
-      if (this.activeUserId === userId && (typeof navigator === 'undefined' || navigator.onLine)) {
+      if (
+        this.activeUserId === userId &&
+        (typeof navigator === 'undefined' || navigator.onLine) &&
+        !networkMonitor.getIsQuotaExceeded()
+      ) {
         this.setupRealtimeSubscription(userId);
-        this.performSilentReconciliation(userId);
+        // Só reconcilia se a última foi há mais de 60 segundos
+        if (Date.now() - this.lastReconciliationTime > 60000) {
+          this.performSilentReconciliation(userId);
+        }
       }
-    }, 2000);
+    }, delay);
   }
 
   /**
@@ -320,6 +355,7 @@ class SyncEngine {
    */
   private setupRealtimeSubscription(userId: string) {
     if (!isSupabaseConfigured() || !userId || userId === 'demo-user' || userId === 'local-user' || typeof window === 'undefined') return;
+    if (networkMonitor.getIsQuotaExceeded()) return;
 
     try {
       const supabase = createClient();
@@ -375,6 +411,7 @@ class SyncEngine {
         .subscribe((status: any) => {
           if (status === 'SUBSCRIBED') {
             this.realtimeStatus = 'SUBSCRIBED';
+            this.reconnectAttempts = 0; // Reset das tentativas com reconexão bem-sucedida
             console.log('[Realtime] CONNECTED');
             console.log('[Realtime] SUBSCRIBED');
           } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -1323,7 +1360,7 @@ class SyncEngine {
         // 3. Verificação de Conflito com a versão no Supabase
         const { data: remoteNote, error: fetchErr } = await supabase
           .from('notes')
-          .select('*')
+          .select('id, user_id, updated_at, revision, content')
           .eq('id', noteId)
           .eq('user_id', userId)
           .single();
@@ -2033,10 +2070,16 @@ class SyncEngine {
    */
   public async pullIncrementalChanges(userId: string): Promise<void> {
     if (!isSupabaseConfigured() || !userId) return;
+    if (networkMonitor.getIsQuotaExceeded()) return;
 
     try {
       const supabase = createClient();
       let remoteChangesCount = 0;
+
+      // Recupera timestamp da última sincronização bem-sucedida para busca incremental real
+      // O cursor deve representar estritamente o último ponto confirmado pelo servidor
+      const pullStartedAt = new Date().toISOString();
+      const lastSync = await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp');
 
       const pendingQueue = await indexedDBStorage.getPendingSyncItems(userId);
       const pendingFolderIds = new Set(pendingQueue.filter((q) => q.entity_type === 'folder').map((f) => f.entity_id));
@@ -2052,12 +2095,23 @@ class SyncEngine {
 
       // 0. Sincroniza metadados de anexos remotos (note_attachments)
       try {
-        const { data: remoteAttachments, error: attsErr } = await supabase
+        let attsQuery = supabase
           .from('note_attachments')
-          .select('*')
+          .select('id, user_id, note_id, file_name, mime_type, file_size, storage_path, created_at, updated_at')
           .eq('user_id', userId);
 
-        if (!attsErr && remoteAttachments) {
+        if (lastSync) {
+          attsQuery = attsQuery.gt('updated_at', lastSync);
+        }
+
+        const { data: remoteAttachments, error: attsErr } = await attsQuery;
+
+        if (attsErr) {
+          if (attsErr.status === 402 || (attsErr.message && attsErr.message.includes('exceed_egress_quota'))) {
+            networkMonitor.setQuotaExceeded(true, attsErr.message);
+            return;
+          }
+        } else if (remoteAttachments) {
           for (const rAtt of remoteAttachments) {
             if (!pendingAttachmentIds.has(rAtt.id)) {
               const existingAtt = await indexedDBStorage.getAttachment(userId, rAtt.id);
@@ -2093,13 +2147,24 @@ class SyncEngine {
         console.warn('[SyncEngine] Aviso ao sincronizar anexos remotos:', attPullErr);
       }
 
-      // 1. Busca pastas remotas
-      const { data: remoteFolders, error: foldersErr } = await supabase
+      // 1. Busca pastas remotas (filtrado por lastSync se disponível)
+      let foldersQuery = supabase
         .from('folders')
-        .select('*')
+        .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, created_at, updated_at')
         .eq('user_id', userId);
 
-      if (!foldersErr && remoteFolders) {
+      if (lastSync) {
+        foldersQuery = foldersQuery.gt('updated_at', lastSync);
+      }
+
+      const { data: remoteFolders, error: foldersErr } = await foldersQuery;
+
+      if (foldersErr) {
+        if (foldersErr.status === 402 || (foldersErr.message && foldersErr.message.includes('exceed_egress_quota'))) {
+          networkMonitor.setQuotaExceeded(true, foldersErr.message);
+          return;
+        }
+      } else if (remoteFolders) {
         const localFolders = await indexedDBStorage.getAllFolders(userId);
         const localFoldersMap = new Map(localFolders.map((f) => [f.id, f]));
         const remoteFolderIds = new Set(remoteFolders.map((f: any) => f.id));
@@ -2158,29 +2223,42 @@ class SyncEngine {
           }
         }
 
-        // Detecta pastas deletadas remotamente (somente se não houver pendência local)
-        for (const lFolder of localFolders) {
-          if (
-            !remoteFolderIds.has(lFolder.id) &&
-            !pendingFolderIds.has(lFolder.id) &&
-            !lFolder.syncRequired &&
-            !lFolder.needs_sync &&
-            lFolder.syncStatus === 'synced'
-          ) {
-            await indexedDBStorage.deleteFolder(userId, lFolder.id);
-            console.log(`[SyncGuard] PULL: DELETE LOCAL FOLDER ${lFolder.id}`);
-            remoteChangesCount++;
+        // Detecta pastas deletadas remotamente (SOMENTE na sincronização completa inicial sem lastSync)
+        if (!lastSync) {
+          for (const lFolder of localFolders) {
+            if (
+              !remoteFolderIds.has(lFolder.id) &&
+              !pendingFolderIds.has(lFolder.id) &&
+              !lFolder.syncRequired &&
+              !lFolder.needs_sync &&
+              lFolder.syncStatus === 'synced'
+            ) {
+              await indexedDBStorage.deleteFolder(userId, lFolder.id);
+              console.log(`[SyncGuard] PULL: DELETE LOCAL FOLDER ${lFolder.id}`);
+              remoteChangesCount++;
+            }
           }
         }
       }
 
-      // 2. Busca notas remotas
-      const { data: remoteNotes, error: notesErr } = await supabase
+      // 2. Busca notas remotas (filtrado por lastSync se disponível, apenas metadados)
+      let notesQuery = supabase
         .from('notes')
-        .select('*')
+        .select('id, user_id, folder_id, title, position, is_archived, previous_folder_id, revision, tags, created_at, updated_at')
         .eq('user_id', userId);
 
-      if (!notesErr && remoteNotes) {
+      if (lastSync) {
+        notesQuery = notesQuery.gt('updated_at', lastSync);
+      }
+
+      const { data: remoteNotes, error: notesErr } = await notesQuery;
+
+      if (notesErr) {
+        if (notesErr.status === 402 || (notesErr.message && notesErr.message.includes('exceed_egress_quota'))) {
+          networkMonitor.setQuotaExceeded(true, notesErr.message);
+          return;
+        }
+      } else if (remoteNotes) {
         const localNotes = await indexedDBStorage.getAllNotes(userId);
         const localNotesMap = new Map(localNotes.map((n) => [n.id, n]));
         const remoteNoteIds = new Set(remoteNotes.map((n: any) => n.id));
@@ -2225,6 +2303,7 @@ class SyncEngine {
           if (!existingNote) {
             await indexedDBStorage.putNote(userId, {
               ...rNote,
+              content: rNote.content ?? '',
               tags: noteTags,
               revision: rNote.revision || 0,
               syncRequired: false,
@@ -2240,10 +2319,14 @@ class SyncEngine {
 
           const normalizeContent = (str?: string) => (str || '').replace(/\r\n/g, '\n').trim();
 
-          // Compara conteúdo funcional
+          // Compara metadados e conteúdo se disponível
+          const contentMatches = rNote.content !== undefined
+            ? normalizeContent(existingNote.content) === normalizeContent(rNote.content)
+            : true;
+
           const functionalContentMatches =
             existingNote.title === rNote.title &&
-            normalizeContent(existingNote.content) === normalizeContent(rNote.content) &&
+            contentMatches &&
             existingNote.folder_id === rNote.folder_id &&
             existingNote.position === rNote.position &&
             Boolean(existingNote.is_archived) === Boolean(rNote.is_archived) &&
@@ -2265,9 +2348,10 @@ class SyncEngine {
             continue;
           }
 
-          // Se existe localmente, NÃO tem pendência e difere da remota: aplica versão remota
+          // Se existe localmente, NÃO tem pendência e difere da remota: aplica versão remota preservando conteúdo local se não veio na projeção
           await indexedDBStorage.putNote(userId, {
             ...rNote,
+            content: rNote.content !== undefined ? rNote.content : (existingNote.content ?? ''),
             tags: noteTags,
             revision: Math.max(rNote.revision || 0, existingNote.revision || 0),
             syncRequired: false,
@@ -2280,18 +2364,20 @@ class SyncEngine {
           remoteChangesCount++;
         }
 
-        // Detecta notas deletadas remotamente (somente se não houver pendência local)
-        for (const lNote of localNotes) {
-          if (
-            !remoteNoteIds.has(lNote.id) &&
-            !pendingNoteIds.has(lNote.id) &&
-            !lNote.syncRequired &&
-            !lNote.needs_sync &&
-            lNote.syncStatus === 'synced'
-          ) {
-            await indexedDBStorage.deleteNote(userId, lNote.id);
-            console.log(`[SyncGuard] PULL: DELETE LOCAL NOTE ${lNote.id}`);
-            remoteChangesCount++;
+        // Detecta notas deletadas remotamente (SOMENTE na sincronização completa inicial sem lastSync)
+        if (!lastSync) {
+          for (const lNote of localNotes) {
+            if (
+              !remoteNoteIds.has(lNote.id) &&
+              !pendingNoteIds.has(lNote.id) &&
+              !lNote.syncRequired &&
+              !lNote.needs_sync &&
+              lNote.syncStatus === 'synced'
+            ) {
+              await indexedDBStorage.deleteNote(userId, lNote.id);
+              console.log(`[SyncGuard] PULL: DELETE LOCAL NOTE ${lNote.id}`);
+              remoteChangesCount++;
+            }
           }
         }
       }
@@ -2304,8 +2390,8 @@ class SyncEngine {
         await this.notifyDataSubscribers(userId);
       }
 
-      // 4. Atualiza timestamp da última sincronização bem sucedida
-      await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', new Date().toISOString());
+      // 4. Atualiza timestamp da última sincronização bem sucedida com o início do ciclo confirmado pelo servidor
+      await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', pullStartedAt);
     } catch (err) {
       console.warn('[SyncEngine] Erro ao sincronizar dados remotos:', err);
     }

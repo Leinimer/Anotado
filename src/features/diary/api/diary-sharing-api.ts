@@ -7,6 +7,7 @@
  */
 
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
+import { networkMonitor } from '@/src/features/notes/api/network-monitor';
 import { Folder, Note } from '@/src/features/notes/types';
 import {
   MONTH_NAMES_PT,
@@ -95,7 +96,7 @@ export async function fetchOutgoingShares(userId: string): Promise<DiaryShare[]>
     const supabase = createClient();
     const { data, error } = await supabase
       .from('diary_shares')
-      .select('*')
+      .select('id, owner_id, owner_email, viewer_id, viewer_email, status, permission, share_year, share_month, created_at, updated_at')
       .eq('owner_id', userId)
       .order('created_at', { ascending: false });
 
@@ -125,7 +126,7 @@ export async function fetchIncomingShares(userId: string): Promise<DiaryShare[]>
     const supabase = createClient();
     const { data, error } = await supabase
       .from('diary_shares')
-      .select('*')
+      .select('id, owner_id, owner_email, viewer_id, viewer_email, status, permission, share_year, share_month, created_at, updated_at')
       .eq('viewer_id', userId)
       .order('created_at', { ascending: false });
 
@@ -424,7 +425,7 @@ export async function createDiaryShare(
   try {
     const { data: existing, error: checkError } = await supabase
       .from('diary_shares')
-      .select('*')
+      .select('id, owner_id, viewer_id, status, permission, share_year, share_month')
       .eq('owner_id', realOwnerId)
       .eq('viewer_id', targetUser.id)
       .maybeSingle();
@@ -647,7 +648,7 @@ export async function fetchSharedDiaryData(
     // 1. Obtém metadados do compartilhamento
     const { data: share, error: shareError } = await supabase
       .from('diary_shares')
-      .select('*')
+      .select('id, owner_id, owner_email, viewer_id, viewer_email, status, permission, share_year, share_month, created_at, updated_at')
       .eq('id', shareId)
       .maybeSingle();
 
@@ -674,10 +675,10 @@ export async function fetchSharedDiaryData(
 
     const ownerId = share.owner_id;
 
-    // 2. Busca pastas do proprietário permitidas pelas policies do Diário
+    // 2. Busca pastas do proprietário permitidas pelas policies do Diário (apenas metadados)
     const { data: foldersData, error: foldersError } = await supabase
       .from('folders')
-      .select('*')
+      .select('id, user_id, name, parent_id, position, color, created_at, updated_at')
       .eq('user_id', ownerId)
       .order('position', { ascending: true });
 
@@ -685,10 +686,10 @@ export async function fetchSharedDiaryData(
       console.error('[DiaryShare] Erro ao carregar pastas do Diário compartilhado:', foldersError);
     }
 
-    // 3. Busca notas do proprietário permitidas pelas policies do Diário (não arquivadas)
+    // 3. Busca notas do proprietário permitidas pelas policies do Diário (metadados leves, sem transferir todo o markdown)
     const { data: notesData, error: notesError } = await supabase
       .from('notes')
-      .select('*')
+      .select('id, user_id, folder_id, title, position, tags, is_archived, updated_at, created_at, revision')
       .eq('user_id', ownerId)
       .eq('is_archived', false)
       .order('position', { ascending: true });
@@ -818,6 +819,8 @@ export async function fetchSharedDiaryData(
   }
 }
 
+const sharedNoteCache = new Map<string, { content: string; tags: string[]; cachedAt: number }>();
+
 /**
  * Carrega o conteúdo Markdown de uma nota específica de um Diário compartilhado
  */
@@ -825,43 +828,71 @@ export async function fetchSharedNoteContent(
   ownerId: string,
   noteId: string
 ): Promise<{ content: string; tags: string[] }> {
-  if (!isSupabaseConfigured() || !ownerId || !noteId) {
+  if (!isSupabaseConfigured() || !ownerId || !noteId || networkMonitor.getIsQuotaExceeded()) {
     return { content: '', tags: [] };
+  }
+
+  const cacheKey = `${ownerId}:${noteId}`;
+  const cached = sharedNoteCache.get(cacheKey);
+  // Cache válido por 5 minutos
+  if (cached && Date.now() - cached.cachedAt < 300000) {
+    return { content: cached.content, tags: cached.tags };
   }
 
   const supabase = createClient();
 
   try {
     // 1. Busca do banco
-    const { data: noteRow } = await supabase
+    const { data: noteRow, error: dbErr } = await supabase
       .from('notes')
       .select('content, tags')
       .eq('id', noteId)
       .eq('user_id', ownerId)
       .maybeSingle();
 
+    if (dbErr) {
+      if ((dbErr as any)?.status === 402 || dbErr.message?.includes('exceed_egress_quota')) {
+        networkMonitor.setQuotaExceeded(true, dbErr.message);
+      }
+    }
+
     if (noteRow?.content) {
-      return {
+      const res = {
         content: noteRow.content,
         tags: Array.isArray(noteRow.tags) ? noteRow.tags : [],
       };
+      sharedNoteCache.set(cacheKey, { ...res, cachedAt: Date.now() });
+      return res;
+    }
+
+    // Se a quota acabou durante a operação, não tenta storage
+    if (networkMonitor.getIsQuotaExceeded()) {
+      return { content: '', tags: [] };
     }
 
     // 2. Tenta download do storage se estiver vazio na tabela
     const filePath = `${ownerId}/${noteId}.md`;
     const { data: blob, error } = await supabase.storage.from('notes').download(filePath);
-    if (!error && blob) {
+    if (error) {
+      if ((error as any)?.status === 402 || error.message?.includes('exceed_egress_quota')) {
+        networkMonitor.setQuotaExceeded(true, error.message);
+      }
+    } else if (blob) {
       const text = await blob.text();
-      return {
+      const res = {
         content: text,
         tags: Array.isArray(noteRow?.tags) ? noteRow.tags : [],
       };
+      sharedNoteCache.set(cacheKey, { ...res, cachedAt: Date.now() });
+      return res;
     }
 
-    return {
+    const fallbackRes = {
       content: noteRow?.content || '',
       tags: Array.isArray(noteRow?.tags) ? noteRow.tags : [],
     };
+    sharedNoteCache.set(cacheKey, { ...fallbackRes, cachedAt: Date.now() });
+    return fallbackRes;
   } catch (err) {
     console.warn('[DiaryShare] Erro ao baixar conteúdo da nota compartilhada:', err);
     return { content: '', tags: [] };

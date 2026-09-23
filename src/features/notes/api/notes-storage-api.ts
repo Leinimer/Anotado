@@ -32,8 +32,8 @@ export async function readNoteMarkdown(userId: string, noteId: string): Promise<
     console.warn('[NotesStorage] Erro ao ler nota do IndexedDB:', err);
   }
 
-  // 2. Se online e configurado, busca do Supabase Storage
-  const isOnline = networkMonitor.getState().isBackendReachable;
+  // 2. Se online, configurado e quota válida, busca do Supabase Storage
+  const isOnline = networkMonitor.getState().isBackendReachable && !networkMonitor.getIsQuotaExceeded();
   if (isOnline && isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -43,8 +43,21 @@ export async function readNoteMarkdown(userId: string, noteId: string): Promise<
         .from(NOTES_BUCKET_NAME)
         .download(filePath);
 
-      if (!error && data) {
+      if (error) {
+        if ((error as any)?.status === 402 || error.message?.includes('exceed_egress_quota')) {
+          networkMonitor.setQuotaExceeded(true, error.message);
+        }
+      } else if (data) {
         const text = await data.text();
+        try {
+          const current = await indexedDBStorage.getNoteById(userId, noteId);
+          if (current) {
+            await indexedDBStorage.putNote(userId, {
+              ...current,
+              content: text,
+            });
+          }
+        } catch {}
         return text;
       }
     } catch (err) {
@@ -68,7 +81,11 @@ export async function writeNoteMarkdown(
 
   const content = markdownContent ?? '';
 
-  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+  if (
+    isSupabaseConfigured() &&
+    networkMonitor.getState().isBackendReachable &&
+    !networkMonitor.getIsQuotaExceeded()
+  ) {
     try {
       const supabase = createClient();
       const filePath = getNoteStoragePath(userId, noteId);
@@ -79,10 +96,13 @@ export async function writeNoteMarkdown(
         .upload(filePath, blob, {
           contentType: 'text/markdown;charset=utf-8',
           upsert: true,
-          cacheControl: '0',
+          cacheControl: '3600',
         });
 
       if (error) {
+        if ((error as any)?.status === 402 || error.message?.includes('exceed_egress_quota')) {
+          networkMonitor.setQuotaExceeded(true, error.message);
+        }
         console.warn(`[NotesStorage] Aviso ao gravar ${filePath} no Supabase Storage:`, error.message);
         return false;
       }
@@ -103,7 +123,11 @@ export async function writeNoteMarkdown(
 export async function deleteNoteMarkdown(userId: string, noteId: string): Promise<boolean> {
   if (!userId || !noteId) return false;
 
-  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+  if (
+    isSupabaseConfigured() &&
+    networkMonitor.getState().isBackendReachable &&
+    !networkMonitor.getIsQuotaExceeded()
+  ) {
     try {
       const supabase = createClient();
       const filePath = getNoteStoragePath(userId, noteId);
@@ -113,13 +137,16 @@ export async function deleteNoteMarkdown(userId: string, noteId: string): Promis
         .remove([filePath]);
 
       if (error) {
+        if ((error as any)?.status === 402 || error.message?.includes('exceed_egress_quota')) {
+          networkMonitor.setQuotaExceeded(true, error.message);
+        }
         console.warn(`[NotesStorage] Aviso ao remover ${filePath} do Storage:`, error);
         return false;
       }
 
       return true;
     } catch (err) {
-      console.warn('[NotesStorage] Exceção ao remover arquivo Markdown:', err);
+      console.warn('[NotesStorage] Exceção ao remover do Supabase Storage:', err);
       return false;
     }
   }

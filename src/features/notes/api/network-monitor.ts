@@ -17,11 +17,14 @@ export type ConnectivityStatus =
   | 'synced'
   | 'pending_sync'
   | 'remote_change'
+  | 'quota_exceeded'
   | 'error';
 
 export interface NetworkState {
   isOnline: boolean;
   isBackendReachable: boolean;
+  isQuotaExceeded: boolean;
+  quotaErrorMessage?: string | null;
   status: ConnectivityStatus;
   pendingCount: number;
   lastCheckedAt: string;
@@ -32,6 +35,8 @@ type Listener = (state: NetworkState) => void;
 class NetworkMonitor {
   private isOnline: boolean = typeof navigator !== 'undefined' ? navigator.onLine : true;
   private isBackendReachable: boolean = true;
+  private isQuotaExceeded: boolean = false;
+  private quotaErrorMessage: string | null = null;
   private currentStatus: ConnectivityStatus = 'synced';
   private pendingCount: number = 0;
   private listeners: Set<Listener> = new Set();
@@ -120,11 +125,30 @@ class NetworkMonitor {
 
       clearTimeout(timeoutId);
 
+      // Tratamento específico de violação de quota de egress (HTTP 402 / exceed_egress_quota)
+      if (response.status === 402) {
+        let errorMsg = 'Quota de egress do projeto Supabase excedida.';
+        try {
+          const bodyText = await response.text();
+          if (bodyText) {
+            const parsed = JSON.parse(bodyText);
+            if (parsed.message) errorMsg = parsed.message;
+          }
+        } catch {}
+        this.setQuotaExceeded(true, errorMsg);
+        this.isOnline = true;
+        this.isBackendReachable = false;
+        return false;
+      }
+
       const reachable = response.ok;
       this.isOnline = true;
       this.isBackendReachable = reachable;
 
       if (reachable) {
+        if (this.isQuotaExceeded) {
+          this.setQuotaExceeded(false, null);
+        }
         if (this.currentStatus !== 'syncing' && this.currentStatus !== 'remote_change') {
           this.updateStatus(this.pendingCount > 0 ? 'pending_sync' : 'synced');
         }
@@ -146,15 +170,41 @@ class NetworkMonitor {
     }
   }
 
-  public startPeriodicCheck() {
+  public setQuotaExceeded(exceeded: boolean, message?: string | null) {
+    const changed = this.isQuotaExceeded !== exceeded;
+    this.isQuotaExceeded = exceeded;
+    if (exceeded) {
+      this.quotaErrorMessage = message || 'Quota de egress excedida.';
+      this.isBackendReachable = false;
+      this.currentStatus = 'quota_exceeded';
+      // Quando a cota é excedida, relaxa o probe para 5 minutos para evitar tráfego inútil
+      this.startPeriodicCheck(300000);
+    } else {
+      this.quotaErrorMessage = null;
+      if (changed) {
+        this.startPeriodicCheck(60000);
+      }
+    }
+    this.notify();
+  }
+
+  public getIsQuotaExceeded(): boolean {
+    return this.isQuotaExceeded;
+  }
+
+  public startPeriodicCheck(intervalMs: number = 60000) {
     if (this.checkInterval) clearInterval(this.checkInterval);
     this.checkInterval = setInterval(() => {
       this.checkBackendReachability();
-    }, 25000);
+    }, intervalMs);
   }
 
   public updatePendingCount(count: number) {
     this.pendingCount = count;
+    if (this.isQuotaExceeded) {
+      this.updateStatus('quota_exceeded');
+      return;
+    }
     if (this.currentStatus !== 'syncing' && this.currentStatus !== 'remote_change') {
       if (!this.isBackendReachable) {
         this.updateStatus(count > 0 ? 'pending_sync' : 'offline');
@@ -169,6 +219,10 @@ class NetworkMonitor {
   }
 
   public setSyncing(isSyncing: boolean) {
+    if (this.isQuotaExceeded) {
+      this.updateStatus('quota_exceeded');
+      return;
+    }
     if (isSyncing) {
       this.updateStatus('syncing');
     } else {
@@ -213,6 +267,8 @@ class NetworkMonitor {
     return {
       isOnline: this.isOnline,
       isBackendReachable: this.isBackendReachable,
+      isQuotaExceeded: this.isQuotaExceeded,
+      quotaErrorMessage: this.quotaErrorMessage,
       status: this.currentStatus,
       pendingCount: this.pendingCount,
       lastCheckedAt: new Date().toISOString(),

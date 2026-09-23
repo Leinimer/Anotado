@@ -1,6 +1,6 @@
 {
   "name": "ANOTADO!",
-  "description": "Um espaço para escrever. Minimalist and high-performance tactile notes.",
+  "description": "Um espaço para escrever.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
