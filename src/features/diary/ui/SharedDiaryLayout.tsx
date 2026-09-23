@@ -47,10 +47,15 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const activeNoteIdRef = useRef<string | null>(null);
+  const notesRef = useRef<Note[]>(notes);
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
   }, [activeNoteId]);
+
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
 
   // 1. Carrega dados iniciais do Diário compartilhado
   useEffect(() => {
@@ -120,7 +125,7 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
     let isCancelled = false;
 
     if (activeNoteId && share?.owner_id) {
-      const currentNote = notes.find((n) => n.id === activeNoteId);
+      const currentNote = notesRef.current.find((n) => n.id === activeNoteId);
       if (currentNote && (currentNote.content === undefined || currentNote.content === null)) {
         fetchSharedNoteContent(share.owner_id, activeNoteId).then(({ content, tags }) => {
           if (!isCancelled) {
@@ -144,7 +149,7 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
     return () => {
       isCancelled = true;
     };
-  }, [activeNoteId, share?.owner_id, notes]);
+  }, [activeNoteId, share?.owner_id]);
 
   // 3. Subscrição Supabase Realtime para atualizações em tempo real
   useEffect(() => {

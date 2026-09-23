@@ -192,7 +192,9 @@ export async function fetchFoldersAndNotes(
   userId: string,
   workspaceType?: WorkspaceType
 ): Promise<{ folders: Folder[]; notes: Note[] }> {
-  syncEngine.setActiveUser(userId);
+  if (syncEngine.getActiveUserId() !== userId) {
+    syncEngine.setActiveUser(userId);
+  }
 
   const cacheKey = `${userId}:${workspaceType || 'all'}`;
   if (inFlightFetchFoldersAndNotes.has(cacheKey)) {

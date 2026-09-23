@@ -101,6 +101,15 @@ class SyncEngine {
   private uploadingAttachments: Set<string> = new Set();
   private recentlySyncedNoteIds: Map<string, number> = new Map();
   private minNextSyncTime: number = 0;
+  private inFlightReconciliation: Map<string, Promise<void>> = new Map();
+  private inFlightPull: Map<string, Promise<void>> = new Map();
+  private lastSuccessfulReconciliation: number = 0;
+  private reconciliationCooldownMs: number = 15000;
+  private initializedUserIds: Set<string> = new Set();
+
+  public getActiveUserId(): string | null {
+    return this.activeUserId;
+  }
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -191,14 +200,30 @@ class SyncEngine {
   }
 
   public setActiveUser(userId: string) {
-    const isNewUser = this.activeUserId !== userId;
+    if (!userId || typeof window === 'undefined') return;
+
+    const isSameUser = this.activeUserId === userId;
+    const isAlreadyInitialized = this.initializedUserIds.has(userId);
+
+    // Idempotência estrita: se for o mesmo usuário já ativo e inicializado, não repete reconciliação nem cria canais
+    if (isSameUser && isAlreadyInitialized) {
+      this.updatePendingCount(userId);
+      return;
+    }
+
+    // Se houve troca de usuário real, limpa o canal e timers do usuário anterior
+    if (this.activeUserId && this.activeUserId !== userId) {
+      this.cleanup();
+    }
+
     this.activeUserId = userId;
+    this.initializedUserIds.add(userId);
     this.updatePendingCount(userId);
 
-    if (isNewUser || !this.realtimeChannel || this.realtimeStatus !== 'SUBSCRIBED' || this.activeRealtimeUserId !== userId) {
+    if (!this.realtimeChannel || this.realtimeStatus !== 'SUBSCRIBED' || this.activeRealtimeUserId !== userId) {
       this.setupRealtimeSubscription(userId);
     }
-    // Reconciliação silenciosa inicial
+    // Reconciliação silenciosa inicial (deduplicada)
     this.performSilentReconciliation(userId);
   }
 
@@ -230,6 +255,11 @@ class SyncEngine {
     if (this.reconciliationInterval) {
       clearInterval(this.reconciliationInterval);
       this.reconciliationInterval = null;
+    }
+    if (this.activeUserId) {
+      this.initializedUserIds.delete(this.activeUserId);
+      this.inFlightReconciliation.delete(this.activeUserId);
+      this.inFlightPull.delete(this.activeUserId);
     }
     this.activeUserId = null;
     this.activeRealtimeUserId = null;
@@ -269,44 +299,71 @@ class SyncEngine {
    * Executa a reconciliação silenciosa (PULL) e saúde do Realtime:
    * 1. Garante que o Realtime esteja conectado.
    * 2. Se houver itens pendentes na fila local elegíveis para PUSH, agenda o processamento da fila.
-   * 3. Executa o PULL silencioso de alterações remotas do Supabase (sem ativar "Sincronizando...").
-   * 4. Supabase é a fonte da verdade consolidada; IndexedDB é o estado local convergente.
+   * 3. Se o Realtime estiver conectado e saudável, NÃO faz PULL de rotina.
+   * 4. Executa PULL incremental apenas quando Realtime estiver desconectado ou em primeira sincronização.
    */
   public async performSilentReconciliation(userId: string): Promise<void> {
     if (!userId || typeof window === 'undefined') return;
-    if (!navigator.onLine || !networkMonitor.getState().isBackendReachable) return;
+    if (!navigator.onLine || !networkMonitor.getState().isBackendReachable || networkMonitor.getIsQuotaExceeded()) return;
 
-    this.lastReconciliationTime = Date.now();
-
-    // 1. Garante conexão Realtime ativa
-    this.ensureRealtimeConnected(userId);
-
-    try {
-      // 2. Verifica se há mutações locais na fila elegíveis para PUSH imediato
-      const queue = await indexedDBStorage.getPendingSyncItems(userId);
-      const now = Date.now();
-      const hasEligiblePush = queue.some((i) => !i.next_retry_at || now >= i.next_retry_at);
-
-      if (hasEligiblePush) {
-        // Se há PUSH local a enviar, agenda o processamento (que executará o PUSH com indicador ativo e finalizará com PULL)
-        this.scheduleSync(50);
-        return;
-      }
-
-      // 3. Se não há PUSH local, executa PULL silencioso para recuperar alterações remotas (ex: celular <-> computador)
-      if (!this.isProcessing && !this.isPulling) {
-        this.isPulling = true;
-        try {
-          await this.pullIncrementalChanges(userId);
-        } catch (err) {
-          console.warn('[SyncEngine] Falha silenciosa na reconciliação PULL:', err);
-        } finally {
-          this.isPulling = false;
-        }
-      }
-    } catch (err) {
-      console.warn('[SyncEngine] Falha ao verificar fila para reconciliação:', err);
+    // Mutex / Deduplicação: se já existe reconciliação em andamento para este usuário, reutiliza a Promise
+    if (this.inFlightReconciliation.has(userId)) {
+      return this.inFlightReconciliation.get(userId)!;
     }
+
+    // Cooldown para evitar rajadas por eventos simultâneos (focus, visibilitychange, online, etc.)
+    const now = Date.now();
+    if (now - this.lastSuccessfulReconciliation < this.reconciliationCooldownMs) {
+      return;
+    }
+
+    const task = (async (): Promise<void> => {
+      try {
+        this.lastReconciliationTime = Date.now();
+
+        // 1. Garante conexão Realtime ativa
+        this.ensureRealtimeConnected(userId);
+
+        // 2. Verifica se há mutações locais na fila elegíveis para PUSH imediato
+        const queue = await indexedDBStorage.getPendingSyncItems(userId);
+        const hasEligiblePush = queue.some((i) => !i.next_retry_at || Date.now() >= i.next_retry_at);
+
+        if (hasEligiblePush) {
+          // Se há PUSH local a enviar, agenda o processamento
+          this.scheduleSync(50);
+          this.lastSuccessfulReconciliation = Date.now();
+          return;
+        }
+
+        // 3. REGRA CRÍTICA: Se o Realtime estiver SUBSCRIBED e já temos sincronização anterior confirmada (last_sync_timestamp),
+        // NÃO fazemos PULL de rotina! O websocket entrega alterações remotas instantaneamente sem polling.
+        const lastSync = await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp');
+        if (this.realtimeStatus === 'SUBSCRIBED' && lastSync) {
+          this.lastSuccessfulReconciliation = Date.now();
+          return;
+        }
+
+        // 4. Se não há PUSH local e o Realtime está desconectado ou é a primeira sincronização: executa PULL incremental
+        if (!this.isProcessing && !this.isPulling) {
+          this.isPulling = true;
+          try {
+            await this.pullIncrementalChanges(userId);
+            this.lastSuccessfulReconciliation = Date.now();
+          } catch (err) {
+            console.warn('[SyncEngine] Falha silenciosa na reconciliação PULL:', err);
+          } finally {
+            this.isPulling = false;
+          }
+        }
+      } catch (err) {
+        console.warn('[SyncEngine] Falha ao verificar fila para reconciliação:', err);
+      } finally {
+        this.inFlightReconciliation.delete(userId);
+      }
+    })();
+
+    this.inFlightReconciliation.set(userId, task);
+    return task;
   }
 
   /**
@@ -319,7 +376,7 @@ class SyncEngine {
     if (
       this.realtimeChannel &&
       this.activeRealtimeUserId === userId &&
-      this.realtimeStatus === 'SUBSCRIBED'
+      (this.realtimeStatus === 'SUBSCRIBED' || this.realtimeStatus === 'CONNECTING')
     ) {
       return;
     }
@@ -365,6 +422,15 @@ class SyncEngine {
   private setupRealtimeSubscription(userId: string) {
     if (!isSupabaseConfigured() || !userId || userId === 'demo-user' || userId === 'local-user' || typeof window === 'undefined') return;
     if (networkMonitor.getIsQuotaExceeded()) return;
+
+    // Se já estiver SUBSCRIBED ou CONNECTING para o mesmo usuário, não cria outro canal
+    if (
+      this.realtimeChannel &&
+      this.activeRealtimeUserId === userId &&
+      (this.realtimeStatus === 'SUBSCRIBED' || this.realtimeStatus === 'CONNECTING')
+    ) {
+      return;
+    }
 
     try {
       const supabase = createClient();
@@ -1041,9 +1107,11 @@ class SyncEngine {
 
       await this.updatePendingCount(userId);
 
-      // 2. ETAPA PULL: PULL incremental de novidades do servidor (BACKGROUND_SYNC silencioso)
-      // Supabase é a fonte da verdade para o estado convergente.
-      await this.pullIncrementalChanges(userId);
+      // 2. ETAPA PULL: PULL incremental apenas se o Realtime NÃO estiver conectado ou se ainda não houver sincronização prévia
+      const lastSync = await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp');
+      if (this.realtimeStatus !== 'SUBSCRIBED' || !lastSync) {
+        await this.pullIncrementalChanges(userId);
+      }
 
       return { success: true, processed: processedCount };
     } catch (err) {
@@ -2081,19 +2149,24 @@ class SyncEngine {
     if (!isSupabaseConfigured() || !userId) return;
     if (networkMonitor.getIsQuotaExceeded()) return;
 
-    try {
-      const supabase = createClient();
-      let remoteChangesCount = 0;
+    if (this.inFlightPull.has(userId)) {
+      return this.inFlightPull.get(userId)!;
+    }
 
-      // Recupera timestamp da última sincronização bem-sucedida para busca incremental real
-      // O cursor deve representar estritamente o último ponto confirmado pelo servidor
-      const pullStartedAt = new Date().toISOString();
-      const lastSync = await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp');
+    const task = (async (): Promise<void> => {
+      try {
+        const supabase = createClient();
+        let remoteChangesCount = 0;
 
-      const pendingQueue = await indexedDBStorage.getPendingSyncItems(userId);
-      const pendingFolderIds = new Set(pendingQueue.filter((q) => q.entity_type === 'folder').map((f) => f.entity_id));
-      const pendingNoteIds = new Set(pendingQueue.filter((q) => q.entity_type === 'note').map((n) => n.entity_id));
-      const pendingAttachmentIds = new Set(pendingQueue.filter((q) => q.entity_type === 'attachment' || q.action === 'UPLOAD_ATTACHMENT').map((a) => a.entity_id));
+        // Recupera timestamp da última sincronização bem-sucedida para busca incremental real
+        // O cursor deve representar estritamente o último ponto confirmado pelo servidor
+        const pullStartedAt = new Date().toISOString();
+        const lastSync = await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp');
+
+        const pendingQueue = await indexedDBStorage.getPendingSyncItems(userId);
+        const pendingFolderIds = new Set(pendingQueue.filter((q) => q.entity_type === 'folder').map((f) => f.entity_id));
+        const pendingNoteIds = new Set(pendingQueue.filter((q) => q.entity_type === 'note').map((n) => n.entity_id));
+        const pendingAttachmentIds = new Set(pendingQueue.filter((q) => q.entity_type === 'attachment' || q.action === 'UPLOAD_ATTACHMENT').map((a) => a.entity_id));
 
       // Protege notas com uploads de anexos pendentes de serem sobrescritas prematuramente pelo PULL
       for (const q of pendingQueue) {
@@ -2403,8 +2476,14 @@ class SyncEngine {
       await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', pullStartedAt);
     } catch (err) {
       console.warn('[SyncEngine] Erro ao sincronizar dados remotos:', err);
+    } finally {
+      this.inFlightPull.delete(userId);
     }
-  }
+  })();
+
+  this.inFlightPull.set(userId, task);
+  return task;
+}
 }
 
 export const syncEngine = new SyncEngine();

@@ -30,6 +30,28 @@ export async function middleware(request: NextRequest) {
     supabaseUrl !== 'https://your-project.supabase.co';
 
   if (hasValidSupabaseConfig) {
+    const allCookies = request.cookies.getAll();
+    const hasAuthCookie = allCookies.some(
+      (cookie) => cookie.name.includes('-auth-token') || cookie.name.startsWith('sb-')
+    );
+
+    // 1. Rota de login sem cookies de autenticação: usuário não está logado, dispensa requisição remota de auth
+    if (isLoginPage && !hasAuthCookie) {
+      return supabaseResponse;
+    }
+
+    // 2. Rota de compartilhamento público sem cookies: permite visualização sem chamada de auth
+    if (pathname.startsWith('/shared-diary') && !hasAuthCookie) {
+      return supabaseResponse;
+    }
+
+    // 3. Rota protegida sem cookies de autenticação: redireciona imediatamente para /login sem bater na rede
+    if (!isLoginPage && !pathname.startsWith('/shared-diary') && !hasAuthCookie) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/login';
+      return NextResponse.redirect(url);
+    }
+
     const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookieOptions: supabaseCookieOptions,
       cookies: {
