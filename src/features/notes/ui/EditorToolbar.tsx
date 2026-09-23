@@ -74,6 +74,15 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [, setSelectionUpdate] = useState(0);
 
+  // Estados para cor personalizada de texto e marca-texto
+  const [showCustomTextColor, setShowCustomTextColor] = useState(false);
+  const [customTextColorHex, setCustomTextColorHex] = useState('#68594d');
+  const customTextColorInputRef = useRef<HTMLInputElement>(null);
+
+  const [showCustomHighlight, setShowCustomHighlight] = useState(false);
+  const [customHighlightHex, setCustomHighlightHex] = useState('#fef08a');
+  const customHighlightInputRef = useRef<HTMLInputElement>(null);
+
   const effectiveUserId = propUserId && propUserId !== 'anonymous' ? propUserId : authUserId;
 
   const footerRef = useRef<HTMLElement>(null);
@@ -145,8 +154,14 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
         Boolean(popover && !popover.contains(target) && btn && !btn.contains(target));
 
       if (isOutside(stylePopoverRef.current, styleBtnRef.current)) setShowStyleMenu(false);
-      if (isOutside(colorPopoverRef.current, colorBtnRef.current)) setShowColorPicker(false);
-      if (isOutside(highlightPopoverRef.current, highlightBtnRef.current)) setShowHighlightPicker(false);
+      if (isOutside(colorPopoverRef.current, colorBtnRef.current)) {
+        setShowColorPicker(false);
+        setShowCustomTextColor(false);
+      }
+      if (isOutside(highlightPopoverRef.current, highlightBtnRef.current)) {
+        setShowHighlightPicker(false);
+        setShowCustomHighlight(false);
+      }
       if (isOutside(listPopoverRef.current, listBtnRef.current)) setShowListMenu(false);
       if (isOutside(addFilePopoverRef.current, addFileBtnRef.current)) setShowAddFileMenu(false);
     };
@@ -161,34 +176,84 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     return null;
   }
 
-  // Paleta de Estilos de Texto Estruturados (Título, Cabeçalho, Subtítulo, Corpo)
-  const textStyles = [
+  // Utilitários de normalização de cor Hexadecimal
+  const normalizeHexColor = (input: string): string | null => {
+    let hex = input.trim();
+    if (!hex) return null;
+    if (!hex.startsWith('#')) {
+      hex = `#${hex}`;
+    }
+    // #rgb -> #rrggbb
+    if (/^#[0-9A-Fa-f]{3}$/.test(hex)) {
+      return `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`.toLowerCase();
+    }
+    // #rrggbb
+    if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+      return hex.toLowerCase();
+    }
+    // #rrggbbaa
+    if (/^#[0-9A-Fa-f]{8}$/.test(hex)) {
+      return hex.toLowerCase();
+    }
+    return null;
+  };
+
+  const formatToFullHex = (input: string, fallback: string = '#68594d'): string => {
+    const norm = normalizeHexColor(input);
+    if (norm && norm.length === 7) return norm;
+    return fallback;
+  };
+
+  // Detecção ativa de nível de texto no bloco atual
+  const isH1Active = editor.isActive('heading', { level: 1 });
+  const isH2Active = editor.isActive('heading', { level: 2 });
+  const isH3Active = editor.isActive('heading', { level: 3 });
+  const isHeadingActive = isH1Active || isH2Active || isH3Active;
+  const activeLevelCode = isH1Active ? 'H1' : isH2Active ? 'H2' : isH3Active ? 'H3' : 'Texto';
+  const activeLevelDescription = isH1Active
+    ? 'H1 (Título)'
+    : isH2Active
+    ? 'H2 (Cabeçalho)'
+    : isH3Active
+    ? 'H3 (Subtítulo)'
+    : 'Texto normal / Parágrafo';
+
+  // Níveis de Texto Estruturados (H1, H2, H3, Texto normal / Parágrafo)
+  const headingLevels = [
     {
-      id: 'title',
-      label: 'Título',
+      id: 'h1',
+      code: 'H1',
+      label: 'H1',
+      description: 'Título grande',
       previewClass: 'font-serif-note font-bold text-xl sm:text-2xl text-[#1b1c19] tracking-tight leading-tight',
       isActive: () => editor.isActive('heading', { level: 1 }),
       action: () => editor.chain().focus().setHeading({ level: 1 }).run(),
     },
     {
-      id: 'heading',
-      label: 'Cabeçalho',
+      id: 'h2',
+      code: 'H2',
+      label: 'H2',
+      description: 'Cabeçalho',
       previewClass: 'font-serif-note font-bold text-base sm:text-lg text-[#1b1c19] leading-snug',
       isActive: () => editor.isActive('heading', { level: 2 }),
       action: () => editor.chain().focus().setHeading({ level: 2 }).run(),
     },
     {
-      id: 'subtitle',
-      label: 'Subtítulo',
+      id: 'h3',
+      code: 'H3',
+      label: 'H3',
+      description: 'Subtítulo',
       previewClass: 'font-serif-note font-semibold text-sm sm:text-base text-[#4e453f] leading-snug',
       isActive: () => editor.isActive('heading', { level: 3 }),
       action: () => editor.chain().focus().setHeading({ level: 3 }).run(),
     },
     {
-      id: 'body',
-      label: 'Corpo',
+      id: 'paragraph',
+      code: 'P',
+      label: 'Texto normal / Parágrafo',
+      description: 'Parágrafo padrão',
       previewClass: 'font-serif-note font-normal text-xs sm:text-sm text-[#1b1c19] leading-normal',
-      isActive: () => editor.isActive('paragraph') && !editor.isActive('heading'),
+      isActive: () => !editor.isActive('heading'),
       action: () => editor.chain().focus().setParagraph().run(),
     },
   ];
@@ -231,18 +296,60 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       setShowHighlightPicker(popoverKey === 'highlight');
       setShowListMenu(popoverKey === 'list');
       setShowAddFileMenu(popoverKey === 'addFile');
+      if (popoverKey !== 'color') setShowCustomTextColor(false);
+      if (popoverKey !== 'highlight') setShowCustomHighlight(false);
     } else {
       if (popoverKey === 'style') setShowStyleMenu(false);
-      if (popoverKey === 'color') setShowColorPicker(false);
-      if (popoverKey === 'highlight') setShowHighlightPicker(false);
+      if (popoverKey === 'color') {
+        setShowColorPicker(false);
+        setShowCustomTextColor(false);
+      }
+      if (popoverKey === 'highlight') {
+        setShowHighlightPicker(false);
+        setShowCustomHighlight(false);
+      }
       if (popoverKey === 'list') setShowListMenu(false);
       if (popoverKey === 'addFile') setShowAddFileMenu(false);
     }
   };
 
   const toggleStyleMenu = () => togglePopover(showStyleMenu, styleBtnRef, 'style');
-  const toggleColorPicker = () => togglePopover(showColorPicker, colorBtnRef, 'color');
-  const toggleHighlightPicker = () => togglePopover(showHighlightPicker, highlightBtnRef, 'highlight');
+
+  const toggleColorPicker = () => {
+    const currentColor = editor.getAttributes('textStyle').color;
+    if (currentColor) {
+      setCustomTextColorHex(currentColor);
+    }
+    togglePopover(showColorPicker, colorBtnRef, 'color');
+  };
+
+  const toggleHighlightPicker = () => {
+    const currentHighlight = editor.getAttributes('highlight').color;
+    if (currentHighlight) {
+      setCustomHighlightHex(currentHighlight);
+    }
+    togglePopover(showHighlightPicker, highlightBtnRef, 'highlight');
+  };
+
+  const applyCustomTextColor = (colorOverride?: string) => {
+    const val = colorOverride || customTextColorHex;
+    const normalized = normalizeHexColor(val);
+    if (normalized) {
+      editor.chain().focus().setColor(normalized).run();
+      setShowColorPicker(false);
+      setShowCustomTextColor(false);
+    }
+  };
+
+  const applyCustomHighlight = (colorOverride?: string) => {
+    const val = colorOverride || customHighlightHex;
+    const normalized = normalizeHexColor(val);
+    if (normalized) {
+      editor.chain().focus().setHighlight({ color: normalized }).run();
+      setShowHighlightPicker(false);
+      setShowCustomHighlight(false);
+    }
+  };
   const toggleListMenu = () => togglePopover(showListMenu, listBtnRef, 'list');
   const toggleAddFileMenu = () => togglePopover(showAddFileMenu, addFileBtnRef, 'addFile');
 
@@ -552,21 +659,25 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             <Strikethrough className="w-4.5 h-4.5" />
           </button>
 
-          {/* Botão A (Estilos: Título, Cabeçalho, Subtítulo, Corpo) */}
+          {/* Botão Nível de Texto (H1, H2, H3, Texto normal / Parágrafo) */}
           <button
             ref={styleBtnRef}
             id="toolbar-btn-text-styles"
             type="button"
             onClick={toggleStyleMenu}
-            className={`min-w-[40px] min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-0.5 transition-all cursor-pointer active:scale-95 ${
+            className={`min-h-[40px] px-2 sm:px-2.5 py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 ${
               showStyleMenu
                 ? 'bg-[#f0eee9] text-[#1b1c19]'
+                : isHeadingActive
+                ? 'bg-[#e4e2dd]/80 text-[#1b1c19] font-bold shadow-2xs'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
             }`}
-            title="Estilos de Texto (Título, Cabeçalho, Subtítulo, Corpo)"
-            aria-label="Estilos de Texto"
+            title={`Nível do texto: ${activeLevelDescription} (Clique para alterar)`}
+            aria-label={`Nível do texto: ${activeLevelDescription}`}
           >
-            <span className="font-serif-note font-bold text-base sm:text-lg leading-none">A</span>
+            <span className="font-sans-ui font-bold text-xs sm:text-sm leading-none tracking-tight">
+              {activeLevelCode}
+            </span>
             <ChevronDown className="w-3 h-3 text-[#7f756e]" />
           </button>
 
@@ -768,7 +879,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
         </button>
       </nav>
 
-      {/* POPOVER FLUTUANTE: ESTILOS DE TEXTO */}
+      {/* POPOVER FLUTUANTE: ESTILOS / NÍVEIS DE TEXTO (H1, H2, H3, TEXTO NORMAL / PARÁGRAFO) */}
       {showStyleMenu && popoverCoords && (
         <div
           ref={stylePopoverRef}
@@ -779,17 +890,17 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             left: `clamp(110px, ${popoverCoords.left}px, calc(100vw - 110px))`,
             transform: 'translateX(-50%)',
           }}
-          className="bg-white border border-[#e4e2dd] p-1.5 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[200px] z-50 animate-in fade-in zoom-in-95 font-sans-ui"
+          className="bg-white border border-[#e4e2dd] p-1.5 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[220px] z-50 animate-in fade-in zoom-in-95 font-sans-ui"
         >
-          {textStyles.map((style) => {
-            const active = style.isActive();
+          {headingLevels.map((lvl) => {
+            const active = lvl.isActive();
             return (
               <button
-                key={style.id}
-                id={`style-opt-${style.id}`}
+                key={lvl.id}
+                id={`style-opt-${lvl.id}`}
                 type="button"
                 onClick={() => {
-                  style.action();
+                  lvl.action();
                   setShowStyleMenu(false);
                 }}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-colors cursor-pointer text-left ${
@@ -798,7 +909,16 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
                     : 'hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19]'
                 }`}
               >
-                <span className={style.previewClass}>{style.label}</span>
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
+                      active ? 'bg-[#68594d] text-white' : 'bg-[#f0eee9] text-[#4e453f]'
+                    }`}
+                  >
+                    {lvl.code}
+                  </span>
+                  <span className={lvl.previewClass}>{lvl.label}</span>
+                </div>
                 {active && (
                   <span className="text-[#68594d] font-bold text-xs ml-3 shrink-0">✓</span>
                 )}
@@ -819,39 +939,127 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             left: `clamp(140px, ${popoverCoords.left}px, calc(100vw - 140px))`,
             transform: 'translateX(-50%)',
           }}
-          className="bg-white border border-[#e4e2dd] p-2 rounded-xl shadow-xl flex items-center gap-1.5 z-50 animate-in fade-in zoom-in-95"
+          className="bg-white border border-[#e4e2dd] p-2.5 rounded-2xl shadow-xl flex flex-col gap-2 z-50 animate-in fade-in zoom-in-95 font-sans-ui min-w-[260px]"
         >
-          {/* Opção 1: Cor Padrão (Círculo Vazio ○) */}
-          <button
-            type="button"
-            id="color-opt-default"
-            onClick={() => {
-              editor.chain().focus().unsetColor().run();
-              setShowColorPicker(false);
-            }}
-            className="w-7 h-7 rounded-full border-2 border-dashed border-[#7f756e]/50 hover:border-[#1b1c19] flex items-center justify-center transition-transform hover:scale-110 cursor-pointer"
-            title="Cor Padrão (Sem cor personalizada)"
-            aria-label="Cor Padrão"
-          >
-            <span className="text-[10px] text-[#7f756e] font-bold leading-none">○</span>
-          </button>
-
-          {/* Cores Editoriais */}
-          {textColors.map((c) => (
+          {/* Cores Predefinidas */}
+          <div className="flex items-center justify-between gap-1.5">
+            {/* Opção 1: Cor Padrão (Círculo Vazio ○) */}
             <button
-              key={c.color}
-              id={`color-opt-${c.color.replace('#', '')}`}
               type="button"
+              id="color-opt-default"
               onClick={() => {
-                editor.chain().focus().setColor(c.color).run();
+                editor.chain().focus().unsetColor().run();
                 setShowColorPicker(false);
+                setShowCustomTextColor(false);
               }}
-              className="w-7 h-7 rounded-full border border-black/10 transition-transform hover:scale-110 cursor-pointer shadow-2xs"
-              style={{ backgroundColor: c.color }}
-              title={c.label}
-              aria-label={c.label}
-            />
-          ))}
+              className="w-7 h-7 rounded-full border-2 border-dashed border-[#7f756e]/50 hover:border-[#1b1c19] flex items-center justify-center transition-transform hover:scale-110 cursor-pointer shrink-0"
+              title="Cor Padrão (Sem cor personalizada)"
+              aria-label="Cor Padrão"
+            >
+              <span className="text-[10px] text-[#7f756e] font-bold leading-none">○</span>
+            </button>
+
+            {/* Cores Editoriais */}
+            {textColors.map((c) => (
+              <button
+                key={c.color}
+                id={`color-opt-${c.color.replace('#', '')}`}
+                type="button"
+                onClick={() => {
+                  editor.chain().focus().setColor(c.color).run();
+                  setShowColorPicker(false);
+                  setShowCustomTextColor(false);
+                }}
+                className="w-7 h-7 rounded-full border border-black/10 transition-transform hover:scale-110 cursor-pointer shadow-2xs shrink-0"
+                style={{ backgroundColor: c.color }}
+                title={c.label}
+                aria-label={c.label}
+              />
+            ))}
+          </div>
+
+          {/* Divisória Editorial */}
+          <div className="h-[1px] bg-[#e4e2dd] -mx-0.5" />
+
+          {/* Seção Mais cores... */}
+          {!showCustomTextColor ? (
+            <button
+              type="button"
+              id="color-btn-more-colors"
+              onClick={() => {
+                setShowCustomTextColor(true);
+                customTextColorInputRef.current?.click();
+              }}
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl text-xs text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#f0eee9] transition-colors cursor-pointer font-medium"
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-4 h-4 rounded-full bg-gradient-to-tr from-rose-500 via-amber-400 via-emerald-400 via-blue-500 to-purple-600 border border-black/10 shrink-0 shadow-2xs" />
+                <span>Mais cores...</span>
+              </div>
+              <ChevronDown className="w-3 h-3 text-[#7f756e]" />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 pt-0.5 animate-in fade-in">
+              {/* Seletor visual */}
+              <label
+                htmlFor="custom-text-color-input"
+                className="relative w-7 h-7 rounded-full border border-black/15 shadow-2xs flex items-center justify-center cursor-pointer overflow-hidden shrink-0 hover:scale-105 transition-transform"
+                title="Abrir paleta de cores"
+              >
+                <div
+                  className="w-full h-full rounded-full"
+                  style={{ backgroundColor: normalizeHexColor(customTextColorHex) || '#68594d' }}
+                />
+              </label>
+
+              {/* Campo Hex */}
+              <input
+                type="text"
+                value={customTextColorHex}
+                onChange={(e) => {
+                  let val = e.target.value.trim();
+                  if (!val.startsWith('#') && val.length > 0) val = '#' + val;
+                  setCustomTextColorHex(val);
+                  const normalized = normalizeHexColor(val);
+                  if (normalized) {
+                    editor.chain().focus().setColor(normalized).run();
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    applyCustomTextColor();
+                  }
+                }}
+                placeholder="#68594d"
+                maxLength={9}
+                className="flex-1 min-w-[70px] px-2 py-1 text-xs font-mono bg-[#fbf9f4] border border-[#e4e2dd] focus:border-[#68594d] rounded-lg focus:outline-none text-[#1b1c19]"
+              />
+
+              {/* Botão OK */}
+              <button
+                type="button"
+                onClick={() => applyCustomTextColor()}
+                className="px-2.5 py-1 text-xs bg-[#68594d] hover:bg-[#574a40] text-white rounded-lg font-medium transition-colors cursor-pointer shadow-2xs shrink-0"
+              >
+                OK
+              </button>
+            </div>
+          )}
+
+          {/* Input type="color" nativo */}
+          <input
+            ref={customTextColorInputRef}
+            id="custom-text-color-input"
+            type="color"
+            value={formatToFullHex(customTextColorHex, '#68594d')}
+            onChange={(e) => {
+              const hex = e.target.value;
+              setCustomTextColorHex(hex);
+              editor.chain().focus().setColor(hex).run();
+            }}
+            className="sr-only"
+          />
         </div>
       )}
 
@@ -866,39 +1074,127 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             left: `clamp(140px, ${popoverCoords.left}px, calc(100vw - 140px))`,
             transform: 'translateX(-50%)',
           }}
-          className="bg-white border border-[#e4e2dd] p-2 rounded-xl shadow-xl flex items-center gap-1.5 z-50 animate-in fade-in zoom-in-95"
+          className="bg-white border border-[#e4e2dd] p-2.5 rounded-2xl shadow-xl flex flex-col gap-2 z-50 animate-in fade-in zoom-in-95 font-sans-ui min-w-[260px]"
         >
-          {/* Opção 1: Sem marca-texto (Círculo Vazio ○) */}
-          <button
-            type="button"
-            id="highlight-opt-none"
-            onClick={() => {
-              editor.chain().focus().unsetHighlight().run();
-              setShowHighlightPicker(false);
-            }}
-            className="w-7 h-7 rounded-full border-2 border-dashed border-[#7f756e]/50 hover:border-[#1b1c19] flex items-center justify-center transition-transform hover:scale-110 cursor-pointer"
-            title="Sem Marca-texto (Remover destaque)"
-            aria-label="Sem Marca-texto"
-          >
-            <span className="text-[10px] text-[#7f756e] font-bold leading-none">○</span>
-          </button>
-
-          {/* Cores Pastéis */}
-          {highlightPastels.map((h) => (
+          {/* Cores Pastéis Predefinidas */}
+          <div className="flex items-center justify-between gap-1.5">
+            {/* Opção 1: Sem marca-texto (Círculo Vazio ○) */}
             <button
-              key={h.color}
-              id={`highlight-opt-${h.color.replace('#', '')}`}
               type="button"
+              id="highlight-opt-none"
               onClick={() => {
-                editor.chain().focus().setHighlight({ color: h.color }).run();
+                editor.chain().focus().unsetHighlight().run();
                 setShowHighlightPicker(false);
+                setShowCustomHighlight(false);
               }}
-              className="w-7 h-7 rounded-full border border-black/10 transition-transform hover:scale-110 cursor-pointer shadow-2xs"
-              style={{ backgroundColor: h.color }}
-              title={h.label}
-              aria-label={h.label}
-            />
-          ))}
+              className="w-7 h-7 rounded-full border-2 border-dashed border-[#7f756e]/50 hover:border-[#1b1c19] flex items-center justify-center transition-transform hover:scale-110 cursor-pointer shrink-0"
+              title="Sem Marca-texto (Remover destaque)"
+              aria-label="Sem Marca-texto"
+            >
+              <span className="text-[10px] text-[#7f756e] font-bold leading-none">○</span>
+            </button>
+
+            {/* Cores Pastéis */}
+            {highlightPastels.map((h) => (
+              <button
+                key={h.color}
+                id={`highlight-opt-${h.color.replace('#', '')}`}
+                type="button"
+                onClick={() => {
+                  editor.chain().focus().setHighlight({ color: h.color }).run();
+                  setShowHighlightPicker(false);
+                  setShowCustomHighlight(false);
+                }}
+                className="w-7 h-7 rounded-full border border-black/10 transition-transform hover:scale-110 cursor-pointer shadow-2xs shrink-0"
+                style={{ backgroundColor: h.color }}
+                title={h.label}
+                aria-label={h.label}
+              />
+            ))}
+          </div>
+
+          {/* Divisória Editorial */}
+          <div className="h-[1px] bg-[#e4e2dd] -mx-0.5" />
+
+          {/* Seção Mais cores... */}
+          {!showCustomHighlight ? (
+            <button
+              type="button"
+              id="highlight-btn-more-colors"
+              onClick={() => {
+                setShowCustomHighlight(true);
+                customHighlightInputRef.current?.click();
+              }}
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-xl text-xs text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#f0eee9] transition-colors cursor-pointer font-medium"
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-4 h-4 rounded-full bg-gradient-to-tr from-amber-300 via-emerald-300 via-sky-300 via-purple-300 to-rose-300 border border-black/10 shrink-0 shadow-2xs" />
+                <span>Mais cores...</span>
+              </div>
+              <ChevronDown className="w-3 h-3 text-[#7f756e]" />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 pt-0.5 animate-in fade-in">
+              {/* Seletor visual */}
+              <label
+                htmlFor="custom-highlight-color-input"
+                className="relative w-7 h-7 rounded-full border border-black/15 shadow-2xs flex items-center justify-center cursor-pointer overflow-hidden shrink-0 hover:scale-105 transition-transform"
+                title="Abrir paleta de cores"
+              >
+                <div
+                  className="w-full h-full rounded-full"
+                  style={{ backgroundColor: normalizeHexColor(customHighlightHex) || '#fef08a' }}
+                />
+              </label>
+
+              {/* Campo Hex */}
+              <input
+                type="text"
+                value={customHighlightHex}
+                onChange={(e) => {
+                  let val = e.target.value.trim();
+                  if (!val.startsWith('#') && val.length > 0) val = '#' + val;
+                  setCustomHighlightHex(val);
+                  const normalized = normalizeHexColor(val);
+                  if (normalized) {
+                    editor.chain().focus().setHighlight({ color: normalized }).run();
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    applyCustomHighlight();
+                  }
+                }}
+                placeholder="#fef08a"
+                maxLength={9}
+                className="flex-1 min-w-[70px] px-2 py-1 text-xs font-mono bg-[#fbf9f4] border border-[#e4e2dd] focus:border-[#68594d] rounded-lg focus:outline-none text-[#1b1c19]"
+              />
+
+              {/* Botão OK */}
+              <button
+                type="button"
+                onClick={() => applyCustomHighlight()}
+                className="px-2.5 py-1 text-xs bg-[#68594d] hover:bg-[#574a40] text-white rounded-lg font-medium transition-colors cursor-pointer shadow-2xs shrink-0"
+              >
+                OK
+              </button>
+            </div>
+          )}
+
+          {/* Input type="color" nativo */}
+          <input
+            ref={customHighlightInputRef}
+            id="custom-highlight-color-input"
+            type="color"
+            value={formatToFullHex(customHighlightHex, '#fef08a')}
+            onChange={(e) => {
+              const hex = e.target.value;
+              setCustomHighlightHex(hex);
+              editor.chain().focus().setHighlight({ color: hex }).run();
+            }}
+            className="sr-only"
+          />
         </div>
       )}
 

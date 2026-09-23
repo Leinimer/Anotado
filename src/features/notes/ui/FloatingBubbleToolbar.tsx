@@ -96,34 +96,45 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
     }
   };
 
-  // Paleta de Estilos de Texto Estruturados (reutilizando a lógica existente do app)
-  const textStyles = [
+  // Detecção ativa de nível de texto no bloco selecionado
+  const isH1Active = editor.isActive('heading', { level: 1 });
+  const isH2Active = editor.isActive('heading', { level: 2 });
+  const isH3Active = editor.isActive('heading', { level: 3 });
+  const isHeadingActive = isH1Active || isH2Active || isH3Active;
+  const activeLevelCode = isH1Active ? 'H1' : isH2Active ? 'H2' : isH3Active ? 'H3' : 'Texto';
+
+  // Níveis de Texto Estruturados (H1, H2, H3, Texto normal / Parágrafo)
+  const headingLevels = [
     {
-      id: 'title',
-      label: 'Título',
-      previewClass: 'font-serif-note font-bold text-lg text-[#1b1c19] tracking-tight leading-tight',
+      id: 'h1',
+      code: 'H1',
+      label: 'H1',
+      previewClass: 'font-serif-note font-bold text-base text-[#1b1c19] tracking-tight leading-tight',
       isActive: () => editor.isActive('heading', { level: 1 }),
       action: () => editor.chain().focus().setHeading({ level: 1 }).run(),
     },
     {
-      id: 'heading',
-      label: 'Cabeçalho',
-      previewClass: 'font-serif-note font-bold text-base text-[#1b1c19] leading-snug',
+      id: 'h2',
+      code: 'H2',
+      label: 'H2',
+      previewClass: 'font-serif-note font-bold text-sm text-[#1b1c19] leading-snug',
       isActive: () => editor.isActive('heading', { level: 2 }),
       action: () => editor.chain().focus().setHeading({ level: 2 }).run(),
     },
     {
-      id: 'subtitle',
-      label: 'Subtítulo',
-      previewClass: 'font-serif-note font-semibold text-sm text-[#4e453f] leading-snug',
+      id: 'h3',
+      code: 'H3',
+      label: 'H3',
+      previewClass: 'font-serif-note font-semibold text-xs text-[#4e453f] leading-snug',
       isActive: () => editor.isActive('heading', { level: 3 }),
       action: () => editor.chain().focus().setHeading({ level: 3 }).run(),
     },
     {
-      id: 'body',
-      label: 'Corpo',
+      id: 'paragraph',
+      code: 'P',
+      label: 'Texto normal / Parágrafo',
       previewClass: 'font-serif-note font-normal text-xs text-[#1b1c19] leading-normal',
-      isActive: () => editor.isActive('paragraph') && !editor.isActive('heading'),
+      isActive: () => !editor.isActive('heading'),
       action: () => editor.chain().focus().setParagraph().run(),
     },
   ];
@@ -257,12 +268,14 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
             className={`min-w-[32px] min-h-[32px] sm:min-w-[36px] sm:min-h-[34px] px-1.5 py-1 rounded-xl flex items-center gap-0.5 transition-all cursor-pointer active:scale-95 ${
               showStyleMenu
                 ? 'bg-[#68594d] text-white'
+                : isHeadingActive
+                ? 'bg-[#e4e2dd] text-[#1b1c19] font-bold shadow-2xs'
                 : 'hover:bg-[#f0eee9] text-[#4e453f] hover:text-[#1b1c19]'
             }`}
-            title="Estilos de Texto (Título, Cabeçalho, Corpo)"
-            aria-label="Estilos de Texto"
+            title={`Nível do texto: ${activeLevelCode} (H1, H2, H3, Texto normal / Parágrafo)`}
+            aria-label={`Nível do texto: ${activeLevelCode}`}
           >
-            <span className="font-serif-note font-bold text-xs sm:text-sm">A</span>
+            <span className="font-sans-ui font-bold text-xs">{activeLevelCode}</span>
             <ChevronDown className="w-2.5 h-2.5 opacity-70" />
           </button>
 
@@ -270,14 +283,14 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
             <div
               ref={styleMenuRef}
               id="bubble-style-dropdown"
-              className={`absolute left-0 w-40 bg-white/98 backdrop-blur-md border border-[#e4e2dd] rounded-2xl shadow-2xl p-1.5 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-100 ${
+              className={`absolute left-0 w-44 bg-white/98 backdrop-blur-md border border-[#e4e2dd] rounded-2xl shadow-2xl p-1.5 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-100 ${
                 dropdownPlacement === 'bottom'
                   ? 'top-full mt-2'
                   : 'bottom-full mb-2'
               }`}
               style={{ zIndex: 100000 }}
             >
-              {textStyles.map((st) => {
+              {headingLevels.map((st) => {
                 const active = st.isActive();
                 return (
                   <button
@@ -294,7 +307,15 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
                         : 'hover:bg-[#f0eee9] text-[#4e453f]'
                     }`}
                   >
-                    <span className={st.previewClass}>{st.label}</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                        active ? 'bg-[#68594d] text-white' : 'bg-[#e4e2dd] text-[#4e453f]'
+                      }`}>
+                        {st.code}
+                      </span>
+                      <span className={st.previewClass}>{st.label}</span>
+                    </div>
+                    {active && <span className="text-[#68594d] font-bold text-xs ml-2">✓</span>}
                   </button>
                 );
               })}
