@@ -463,7 +463,7 @@ export function SyncPendingModal({
     if (!userId || isSyncing) return;
     setIsSyncing(true);
     try {
-      await syncEngine.processQueue(userId);
+      await syncEngine.forceSynchronizeNow(userId);
       await refreshList();
     } catch (err) {
       console.warn('[SyncPendingModal] Erro ao disparar sincronização:', err);

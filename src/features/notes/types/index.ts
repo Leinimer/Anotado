@@ -98,4 +98,15 @@ export interface NoteAttachment {
   updated_at: string;
 }
 
+export interface SyncTombstone {
+  id: string;
+  user_id: string;
+  entity_type: 'note' | 'folder';
+  entity_id: string;
+  workspace_type?: WorkspaceType;
+  deleted_at: string;
+  revision?: number;
+  created_at: string;
+}
+
 

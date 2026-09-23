@@ -7,6 +7,7 @@ import { DiarySidebarNavigation } from './DiarySidebarNavigation';
 import { NoteCanvas } from '@/src/features/notes/ui/NoteCanvas';
 import { CreateDiaryEntryModal } from '@/src/features/notes/ui/CreateDiaryEntryModal';
 import { CreateDiaryYearModal } from '@/src/features/notes/ui/CreateDiaryYearModal';
+import { SyncStatusIndicator } from '@/src/features/notes/ui/SyncStatusIndicator';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { Folder, Note } from '@/src/features/notes/types';
 import {
@@ -678,6 +679,25 @@ export function DiaryLayout() {
           id="diary-empty-canvas"
           className="flex-1 flex flex-col h-full bg-[#fbf9f4] items-center justify-center p-6 text-center select-none relative"
         >
+          {/* Header Bar com Menu Mobile e Indicador de Sincronização */}
+          <div className="absolute top-4 left-4 right-4 flex items-center justify-between pointer-events-auto">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="p-2 md:hidden text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg transition-colors cursor-pointer"
+              title="Abrir menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="ml-auto">
+              <SyncStatusIndicator
+                userId={userId || undefined}
+                onSelectNote={handleSelectNote}
+                folders={folders}
+                notes={notes}
+              />
+            </div>
+          </div>
+
           <div className="max-w-md space-y-4">
             <div className="w-16 h-16 rounded-2xl bg-[#f4dfcb] text-[#68594d] mx-auto flex items-center justify-center shadow-xs">
               <Calendar className="w-8 h-8 stroke-[1.5]" />

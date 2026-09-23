@@ -16,6 +16,7 @@ import { NoteEditor } from './NoteEditor';
 import { EditorToolbar } from './EditorToolbar';
 import { NoteTagsBar } from './NoteTagsBar';
 import { formatDateReadable } from '../utils/diary-date';
+import { SyncStatusIndicator } from './SyncStatusIndicator';
 
 interface NoteCanvasProps {
   activeNote: NoteType | null;
@@ -329,6 +330,14 @@ export function NoteCanvas({
               {activeNote.title || 'Sem título'}
             </h1>
           )}
+        </div>
+
+        {/* Indicador de Sincronização integrado no topo direito */}
+        <div className="absolute right-4 sm:right-6 top-3 sm:top-3.5 flex items-center">
+          <SyncStatusIndicator
+            userId={userId || activeNote.user_id}
+            readOnly={readOnly}
+          />
         </div>
       </header>
 

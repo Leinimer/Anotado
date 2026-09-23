@@ -244,6 +244,10 @@ class NetworkMonitor {
     this.notify();
   }
 
+  public setStatus(status: ConnectivityStatus) {
+    this.updateStatus(status);
+  }
+
   /**
    * Notifica a chegada de uma alteração remota em tempo real.
    * Apresenta temporariamente o status 'remote_change' ("Alteração recebida") e restaura para synced/pending_sync.

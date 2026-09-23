@@ -249,22 +249,26 @@ export async function fetchFoldersAndNotes(
       try {
         const supabase = createClient();
         const [foldersRes, notesRes] = await Promise.all([
-          remoteOperationGuard.execute(`fetch:folders:${userId}`, async () =>
-            supabase
+          remoteOperationGuard.execute(`fetch:folders:${userId}:${workspaceType || 'all'}`, async () => {
+            let q = supabase
               .from('folders')
-              .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, created_at, updated_at')
-              .eq('user_id', userId)
-              .order('position', { ascending: true })
-              .order('created_at', { ascending: true })
-          ),
-          remoteOperationGuard.execute(`fetch:notes:${userId}`, async () =>
-            supabase
+              .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, workspace_type, diary_year, diary_month, created_at, updated_at')
+              .eq('user_id', userId);
+            if (workspaceType) {
+              q = q.eq('workspace_type', workspaceType);
+            }
+            return q.order('position', { ascending: true }).order('created_at', { ascending: true });
+          }),
+          remoteOperationGuard.execute(`fetch:notes:${userId}:${workspaceType || 'all'}`, async () => {
+            let q = supabase
               .from('notes')
-              .select('id, user_id, folder_id, title, position, is_archived, previous_folder_id, revision, tags, created_at, updated_at')
-              .eq('user_id', userId)
-              .order('position', { ascending: true })
-              .order('created_at', { ascending: true })
-          ),
+              .select('id, user_id, folder_id, title, content, position, is_archived, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
+              .eq('user_id', userId);
+            if (workspaceType) {
+              q = q.eq('workspace_type', workspaceType);
+            }
+            return q.order('position', { ascending: true }).order('created_at', { ascending: true });
+          }),
         ]);
 
         if (foldersRes.error) {
@@ -319,6 +323,7 @@ export async function fetchFoldersAndNotes(
             return {
               ...n,
               workspace_type: (isDiary ? 'diary' : n.workspace_type || 'notes') as WorkspaceType,
+              content: n.content ?? '',
               tags: noteTags,
               syncRequired: false,
               syncStatus: 'synced',
@@ -665,6 +670,9 @@ export async function updateFolderSmartConfig(
  * Exclui uma pasta no IndexedDB e enfileira para exclusão no Supabase.
  */
 export async function deleteFolder(userId: string, folderId: string): Promise<boolean> {
+  const localFolder = await indexedDBStorage.getFolderById(userId, folderId);
+  const workspaceType = localFolder?.workspace_type || 'notes';
+
   // 1. Remove do IndexedDB
   await indexedDBStorage.deleteFolder(userId, folderId);
 
@@ -673,7 +681,7 @@ export async function deleteFolder(userId: string, folderId: string): Promise<bo
     action: 'DELETE_FOLDER',
     entity_type: 'folder',
     entity_id: folderId,
-    payload: { folderId },
+    payload: { folderId, workspace_type: workspaceType },
     revision: 1,
   });
 
@@ -955,6 +963,9 @@ export async function flushAllPendingSaves(): Promise<void> {
  * Exclui uma nota do IndexedDB e enfileira para exclusão no Supabase.
  */
 export async function deleteNote(userId: string, noteId: string): Promise<boolean> {
+  const localNote = await indexedDBStorage.getNoteById(userId, noteId);
+  const workspaceType = localNote?.workspace_type || 'notes';
+
   // 1. Remove do IndexedDB local
   await indexedDBStorage.deleteNote(userId, noteId);
 
@@ -976,7 +987,7 @@ export async function deleteNote(userId: string, noteId: string): Promise<boolea
       action: 'DELETE_NOTE',
       entity_type: 'note',
       entity_id: noteId,
-      payload: { noteId },
+      payload: { noteId, workspace_type: workspaceType },
       revision: 1,
     });
   }

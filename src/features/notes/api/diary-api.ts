@@ -836,7 +836,7 @@ export async function deleteDiaryFolder(
         action: 'DELETE_NOTE',
         entity_type: 'note',
         entity_id: n.id,
-        payload: { noteId: n.id },
+        payload: { noteId: n.id, workspace_type: 'diary' },
         revision: 1,
       });
     }
@@ -848,7 +848,7 @@ export async function deleteDiaryFolder(
       action: 'DELETE_FOLDER',
       entity_type: 'folder',
       entity_id: fId,
-      payload: { folderId: fId },
+      payload: { folderId: fId, workspace_type: 'diary' },
       revision: 1,
     });
   }

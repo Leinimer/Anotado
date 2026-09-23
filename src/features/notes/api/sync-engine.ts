@@ -516,6 +516,18 @@ class SyncEngine {
             await this.handleRealtimeFolderChange(userId, payload);
           }
         )
+        .on(
+          'postgres_changes' as any,
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'sync_tombstones',
+            filter: `user_id=eq.${userId}`,
+          },
+          async (payload: any) => {
+            await this.handleRealtimeTombstoneChange(userId, payload);
+          }
+        )
         .subscribe((status: any) => {
           if (status === 'SUBSCRIBED') {
             this.realtimeStatus = 'SUBSCRIBED';
@@ -862,6 +874,56 @@ class SyncEngine {
       }
     } catch (err) {
       console.error('[Realtime] Erro ao processar evento de pasta remota:', err);
+    }
+  }
+
+  /**
+   * Trata evento de tombstone (deleção canônica) recebido em tempo real.
+   * Conforme item 3 e 4: exclui a nota ou pasta correspondente do IndexedDB local,
+   * desde que não existam mutações locais pendentes válidas.
+   */
+  private async handleRealtimeTombstoneChange(userId: string, payload: any) {
+    try {
+      const record = payload?.new;
+      if (!record || !record.entity_id || !record.entity_type) return;
+      if (record.user_id && record.user_id !== userId) return;
+
+      const entityId = record.entity_id;
+      const entityType = record.entity_type;
+
+      console.log(`[Realtime] TOMBSTONE DETECTED type=${entityType} id=${entityId}`);
+
+      const pendingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+      const isPendingInQueue = pendingQueue.some((q) => q.entity_id === entityId);
+
+      if (entityType === 'note') {
+        const localNote = await indexedDBStorage.getNoteById(userId, entityId);
+        const isSaving = saveQueue.hasPendingSaveForNote(entityId);
+        if (localNote && (localNote.syncRequired || localNote.needs_sync || isPendingInQueue || isSaving)) {
+          console.log(`[Realtime] Nota ${entityId} possui alterações locais pendentes. Preservando edição local.`);
+          return;
+        }
+        if (localNote) {
+          await indexedDBStorage.deleteNote(userId, entityId);
+          console.log(`[Realtime] INDEXEDDB DELETE (Tombstone) noteId=${entityId}`);
+          networkMonitor.notifyRemoteChange();
+          await this.notifyDataSubscribers(userId);
+        }
+      } else if (entityType === 'folder') {
+        const localFolder = await indexedDBStorage.getFolderById(userId, entityId);
+        if (localFolder && (localFolder.syncRequired || localFolder.needs_sync || isPendingInQueue)) {
+          console.log(`[Realtime] Pasta ${entityId} possui alterações locais pendentes. Preservando edição local.`);
+          return;
+        }
+        if (localFolder) {
+          await indexedDBStorage.deleteFolder(userId, entityId);
+          console.log(`[Realtime] INDEXEDDB DELETE (Tombstone) folderId=${entityId}`);
+          networkMonitor.notifyRemoteChange();
+          await this.notifyDataSubscribers(userId);
+        }
+      }
+    } catch (err) {
+      console.warn('[Realtime] Erro ao tratar evento de tombstone:', err);
     }
   }
 
@@ -1673,7 +1735,29 @@ class SyncEngine {
 
       case 'DELETE_NOTE': {
         const noteId = item.entity_id;
-        await deleteNoteMarkdown(userId, noteId);
+        const workspaceType = item.payload?.workspace_type || 'notes';
+
+        // 1. Registra tombstone no Supabase
+        try {
+          await supabase.from('sync_tombstones').insert({
+            user_id: userId,
+            entity_type: 'note',
+            entity_id: noteId,
+            workspace_type: workspaceType,
+            deleted_at: new Date().toISOString(),
+          });
+        } catch (tombErr) {
+          console.warn('[SyncEngine] Falha ao registrar tombstone de nota:', tombErr);
+        }
+
+        // 2. Remove o arquivo markdown do Storage
+        try {
+          await deleteNoteMarkdown(userId, noteId);
+        } catch (mdErr) {
+          console.warn('[SyncEngine] Falha ao remover markdown no storage:', mdErr);
+        }
+
+        // 3. Exclui a nota da tabela notes
         const { error } = await supabase
           .from('notes')
           .delete()
@@ -1883,6 +1967,22 @@ class SyncEngine {
 
       case 'DELETE_FOLDER': {
         const folderId = item.entity_id;
+        const workspaceType = item.payload?.workspace_type || 'notes';
+
+        // 1. Registra tombstone no Supabase
+        try {
+          await supabase.from('sync_tombstones').insert({
+            user_id: userId,
+            entity_type: 'folder',
+            entity_id: folderId,
+            workspace_type: workspaceType,
+            deleted_at: new Date().toISOString(),
+          });
+        } catch (tombErr) {
+          console.warn('[SyncEngine] Falha ao registrar tombstone de pasta:', tombErr);
+        }
+
+        // 2. Exclui a pasta da tabela folders
         const { error } = await supabase
           .from('folders')
           .delete()
@@ -2347,7 +2447,7 @@ class SyncEngine {
       // 1. Busca pastas remotas (filtrado por lastSync se disponível)
       let foldersQuery = supabase
         .from('folders')
-        .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, created_at, updated_at')
+        .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, workspace_type, diary_year, diary_month, created_at, updated_at')
         .eq('user_id', userId);
 
       if (lastSync) {
@@ -2392,6 +2492,7 @@ class SyncEngine {
               syncStatus: 'synced',
               needs_sync: false,
               sync_status: 'synced',
+              workspace_type: rFolder.workspace_type || 'notes',
             });
             console.log(`[SyncGuard] PULL: INSERT REMOTE FOLDER ${rFolder.id}`);
             remoteChangesCount++;
@@ -2404,6 +2505,7 @@ class SyncEngine {
             existing.parent_id !== rFolder.parent_id ||
             existing.position !== rFolder.position ||
             existing.color !== rFolder.color ||
+            existing.workspace_type !== rFolder.workspace_type ||
             existing.is_smart !== Boolean(rFolder.is_smart) ||
             (rFolder.revision || 0) > (existing.revision || 0) ||
             JSON.stringify(existing.smart_tags || []) !== JSON.stringify(rFolder.smart_tags || []);
@@ -2417,6 +2519,7 @@ class SyncEngine {
               syncStatus: 'synced',
               needs_sync: false,
               sync_status: 'synced',
+              workspace_type: rFolder.workspace_type || existing.workspace_type || 'notes',
             });
             console.log(`[SyncGuard] PULL: UPDATE FOLDER ${rFolder.id}`);
             remoteChangesCount++;
@@ -2441,10 +2544,10 @@ class SyncEngine {
         }
       }
 
-      // 2. Busca notas remotas (filtrado por lastSync se disponível, apenas metadados)
+      // 2. Busca notas remotas (filtrado por lastSync se disponível, incluindo content e workspace_type)
       let notesQuery = supabase
         .from('notes')
-        .select('id, user_id, folder_id, title, position, is_archived, previous_folder_id, revision, tags, created_at, updated_at')
+        .select('id, user_id, folder_id, title, content, position, is_archived, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
         .eq('user_id', userId);
 
       if (lastSync) {
@@ -2506,7 +2609,7 @@ class SyncEngine {
           if (!existingNote) {
             await indexedDBStorage.putNote(userId, {
               ...rNote,
-              content: rNote.content !== undefined ? rNote.content : undefined,
+              content: rNote.content !== undefined ? rNote.content : '',
               tags: noteTags,
               revision: rNote.revision || 0,
               syncRequired: false,
@@ -2514,6 +2617,11 @@ class SyncEngine {
               needs_sync: false,
               is_archived: Boolean(rNote.is_archived),
               sync_status: 'synced',
+              workspace_type: rNote.workspace_type || 'notes',
+              entry_date: rNote.entry_date || null,
+              diary_year: rNote.diary_year,
+              diary_month: rNote.diary_month,
+              diary_day: rNote.diary_day,
             });
             console.log(`[SyncGuard] PULL: INSERT REMOTE NOTE ${rNote.id}`);
             remoteChangesCount++;
@@ -2534,6 +2642,7 @@ class SyncEngine {
             existingNote.position === rNote.position &&
             Boolean(existingNote.is_archived) === Boolean(rNote.is_archived) &&
             existingNote.previous_folder_id === rNote.previous_folder_id &&
+            existingNote.workspace_type === rNote.workspace_type &&
             JSON.stringify(existingNote.tags || []) === JSON.stringify(noteTags);
 
           if (functionalContentMatches) {
@@ -2562,6 +2671,11 @@ class SyncEngine {
             needs_sync: false,
             is_archived: Boolean(rNote.is_archived),
             sync_status: 'synced',
+            workspace_type: rNote.workspace_type || existingNote.workspace_type || 'notes',
+            entry_date: rNote.entry_date || existingNote.entry_date || null,
+            diary_year: rNote.diary_year !== undefined ? rNote.diary_year : existingNote.diary_year,
+            diary_month: rNote.diary_month !== undefined ? rNote.diary_month : existingNote.diary_month,
+            diary_day: rNote.diary_day !== undefined ? rNote.diary_day : existingNote.diary_day,
           });
           console.log(`[SyncGuard] PULL: UPDATE NOTE ${rNote.id} revision=${rNote.revision || 0}`);
           remoteChangesCount++;
@@ -2585,21 +2699,325 @@ class SyncEngine {
         }
       }
 
+      // 3. Busca tombstones (deleções remotas ocorridas desde o último lastSync)
+      try {
+        let tombstonesQuery = supabase
+          .from('sync_tombstones')
+          .select('id, entity_type, entity_id, deleted_at')
+          .eq('user_id', userId);
+
+        if (lastSync) {
+          tombstonesQuery = tombstonesQuery.gt('deleted_at', lastSync);
+        }
+
+        const { data: remoteTombstones, error: tombErr } = await tombstonesQuery;
+        if (!tombErr && remoteTombstones && remoteTombstones.length > 0) {
+          for (const tomb of remoteTombstones) {
+            if (tomb.entity_type === 'note') {
+              if (!pendingNoteIds.has(tomb.entity_id)) {
+                const localNote = await indexedDBStorage.getNoteById(userId, tomb.entity_id);
+                if (localNote && !localNote.syncRequired && !localNote.needs_sync) {
+                  await indexedDBStorage.deleteNote(userId, tomb.entity_id);
+                  console.log(`[SyncGuard] PULL: TOMBSTONE DELETE NOTE ${tomb.entity_id}`);
+                  remoteChangesCount++;
+                }
+              }
+            } else if (tomb.entity_type === 'folder') {
+              if (!pendingFolderIds.has(tomb.entity_id)) {
+                const localFolder = await indexedDBStorage.getFolderById(userId, tomb.entity_id);
+                if (localFolder && !localFolder.syncRequired && !localFolder.needs_sync) {
+                  await indexedDBStorage.deleteFolder(userId, tomb.entity_id);
+                  console.log(`[SyncGuard] PULL: TOMBSTONE DELETE FOLDER ${tomb.entity_id}`);
+                  remoteChangesCount++;
+                }
+              }
+            }
+          }
+        }
+      } catch (tombCatchErr) {
+        console.warn('[SyncGuard] Falha ao consultar sync_tombstones no PULL:', tombCatchErr);
+      }
+
       console.log(`[SyncGuard] PULL: FOUND ${remoteChangesCount} REMOTE CHANGES`);
 
-      // 3. Notifica a aplicação se houver alterações para atualizar o React State
+      // 4. Notifica a aplicação se houver alterações para atualizar o React State
       if (remoteChangesCount > 0) {
         networkMonitor.notifyRemoteChange();
         await this.notifyDataSubscribers(userId);
       }
 
-      // 4. Atualiza timestamp da última sincronização bem sucedida com o início do ciclo confirmado pelo servidor
+      // 5. Atualiza timestamp da última sincronização bem sucedida com o início do ciclo confirmado pelo servidor
       await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', pullStartedAt);
     } catch (err) {
       console.warn('[SyncEngine] Erro ao sincronizar dados remotos:', err);
     }
   });
 }
+
+  /**
+   * Reconstrução segura do cache local a partir do estado canônico do Supabase.
+   * Conforme item 27:
+   * 1. obtém estado canônico remoto;
+   * 2. obtém tombstones;
+   * 3. compara com IndexedDB;
+   * 4. insere registros remotos ausentes;
+   * 5. atualiza registros divergentes;
+   * 6. exclui registros locais órfãos (que não existem mais remotamente e não possuem mutação pendente);
+   * 7. preserva pendências locais válidas;
+   * 8. conclui com IndexedDB = estado canônico do Supabase.
+   */
+  public async rebuildLocalCacheFromServer(userId: string): Promise<void> {
+    if (!userId || userId === 'demo-user' || userId === 'local-user') return;
+    if (!isSupabaseConfigured() || !networkMonitor.getState().isBackendReachable) return;
+
+    return remoteOperationGuard.execute(`rebuildLocalCache:${userId}`, async () => {
+      const supabase = createClient();
+
+      // 1. Coleta estado local e pendências
+      const [localNotes, localFolders, pendingQueue] = await Promise.all([
+        indexedDBStorage.getAllNotes(userId),
+        indexedDBStorage.getAllFolders(userId),
+        indexedDBStorage.getPendingSyncQueue(userId),
+      ]);
+
+      const pendingNoteIds = new Set<string>();
+      const pendingFolderIds = new Set<string>();
+
+      for (const q of pendingQueue) {
+        if (q.entity_type === 'note') pendingNoteIds.add(q.entity_id);
+        if (q.entity_type === 'folder') pendingFolderIds.add(q.entity_id);
+      }
+
+      for (const n of localNotes) {
+        if (n.syncRequired || n.needs_sync || n.syncStatus === 'pending' || saveQueue.hasPendingSaveForNote(n.id)) {
+          pendingNoteIds.add(n.id);
+        }
+      }
+
+      for (const f of localFolders) {
+        if (f.syncRequired || f.needs_sync || f.syncStatus === 'pending') {
+          pendingFolderIds.add(f.id);
+        }
+      }
+
+      // 2. Busca estado canônico remoto no Supabase
+      const [foldersRes, notesRes, tombstonesRes] = await Promise.all([
+        supabase
+          .from('folders')
+          .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, workspace_type, diary_year, diary_month, created_at, updated_at')
+          .eq('user_id', userId),
+        supabase
+          .from('notes')
+          .select('id, user_id, folder_id, title, content, position, is_archived, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
+          .eq('user_id', userId),
+        supabase
+          .from('sync_tombstones')
+          .select('id, entity_type, entity_id, deleted_at')
+          .eq('user_id', userId)
+          .order('deleted_at', { ascending: false })
+          .limit(1000),
+      ]);
+
+      if (foldersRes.error) {
+        console.warn('[RebuildCache] Erro ao buscar pastas remotas:', foldersRes.error);
+        throw foldersRes.error;
+      }
+      if (notesRes.error) {
+        console.warn('[RebuildCache] Erro ao buscar notas remotas:', notesRes.error);
+        throw notesRes.error;
+      }
+
+      const remoteFolders = (foldersRes.data || []) as ExtendedFolder[];
+      const remoteNotes = (notesRes.data || []) as ExtendedNote[];
+      const remoteTombstones = (tombstonesRes.data || []) as Array<{ entity_type: string; entity_id: string }>;
+
+      const tombstoneNoteIds = new Set(
+        remoteTombstones.filter((t) => t.entity_type === 'note').map((t) => t.entity_id)
+      );
+      const tombstoneFolderIds = new Set(
+        remoteTombstones.filter((t) => t.entity_type === 'folder').map((t) => t.entity_id)
+      );
+
+      const remoteFoldersMap = new Map(remoteFolders.map((f) => [f.id, f]));
+      const localFoldersMap = new Map(localFolders.map((f) => [f.id, f]));
+
+      // 3. Reconciliação de Pastas
+      for (const rFolder of remoteFolders) {
+        if (tombstoneFolderIds.has(rFolder.id)) continue;
+        const lFolder = localFoldersMap.get(rFolder.id);
+
+        if (!lFolder) {
+          // Remoto existe, local ausente -> Insere
+          await indexedDBStorage.putFolder(userId, {
+            ...rFolder,
+            is_smart: Boolean(rFolder.is_smart),
+            revision: rFolder.revision || 0,
+            syncRequired: false,
+            syncStatus: 'synced',
+            sync_status: 'synced',
+            needs_sync: false,
+            workspace_type: rFolder.workspace_type || 'notes',
+          });
+        } else if (!pendingFolderIds.has(rFolder.id)) {
+          // Ambos existem e não está pendente -> Atualiza com versão canônica do servidor
+          await indexedDBStorage.putFolder(userId, {
+            ...rFolder,
+            is_smart: Boolean(rFolder.is_smart),
+            revision: Math.max(rFolder.revision || 0, lFolder.revision || 0),
+            syncRequired: false,
+            syncStatus: 'synced',
+            sync_status: 'synced',
+            needs_sync: false,
+            workspace_type: rFolder.workspace_type || lFolder.workspace_type || 'notes',
+          });
+        }
+      }
+
+      // Limpeza de pastas locais órfãs (Regra do Caso C)
+      for (const lFolder of localFolders) {
+        if (pendingFolderIds.has(lFolder.id)) continue; // Preserva edições locais pendentes!
+        if (tombstoneFolderIds.has(lFolder.id) || !remoteFoldersMap.has(lFolder.id)) {
+          // Não existe no Supabase e não há pendência local -> Excluir do IndexedDB
+          await indexedDBStorage.deleteFolder(userId, lFolder.id);
+          console.log(`[RebuildCache] Órfão removido (pasta): ${lFolder.id}`);
+        }
+      }
+
+      // 4. Reconciliação de Notas
+      const remoteNotesMap = new Map(remoteNotes.map((n) => [n.id, n]));
+      const localNotesMap = new Map(localNotes.map((n) => [n.id, n]));
+
+      for (const rNote of remoteNotes) {
+        if (tombstoneNoteIds.has(rNote.id)) continue;
+        const lNote = localNotesMap.get(rNote.id);
+
+        let noteTags: string[] = [];
+        if (Array.isArray(rNote.tags)) {
+          noteTags = normalizeTags(rNote.tags);
+        } else if (typeof rNote.tags === 'string') {
+          try {
+            noteTags = normalizeTags(JSON.parse(rNote.tags));
+          } catch {
+            noteTags = normalizeTags((rNote.tags as string).split(','));
+          }
+        }
+
+        if (!lNote) {
+          // Remoto existe, local ausente -> Insere
+          await indexedDBStorage.putNote(userId, {
+            ...rNote,
+            content: rNote.content ?? '',
+            tags: noteTags,
+            revision: rNote.revision || 0,
+            syncRequired: false,
+            syncStatus: 'synced',
+            sync_status: 'synced',
+            needs_sync: false,
+            is_archived: Boolean(rNote.is_archived),
+            workspace_type: rNote.workspace_type || 'notes',
+            entry_date: rNote.entry_date || null,
+            diary_year: rNote.diary_year,
+            diary_month: rNote.diary_month,
+            diary_day: rNote.diary_day,
+          });
+        } else if (!pendingNoteIds.has(rNote.id)) {
+          // Ambos existem e não está pendente -> Atualiza com servidor
+          await indexedDBStorage.putNote(userId, {
+            ...rNote,
+            content: rNote.content !== undefined ? rNote.content : (lNote.content ?? ''),
+            tags: noteTags,
+            revision: Math.max(rNote.revision || 0, lNote.revision || 0),
+            syncRequired: false,
+            syncStatus: 'synced',
+            sync_status: 'synced',
+            needs_sync: false,
+            is_archived: Boolean(rNote.is_archived),
+            workspace_type: rNote.workspace_type || lNote.workspace_type || 'notes',
+            entry_date: rNote.entry_date || lNote.entry_date || null,
+            diary_year: rNote.diary_year !== undefined ? rNote.diary_year : lNote.diary_year,
+            diary_month: rNote.diary_month !== undefined ? rNote.diary_month : lNote.diary_month,
+            diary_day: rNote.diary_day !== undefined ? rNote.diary_day : lNote.diary_day,
+          });
+        }
+      }
+
+      // Limpeza de notas locais órfãs (Regra do Caso C)
+      for (const lNote of localNotes) {
+        if (pendingNoteIds.has(lNote.id)) continue; // Preserva notas pendentes offline!
+        if (tombstoneNoteIds.has(lNote.id) || !remoteNotesMap.has(lNote.id)) {
+          // Não existe no Supabase e não há pendência -> Excluir do IndexedDB
+          await indexedDBStorage.deleteNote(userId, lNote.id);
+          console.log(`[RebuildCache] Órfão removido (nota): ${lNote.id}`);
+        }
+      }
+
+      // 5. Atualiza timestamp do checkpoint
+      await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', new Date().toISOString());
+
+      // 6. Notifica UI
+      networkMonitor.notifyRemoteChange();
+      await this.notifyDataSubscribers(userId);
+      console.log('[RebuildCache] Reconciliação canônica concluída com sucesso.');
+    });
+  }
+
+  /**
+   * Executa a sincronização manual completa "Sincronizar Agora" bidirecional.
+   * Conforme item 6 e 7 do requisito:
+   * ETAPA 1 → verificar conectividade
+   * ETAPA 2 → verificar sessão autenticada
+   * ETAPA 3 → flush de saves locais pendentes
+   * ETAPA 4 → processar SyncQueue
+   * ETAPA 5 → enviar tudo o que estiver pendente ao Supabase
+   * ETAPA 6 → aguardar confirmação real
+   * ETAPA 7 a 10 → reconciliação autoritativa do servidor para o IndexedDB
+   * ETAPA 11 → notificar UI
+   * ETAPA 12 → confirmar estado convergido (local = servidor)
+   */
+  public async forceSynchronizeNow(userId: string): Promise<{ success: boolean; error?: string }> {
+    if (!userId || userId === 'demo-user' || userId === 'local-user') {
+      return { success: false, error: 'Usuário local ou não configurado.' };
+    }
+
+    try {
+      // ETAPA 1: Conectividade
+      if (!networkMonitor.getState().isOnline || !networkMonitor.getState().isBackendReachable) {
+        networkMonitor.setStatus('offline');
+        return { success: false, error: 'Dispositivo sem conexão com a internet.' };
+      }
+
+      // ETAPA 2: Sessão autenticada
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user?.id) {
+          return { success: false, error: 'Sessão de usuário não autenticada no Supabase.' };
+        }
+      }
+
+      networkMonitor.setStatus('syncing');
+
+      // ETAPA 3: Flush de saves locais pendentes
+      await saveQueue.flushAll();
+
+      // ETAPA 4, 5, 6: Processa a fila de envio para o Supabase
+      await this.processQueue(userId);
+
+      // ETAPA 7 a 10: Reconciliação canônica autoritativa Supabase -> IndexedDB
+      await this.rebuildLocalCacheFromServer(userId);
+
+      // ETAPA 11 & 12: Confirma estado final
+      const remainingQueueCount = await indexedDBStorage.getSyncQueueCount(userId);
+      networkMonitor.updatePendingCount(remainingQueueCount);
+      networkMonitor.setStatus(remainingQueueCount === 0 ? 'synced' : 'pending_sync');
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('[SyncEngine] Erro em forceSynchronizeNow:', err);
+      networkMonitor.setStatus('error');
+      return { success: false, error: err.message || 'Erro durante a sincronização.' };
+    }
+  }
 }
 
 export const syncEngine = new SyncEngine();

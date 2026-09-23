@@ -56,11 +56,11 @@ export function SyncStatusIndicator({
       return;
     }
 
-    clickTimeoutRef.current = setTimeout(() => {
+    clickTimeoutRef.current = setTimeout(async () => {
       clickTimeoutRef.current = null;
-      // Clique simples: força sincronização imediata
+      // Clique simples: força sincronização imediata completa
       if (userId) {
-        syncEngine.processQueue(userId);
+        await syncEngine.forceSynchronizeNow(userId);
       }
     }, 250);
   };
@@ -103,6 +103,16 @@ export function SyncStatusIndicator({
         dotClass: 'bg-[#f59e0b]',
         label: 'Offline (Cota Excedida)',
         tooltip: 'A cota de transferência (egress) do projeto Supabase foi atingida. O app está operando com segurança no armazenamento local (IndexedDB).',
+      };
+    }
+
+    if (networkState.status === 'error') {
+      return {
+        icon: AlertCircle,
+        iconClass: 'text-[#ba1a1a]',
+        dotClass: 'bg-[#ba1a1a]',
+        label: 'Erro de sincronização',
+        tooltip: 'Ocorreu um erro ao sincronizar com o Supabase (1 clique tenta novamente, 2 cliques abre detalhes)',
       };
     }
 
@@ -164,7 +174,9 @@ export function SyncStatusIndicator({
     <>
       <div
         className={`relative inline-flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-medium tracking-tight select-none transition-colors duration-150 cursor-pointer ${
-          networkState.status === 'remote_change'
+          networkState.status === 'error'
+            ? 'bg-[#fee2e2] text-[#991b1b]'
+            : networkState.status === 'remote_change'
             ? 'bg-[#e0f2fe] text-[#0369a1]'
             : networkState.status === 'syncing'
             ? 'bg-[#f0f9ff] text-[#0369a1]'
