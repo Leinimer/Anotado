@@ -13,6 +13,7 @@ import { removeAttachmentReferenceFromContent } from '../utils/path-builder';
 import { indexedDBStorage, ExtendedFolder, ExtendedNote } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
 import { syncEngine } from './sync-engine';
+import { remoteOperationGuard } from './remote-operation-guard';
 
 export { normalizeTags };
 
@@ -180,161 +181,180 @@ async function syncTagsAndNoteRelations(
   }
 }
 
-const inFlightFetchFoldersAndNotes = new Map<string, Promise<{ folders: Folder[]; notes: Note[] }>>();
 const inFlightFetchNoteContent = new Map<string, Promise<{ content: string; tags?: string[] }>>();
 
 /**
  * Busca todas as pastas e notas:
- * 1. Lê instantaneamente do IndexedDB (latência < 5ms).
- * 2. Se o IndexedDB estiver vazio e estivermos online, popula do Supabase.
+ * 1. Lê instantaneamente do IndexedDB (latência < 5ms). Se já existirem dados locais ou lastSync, NÃO consulta Supabase.
+ * 2. Se o IndexedDB estiver completamente vazio e estivermos online, carrega do Supabase com deduplicação de Promise.
+ * 3. Se um PULL ou outro FETCH já estiver em andamento para este usuário, reutiliza a Promise existente.
  */
 export async function fetchFoldersAndNotes(
   userId: string,
   workspaceType?: WorkspaceType
 ): Promise<{ folders: Folder[]; notes: Note[] }> {
+  if (!userId) return { folders: [], notes: [] };
+
   if (syncEngine.getActiveUserId() !== userId) {
     syncEngine.setActiveUser(userId);
   }
 
-  const cacheKey = `${userId}:${workspaceType || 'all'}`;
-  if (inFlightFetchFoldersAndNotes.has(cacheKey)) {
-    return inFlightFetchFoldersAndNotes.get(cacheKey)!;
-  }
+  const opKey = `fetch:foldersAndNotes:${userId}:${workspaceType || 'all'}`;
 
-  const task = (async (): Promise<{ folders: Folder[]; notes: Note[] }> => {
+  return remoteOperationGuard.execute(opKey, async (): Promise<{ folders: Folder[]; notes: Note[] }> => {
+    // 1. Leitura imediata do IndexedDB: se houver dados ou lastSync confirmado, não há necessidade de GET remoto
     try {
-      // 1. Leitura imediata do IndexedDB com filtro opcional por espaço
+      const allUserFolders = await indexedDBStorage.getAllFolders(userId);
+      const allUserNotes = await indexedDBStorage.getAllNotes(userId);
+      const lastSync = await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp');
+
+      if (allUserFolders.length > 0 || allUserNotes.length > 0 || lastSync) {
+        const filteredFolders = workspaceType
+          ? allUserFolders.filter((f) => (f.workspace_type || 'notes') === workspaceType)
+          : allUserFolders;
+        const filteredNotes = workspaceType
+          ? allUserNotes.filter((n) => (n.workspace_type || 'notes') === workspaceType)
+          : allUserNotes;
+
+        return {
+          folders: filteredFolders.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
+          notes: filteredNotes.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
+        };
+      }
+    } catch (idbErr) {
+      console.warn('[NotesAPI] Aviso ao ler do IndexedDB:', idbErr);
+    }
+
+    // 2. Se um PULL já estiver em andamento para este usuário, aguarda sua conclusão para evitar requisições concorrentes
+    if (remoteOperationGuard.isInFlight(`pull:${userId}`)) {
+      await remoteOperationGuard.getInFlight(`pull:${userId}`);
       try {
         const localFolders = await indexedDBStorage.getAllFolders(userId, workspaceType);
         const localNotes = await indexedDBStorage.getAllNotes(userId, workspaceType);
-
         if (localFolders.length > 0 || localNotes.length > 0) {
           return {
             folders: localFolders.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
             notes: localNotes.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
           };
         }
-      } catch (idbErr) {
-        console.warn('[NotesAPI] Aviso ao ler do IndexedDB:', idbErr);
-      }
+      } catch {}
+    }
 
-      // 2. Se o IndexedDB está vazio e estamos online com o Supabase, carrega do servidor e popula o IndexedDB
-      if (
-        isSupabaseConfigured() &&
-        networkMonitor.getState().isBackendReachable &&
-        !networkMonitor.getIsQuotaExceeded()
-      ) {
-        try {
-          const supabase = createClient();
-          const [foldersRes, notesRes] = await Promise.all([
+    // 3. Se o IndexedDB está vazio e estamos online com o Supabase, carrega do servidor com Promise deduplicada
+    if (
+      isSupabaseConfigured() &&
+      networkMonitor.getState().isBackendReachable &&
+      !networkMonitor.getIsQuotaExceeded()
+    ) {
+      try {
+        const supabase = createClient();
+        const [foldersRes, notesRes] = await Promise.all([
+          remoteOperationGuard.execute(`fetch:folders:${userId}`, async () =>
             supabase
               .from('folders')
               .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, created_at, updated_at')
               .eq('user_id', userId)
               .order('position', { ascending: true })
-              .order('created_at', { ascending: true }),
+              .order('created_at', { ascending: true })
+          ),
+          remoteOperationGuard.execute(`fetch:notes:${userId}`, async () =>
             supabase
               .from('notes')
               .select('id, user_id, folder_id, title, position, is_archived, previous_folder_id, revision, tags, created_at, updated_at')
               .eq('user_id', userId)
               .order('position', { ascending: true })
-              .order('created_at', { ascending: true }),
+              .order('created_at', { ascending: true })
+          ),
+        ]);
+
+        if (foldersRes.error) {
+          if ((foldersRes.error as any)?.status === 402 || foldersRes.error.message?.includes('exceed_egress_quota')) {
+            networkMonitor.setQuotaExceeded(true, foldersRes.error.message);
+          }
+        }
+        if (notesRes.error) {
+          if ((notesRes.error as any)?.status === 402 || notesRes.error.message?.includes('exceed_egress_quota')) {
+            networkMonitor.setQuotaExceeded(true, notesRes.error.message);
+          }
+        }
+
+        if (!foldersRes.error && !notesRes.error) {
+          const rawFolderList = foldersRes.data || [];
+          const rawYearIds = new Set(
+            rawFolderList
+              .filter((f: any) => !f.parent_id && (f.workspace_type === 'diary' || /^\d{4}$/.test(String(f.name || '').trim())))
+              .map((f: any) => f.id)
+          );
+          const rawDiaryFolderIds = new Set([
+            ...Array.from(rawYearIds),
+            ...rawFolderList.filter((f: any) => f.parent_id && rawYearIds.has(f.parent_id)).map((f: any) => f.id),
           ]);
 
-          if (foldersRes.error) {
-            if ((foldersRes.error as any)?.status === 402 || foldersRes.error.message?.includes('exceed_egress_quota')) {
-              networkMonitor.setQuotaExceeded(true, foldersRes.error.message);
-            }
-          }
-          if (notesRes.error) {
-            if ((notesRes.error as any)?.status === 402 || notesRes.error.message?.includes('exceed_egress_quota')) {
-              networkMonitor.setQuotaExceeded(true, notesRes.error.message);
-            }
-          }
+          const folders = rawFolderList.map((f: any) => {
+            const isDiary = f.workspace_type === 'diary' || rawDiaryFolderIds.has(f.id);
+            return {
+              ...f,
+              workspace_type: (isDiary ? 'diary' : f.workspace_type || 'notes') as WorkspaceType,
+              syncRequired: false,
+              syncStatus: 'synced',
+              sync_status: 'synced',
+              needs_sync: false,
+              revision: f.revision || 0,
+            };
+          }) as ExtendedFolder[];
 
-          if (!foldersRes.error && !notesRes.error) {
-            const rawFolderList = foldersRes.data || [];
-            const rawYearIds = new Set(
-              rawFolderList
-                .filter((f: any) => !f.parent_id && (f.workspace_type === 'diary' || /^\d{4}$/.test(String(f.name || '').trim())))
-                .map((f: any) => f.id)
-            );
-            const rawDiaryFolderIds = new Set([
-              ...Array.from(rawYearIds),
-              ...rawFolderList.filter((f: any) => f.parent_id && rawYearIds.has(f.parent_id)).map((f: any) => f.id),
-            ]);
-
-            const folders = rawFolderList.map((f: any) => {
-              const isDiary = f.workspace_type === 'diary' || rawDiaryFolderIds.has(f.id);
-              return {
-                ...f,
-                workspace_type: (isDiary ? 'diary' : f.workspace_type || 'notes') as WorkspaceType,
-                syncRequired: false,
-                syncStatus: 'synced',
-                sync_status: 'synced',
-                needs_sync: false,
-                revision: f.revision || 0,
-              };
-            }) as ExtendedFolder[];
-
-            const notes = (notesRes.data || []).map((n: any) => {
-              let noteTags: string[] = [];
-              if (Array.isArray(n.tags)) {
-                noteTags = normalizeTags(n.tags);
-              } else if (typeof n.tags === 'string') {
-                try {
-                  const parsed = JSON.parse(n.tags);
-                  noteTags = Array.isArray(parsed) ? normalizeTags(parsed) : [];
-                } catch {
-                  noteTags = normalizeTags(n.tags.split(','));
-                }
+          const notes = (notesRes.data || []).map((n: any) => {
+            let noteTags: string[] = [];
+            if (Array.isArray(n.tags)) {
+              noteTags = normalizeTags(n.tags);
+            } else if (typeof n.tags === 'string') {
+              try {
+                const parsed = JSON.parse(n.tags);
+                noteTags = Array.isArray(parsed) ? normalizeTags(parsed) : [];
+              } catch {
+                noteTags = normalizeTags(n.tags.split(','));
               }
-              const isDiary = n.workspace_type === 'diary' || (n.folder_id && rawDiaryFolderIds.has(n.folder_id));
-              return {
-                ...n,
-                workspace_type: (isDiary ? 'diary' : n.workspace_type || 'notes') as WorkspaceType,
-                tags: noteTags,
-                syncRequired: false,
-                syncStatus: 'synced',
-                sync_status: 'synced',
-                needs_sync: false,
-                revision: n.revision || 0,
-              };
-            }) as ExtendedNote[];
-
-            if (folders.length > 0 || notes.length > 0) {
-              // Salva no IndexedDB como sincronizados (sem syncRequired)
-              await indexedDBStorage.putFoldersBatch(userId, folders);
-              await indexedDBStorage.putNotesBatch(userId, notes);
-              await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', new Date().toISOString());
-
-              const filteredFolders = workspaceType
-                ? folders.filter((f) => (f.workspace_type || 'notes') === workspaceType)
-                : folders;
-              const filteredNotes = workspaceType
-                ? notes.filter((n) => (n.workspace_type || 'notes') === workspaceType)
-                : notes;
-
-              return { folders: filteredFolders, notes: filteredNotes };
             }
+            const isDiary = n.workspace_type === 'diary' || (n.folder_id && rawDiaryFolderIds.has(n.folder_id));
+            return {
+              ...n,
+              workspace_type: (isDiary ? 'diary' : n.workspace_type || 'notes') as WorkspaceType,
+              tags: noteTags,
+              syncRequired: false,
+              syncStatus: 'synced',
+              sync_status: 'synced',
+              needs_sync: false,
+              revision: n.revision || 0,
+            };
+          }) as ExtendedNote[];
+
+          if (folders.length > 0 || notes.length > 0) {
+            // Salva no IndexedDB como sincronizados (sem syncRequired)
+            await indexedDBStorage.putFoldersBatch(userId, folders);
+            await indexedDBStorage.putNotesBatch(userId, notes);
+            await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', new Date().toISOString());
+
+            const filteredFolders = workspaceType
+              ? folders.filter((f) => (f.workspace_type || 'notes') === workspaceType)
+              : folders;
+            const filteredNotes = workspaceType
+              ? notes.filter((n) => (n.workspace_type || 'notes') === workspaceType)
+              : notes;
+
+            return { folders: filteredFolders, notes: filteredNotes };
           }
-        } catch (err) {
-          console.warn('[NotesAPI] Falha ao carregar do Supabase:', err);
         }
+      } catch (err) {
+        console.warn('[NotesAPI] Falha ao carregar do Supabase:', err);
       }
-
-      // 3. Se for usuário novo ou sem registros, popula com o seed inicial (apenas para o workspace de Notas)
-      if (workspaceType === 'diary') {
-        return { folders: [], notes: [] };
-      }
-      return initializeLocalSeedIfNeeded(userId);
-    } finally {
-      inFlightFetchFoldersAndNotes.delete(cacheKey);
     }
-  })();
 
-  inFlightFetchFoldersAndNotes.set(cacheKey, task);
-  return task;
+    // 4. Se for usuário novo ou sem registros, popula com o seed inicial (apenas para o workspace de Notas)
+    if (workspaceType === 'diary') {
+      return { folders: [], notes: [] };
+    }
+    return initializeLocalSeedIfNeeded(userId);
+  });
 }
 
 /**

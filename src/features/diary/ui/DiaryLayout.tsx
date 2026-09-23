@@ -67,6 +67,7 @@ export function DiaryLayout() {
   const [acceptedIncomingShares, setAcceptedIncomingShares] = useState<DiaryShare[]>([]);
 
   const activeNoteIdRef = useRef<string | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
   const notesRef = useRef<Note[]>(notes);
 
   useEffect(() => {
@@ -188,6 +189,7 @@ export function DiaryLayout() {
       }
 
       if (!isMounted) return;
+      currentUserIdRef.current = uid;
       setUserId(uid);
 
       try {
@@ -253,8 +255,9 @@ export function DiaryLayout() {
         data: { subscription },
       } = supabase.auth.onAuthStateChange((event: any, session: any) => {
         if (!isMounted) return;
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-          if (session?.user?.id && session.user.id !== activeNoteIdRef.current) {
+        if (event === 'SIGNED_IN') {
+          if (session?.user?.id && session.user.id !== currentUserIdRef.current) {
+            currentUserIdRef.current = session.user.id;
             setUserId(session.user.id);
             if (session.user.email) setUserEmail(session.user.email);
             initAuthAndData();

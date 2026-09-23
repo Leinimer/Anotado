@@ -30,6 +30,7 @@ import { uploadNoteFile } from '../api/storage-api';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import { useMobileKeyboardViewport } from '../hooks/useMobileKeyboardViewport';
 import { normalizeUrl } from '../editor/utils/url-helper';
+import { TextLevelDropdown } from './TextLevelDropdown';
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -60,7 +61,6 @@ const FONT_SIZES = [
 ] as const;
 
 export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: EditorToolbarProps) {
-  const [showStyleMenu, setShowStyleMenu] = useState(false);
   const [showHighlightPicker, setShowHighlightPicker] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showListMenu, setShowListMenu] = useState(false);
@@ -91,13 +91,11 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   // Coordenadas calculadas para os popovers flutuantes livres
   const [popoverCoords, setPopoverCoords] = useState<{ bottom: number; left: number } | null>(null);
 
-  const styleBtnRef = useRef<HTMLButtonElement>(null);
   const colorBtnRef = useRef<HTMLButtonElement>(null);
   const highlightBtnRef = useRef<HTMLButtonElement>(null);
   const listBtnRef = useRef<HTMLButtonElement>(null);
   const addFileBtnRef = useRef<HTMLButtonElement>(null);
 
-  const stylePopoverRef = useRef<HTMLDivElement>(null);
   const colorPopoverRef = useRef<HTMLDivElement>(null);
   const highlightPopoverRef = useRef<HTMLDivElement>(null);
   const listPopoverRef = useRef<HTMLDivElement>(null);
@@ -153,7 +151,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       const isOutside = (popover: HTMLDivElement | null, btn: HTMLButtonElement | null) =>
         Boolean(popover && !popover.contains(target) && btn && !btn.contains(target));
 
-      if (isOutside(stylePopoverRef.current, styleBtnRef.current)) setShowStyleMenu(false);
       if (isOutside(colorPopoverRef.current, colorBtnRef.current)) {
         setShowColorPicker(false);
         setShowCustomTextColor(false);
@@ -204,60 +201,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     return fallback;
   };
 
-  // Detecção ativa de nível de texto no bloco atual
-  const isH1Active = editor.isActive('heading', { level: 1 });
-  const isH2Active = editor.isActive('heading', { level: 2 });
-  const isH3Active = editor.isActive('heading', { level: 3 });
-  const isHeadingActive = isH1Active || isH2Active || isH3Active;
-  const activeLevelCode = isH1Active ? 'H1' : isH2Active ? 'H2' : isH3Active ? 'H3' : 'Texto';
-  const activeLevelDescription = isH1Active
-    ? 'H1 (Título)'
-    : isH2Active
-    ? 'H2 (Cabeçalho)'
-    : isH3Active
-    ? 'H3 (Subtítulo)'
-    : 'Texto normal / Parágrafo';
-
-  // Níveis de Texto Estruturados (H1, H2, H3, Texto normal / Parágrafo)
-  const headingLevels = [
-    {
-      id: 'h1',
-      code: 'H1',
-      label: 'H1',
-      description: 'Título grande',
-      previewClass: 'font-serif-note font-bold text-xl sm:text-2xl text-[#1b1c19] tracking-tight leading-tight',
-      isActive: () => editor.isActive('heading', { level: 1 }),
-      action: () => editor.chain().focus().setHeading({ level: 1 }).run(),
-    },
-    {
-      id: 'h2',
-      code: 'H2',
-      label: 'H2',
-      description: 'Cabeçalho',
-      previewClass: 'font-serif-note font-bold text-base sm:text-lg text-[#1b1c19] leading-snug',
-      isActive: () => editor.isActive('heading', { level: 2 }),
-      action: () => editor.chain().focus().setHeading({ level: 2 }).run(),
-    },
-    {
-      id: 'h3',
-      code: 'H3',
-      label: 'H3',
-      description: 'Subtítulo',
-      previewClass: 'font-serif-note font-semibold text-sm sm:text-base text-[#4e453f] leading-snug',
-      isActive: () => editor.isActive('heading', { level: 3 }),
-      action: () => editor.chain().focus().setHeading({ level: 3 }).run(),
-    },
-    {
-      id: 'paragraph',
-      code: 'P',
-      label: 'Texto normal / Parágrafo',
-      description: 'Parágrafo padrão',
-      previewClass: 'font-serif-note font-normal text-xs sm:text-sm text-[#1b1c19] leading-normal',
-      isActive: () => !editor.isActive('heading'),
-      action: () => editor.chain().focus().setParagraph().run(),
-    },
-  ];
-
   // Paleta de Cores do Texto (Tons Clássicos de Tinta e Editoriais)
   const textColors = [
     { label: 'Sépia Clássica', color: '#68594d' },
@@ -283,7 +226,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const togglePopover = (
     currentIsOpen: boolean,
     btnRef: React.RefObject<HTMLButtonElement | null>,
-    popoverKey: 'style' | 'color' | 'highlight' | 'list' | 'addFile'
+    popoverKey: 'color' | 'highlight' | 'list' | 'addFile'
   ) => {
     if (!currentIsOpen && btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
@@ -291,7 +234,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
         bottom: window.innerHeight - rect.top + 8,
         left: rect.left + rect.width / 2,
       });
-      setShowStyleMenu(popoverKey === 'style');
       setShowColorPicker(popoverKey === 'color');
       setShowHighlightPicker(popoverKey === 'highlight');
       setShowListMenu(popoverKey === 'list');
@@ -299,7 +241,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       if (popoverKey !== 'color') setShowCustomTextColor(false);
       if (popoverKey !== 'highlight') setShowCustomHighlight(false);
     } else {
-      if (popoverKey === 'style') setShowStyleMenu(false);
       if (popoverKey === 'color') {
         setShowColorPicker(false);
         setShowCustomTextColor(false);
@@ -312,8 +253,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       if (popoverKey === 'addFile') setShowAddFileMenu(false);
     }
   };
-
-  const toggleStyleMenu = () => togglePopover(showStyleMenu, styleBtnRef, 'style');
 
   const toggleColorPicker = () => {
     const currentColor = editor.getAttributes('textStyle').color;
@@ -659,27 +598,12 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             <Strikethrough className="w-4.5 h-4.5" />
           </button>
 
-          {/* Botão Nível de Texto (H1, H2, H3, Texto normal / Parágrafo) */}
-          <button
-            ref={styleBtnRef}
+          {/* Ferramenta Nível de Texto (Título, Subtítulo, Parágrafo, Corpo) */}
+          <TextLevelDropdown
+            editor={editor}
+            variant="bottom"
             id="toolbar-btn-text-styles"
-            type="button"
-            onClick={toggleStyleMenu}
-            className={`min-h-[40px] px-2 sm:px-2.5 py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 ${
-              showStyleMenu
-                ? 'bg-[#f0eee9] text-[#1b1c19]'
-                : isHeadingActive
-                ? 'bg-[#e4e2dd]/80 text-[#1b1c19] font-bold shadow-2xs'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
-            title={`Nível do texto: ${activeLevelDescription} (Clique para alterar)`}
-            aria-label={`Nível do texto: ${activeLevelDescription}`}
-          >
-            <span className="font-sans-ui font-bold text-xs sm:text-sm leading-none tracking-tight">
-              {activeLevelCode}
-            </span>
-            <ChevronDown className="w-3 h-3 text-[#7f756e]" />
-          </button>
+          />
 
           {/* Tamanho da Fonte (A↓ / A↑) */}
           <button
@@ -878,55 +802,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
           )}
         </button>
       </nav>
-
-      {/* POPOVER FLUTUANTE: ESTILOS / NÍVEIS DE TEXTO (H1, H2, H3, TEXTO NORMAL / PARÁGRAFO) */}
-      {showStyleMenu && popoverCoords && (
-        <div
-          ref={stylePopoverRef}
-          id="toolbar-style-menu-popover"
-          style={{
-            position: 'fixed',
-            bottom: `${popoverCoords.bottom}px`,
-            left: `clamp(110px, ${popoverCoords.left}px, calc(100vw - 110px))`,
-            transform: 'translateX(-50%)',
-          }}
-          className="bg-white border border-[#e4e2dd] p-1.5 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[220px] z-50 animate-in fade-in zoom-in-95 font-sans-ui"
-        >
-          {headingLevels.map((lvl) => {
-            const active = lvl.isActive();
-            return (
-              <button
-                key={lvl.id}
-                id={`style-opt-${lvl.id}`}
-                type="button"
-                onClick={() => {
-                  lvl.action();
-                  setShowStyleMenu(false);
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-colors cursor-pointer text-left ${
-                  active
-                    ? 'bg-[#f0eee9] text-[#1b1c19]'
-                    : 'hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19]'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span
-                    className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
-                      active ? 'bg-[#68594d] text-white' : 'bg-[#f0eee9] text-[#4e453f]'
-                    }`}
-                  >
-                    {lvl.code}
-                  </span>
-                  <span className={lvl.previewClass}>{lvl.label}</span>
-                </div>
-                {active && (
-                  <span className="text-[#68594d] font-bold text-xs ml-3 shrink-0">✓</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       {/* POPOVER FLUTUANTE: COR DO TEXTO */}
       {showColorPicker && popoverCoords && (

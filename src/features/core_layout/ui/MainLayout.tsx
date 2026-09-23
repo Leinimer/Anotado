@@ -42,6 +42,7 @@ export function MainLayout() {
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
 
   const activeNoteIdRef = useRef<string | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
@@ -210,6 +211,7 @@ export function MainLayout() {
         localStorage.setItem('anotado_last_auth_user_id', currentUserId);
       }
 
+      currentUserIdRef.current = currentUserId;
       setUserId(currentUserId);
       syncEngine.setActiveUser(currentUserId);
 
@@ -230,8 +232,8 @@ export function MainLayout() {
           setActiveNoteId(null);
         }
 
-        // Dispara verificação imediata de sincronização PUSH/PULL
-        syncEngine.scheduleSync(100);
+        // Apenas verifica se há mutações pendentes locais na fila (sem disparar PULL desnecessário)
+        syncEngine.checkWatchdog(currentUserId);
       } catch (err) {
         console.error('[MainLayout] Erro ao carregar dados do Supabase:', err);
       }
@@ -248,19 +250,22 @@ export function MainLayout() {
           if (typeof window !== 'undefined') {
             localStorage.removeItem('anotado_last_auth_user_id');
           }
+          currentUserIdRef.current = null;
           syncEngine.cleanup();
           if (typeof window !== 'undefined') {
             window.location.replace('/login');
           }
-        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          if (session?.user?.id) {
+        } else if (event === 'SIGNED_IN') {
+          // Ignora TOKEN_REFRESHED e não duplica inicialização se for o mesmo usuário já carregado
+          if (session?.user?.id && session.user.id !== currentUserIdRef.current) {
             const newUid = session.user.id;
+            currentUserIdRef.current = newUid;
             if (typeof window !== 'undefined') {
               localStorage.setItem('anotado_last_auth_user_id', newUid);
             }
             setUserId(newUid);
             syncEngine.setActiveUser(newUid);
-            syncEngine.scheduleSync(100);
+            syncEngine.checkWatchdog(newUid);
           }
         }
       });

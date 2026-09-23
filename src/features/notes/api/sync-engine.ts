@@ -32,6 +32,7 @@ import {
   ATTACHMENTS_BUCKET_NAME,
 } from './storage-api';
 import { registerResolvedAttachmentUrl } from '../editor/utils/media-common';
+import { remoteOperationGuard } from './remote-operation-guard';
 
 export type DataChangePayload = {
   userId: string;
@@ -335,15 +336,25 @@ class SyncEngine {
           return;
         }
 
-        // 3. REGRA CRÍTICA: Se o Realtime estiver SUBSCRIBED e já temos sincronização anterior confirmada (last_sync_timestamp),
-        // NÃO fazemos PULL de rotina! O websocket entrega alterações remotas instantaneamente sem polling.
+        // 3. REGRA CRÍTICA: Se já temos dados no IndexedDB ou last_sync_timestamp e Realtime está SUBSCRIBED ou CONNECTING,
+        // NÃO fazemos PULL! O websocket entrega alterações remotas em tempo real.
         const lastSync = await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp');
-        if (this.realtimeStatus === 'SUBSCRIBED' && lastSync) {
+        const localFolders = await indexedDBStorage.getAllFolders(userId);
+        const localNotes = await indexedDBStorage.getAllNotes(userId);
+        const hasLocalData = localFolders.length > 0 || localNotes.length > 0 || Boolean(lastSync);
+
+        if (hasLocalData && (this.realtimeStatus === 'SUBSCRIBED' || this.realtimeStatus === 'CONNECTING')) {
           this.lastSuccessfulReconciliation = Date.now();
           return;
         }
 
-        // 4. Se não há PUSH local e o Realtime está desconectado ou é a primeira sincronização: executa PULL incremental
+        // Se houver qualquer operação remota (fetch inicial ou pull) em andamento para o usuário, não duplica
+        if (remoteOperationGuard.isUserBusy(userId)) {
+          this.lastSuccessfulReconciliation = Date.now();
+          return;
+        }
+
+        // 4. Se não há PUSH local e o Realtime está desconectado ou é a primeira sincronização absoluta: executa PULL incremental
         if (!this.isProcessing && !this.isPulling) {
           this.isPulling = true;
           try {
@@ -1107,9 +1118,10 @@ class SyncEngine {
 
       await this.updatePendingCount(userId);
 
-      // 2. ETAPA PULL: PULL incremental apenas se o Realtime NÃO estiver conectado ou se ainda não houver sincronização prévia
+      // 2. ETAPA PULL: PULL incremental pós-processamento SOMENTE se o usuário ainda não tiver nenhuma sincronização prévia
+      // e não houver fetch ou pull em andamento. Se Realtime estiver conectado ou lastSync existir, o Realtime cuida disso.
       const lastSync = await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp');
-      if (this.realtimeStatus !== 'SUBSCRIBED' || !lastSync) {
+      if (!lastSync && this.realtimeStatus !== 'SUBSCRIBED' && !remoteOperationGuard.isUserBusy(userId)) {
         await this.pullIncrementalChanges(userId);
       }
 
@@ -2149,11 +2161,19 @@ class SyncEngine {
     if (!isSupabaseConfigured() || !userId) return;
     if (networkMonitor.getIsQuotaExceeded()) return;
 
-    if (this.inFlightPull.has(userId)) {
-      return this.inFlightPull.get(userId)!;
-    }
+    return remoteOperationGuard.execute(`pull:${userId}`, async (): Promise<void> => {
+      // Se houver um fetch inicial em andamento para este usuário, aguarda a conclusão para evitar requisições duplicadas
+      const inFlightFetch =
+        remoteOperationGuard.getInFlight(`fetch:foldersAndNotes:${userId}:notes`) ||
+        remoteOperationGuard.getInFlight(`fetch:foldersAndNotes:${userId}:all`) ||
+        remoteOperationGuard.getInFlight(`fetch:foldersAndNotes:${userId}:diary`);
 
-    const task = (async (): Promise<void> => {
+      if (inFlightFetch) {
+        console.log('[SyncEngine] PULL aguardando fetch inicial em andamento para deduplicação');
+        await inFlightFetch;
+        return;
+      }
+
       try {
         const supabase = createClient();
         let remoteChangesCount = 0;
@@ -2186,7 +2206,10 @@ class SyncEngine {
           attsQuery = attsQuery.gt('updated_at', lastSync);
         }
 
-        const { data: remoteAttachments, error: attsErr } = await attsQuery;
+        const { data: remoteAttachments, error: attsErr } = await remoteOperationGuard.execute(
+          `fetch:attachments:${userId}`,
+          async () => attsQuery
+        );
 
         if (attsErr) {
           if (attsErr.status === 402 || (attsErr.message && attsErr.message.includes('exceed_egress_quota'))) {
@@ -2239,7 +2262,10 @@ class SyncEngine {
         foldersQuery = foldersQuery.gt('updated_at', lastSync);
       }
 
-      const { data: remoteFolders, error: foldersErr } = await foldersQuery;
+      const { data: remoteFolders, error: foldersErr } = await remoteOperationGuard.execute(
+        `fetch:folders:${userId}`,
+        async () => foldersQuery
+      );
 
       if (foldersErr) {
         if (foldersErr.status === 402 || (foldersErr.message && foldersErr.message.includes('exceed_egress_quota'))) {
@@ -2333,7 +2359,10 @@ class SyncEngine {
         notesQuery = notesQuery.gt('updated_at', lastSync);
       }
 
-      const { data: remoteNotes, error: notesErr } = await notesQuery;
+      const { data: remoteNotes, error: notesErr } = await remoteOperationGuard.execute(
+        `fetch:notes:${userId}`,
+        async () => notesQuery
+      );
 
       if (notesErr) {
         if (notesErr.status === 402 || (notesErr.message && notesErr.message.includes('exceed_egress_quota'))) {
@@ -2476,13 +2505,8 @@ class SyncEngine {
       await indexedDBStorage.setMetadata(userId, 'last_sync_timestamp', pullStartedAt);
     } catch (err) {
       console.warn('[SyncEngine] Erro ao sincronizar dados remotos:', err);
-    } finally {
-      this.inFlightPull.delete(userId);
     }
-  })();
-
-  this.inFlightPull.set(userId, task);
-  return task;
+  });
 }
 }
 
