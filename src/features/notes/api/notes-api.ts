@@ -376,9 +376,11 @@ export async function fetchNoteContent(
       // 1. Consulta IndexedDB
       let localNoteContent: string | null = null;
       let localTags: string[] | null = null;
+      let localNoteRecord: ExtendedNote | null = null;
       try {
         const localNote = await indexedDBStorage.getNoteById(userId, note.id);
         if (localNote) {
+          localNoteRecord = localNote;
           localTags = Array.isArray(localNote.tags) ? localNote.tags : null;
           if (localNote.content !== undefined && localNote.content !== null) {
             localNoteContent = localNote.content;
@@ -388,19 +390,25 @@ export async function fetchNoteContent(
         console.warn('[NotesAPI] Erro ao buscar nota no IndexedDB:', err);
       }
 
-      // Se temos conteúdo local presente (mesmo que vazio ""), retorna de imediato
-      if (localNoteContent !== null && localNoteContent !== undefined) {
+      // Se temos conteúdo local presente e não-vazio, retorna de imediato
+      if (localNoteContent !== null && localNoteContent !== undefined && localNoteContent.trim() !== '') {
         const noteTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
         return { content: localNoteContent, tags: noteTags };
       }
 
-      // Se o próprio objeto note fornecido já contiver o content, salva no IndexedDB e retorna
-      if (note.content !== null && note.content !== undefined) {
+      // Se o conteúdo local for uma string vazia explícita e houver pendência de sincronização local, respeita
+      if (localNoteContent === '' && localNoteRecord && (localNoteRecord.syncRequired || localNoteRecord.needs_sync)) {
+        const noteTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
+        return { content: '', tags: noteTags };
+      }
+
+      // Se o próprio objeto note fornecido já contiver content não vazio, salva no IndexedDB e retorna
+      if (note.content !== null && note.content !== undefined && note.content.trim() !== '') {
         const noteTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
         return { content: note.content, tags: noteTags };
       }
 
-      // 2. Se o conteúdo local for ausente e estivermos online com quota válida, busca do Supabase Storage (.md)
+      // 2. Se o conteúdo local for ausente ou vazio sem pendência, busca do Supabase Storage (.md) e de public.notes
       const isOnline = networkMonitor.getState().isBackendReachable && !networkMonitor.getIsQuotaExceeded();
       if (isOnline && isSupabaseConfigured()) {
         try {
@@ -413,7 +421,7 @@ export async function fetchNoteContent(
             // Atualiza IndexedDB local com o documento canônico completo
             try {
               await indexedDBStorage.putNote(userId, {
-                ...note,
+                ...(localNoteRecord || note),
                 content: body,
                 tags: finalTags,
                 syncRequired: false,
@@ -427,6 +435,50 @@ export async function fetchNoteContent(
           }
         } catch (storageErr) {
           console.warn('[NotesAPI] Erro ao buscar .md no Storage:', storageErr);
+        }
+
+        // 2.1 Fallback direto na tabela public.notes (caso o arquivo .md ainda não tenha sido gerado ou a escrita tenha ido direto ao DB)
+        try {
+          const supabase = createClient();
+          const { data: dbNote, error: dbErr } = await supabase
+            .from('notes')
+            .select('content, tags, revision')
+            .eq('id', note.id)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (!dbErr && dbNote && dbNote.content !== undefined && dbNote.content !== null && dbNote.content.trim() !== '') {
+            const rawDbTags = dbNote.tags;
+            let finalTags: string[] = [];
+            if (Array.isArray(rawDbTags)) {
+              finalTags = normalizeTags(rawDbTags);
+            } else if (typeof rawDbTags === 'string') {
+              try {
+                finalTags = normalizeTags(JSON.parse(rawDbTags));
+              } catch {
+                finalTags = normalizeTags(rawDbTags.split(','));
+              }
+            } else {
+              finalTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
+            }
+
+            try {
+              await indexedDBStorage.putNote(userId, {
+                ...(localNoteRecord || note),
+                content: dbNote.content,
+                tags: finalTags,
+                revision: Math.max(dbNote.revision || 0, localNoteRecord?.revision || 0),
+                syncRequired: false,
+                syncStatus: 'synced',
+                sync_status: 'synced',
+                needs_sync: false,
+              });
+            } catch {}
+
+            return { content: dbNote.content, tags: finalTags };
+          }
+        } catch (dbFallbackErr) {
+          console.warn('[NotesAPI] Erro ao buscar conteúdo na tabela notes:', dbFallbackErr);
         }
       }
 

@@ -21,6 +21,7 @@ import {
 import { Folder, Note } from '@/src/features/notes/types';
 import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
 import { SettingsModal } from '@/src/features/notes/ui/SettingsModal';
+import { SyncStatusIndicator } from '@/src/features/notes/ui/SyncStatusIndicator';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import { DiaryShare } from '../api/diary-sharing-api';
 import {
@@ -954,8 +955,17 @@ export function DiarySidebarNavigation({
         )}
       </div>
 
-      {/* Bottom Actions: + Ano, + Entrada, Usuário */}
+      {/* Bottom Actions: Indicador de Sincronização, + Ano, + Entrada, Usuário */}
       <div className="pt-2 border-t border-[#eae8e3] space-y-2 shrink-0">
+        <div className="flex items-center justify-between px-0.5">
+          <SyncStatusIndicator
+            userId={userId || undefined}
+            onSelectNote={onSelectNote}
+            folders={folders}
+            notes={notes}
+          />
+        </div>
+
         <div className="grid grid-cols-2 gap-2">
           <button
             id="diary-create-year-btn"

@@ -283,6 +283,37 @@ class SyncEngine {
       const queue = await indexedDBStorage.getPendingSyncItems(userId);
       if (queue.length > 0) {
         this.scheduleSync(50);
+        return;
+      }
+
+      // Safeguard: Verifica se há notas ou pastas no IndexedDB com marcação pendente que não estão na fila
+      const [allNotes, allFolders] = await Promise.all([
+        indexedDBStorage.getAllNotes(userId),
+        indexedDBStorage.getAllFolders(userId),
+      ]);
+      const unsyncedNotes = allNotes.filter((n) => n.syncRequired || n.needs_sync || n.syncStatus === 'pending');
+      const unsyncedFolders = allFolders.filter((f) => f.syncRequired || f.needs_sync || f.syncStatus === 'pending');
+
+      if (unsyncedNotes.length > 0 || unsyncedFolders.length > 0) {
+        for (const f of unsyncedFolders) {
+          await indexedDBStorage.enqueueSyncItem(userId, {
+            action: 'CREATE_FOLDER',
+            entity_type: 'folder',
+            entity_id: f.id,
+            payload: f,
+            revision: f.revision || 1,
+          });
+        }
+        for (const n of unsyncedNotes) {
+          await indexedDBStorage.enqueueSyncItem(userId, {
+            action: 'CREATE_NOTE',
+            entity_type: 'note',
+            entity_id: n.id,
+            payload: n,
+            revision: n.revision || 1,
+          });
+        }
+        this.scheduleSync(50);
       }
     } catch {
       // Falha silenciosa no watchdog leve
@@ -336,25 +367,16 @@ class SyncEngine {
           return;
         }
 
-        // 3. REGRA CRÍTICA: Se já temos dados no IndexedDB ou last_sync_timestamp e Realtime está SUBSCRIBED ou CONNECTING,
-        // NÃO fazemos PULL! O websocket entrega alterações remotas em tempo real.
-        const lastSync = await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp');
-        const localFolders = await indexedDBStorage.getAllFolders(userId);
-        const localNotes = await indexedDBStorage.getAllNotes(userId);
-        const hasLocalData = localFolders.length > 0 || localNotes.length > 0 || Boolean(lastSync);
-
-        if (hasLocalData && (this.realtimeStatus === 'SUBSCRIBED' || this.realtimeStatus === 'CONNECTING')) {
-          this.lastSuccessfulReconciliation = Date.now();
-          return;
-        }
-
-        // Se houver qualquer operação remota (fetch inicial ou pull) em andamento para o usuário, não duplica
+        // 3. PULL incremental de reconciliação:
+        // O Realtime entrega novos eventos apenas a partir do momento da subscrição.
+        // As alterações feitas em outro dispositivo enquanto este esteve fechado/em segundo plano
+        // precisam ser recuperadas pelo PULL incremental (gt('updated_at', lastSync)).
+        // Se houver qualquer operação remota em andamento para o usuário, não duplica.
         if (remoteOperationGuard.isUserBusy(userId)) {
           this.lastSuccessfulReconciliation = Date.now();
           return;
         }
 
-        // 4. Se não há PUSH local e o Realtime está desconectado ou é a primeira sincronização absoluta: executa PULL incremental
         if (!this.isProcessing && !this.isPulling) {
           this.isPulling = true;
           try {
@@ -1449,10 +1471,10 @@ class SyncEngine {
         // 3. Verificação de Conflito com a versão no Supabase
         const { data: remoteNote, error: fetchErr } = await supabase
           .from('notes')
-          .select('id, user_id, updated_at, revision, content')
+          .select('id, user_id, updated_at, revision, content, title, folder_id')
           .eq('id', noteId)
           .eq('user_id', userId)
-          .single();
+          .maybeSingle();
 
         if (!fetchErr && remoteNote) {
           const remoteUpdatedAt = new Date(remoteNote.updated_at).getTime();
@@ -1525,31 +1547,101 @@ class SyncEngine {
 
         console.log(`[NOTE] CONTENT PERSIST START noteId=${noteId} revision=${revision}`);
 
-        // Sem conflito: Grava o arquivo .md no Supabase Storage e na tabela notes
-        const fullMarkdown = serializeMarkdownWithTags(preparedContent, cleanTags);
-        await writeNoteMarkdown(userId, noteId, fullMarkdown);
+        let remotePersisted = false;
 
-        const { error: updateErr } = await supabase
-          .from('notes')
-          .update({
-            content: preparedContent,
-            tags: cleanTags,
-            revision: revision,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', noteId)
-          .eq('user_id', userId);
+        // Se a nota já existe remotamente, tenta o UPDATE
+        if (remoteNote) {
+          const { data: updatedRows, error: updateErr } = await supabase
+            .from('notes')
+            .update({
+              content: preparedContent,
+              tags: cleanTags,
+              revision: revision,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', noteId)
+            .eq('user_id', userId)
+            .select('id');
 
-        if (updateErr) {
-          console.error(`[NOTE] PERSIST ERROR noteId=${noteId}:`, updateErr.message || updateErr);
-          throw updateErr;
+          if (updateErr) {
+            console.error(`[NOTE] PERSIST ERROR noteId=${noteId}:`, updateErr.message || updateErr);
+            throw updateErr;
+          }
+
+          if (updatedRows && updatedRows.length > 0) {
+            remotePersisted = true;
+          }
         }
 
-        await this.syncTagsWithSupabase(supabase, userId, noteId, cleanTags);
+        // Se a nota não existia remotamente ou o UPDATE não afetou nenhuma linha (ex: criada offline), realiza UPSERT completo
+        if (!remotePersisted) {
+          console.log(`[NOTE] Nota não encontrada remotamente para UPDATE. Executando UPSERT canônico noteId=${noteId}`);
+          if (localNote?.folder_id) {
+            await this.ensureFolderSyncedToSupabase(supabase, userId, localNote.folder_id);
+          }
+
+          const notePayload: Record<string, any> = {
+            id: noteId,
+            user_id: userId,
+            folder_id: localNote?.folder_id || null,
+            title: localNote?.title || 'Nova nota',
+            content: preparedContent,
+            position: localNote?.position ?? 0,
+            tags: cleanTags,
+            is_archived: Boolean(localNote?.is_archived),
+            previous_folder_id: localNote?.previous_folder_id || null,
+            revision: revision,
+            workspace_type: localNote?.workspace_type || 'notes',
+            entry_date: localNote?.entry_date || null,
+            diary_year: localNote?.diary_year !== undefined ? localNote.diary_year : null,
+            diary_month: localNote?.diary_month !== undefined ? localNote.diary_month : null,
+            diary_day: localNote?.diary_day !== undefined ? localNote.diary_day : null,
+            created_at: localNote?.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+
+          let { error: upsertErr } = await supabase.from('notes').upsert(notePayload);
+
+          if (upsertErr && (upsertErr.code === '23503' || upsertErr.message?.includes('notes_folder_id_fkey'))) {
+            console.warn(`[SyncEngine] Chave estrangeira de pasta inválida para nota ${noteId}. Reatribuindo para raiz (null)`);
+            notePayload.folder_id = null;
+            const retry = await supabase.from('notes').upsert(notePayload);
+            upsertErr = retry.error;
+          }
+
+          if (upsertErr && upsertErr.message && (upsertErr.message.includes('column') || upsertErr.message.includes('schema cache'))) {
+            delete notePayload.workspace_type;
+            delete notePayload.entry_date;
+            delete notePayload.diary_year;
+            delete notePayload.diary_month;
+            delete notePayload.diary_day;
+            const retry = await supabase.from('notes').upsert(notePayload);
+            upsertErr = retry.error;
+          }
+
+          if (upsertErr) {
+            console.error(`[NOTE] PERSIST UPSERT ERROR noteId=${noteId}:`, upsertErr.message || upsertErr);
+            throw upsertErr;
+          }
+        }
+
+        // Grava arquivo .md no Supabase Storage se disponível (não-bloqueante)
+        try {
+          const fullMarkdown = serializeMarkdownWithTags(preparedContent, cleanTags);
+          await writeNoteMarkdown(userId, noteId, fullMarkdown);
+        } catch (storageErr) {
+          console.warn(`[NOTE] Aviso ao gravar Markdown no Storage para nota ${noteId}:`, storageErr);
+        }
+
+        try {
+          await this.syncTagsWithSupabase(supabase, userId, noteId, cleanTags);
+        } catch (tagErr) {
+          console.warn('[SyncEngine] Aviso ao sincronizar tags:', tagErr);
+        }
 
         console.log(`[NOTE] CONTENT PERSIST SUCCESS noteId=${noteId}`);
 
-        // Marca como sincronizado no IndexedDB após confirmação real
+        // Marca como sincronizado no IndexedDB APENAS após confirmação remota
         await indexedDBStorage.markNoteSynced(userId, noteId, revision);
         console.log(`[NOTE] SYNC_SUCCESS noteId=${noteId}`);
         console.log(`[NOTE] SYNC CONFIRMED noteId=${noteId} revision=${revision}`);
@@ -2414,7 +2506,7 @@ class SyncEngine {
           if (!existingNote) {
             await indexedDBStorage.putNote(userId, {
               ...rNote,
-              content: rNote.content ?? '',
+              content: rNote.content !== undefined ? rNote.content : undefined,
               tags: noteTags,
               revision: rNote.revision || 0,
               syncRequired: false,

@@ -665,10 +665,10 @@ export async function getOrCreateDiaryEntry(
         try {
           const supabase = createClient();
 
-          // 3.1 Busca primeiro pelo ID determinístico (apenas metadados para economizar egress)
+          // 3.1 Busca primeiro pelo ID determinístico (incluindo conteúdo para o dispositivo abrir de imediato)
           const { data: remoteById, error: errById } = await supabase
             .from('notes')
-            .select('id, user_id, folder_id, title, position, revision, tags, created_at, updated_at, is_archived')
+            .select('id, user_id, folder_id, title, content, position, revision, tags, created_at, updated_at, is_archived')
             .eq('id', deterministicNoteId)
             .eq('is_archived', false)
             .limit(1);
@@ -681,6 +681,7 @@ export async function getOrCreateDiaryEntry(
             const remoteRecord = remoteById[0];
             const remoteNote: ExtendedNote = {
               ...remoteRecord,
+              content: remoteRecord.content ?? '',
               workspace_type: 'diary',
               entry_date: cleanDate,
               diary_year: year,
@@ -700,7 +701,7 @@ export async function getOrCreateDiaryEntry(
           if (targetMonthFolder && !networkMonitor.getIsQuotaExceeded()) {
             const { data: remoteByFolder, error: errByFolder } = await supabase
               .from('notes')
-              .select('id, user_id, folder_id, title, position, revision, tags, created_at, updated_at, is_archived')
+              .select('id, user_id, folder_id, title, content, position, revision, tags, created_at, updated_at, is_archived')
               .eq('user_id', userId)
               .eq('folder_id', targetMonthFolder.id)
               .eq('position', day)
@@ -715,6 +716,7 @@ export async function getOrCreateDiaryEntry(
               const remoteRecord = remoteByFolder[0];
               const remoteNote: ExtendedNote = {
                 ...remoteRecord,
+                content: remoteRecord.content ?? '',
                 workspace_type: 'diary',
                 entry_date: cleanDate,
                 diary_year: year,
