@@ -9,6 +9,7 @@ import {
   Archive,
   ArchiveRestore,
   ChevronRight,
+  Plus,
 } from 'lucide-react';
 import { Folder as FolderType, Note as NoteType } from '../types';
 import { FOLDER_PRESET_COLORS } from './sidebar-constants';
@@ -23,17 +24,19 @@ interface SidebarContextMenuProps {
   showColorSubmenu: boolean;
   onClose: () => void;
   onStartRenaming: (id: string, type: 'folder' | 'note', name: string) => void;
+  onCreateNoteInFolder?: (folderId: string) => void;
   onArchiveNote?: (id: string) => void;
   onUnarchiveNote?: (id: string) => void;
   onArchiveFolderNotes?: (folderId: string) => void;
   onUpdateFolderColor?: (folderId: string, color: string | null) => void;
+  onOpenCustomColor?: (folderId: string) => void;
   onOpenSmartConfig: (folderId: string, smartTags: string[]) => void;
   onPromptDelete: (id: string, type: 'folder' | 'note') => void;
   onMouseEnterColorOption: () => void;
   onMouseLeaveColorOption: () => void;
   onToggleColorSubmenu: () => void;
   colorSubmenuTimerRef: React.MutableRefObject<NodeJS.Timeout | null>;
-  customColorInputRef: React.RefObject<HTMLInputElement | null>;
+  customColorInputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
 export function SidebarContextMenu({
@@ -46,17 +49,18 @@ export function SidebarContextMenu({
   showColorSubmenu,
   onClose,
   onStartRenaming,
+  onCreateNoteInFolder,
   onArchiveNote,
   onUnarchiveNote,
   onArchiveFolderNotes,
   onUpdateFolderColor,
+  onOpenCustomColor,
   onOpenSmartConfig,
   onPromptDelete,
   onMouseEnterColorOption,
   onMouseLeaveColorOption,
   onToggleColorSubmenu,
   colorSubmenuTimerRef,
-  customColorInputRef,
 }: SidebarContextMenuProps) {
   if (!menuOpenId || !menuPosition) return null;
 
@@ -128,6 +132,23 @@ export function SidebarContextMenu({
       {/* Opções exclusivas para PASTAS */}
       {menuItemType === 'folder' && (
         <>
+          {/* Opção: Criar nota dentro desta pasta */}
+          <button
+            id="context-menu-create-note-btn"
+            type="button"
+            onClick={() => {
+              if (onCreateNoteInFolder && menuOpenId) {
+                onCreateNoteInFolder(menuOpenId);
+              }
+              onClose();
+            }}
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+            title="Criar nota nesta pasta"
+          >
+            <Plus className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
+            <span>Criar nota</span>
+          </button>
+
           {/* Opção: Cor da pasta > (com Submenu Lateral) */}
           <div
             className="relative"
@@ -195,31 +216,17 @@ export function SidebarContextMenu({
                     type="button"
                     id="folder-custom-color-btn"
                     onClick={() => {
-                      if (customColorInputRef.current) {
-                        customColorInputRef.current.click();
+                      if (onOpenCustomColor && menuOpenId) {
+                        onOpenCustomColor(menuOpenId);
                       }
+                      onClose();
                     }}
                     className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] text-[#4e453f] text-xs transition-colors cursor-pointer text-left"
+                    title="Definir cor personalizada"
                   >
                     <span className="text-xs">🌈</span>
                     <span>Personalizada</span>
                   </button>
-                  <input
-                    ref={customColorInputRef}
-                    type="color"
-                    className="sr-only"
-                    onChange={(e) => {
-                      const hexColor = e.target.value;
-                      if (onUpdateFolderColor && menuOpenId) {
-                        onUpdateFolderColor(menuOpenId, hexColor);
-                      }
-                      onClose();
-                      if (colorSubmenuTimerRef.current) {
-                        clearTimeout(colorSubmenuTimerRef.current);
-                        colorSubmenuTimerRef.current = null;
-                      }
-                    }}
-                  />
                 </div>
               </div>
             )}

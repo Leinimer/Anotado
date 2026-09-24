@@ -89,7 +89,7 @@ export function NoteEditor({
         id: 'tiptap-note-content-editable',
         'data-user-id': userId || 'anonymous',
         class:
-          'focus:outline-none min-h-[420px] text-[#1b1c19] font-serif-note text-base sm:text-lg leading-normal selection:bg-[#f4dfcb] selection:text-[#1b1c19]',
+          'focus:outline-none min-h-[420px] text-[#1b1c19] font-serif-note text-base sm:text-lg leading-[1.6] selection:bg-[#f4dfcb] selection:text-[#1b1c19]',
       },
       handlePaste: (view, event) => {
         const text = event.clipboardData?.getData('text/plain')?.trim();

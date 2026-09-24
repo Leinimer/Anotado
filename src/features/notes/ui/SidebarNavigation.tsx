@@ -53,6 +53,7 @@ import { SidebarContextMenu } from './SidebarContextMenu';
 import { SmartFolderModal } from './SmartFolderModal';
 import { ConfirmDeleteModal, BatchDeleteConfirmModal } from './SidebarDeleteModals';
 import { BatchMoveModal } from './BatchMoveModal';
+import { FolderCustomColorModal } from './FolderCustomColorModal';
 
 interface SidebarNavigationProps {
   folders: FolderType[];
@@ -135,6 +136,7 @@ export function SidebarNavigation({
   const [showColorSubmenu, setShowColorSubmenu] = useState(false);
   const colorSubmenuTimerRef = useRef<NodeJS.Timeout | null>(null);
   const customColorInputRef = useRef<HTMLInputElement>(null);
+  const [customColorFolderId, setCustomColorFolderId] = useState<string | null>(null);
 
   // Estado para popover de configuração de Pasta Inteligente
   const [smartConfigFolderId, setSmartConfigFolderId] = useState<string | null>(null);
@@ -1932,6 +1934,31 @@ export function SidebarNavigation({
         }}
         colorSubmenuTimerRef={colorSubmenuTimerRef}
         customColorInputRef={customColorInputRef}
+        onCreateNoteInFolder={async (folderId) => {
+          setOpenFolderIds((prev) => new Set([...prev, folderId]));
+          await onCreateNote(folderId);
+        }}
+        onOpenCustomColor={(folderId) => {
+          setCustomColorFolderId(folderId);
+          setMenuOpenId(null);
+          setMenuPosition(null);
+          setShowColorSubmenu(false);
+        }}
+      />
+
+      {/* Modal Confiável de Seletor de Cor Personalizada da Pasta */}
+      <FolderCustomColorModal
+        isOpen={Boolean(customColorFolderId)}
+        folderId={customColorFolderId}
+        folderName={folders.find((f) => f.id === customColorFolderId)?.name}
+        initialColor={folders.find((f) => f.id === customColorFolderId)?.color || null}
+        onClose={() => setCustomColorFolderId(null)}
+        onApply={(color) => {
+          if (onUpdateFolderColor && customColorFolderId) {
+            onUpdateFolderColor(customColorFolderId, color);
+          }
+          setCustomColorFolderId(null);
+        }}
       />
 
       {/* Popover Contextual de Configuração de Pasta Inteligente */}

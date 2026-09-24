@@ -314,11 +314,14 @@ export function MainLayout() {
     [notes, userId, activeNoteId]
   );
 
-  // Ouvinte global para abertura de notas a partir de modais (ex: SyncPendingModal)
+  // Ouvinte global para abertura de notas a partir de modais e navegações internas
   useEffect(() => {
     const handleGlobalOpenNote = (e: Event) => {
-      const customEvent = e as CustomEvent<{ noteId?: string; folderId?: string | null }>;
+      const customEvent = e as CustomEvent<{ noteId?: string; folderId?: string | null; workspace?: string }>;
       if (customEvent.detail?.noteId) {
+        if (customEvent.detail.workspace && customEvent.detail.workspace !== 'notes') {
+          return;
+        }
         if (customEvent.detail.folderId !== undefined) {
           setActiveFolderId(customEvent.detail.folderId);
         }
@@ -328,8 +331,10 @@ export function MainLayout() {
     };
 
     window.addEventListener('anotado:open-note', handleGlobalOpenNote);
+    window.addEventListener('anotado:select-active-note', handleGlobalOpenNote);
     return () => {
       window.removeEventListener('anotado:open-note', handleGlobalOpenNote);
+      window.removeEventListener('anotado:select-active-note', handleGlobalOpenNote);
     };
   }, [handleSelectNote]);
 
@@ -418,13 +423,14 @@ export function MainLayout() {
   );
 
   // Handlers de Notas (com persistência em Markdown no Supabase Storage)
-  const handleCreateNote = useCallback(async () => {
-    // Toda nova nota nasce SEMPRE na raiz (folder_id: null)
-    const position = notes.filter((n) => n.folder_id === null).length;
+  const handleCreateNote = useCallback(async (folderId: string | null = null) => {
+    // Se folderId for especificado, calcula a posição dentro daquela pasta; caso contrário, na raiz
+    const targetFolderId = folderId || null;
+    const position = notes.filter((n) => n.folder_id === targetFolderId).length;
 
     const newNote = await createNote(userId, {
       title: 'Nova nota',
-      folderId: null,
+      folderId: targetFolderId,
       position,
       content: '',
       workspaceType: 'notes',
@@ -700,6 +706,8 @@ export function MainLayout() {
           onCreateNewNote={() => handleCreateNote()}
           onOpenMobileMenu={() => setMobileSidebarOpen(true)}
           isNewNoteJustCreated={isNewNoteJustCreated}
+          currentWorkspace="notes"
+          onSelectNote={handleSelectNote}
         />
       </div>
     </div>

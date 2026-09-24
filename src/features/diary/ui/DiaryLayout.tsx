@@ -234,18 +234,26 @@ export function DiaryLayout() {
         setFolders(loadedFolders);
         setNotes(loadedNotes);
 
-        // REGRA 3: Ao abrir o Diário:
-        // - seleciona o dia atual;
-        // - se a nota do dia atual existir, abre seu conteúdo;
-        // - se NÃO existir, NÃO cria automaticamente. A nota só nasce quando o usuário clicar no dia.
-        const todayStr = getLocalDateString();
-        const todayNote = loadedNotes.find((n) => n.entry_date === todayStr);
+        // Se houver anotação salva em sessionStorage (ex: navegação vinda de referência interna):
+        const savedDiaryActiveId = typeof window !== 'undefined' ? sessionStorage.getItem('anotado_active_diary_id') : null;
+        const targetSavedNote = savedDiaryActiveId ? loadedNotes.find((n) => n.id === savedDiaryActiveId) : null;
 
-        if (todayNote) {
-          setActiveNoteId(todayNote.id);
+        if (targetSavedNote) {
+          setActiveNoteId(targetSavedNote.id);
         } else {
-          // Não cria automaticamente!
-          setActiveNoteId(null);
+          // REGRA 3: Ao abrir o Diário por padrão:
+          // - seleciona o dia atual;
+          // - se a nota do dia atual existir, abre seu conteúdo;
+          // - se NÃO existir, NÃO cria automaticamente. A nota só nasce quando o usuário clicar no dia.
+          const todayStr = getLocalDateString();
+          const todayNote = loadedNotes.find((n) => n.entry_date === todayStr);
+
+          if (todayNote) {
+            setActiveNoteId(todayNote.id);
+          } else {
+            // Não cria automaticamente!
+            setActiveNoteId(null);
+          }
         }
       } catch (err) {
         console.error('[DiaryLayout] Erro na inicialização:', err);
@@ -411,6 +419,26 @@ export function DiaryLayout() {
     setIsNewNoteJustCreated(false);
     setActiveNoteId(noteId);
   }, []);
+
+  // Ouvinte global para seleção de nota do Diário (via referências internas)
+  useEffect(() => {
+    const handleSelectActiveNoteEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<{ noteId?: string; workspace?: string }>;
+      if (customEvent.detail?.noteId) {
+        if (customEvent.detail.workspace && customEvent.detail.workspace !== 'diary') {
+          return;
+        }
+        handleSelectNote(customEvent.detail.noteId);
+        setMobileSidebarOpen(false);
+      }
+    };
+    window.addEventListener('anotado:select-active-note', handleSelectActiveNoteEvent);
+    window.addEventListener('anotado:open-note', handleSelectActiveNoteEvent);
+    return () => {
+      window.removeEventListener('anotado:select-active-note', handleSelectActiveNoteEvent);
+      window.removeEventListener('anotado:open-note', handleSelectActiveNoteEvent);
+    };
+  }, [handleSelectNote]);
 
   // Atalho para abrir ou criar entrada de HOJE
   const handleOpenToday = useCallback(async () => {
@@ -677,6 +705,8 @@ export function DiaryLayout() {
           onOpenMobileMenu={() => setMobileSidebarOpen(true)}
           userId={userId}
           isNewNoteJustCreated={isNewNoteJustCreated}
+          currentWorkspace="diary"
+          onSelectNote={handleSelectNote}
         />
       ) : (
         <main

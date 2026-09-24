@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Menu,
   FilePlus,
@@ -9,6 +10,7 @@ import {
   Plus,
   Search,
   Calendar,
+  ArrowLeft,
 } from 'lucide-react';
 import { Editor } from '@tiptap/react';
 import { Note as NoteType } from '../types';
@@ -17,6 +19,14 @@ import { EditorToolbar } from './EditorToolbar';
 import { NoteTagsBar } from './NoteTagsBar';
 import { formatDateReadable } from '../utils/diary-date';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
+import { InternalNoteReferenceModal } from './InternalNoteReferenceModal';
+import { ExtendedNote } from '../db/indexed-db';
+import {
+  getInternalNavigationContext,
+  returnToSourceNote,
+  executeInternalNoteNavigation,
+  InternalNavigationContext,
+} from '../utils/internal-note-navigation';
 
 interface NoteCanvasProps {
   activeNote: NoteType | null;
@@ -29,6 +39,8 @@ interface NoteCanvasProps {
   onOpenMobileMenu?: () => void;
   isNewNoteJustCreated?: boolean;
   readOnly?: boolean;
+  currentWorkspace?: 'notes' | 'diary';
+  onSelectNote?: (noteId: string) => void;
 }
 
 export function NoteCanvas({
@@ -41,10 +53,116 @@ export function NoteCanvas({
   onOpenMobileMenu,
   isNewNoteJustCreated = false,
   readOnly = false,
+  currentWorkspace,
+  onSelectNote,
 }: NoteCanvasProps) {
+  const router = useRouter();
   const [isEditingTitle, setIsEditingTitle] = useState(isNewNoteJustCreated && !readOnly);
   const [localTitle, setLocalTitle] = useState(activeNote?.title || '');
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
+
+  // Estados de Referência Interna e Navegação de Retorno
+  const [navContext, setNavContext] = useState<InternalNavigationContext | null>(() =>
+    getInternalNavigationContext()
+  );
+  const [isReferenceModalOpen, setIsReferenceModalOpen] = useState(false);
+  const [referenceSelectedText, setReferenceSelectedText] = useState('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Workspace efetivo atual
+  const effectiveWorkspace: 'notes' | 'diary' =
+    currentWorkspace ||
+    (activeNote?.workspace_type === 'diary' ||
+    Boolean(activeNote?.entry_date) ||
+    Boolean(activeNote?.diary_year)
+      ? 'diary'
+      : 'notes');
+
+  // Monitora alterações no contexto de navegação interna (sessionStorage)
+  useEffect(() => {
+    const handleNavChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ context: InternalNavigationContext | null }>;
+      setNavContext(customEvent.detail?.context || null);
+    };
+    window.addEventListener('anotado:internal-nav-changed', handleNavChange);
+    return () => window.removeEventListener('anotado:internal-nav-changed', handleNavChange);
+  }, []);
+
+  // Ouve evento para abrir modal de seleção de referência de nota
+  useEffect(() => {
+    const handleOpenRefModal = () => {
+      if (!editorInstance) return;
+      const { from, to, empty } = editorInstance.state.selection;
+      if (empty) return;
+      const text = editorInstance.state.doc.textBetween(from, to, ' ');
+      setReferenceSelectedText(text);
+      setIsReferenceModalOpen(true);
+    };
+
+    window.addEventListener('anotado:open-reference-modal', handleOpenRefModal);
+    return () => window.removeEventListener('anotado:open-reference-modal', handleOpenRefModal);
+  }, [editorInstance]);
+
+  // Ouve cliques em links de referência interna no editor para executar navegação com preservação de contexto
+  useEffect(() => {
+    const handleNavigate = async (e: Event) => {
+      const customEvent = e as CustomEvent<{ noteId: string }>;
+      const targetNoteId = customEvent.detail?.noteId;
+      if (!targetNoteId) return;
+
+      const effectiveUserId = userId || activeNote?.user_id || 'demo-user';
+      await executeInternalNoteNavigation(
+        targetNoteId,
+        effectiveUserId,
+        activeNote,
+        effectiveWorkspace,
+        router,
+        onSelectNote
+      );
+    };
+
+    window.addEventListener('anotado:navigate-internal-note', handleNavigate);
+    return () => window.removeEventListener('anotado:navigate-internal-note', handleNavigate);
+  }, [activeNote, effectiveWorkspace, onSelectNote, router, userId]);
+
+  // Ouve avisos de toast gerais
+  useEffect(() => {
+    const handleToast = (e: Event) => {
+      const customEvent = e as CustomEvent<{ message: string }>;
+      if (customEvent.detail?.message) {
+        setToastMessage(customEvent.detail.message);
+        setTimeout(() => setToastMessage(null), 3500);
+      }
+    };
+    window.addEventListener('anotado:toast-warning', handleToast);
+    return () => window.removeEventListener('anotado:toast-warning', handleToast);
+  }, []);
+
+  // Aplica a referência interna escolhida ao texto selecionado
+  const handleApplyInternalReference = (targetNote: ExtendedNote) => {
+    if (!editorInstance) return;
+    editorInstance
+      .chain()
+      .focus()
+      .setInternalNoteLink({ noteId: targetNote.id })
+      .run();
+    setIsReferenceModalOpen(false);
+  };
+
+  // Retorna à nota de origem
+  const handleReturnToSource = async () => {
+    await returnToSourceNote(router, effectiveWorkspace, onSelectNote);
+  };
+
+  // O botão "Voltar..." só deve aparecer se a nota ativa foi aberta através de uma referência interna
+  const shouldShowReturnButton = Boolean(navContext && navContext.targetNoteId === activeNote?.id);
+
+  const returnButtonLabel =
+    navContext?.sourceWorkspace === 'diary'
+      ? 'Voltar ao Diário'
+      : navContext?.sourceWorkspace === 'notes'
+      ? 'Voltar às Notas'
+      : 'Voltar';
 
   // Zoom da folha da nota persistido localmente
   const [zoomLevel, setZoomLevel] = useState<number>(() => {
@@ -79,6 +197,18 @@ export function NoteCanvas({
   useEffect(() => {
     activeNoteIdRef.current = activeNote?.id || null;
   }, [activeNote?.id]);
+
+  // Posiciona o cursor no conteúdo e foca para digitação imediata ao criar nova nota
+  useEffect(() => {
+    if (isNewNoteJustCreated && editorInstance && !editorInstance.isDestroyed) {
+      const timer = setTimeout(() => {
+        try {
+          editorInstance.commands.focus('end');
+        } catch {}
+      }, 80);
+      return () => clearTimeout(timer);
+    }
+  }, [isNewNoteJustCreated, editorInstance]);
 
   // Função central para forçar o envio do conteúdo pendente no debounce imediatamente
   const flushPendingContent = useCallback(() => {
@@ -332,8 +462,25 @@ export function NoteCanvas({
           )}
         </div>
 
-        {/* Indicador de Sincronização integrado no topo direito */}
-        <div className="absolute right-4 sm:right-6 top-3 sm:top-3.5 flex items-center">
+        {/* Indicador de Sincronização e Botão de Retorno de Referência no topo direito */}
+        <div className="absolute right-4 sm:right-6 top-3 sm:top-3.5 flex items-center gap-2">
+          {shouldShowReturnButton && (
+            <button
+              id="return-to-source-note-btn"
+              type="button"
+              onClick={handleReturnToSource}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#68594d] hover:bg-[#53463c] text-white font-sans-ui text-xs font-semibold transition-all cursor-pointer shadow-xs active:scale-95 animate-in fade-in zoom-in-95 duration-150"
+              title={
+                navContext?.sourceNoteTitle
+                  ? `Retornar para: ${navContext.sourceNoteTitle}`
+                  : `Retornar à nota de origem`
+              }
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>{returnButtonLabel}</span>
+            </button>
+          )}
+
           <SyncStatusIndicator
             userId={userId || activeNote.user_id}
             readOnly={readOnly}
@@ -454,6 +601,26 @@ export function NoteCanvas({
           activeNoteId={activeNote.id}
           userId={userId || activeNote.user_id}
         />
+      )}
+
+      {/* Modal de Referência Interna de Notas */}
+      <InternalNoteReferenceModal
+        isOpen={isReferenceModalOpen}
+        onClose={() => setIsReferenceModalOpen(false)}
+        onSelectNote={handleApplyInternalReference}
+        userId={userId || activeNote.user_id || 'demo-user'}
+        currentNoteId={activeNote.id}
+        selectedText={referenceSelectedText}
+      />
+
+      {/* Toast de Alerta */}
+      {toastMessage && (
+        <div
+          id="canvas-toast-warning"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[10000] bg-[#1b1c19] text-[#fbf9f4] px-4 py-2.5 rounded-2xl shadow-xl text-xs font-sans-ui flex items-center gap-2 animate-in fade-in zoom-in-95 duration-200 pointer-events-none"
+        >
+          <span>{toastMessage}</span>
+        </div>
       )}
     </main>
   );

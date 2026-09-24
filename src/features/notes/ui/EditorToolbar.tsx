@@ -25,6 +25,7 @@ import {
   Link as LinkIcon,
   X,
   Loader2,
+  FileSymlink,
 } from 'lucide-react';
 import { uploadNoteFile } from '../api/storage-api';
 import { createClient } from '@/src/features/auth/api/supabase-client';
@@ -70,6 +71,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [linkModalUrl, setLinkModalUrl] = useState('');
   const [linkModalText, setLinkModalText] = useState('');
+  const [showSelectionWarning, setShowSelectionWarning] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [, setSelectionUpdate] = useState(0);
@@ -438,6 +440,20 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     setShowLinkModal(true);
   };
 
+  // Abrir Seletor de Referência de Nota
+  const handleOpenNoteReferenceModal = () => {
+    if (!editor) return;
+    const { empty } = editor.state.selection;
+    if (empty) {
+      setShowSelectionWarning(true);
+      setTimeout(() => setShowSelectionWarning(false), 3000);
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('anotado:open-reference-modal'));
+    }
+  };
+
   // Inserção / Aplicação de Link via Modal
   const handleLinkSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -780,7 +796,21 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
 
         <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
 
-        {/* 6. ANEXO — [ 📎 ] */}
+        {/* 6. REFERENCIAR NOTA — [ 🔗 / 📄 ] */}
+        <button
+          id="toolbar-btn-reference-note"
+          type="button"
+          onClick={handleOpenNoteReferenceModal}
+          className={neutralBtnClass}
+          title="Referenciar nota existente"
+          aria-label="Referenciar nota"
+        >
+          <FileSymlink className="w-4.5 h-4.5" />
+        </button>
+
+        <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
+
+        {/* 7. ANEXO — [ 📎 ] */}
         <button
           ref={addFileBtnRef}
           id="toolbar-btn-add-file"
@@ -1188,6 +1218,19 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
 
           <button
             type="button"
+            id="file-opt-reference-note"
+            onClick={() => {
+              setShowAddFileMenu(false);
+              handleOpenNoteReferenceModal();
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19] transition-colors cursor-pointer text-left text-xs sm:text-sm"
+          >
+            <FileSymlink className="w-4 h-4 text-[#68594d]" />
+            <span>Referenciar Nota</span>
+          </button>
+
+          <button
+            type="button"
             id="file-opt-link"
             onClick={handleOpenLinkModal}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19] transition-colors cursor-pointer text-left text-xs sm:text-sm"
@@ -1336,6 +1379,16 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Aviso quando nenhum texto está selecionado ao clicar em referenciar nota */}
+      {showSelectionWarning && (
+        <div
+          id="reference-selection-empty-warning"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[10000] bg-[#1b1c19] text-[#fbf9f4] px-4 py-2.5 rounded-2xl shadow-xl text-xs font-sans-ui flex items-center gap-2 animate-in fade-in zoom-in-95 duration-200 pointer-events-none"
+        >
+          <span>Selecione um texto para criar uma referência.</span>
         </div>
       )}
     </footer>

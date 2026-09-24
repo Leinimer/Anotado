@@ -20,6 +20,7 @@ import { MediaGroup } from './extensions/media-group';
 import { DoubleDashBulletList } from './extensions/double-dash-bullet-list';
 import { SmartMediaDragDrop } from './extensions/smart-media-drag-drop';
 import { CustomTaskItem } from './extensions/custom-task-item';
+import { InternalNoteLink } from './extensions/internal-note-link';
 
 export const CustomLink = Link.extend({
   inclusive: false,
@@ -205,6 +206,7 @@ export const defaultEditorExtensions = [
   CustomTaskItem.configure({
     nested: true,
   }),
+  InternalNoteLink,
   CustomLink,
   CustomImage.configure({
     inline: false,

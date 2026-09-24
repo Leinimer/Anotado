@@ -129,8 +129,8 @@
 
 .ProseMirror p {
   margin-top: 0;
-  margin-bottom: 0.25rem;
-  line-height: 1.45;
+  margin-bottom: 0.75em;
+  line-height: 1.6;
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
@@ -200,12 +200,13 @@
 }
 
 .ProseMirror li {
-  margin-bottom: 0.075rem;
-  line-height: 1.45;
+  margin-bottom: 0.15rem;
+  line-height: 1.55;
 }
 
 .ProseMirror li > p {
   margin-bottom: 0;
+  line-height: 1.55;
 }
 
 /* Checklist / Task List Redonda Minimalista (○ vazia desmarcada, 🟡✓ preenchida com amarelo pastel e check quando marcada) */

@@ -11,6 +11,7 @@ import {
   ArrowDown,
   ArrowUp,
   Unlink,
+  FileSymlink,
 } from 'lucide-react';
 import { TextLevelDropdown } from './TextLevelDropdown';
 
@@ -285,7 +286,45 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
           />
         </button>
 
-        {/* 11. Remover Link (visível somente quando a seleção contiver hyperlink) */}
+        {/* Separador Visual */}
+        <div className="h-4 w-[1px] bg-[#e4e2dd] mx-0.5" />
+
+        {/* 11. Referenciar Nota Interna */}
+        {editor.isActive('internalNoteLink') ? (
+          <button
+            type="button"
+            id="bubble-btn-unset-internal-note-link"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              editor.chain().focus().unsetInternalNoteLink().run();
+            }}
+            className="min-h-[30px] sm:min-h-[32px] px-2 py-1 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer bg-[#ba1a1a]/10 hover:bg-[#ba1a1a]/20 text-[#ba1a1a] font-sans-ui text-xs font-medium active:scale-95 shadow-2xs"
+            title="Remover referência interna deste trecho"
+            aria-label="Remover referência"
+          >
+            <Unlink className="w-3.5 h-3.5 stroke-[2]" />
+            <span>Remover ref</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            id="bubble-btn-reference-note"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('anotado:open-reference-modal'));
+              }
+            }}
+            className="min-h-[30px] sm:min-h-[32px] px-2 py-1 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer hover:bg-[#f0eee9] text-[#4e453f] hover:text-[#1b1c19] active:scale-95"
+            title="Referenciar outra nota existente no ANOTADO"
+            aria-label="Referenciar nota"
+          >
+            <FileSymlink className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.25] text-[#68594d]" />
+            <span className="font-sans-ui text-xs font-medium">Referenciar</span>
+          </button>
+        )}
+
+        {/* 12. Remover Link Externo (visível somente quando a seleção contiver hyperlink) */}
         {editor.isActive('link') && (
           <>
             <div className="h-4 w-[1px] bg-[#e4e2dd] mx-0.5" />

@@ -226,6 +226,56 @@ export function DiarySidebarNavigation({
     });
   };
 
+  // Expande automaticamente o ano e o mês da nota ativa (essencial para referências internas e navegações diretas)
+  useEffect(() => {
+    if (!activeNoteId) return;
+    const targetNote = notes.find((n) => n.id === activeNoteId);
+    if (!targetNote) return;
+
+    let y: number | null = targetNote.diary_year ?? null;
+    let m: number | null = targetNote.diary_month ?? null;
+
+    if (!y || !m) {
+      if (targetNote.entry_date) {
+        const parts = targetNote.entry_date.split('-');
+        if (parts.length === 3) {
+          y = parseInt(parts[0], 10);
+          m = parseInt(parts[1], 10);
+        }
+      }
+    }
+
+    if (y && m) {
+      const targetMonthKey = `${y}-${m}`;
+      const timer = setTimeout(() => {
+        setExpandedMonths((prev) => {
+          if (prev.has(targetMonthKey)) return prev;
+          const next = new Set(prev);
+          next.add(targetMonthKey);
+          return next;
+        });
+
+        // Descolapsa o ano correspondente caso estivesse fechado
+        setCollapsedYears((prev) => {
+          if (prev.size === 0) return prev;
+          const matchingYearFolders = folders.filter(
+            (f) => isDiaryYearFolder(f) && (extractDiaryYear(f) === y || f.name.trim() === String(y))
+          );
+          let changed = false;
+          const next = new Set(prev);
+          for (const yf of matchingYearFolders) {
+            if (next.has(yf.id)) {
+              next.delete(yf.id);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [activeNoteId, notes, folders]);
+
   // Agrupamento da árvore hierárquica do Diário:
   // ANO -> 12 MESES -> DIAS VIRTUAIS + NOTAS
   // Com DEDUPLICAÇÃO DEFENSIVA RIGOROSA: o mesmo ano ou mês nunca aparece duas vezes
