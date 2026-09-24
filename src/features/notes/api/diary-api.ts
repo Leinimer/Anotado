@@ -16,6 +16,8 @@ import { indexedDBStorage, ExtendedFolder, ExtendedNote } from '../db/indexed-db
 import { syncEngine } from './sync-engine';
 import { networkMonitor } from './network-monitor';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
+import { isAutomaticDiaryTag } from '../utils/hashtag-extractor';
+import { cleanAutomaticDiaryTags } from './diary-tags-cleaner';
 import {
   MONTH_NAMES,
   parseDiaryDate,
@@ -515,12 +517,10 @@ export async function reconcileAndDeduplicateDiary(userId: string): Promise<void
           }
 
           const cleanDate = buildDiaryDateString(yNum, mNum, dayNum);
-          mergedTags.add('diary');
-          mergedTags.add(`diary:${cleanDate}`);
-          mergedTags.add(`day:${dayNum}`);
+          const cleanManualTags = Array.from(mergedTags).filter((t) => !isAutomaticDiaryTag(t));
 
           canonicalNote.content = mergedContent;
-          canonicalNote.tags = Array.from(mergedTags);
+          canonicalNote.tags = cleanManualTags;
           canonicalNote.folder_id = canonicalMonth.id;
           canonicalNote.diary_year = yNum;
           canonicalNote.diary_month = mNum;
@@ -592,6 +592,9 @@ export async function reconcileAndDeduplicateDiary(userId: string): Promise<void
         console.log(`[Diary] Limpeza remota: ${toDeleteNotesArr.length} notas duplicadas excluídas do Supabase.`);
       }
     }
+
+    // Limpeza de tags automáticas obsoletas remanescentes em segundo plano
+    await cleanAutomaticDiaryTags(userId);
   } catch (err) {
     console.error('[Diary] Erro ao reconciliar e deduplicar diário:', err);
   }
@@ -747,7 +750,7 @@ export async function getOrCreateDiaryEntry(
         title,
         content: '',
         position: day,
-        tags: ['diary', `diary:${cleanDate}`, `day:${day}`],
+        tags: [], // Tags automáticas completamente removidas. Começa vazia.
         workspace_type: 'diary',
         entry_date: cleanDate,
         diary_year: year,

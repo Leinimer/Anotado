@@ -17,6 +17,7 @@ import {
   Edit2,
   Plus,
   AlertTriangle,
+  Tag,
 } from 'lucide-react';
 import { Folder, Note } from '@/src/features/notes/types';
 import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
@@ -37,6 +38,7 @@ import {
   extractDiaryMonth,
   isDiaryNote,
 } from '@/src/features/notes/utils/diary-hierarchy';
+import { extractAllUniqueTags, isAutomaticDiaryTag } from '@/src/features/notes/utils/hashtag-extractor';
 
 interface DiarySidebarNavigationProps {
   folders: Folder[];
@@ -86,11 +88,19 @@ export function DiarySidebarNavigation({
 }: DiarySidebarNavigationProps) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTag, setActiveTag] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const shareMenuRef = useRef<HTMLDivElement>(null);
   const [monthFilter, setMonthFilter] = useState<Record<string, 'all' | 'created'>>({});
+
+  // Extrai tags exclusivas do Diário (excluindo tags automáticas do sistema)
+  const uniqueDiaryTags = useMemo(() => {
+    return extractAllUniqueTags(notes.filter((n) => isDiaryNote(n, folders))).filter(
+      (t) => !isAutomaticDiaryTag(t)
+    );
+  }, [notes, folders]);
 
   // Menu de Contexto (botão direito)
   const [contextMenu, setContextMenu] = useState<{
@@ -335,6 +345,15 @@ export function DiarySidebarNavigation({
           );
         }
 
+        if (activeTag) {
+          const targetTag = activeTag.replace(/^#+/, '').trim().toLowerCase();
+          monthNotes = monthNotes.filter(
+            (n) =>
+              (n.tags || []).some((t) => t.replace(/^#+/, '').trim().toLowerCase() === targetTag) ||
+              (n.content && n.content.toLowerCase().includes(activeTag.toLowerCase()))
+          );
+        }
+
         // Mapa de notas existentes por dia (1 nota por dia)
         // Se houver mais de uma nota para o mesmo dia, prioriza a que tem conteúdo ou a nota ativa
         const notesByDay = new Map<number, Note>();
@@ -386,7 +405,7 @@ export function DiarySidebarNavigation({
         totalNotes: totalNotesInYear,
       };
     });
-  }, [folders, notes, searchQuery, currentYear, userId, activeNoteId]);
+  }, [folders, notes, searchQuery, activeTag, currentYear, userId, activeNoteId]);
 
   // Drag and Drop para Entradas Diárias
   const handleNoteDragStart = (e: React.DragEvent, noteId: string) => {
@@ -836,6 +855,18 @@ export function DiarySidebarNavigation({
                                     if (!matches) return null;
                                   }
 
+                                  if (activeTag) {
+                                    if (!existingNote) return null;
+                                    const targetTag = activeTag.replace(/^#+/, '').trim().toLowerCase();
+                                    const matches =
+                                      (existingNote.tags || []).some(
+                                        (t) => t.replace(/^#+/, '').trim().toLowerCase() === targetTag
+                                      ) ||
+                                      (existingNote.content &&
+                                        existingNote.content.toLowerCase().includes(activeTag.toLowerCase()));
+                                    if (!matches) return null;
+                                  }
+
                                   // ==========================================
                                   // CASO 1: DIA COM NOTA EXISTENTE
                                   // REGRA 4: Texto mais escuro/forte, aparência preenchida.
@@ -954,6 +985,47 @@ export function DiarySidebarNavigation({
           })
         )}
       </div>
+
+      {/* Tags Globais do Diário Extraídas Dinamicamente */}
+      {uniqueDiaryTags.length > 0 && !searchQuery && (
+        <div className="py-2 border-t border-[#eae8e3] shrink-0">
+          <div className="flex items-center justify-between px-1 mb-1.5 text-xs text-[#7f756e] font-sans-ui font-medium">
+            <div className="flex items-center gap-1.5">
+              <Tag className="w-3 h-3 text-[#68594d]" />
+              <span>Etiquetas do Diário</span>
+            </div>
+            {activeTag && (
+              <button
+                type="button"
+                id="diary-tags-clear-btn"
+                onClick={() => setActiveTag(null)}
+                className="text-[11px] text-[#68594d] hover:text-[#1b1c19] hover:underline font-medium cursor-pointer"
+              >
+                Limpar
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1 py-0.5 max-h-28 overflow-y-auto">
+            {uniqueDiaryTags.map((tag) => {
+              const isSelected = activeTag?.toLowerCase() === tag.toLowerCase();
+              return (
+                <button
+                  key={tag}
+                  id={`diary-tag-pill-${tag.replace('#', '')}`}
+                  onClick={() => setActiveTag(isSelected ? null : tag)}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-sans-ui font-medium transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-[#68594d] text-white shadow-2xs'
+                      : 'bg-[#eae8e3] text-[#4e453f] hover:bg-[#dcd9d2]'
+                  }`}
+                >
+                  {tag}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Bottom Actions: Indicador de Sincronização, + Ano, + Entrada, Usuário */}
       <div className="pt-2 border-t border-[#eae8e3] space-y-2 shrink-0">

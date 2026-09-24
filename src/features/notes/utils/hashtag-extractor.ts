@@ -90,8 +90,33 @@ export function extractHashtagsFromText(rawText: string): string[] {
 }
 
 /**
+ * Detecta se uma tag é uma tag automática gerada pelo sistema para o Diário.
+ * Regras rigorosas do ANOTADO (Partes 2, 3 e 6):
+ * - 'diary', 'diario'
+ * - 'diary:YYYY-MM-DD', 'diary:YYYY'
+ * - 'day:XX', 'dia:XX'
+ * - 'ano', 'mes', 'mês', 'data'
+ * - Formatos de data pura YYYY-MM-DD, DD/MM/YYYY, MM/YYYY
+ * Tags manuais do usuário (ex: #trabalho, #projeto, #ideias) são rigorosamente preservadas.
+ */
+export function isAutomaticDiaryTag(tag: string): boolean {
+  if (!tag || typeof tag !== 'string') return false;
+  const clean = tag.trim().toLowerCase().replace(/^#+/, '');
+  if (!clean) return false;
+
+  if (clean === 'diary' || clean === 'diario') return true;
+  if (clean.startsWith('diary:') || clean.startsWith('diario:')) return true;
+  if (/^day:\d+$/i.test(clean) || /^dia:\d+$/i.test(clean)) return true;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean) || /^\d{2}\/\d{2}\/\d{4}$/.test(clean) || /^\d{2}\/\d{4}$/.test(clean)) return true;
+  if (clean === 'ano' || clean === 'mes' || clean === 'mês' || clean === 'data') return true;
+
+  return false;
+}
+
+/**
  * Agrega todas as tags únicas existentes em um array de notas,
  * unificando tanto as tags explícitas da nota (note.tags) quanto as hashtags no corpo do texto.
+ * Exclui automaticamente tags do sistema do Diário (#diary, #day:*, etc.).
  */
 export function extractAllUniqueTags(notes: Note[]): string[] {
   const map = new Map<string, string>(); // lower -> '#Original'
@@ -100,6 +125,7 @@ export function extractAllUniqueTags(notes: Note[]): string[] {
     // 1. Tags explícitas gerenciadas na barra de tags
     if (Array.isArray(note.tags)) {
       for (const rawTag of note.tags) {
+        if (isAutomaticDiaryTag(rawTag)) continue;
         const clean = (rawTag || '').replace(/^#+/, '').trim();
         if (clean) {
           const lower = clean.toLowerCase();
@@ -113,6 +139,7 @@ export function extractAllUniqueTags(notes: Note[]): string[] {
     // 2. Hashtags no corpo do texto (Markdown/HTML)
     const noteContentTags = extractHashtagsFromText(note.content);
     for (const rawTag of noteContentTags) {
+      if (isAutomaticDiaryTag(rawTag)) continue;
       const clean = (rawTag || '').replace(/^#+/, '').trim();
       if (clean) {
         const lower = clean.toLowerCase();

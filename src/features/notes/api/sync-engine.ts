@@ -1428,7 +1428,8 @@ class SyncEngine {
 
         // Sincroniza tags associadas
         try {
-          await this.syncTagsWithSupabase(supabase, userId, noteId, noteTags);
+          const wsType = (effectiveNote.workspace_type || (effectiveNote.entry_date || effectiveNote.diary_year ? 'diary' : 'notes')) as 'notes' | 'diary';
+          await this.syncTagsWithSupabase(supabase, userId, noteId, noteTags, wsType);
         } catch (tagErr) {
           console.warn('[SyncEngine] Aviso ao sincronizar tags:', tagErr);
         }
@@ -1696,7 +1697,8 @@ class SyncEngine {
         }
 
         try {
-          await this.syncTagsWithSupabase(supabase, userId, noteId, cleanTags);
+          const wsType = (localNote?.workspace_type || (localNote?.entry_date || localNote?.diary_year ? 'diary' : 'notes')) as 'notes' | 'diary';
+          await this.syncTagsWithSupabase(supabase, userId, noteId, cleanTags, wsType);
         } catch (tagErr) {
           console.warn('[SyncEngine] Aviso ao sincronizar tags:', tagErr);
         }
@@ -1737,27 +1739,28 @@ class SyncEngine {
         const noteId = item.entity_id;
         const workspaceType = item.payload?.workspace_type || 'notes';
 
-        // 1. Registra tombstone no Supabase
-        try {
-          await supabase.from('sync_tombstones').insert({
-            user_id: userId,
-            entity_type: 'note',
-            entity_id: noteId,
-            workspace_type: workspaceType,
-            deleted_at: new Date().toISOString(),
-          });
-        } catch (tombErr) {
-          console.warn('[SyncEngine] Falha ao registrar tombstone de nota:', tombErr);
+        // 1. Registra tombstone no Supabase com confirmação obrigatória
+        const { error: tombErr } = await supabase.from('sync_tombstones').insert({
+          user_id: userId,
+          entity_type: 'note',
+          entity_id: noteId,
+          workspace_type: workspaceType,
+          deleted_at: new Date().toISOString(),
+        });
+
+        if (tombErr) {
+          console.error(`[SyncEngine] Falha ao registrar tombstone de nota ${noteId}:`, tombErr.message || tombErr);
+          throw tombErr;
         }
 
-        // 2. Remove o arquivo markdown do Storage
+        // 2. Remove o arquivo markdown do Storage apenas depois do tombstone confirmado
         try {
           await deleteNoteMarkdown(userId, noteId);
         } catch (mdErr) {
           console.warn('[SyncEngine] Falha ao remover markdown no storage:', mdErr);
         }
 
-        // 3. Exclui a nota da tabela notes
+        // 3. Exclui a nota da tabela notes apenas depois do tombstone confirmado
         const { error } = await supabase
           .from('notes')
           .delete()
@@ -1969,20 +1972,21 @@ class SyncEngine {
         const folderId = item.entity_id;
         const workspaceType = item.payload?.workspace_type || 'notes';
 
-        // 1. Registra tombstone no Supabase
-        try {
-          await supabase.from('sync_tombstones').insert({
-            user_id: userId,
-            entity_type: 'folder',
-            entity_id: folderId,
-            workspace_type: workspaceType,
-            deleted_at: new Date().toISOString(),
-          });
-        } catch (tombErr) {
-          console.warn('[SyncEngine] Falha ao registrar tombstone de pasta:', tombErr);
+        // 1. Registra tombstone no Supabase com confirmação obrigatória
+        const { error: tombErr } = await supabase.from('sync_tombstones').insert({
+          user_id: userId,
+          entity_type: 'folder',
+          entity_id: folderId,
+          workspace_type: workspaceType,
+          deleted_at: new Date().toISOString(),
+        });
+
+        if (tombErr) {
+          console.error(`[SyncEngine] Falha ao registrar tombstone de pasta ${folderId}:`, tombErr.message || tombErr);
+          throw tombErr;
         }
 
-        // 2. Exclui a pasta da tabela folders
+        // 2. Exclui a pasta da tabela folders apenas depois do tombstone confirmado
         const { error } = await supabase
           .from('folders')
           .delete()
@@ -2016,7 +2020,9 @@ class SyncEngine {
       case 'UPDATE_TAGS': {
         const { noteId, tags } = item.payload;
         const cleanTags = normalizeTags(tags || []);
-        await this.syncTagsWithSupabase(supabase, userId, noteId, cleanTags);
+        const localNote = await indexedDBStorage.getNoteById(userId, noteId);
+        const wsType = (item.payload?.workspace_type || localNote?.workspace_type || (localNote?.entry_date || localNote?.diary_year ? 'diary' : 'notes')) as 'notes' | 'diary';
+        await this.syncTagsWithSupabase(supabase, userId, noteId, cleanTags, wsType);
         return true;
       }
 
@@ -2168,7 +2174,8 @@ class SyncEngine {
                   } else {
                     // Sincroniza tags
                     try {
-                      await this.syncTagsWithSupabase(supabase, userId, targetNoteId, cleanTags);
+                      const wsType = (note.workspace_type || (note.entry_date || note.diary_year ? 'diary' : 'notes')) as 'notes' | 'diary';
+                      await this.syncTagsWithSupabase(supabase, userId, targetNoteId, cleanTags, wsType);
                     } catch (tagErr) {
                       console.warn('[SyncEngine] Aviso ao sincronizar tags:', tagErr);
                     }
@@ -2308,13 +2315,14 @@ class SyncEngine {
   }
 
   /**
-   * Sincroniza tabelas tags e note_tags no Supabase.
+   * Sincroniza tabelas tags e note_tags no Supabase com isolamento rigoroso por workspace_type.
    */
   private async syncTagsWithSupabase(
     supabase: any,
     userId: string,
     noteId: string,
-    cleanTags: string[]
+    cleanTags: string[],
+    workspaceType: 'notes' | 'diary' = 'notes'
   ): Promise<void> {
     if (cleanTags.length === 0) {
       await supabase.from('note_tags').delete().eq('note_id', noteId).eq('user_id', userId);
@@ -2324,15 +2332,48 @@ class SyncEngine {
     const tagRows = cleanTags.map((name) => ({
       user_id: userId,
       name: name.toLowerCase(),
+      workspace_type: workspaceType,
     }));
 
-    await supabase.from('tags').upsert(tagRows, { onConflict: 'user_id,name' });
+    // Tenta upsert incluindo workspace_type para isolamento completo de banco
+    let { error: tagError } = await supabase
+      .from('tags')
+      .upsert(tagRows, { onConflict: 'user_id,name,workspace_type' });
 
-    const { data: userTags } = await supabase
+    // Fallback defensivo caso a coluna workspace_type ainda não exista na tabela remota
+    if (
+      tagError &&
+      tagError.message &&
+      (tagError.message.includes('column') ||
+        tagError.message.includes('schema cache') ||
+        tagError.message.includes('workspace_type') ||
+        tagError.message.includes('onConflict') ||
+        tagError.message.includes('constraint'))
+    ) {
+      const fallbackRows = cleanTags.map((name) => ({
+        user_id: userId,
+        name: name.toLowerCase(),
+      }));
+      await supabase.from('tags').upsert(fallbackRows, { onConflict: 'user_id,name' });
+    }
+
+    // Busca tags com filtro por workspace_type
+    let { data: userTags, error: selectErr } = await supabase
       .from('tags')
       .select('id, name')
       .eq('user_id', userId)
+      .eq('workspace_type', workspaceType)
       .in('name', cleanTags.map((t) => t.toLowerCase()));
+
+    // Fallback caso a coluna workspace_type ainda não exista remotamente
+    if (selectErr || !userTags || userTags.length === 0) {
+      const fallback = await supabase
+        .from('tags')
+        .select('id, name')
+        .eq('user_id', userId)
+        .in('name', cleanTags.map((t) => t.toLowerCase()));
+      userTags = fallback.data;
+    }
 
     if (userTags && userTags.length > 0) {
       await supabase.from('note_tags').delete().eq('note_id', noteId).eq('user_id', userId);

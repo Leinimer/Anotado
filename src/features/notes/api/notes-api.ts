@@ -7,7 +7,7 @@ import { saveQueue } from './save-queue';
 import {
   parseMarkdownWithTags,
 } from '../utils/markdown-tags';
-import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
+import { extractHashtagsFromText, normalizeTags, isAutomaticDiaryTag } from '../utils/hashtag-extractor';
 import { generateUUID } from '../utils/uuid';
 import { removeAttachmentReferenceFromContent } from '../utils/path-builder';
 import { indexedDBStorage, ExtendedFolder, ExtendedNote } from '../db/indexed-db';
@@ -1084,6 +1084,7 @@ export async function updateNoteTags(
   const localNote = await indexedDBStorage.getNoteById(userId, noteId);
   const bodyContent = currentBodyContent !== undefined ? currentBodyContent : (localNote?.content || '');
   const nextRevision = (localNote?.revision || 0) + 1;
+  const workspaceType = localNote?.workspace_type || (localNote?.entry_date || localNote?.diary_year ? 'diary' : 'notes');
 
   if (localNote) {
     localNote.tags = cleanTags;
@@ -1101,7 +1102,7 @@ export async function updateNoteTags(
     action: 'UPDATE_TAGS',
     entity_type: 'note',
     entity_id: noteId,
-    payload: { noteId, tags: cleanTags, bodyContent },
+    payload: { noteId, tags: cleanTags, bodyContent, workspace_type: workspaceType },
     revision: nextRevision,
   });
 
@@ -1116,17 +1117,19 @@ export async function updateNoteTags(
 }
 
 /**
- * Consulta de alta performance para obter todas as tags únicas pertencentes ao usuário.
+ * Consulta de alta performance para obter todas as tags únicas pertencentes ao usuário,
+ * respeitando o workspace isolado e excluindo tags automáticas do Diário.
  */
-export async function fetchUserTags(userId: string): Promise<string[]> {
+export async function fetchUserTags(userId: string, workspaceType?: WorkspaceType): Promise<string[]> {
   if (!userId) return [];
 
   try {
-    const notes = await indexedDBStorage.getAllNotes(userId);
+    const notes = await indexedDBStorage.getAllNotes(userId, workspaceType);
     const tagMap = new Map<string, string>();
     for (const n of notes) {
       if (Array.isArray(n.tags)) {
         for (const rawTag of n.tags) {
+          if (isAutomaticDiaryTag(rawTag)) continue;
           const clean = (rawTag || '').replace(/^#+/, '').trim();
           if (clean) {
             const lower = clean.toLowerCase();

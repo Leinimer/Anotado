@@ -23,6 +23,7 @@ import {
 import { syncEngine } from '@/src/features/notes/api/sync-engine';
 import { saveQueue } from '@/src/features/notes/api/save-queue';
 import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
+import { cleanAutomaticDiaryTags } from '@/src/features/notes/api/diary-tags-cleaner';
 import {
   getOrCreateTodayDiaryEntry,
   getOrCreateDiaryEntry,
@@ -218,6 +219,9 @@ export function DiaryLayout() {
         // Garante que o ano atual e seus 12 meses existam na estrutura
         const currentYear = new Date().getFullYear();
         await ensureDiaryYearFolders(uid, currentYear);
+
+        // Limpeza segura de tags automáticas obsoletas do Diário
+        await cleanAutomaticDiaryTags(uid);
 
         // Carrega pastas e notas
         const initialData = await fetchFoldersAndNotes(uid, 'diary');

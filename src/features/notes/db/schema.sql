@@ -56,13 +56,14 @@ ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS diary_year INTEGER DEFAULT NUL
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS diary_month INTEGER DEFAULT NULL;
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS diary_day INTEGER DEFAULT NULL;
 
--- Normalized tags and note_tags relation for user-scoped tag persistence
+-- Normalized tags and note_tags relation for user-scoped tag persistence with workspace isolation
 CREATE TABLE IF NOT EXISTS public.tags (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    workspace_type TEXT NOT NULL DEFAULT 'notes',
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    UNIQUE(user_id, name)
+    UNIQUE(user_id, name, workspace_type)
 );
 
 CREATE TABLE IF NOT EXISTS public.note_tags (
