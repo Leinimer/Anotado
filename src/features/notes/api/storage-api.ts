@@ -415,17 +415,43 @@ export async function uploadAttachmentBinary(
 
     try {
       // 5. Upload real para o Supabase Storage (ÚNICO PONTO REAL DE EXECUÇÃO)
+      // Para NOVOS anexos, utiliza estritamente upsert: false (apenas INSERT).
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from(ATTACHMENTS_BUCKET_NAME)
         .upload(filePath, uploadBody, {
           contentType: mimeType,
           cacheControl: '3600',
-          upsert: true,
+          upsert: false,
         });
 
-      if (uploadError || !uploadData) {
-        lastError = uploadError || new Error('Upload falhou sem confirmação de dados');
-        console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} attempt=${attempt} error="${lastError.message || lastError}"`);
+      let uploadSucceeded = false;
+
+      if (uploadError) {
+        // Tratamento explícito de idempotência para arquivo que já existe no Storage
+        const errorMsg = (uploadError.message || '').toLowerCase();
+        const statusCode = (uploadError as any).statusCode || (uploadError as any).status;
+        const isDuplicate =
+          statusCode === 409 ||
+          statusCode === '409' ||
+          errorMsg.includes('already exists') ||
+          errorMsg.includes('duplicate') ||
+          (uploadError as any).error === 'Duplicate';
+
+        if (isDuplicate) {
+          console.log(`[ATTACHMENT] Objeto já existe no storage em "${filePath}". Prosseguindo de forma idempotente.`);
+          uploadSucceeded = true;
+        } else {
+          lastError = uploadError;
+          console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} attempt=${attempt} error="${lastError.message || lastError}"`);
+          continue;
+        }
+      } else if (uploadData) {
+        uploadSucceeded = true;
+      }
+
+      if (!uploadSucceeded) {
+        lastError = new Error('Upload falhou sem confirmação de dados');
+        console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} attempt=${attempt} error="${lastError.message}"`);
         continue;
       }
 
@@ -445,8 +471,8 @@ export async function uploadAttachmentBinary(
 
       // 7. Upsert na tabela public.note_attachments (Obrigatório para conclusão)
       console.log(`[ATTACHMENT] METADATA_START attachmentId=${attachment.id}`);
-      const targetNoteId = attachment.note_id || null;
-      const { error: dbErr } = await supabase.from('note_attachments').upsert({
+      let targetNoteId = attachment.note_id || null;
+      let { error: dbErr } = await supabase.from('note_attachments').upsert({
         id: attachment.id,
         note_id: targetNoteId,
         user_id: userId,
@@ -457,6 +483,25 @@ export async function uploadAttachmentBinary(
         created_at: attachment.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
+
+      // Se falhar por violação de chave estrangeira (FK note_id não encontrada no Supabase),
+      // faz fallback com note_id = null para garantir a persistência do metadado do anexo sem travar o upload
+      if (dbErr && (dbErr.code === '23503' || dbErr.message?.includes('note_attachments_note_id_fkey'))) {
+        console.warn(`[ATTACHMENT] Nota pai ${targetNoteId} ainda não encontrada no Supabase para anexo ${attachment.id}. Salvando metadados com note_id=null.`);
+        targetNoteId = null;
+        const retryMeta = await supabase.from('note_attachments').upsert({
+          id: attachment.id,
+          note_id: null,
+          user_id: userId,
+          file_name: attachment.file_name || 'file',
+          mime_type: mimeType,
+          file_size: buffer.byteLength,
+          storage_path: filePath,
+          created_at: attachment.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        dbErr = retryMeta.error;
+      }
 
       if (dbErr) {
         lastError = new Error(`Falha ao registrar metadados em note_attachments: ${dbErr.message}`);

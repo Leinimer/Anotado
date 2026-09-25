@@ -293,15 +293,41 @@ CREATE POLICY "Users can delete their own notes storage files"
     );
 
 -- 10. Storage Objects RLS Policies for 'note-attachments' bucket
-CREATE POLICY "Users can read attachments"
+-- Scoped strictly to authenticated users and their own folders: {user_id}/{attachment_id}.{ext}
+DROP POLICY IF EXISTS "Users can read attachments" ON storage.objects;
+DROP POLICY IF EXISTS "Users can read their attachments" ON storage.objects;
+CREATE POLICY "Users can read their attachments"
     ON storage.objects FOR SELECT
-    USING (bucket_id = 'note-attachments');
+    TO authenticated
+    USING (
+        bucket_id = 'note-attachments' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    );
 
-CREATE POLICY "Users can upload attachments"
+DROP POLICY IF EXISTS "Users can upload attachments" ON storage.objects;
+DROP POLICY IF EXISTS "Users can insert their attachments" ON storage.objects;
+CREATE POLICY "Users can insert their attachments"
     ON storage.objects FOR INSERT
     TO authenticated
-    WITH CHECK (bucket_id = 'note-attachments');
+    WITH CHECK (
+        bucket_id = 'note-attachments' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    );
 
+DROP POLICY IF EXISTS "Users can update their attachments" ON storage.objects;
+CREATE POLICY "Users can update their attachments"
+    ON storage.objects FOR UPDATE
+    TO authenticated
+    USING (
+        bucket_id = 'note-attachments' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    )
+    WITH CHECK (
+        bucket_id = 'note-attachments' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    );
+
+DROP POLICY IF EXISTS "Users can delete their attachments" ON storage.objects;
 CREATE POLICY "Users can delete their attachments"
     ON storage.objects FOR DELETE
     TO authenticated

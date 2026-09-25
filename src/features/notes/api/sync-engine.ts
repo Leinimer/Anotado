@@ -26,6 +26,7 @@ import {
   prepareNoteContentForPersistence,
   validateNoteContentForRemotePersistence,
   hasUnresolvedLocalMedia,
+  resolveAttachmentReferences,
   replaceAttachmentReferencesInEditor,
   extractAttachmentReferences,
   uploadAttachmentBinary,
@@ -1145,10 +1146,10 @@ class SyncEngine {
               processedCount++;
             } else {
               const attempts = (item.attempts || 0) + 1;
-              const backoffDelay = this.calculateBackoffDelay(attempts);
+              const isWaitingAtt = item.action === 'CREATE_NOTE' || item.action === 'UPDATE_NOTE_CONTENT';
+              const backoffDelay = isWaitingAtt ? 500 : this.calculateBackoffDelay(attempts);
               const nextRetryAt = Date.now() + backoffDelay;
               earliestRetryAt = earliestRetryAt === null ? nextRetryAt : Math.min(earliestRetryAt, nextRetryAt);
-              const isWaitingAtt = item.action === 'CREATE_NOTE' || item.action === 'UPDATE_NOTE_CONTENT';
               const friendlyErr = isWaitingAtt
                 ? 'Aguardando sincronização de anexos pendentes'
                 : 'Supabase não confirmou o recebimento da operação';
@@ -1770,7 +1771,8 @@ class SyncEngine {
         }
 
         // Confirmação 3: content corresponde ao esperado
-        if (!expectedEmpty && serverContent.trim() !== preparedContent.trim()) {
+        const normalizeForComparison = (str: string) => str.replace(/\r\n/g, '\n').trim();
+        if (!expectedEmpty && normalizeForComparison(serverContent) !== normalizeForComparison(preparedContent)) {
           console.error(`[NOTE] PERSIST VERIFICATION FAILED noteId=${noteId}: conteúdo no servidor diverge do conteúdo preparado!`);
           return false;
         }
@@ -2158,6 +2160,40 @@ class SyncEngine {
             }
           }
 
+          // Se targetNoteId é conhecido, garante preventivamente que a linha da nota exista no Supabase
+          // para satisfazer a chave estrangeira (FK note_attachments.note_id REFERENCES notes(id))
+          if (targetNoteId) {
+            try {
+              const { data: remoteNoteRow } = await supabase
+                .from('notes')
+                .select('id')
+                .eq('id', targetNoteId)
+                .maybeSingle();
+
+              if (!remoteNoteRow) {
+                const localParent = await indexedDBStorage.getNoteById(userId, targetNoteId);
+                if (localParent) {
+                  if (localParent.folder_id) {
+                    await this.ensureFolderSyncedToSupabase(supabase, userId, localParent.folder_id);
+                  }
+                  await supabase.from('notes').upsert({
+                    id: targetNoteId,
+                    user_id: userId,
+                    folder_id: localParent.folder_id || null,
+                    title: localParent.title || 'Nova nota',
+                    content: '',
+                    position: localParent.position ?? 0,
+                    revision: localParent.revision || 1,
+                    created_at: localParent.created_at || new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  });
+                }
+              }
+            } catch (ensureErr) {
+              console.warn('[SyncEngine] Aviso ao verificar nota remota para anexo:', ensureErr);
+            }
+          }
+
           if (attachment.syncStatus === 'synced' && attachment.remote_url) {
             console.log(`[ATTACHMENT] ALREADY_SYNCED attachmentId=${attachmentId} remoteUrl="${attachment.remote_url}"`);
             registerResolvedAttachmentUrl(attachmentId, attachment.remote_url);
@@ -2165,15 +2201,8 @@ class SyncEngine {
             if (targetNoteId) {
               const note = await indexedDBStorage.getNoteById(userId, targetNoteId);
               if (note && note.content) {
-                const canonicalRefRegex = new RegExp(`attachment://${attachmentId}`, 'g');
-                const localRefRegex = new RegExp(`local-attachment://${attachmentId}`, 'g');
-                if (canonicalRefRegex.test(note.content) || localRefRegex.test(note.content)) {
-                  let updatedContent = note.content
-                    .replace(canonicalRefRegex, attachment.remote_url)
-                    .replace(localRefRegex, attachment.remote_url);
-                  if (attachment.data_url && updatedContent.includes(attachment.data_url)) {
-                    updatedContent = updatedContent.split(attachment.data_url).join(attachment.remote_url);
-                  }
+                const updatedContent = resolveAttachmentReferences(note.content, { [attachmentId]: attachment.remote_url });
+                if (updatedContent !== note.content) {
                   note.content = updatedContent;
                   note.syncRequired = true;
                   note.syncStatus = 'pending';
@@ -2184,15 +2213,13 @@ class SyncEngine {
                 }
               }
 
-              // Garante que UPDATE_NOTE_CONTENT esteja na fila
-              const currentQueue = await indexedDBStorage.getPendingSyncQueue(userId);
-              const hasUpdatePending = currentQueue.some(
-                (q) => q.entity_id === targetNoteId && q.action === 'UPDATE_NOTE_CONTENT'
-              );
-              if (!hasUpdatePending && note) {
+              // Garante que UPDATE_NOTE_CONTENT esteja limpo na fila
+              const syncItemId = `sync_note_content_${targetNoteId}`;
+              await indexedDBStorage.removeSyncQueueItem(userId, syncItemId);
+              if (note) {
                 const nextRev = (typeof note.revision === 'number' ? note.revision : 1) + 1;
                 await indexedDBStorage.enqueueSyncItem(userId, {
-                  id: `sync_note_content_${targetNoteId}`,
+                  id: syncItemId,
                   action: 'UPDATE_NOTE_CONTENT',
                   entity_type: 'note',
                   entity_id: targetNoteId,
@@ -2215,7 +2242,7 @@ class SyncEngine {
             return false;
           }
 
-          // ETAPA C: Executa upload físico via kernel central
+          // ETAPA C: Executa upload físico via kernel central (upsert: false)
           const result = await uploadAttachmentBinary(userId, attachment, supabase);
           // Confirmar:
           // 1. Storage upload retornou sucesso
@@ -2264,11 +2291,7 @@ class SyncEngine {
 
           for (const note of notesToUpdate) {
             if (!note.content) continue;
-            let updatedContent = note.content;
-            const canonicalRefRegex = new RegExp(`attachment://${attachmentId}`, 'g');
-            const localRefRegex = new RegExp(`local-attachment://${attachmentId}`, 'g');
-            updatedContent = updatedContent.replace(canonicalRefRegex, remoteUrl);
-            updatedContent = updatedContent.replace(localRefRegex, remoteUrl);
+            let updatedContent = resolveAttachmentReferences(note.content, { [attachmentId]: remoteUrl });
 
             if (attachment.data_url && updatedContent.includes(attachment.data_url)) {
               updatedContent = updatedContent.split(attachment.data_url).join(remoteUrl);
@@ -2288,27 +2311,25 @@ class SyncEngine {
               replaceAttachmentReferencesInEditor(note.id, { [attachmentId]: remoteUrl });
             }
 
-            // Garante que UPDATE_NOTE_CONTENT está na fila para cada nota associada
-            const remainingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
-            const hasUpdateInQueue = remainingQueue.some(
-              (q) => q.entity_id === note.id && q.action === 'UPDATE_NOTE_CONTENT'
-            );
-            if (!hasUpdateInQueue) {
-              const nextRev = (typeof note.revision === 'number' ? note.revision : 1) + 1;
-              await indexedDBStorage.enqueueSyncItem(userId, {
-                id: `sync_note_content_${note.id}`,
-                action: 'UPDATE_NOTE_CONTENT',
-                entity_type: 'note',
-                entity_id: note.id,
+            // Remove qualquer item anterior de UPDATE_NOTE_CONTENT com status 'failed' ou backoff
+            const syncItemId = `sync_note_content_${note.id}`;
+            await indexedDBStorage.removeSyncQueueItem(userId, syncItemId);
+
+            // Enfileira UPDATE_NOTE_CONTENT limpo e atualizado com o conteúdo mais recente
+            const nextRev = (typeof note.revision === 'number' ? note.revision : 1) + 1;
+            await indexedDBStorage.enqueueSyncItem(userId, {
+              id: syncItemId,
+              action: 'UPDATE_NOTE_CONTENT',
+              entity_type: 'note',
+              entity_id: note.id,
+              revision: nextRev,
+              payload: {
+                noteId: note.id,
+                content: note.content,
+                tags: note.tags || [],
                 revision: nextRev,
-                payload: {
-                  noteId: note.id,
-                  content: note.content,
-                  tags: note.tags || [],
-                  revision: nextRev,
-                },
-              });
-            }
+              },
+            });
           }
 
           if (targetNoteId) {
