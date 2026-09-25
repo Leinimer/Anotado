@@ -509,3 +509,23 @@ details[open] > div[data-type="detailsContent"] {
 .ProseMirror .tiptap-document-card {
   user-select: none;
 }
+
+/* Referência Interna entre Notas: apenas negrito e sublinhado, sem tarja ou fundo escuro */
+.ProseMirror .internal-note-link,
+.ProseMirror a.internal-note-link,
+.ProseMirror a[data-internal-note-id],
+.ProseMirror a[data-note-id],
+.ProseMirror span[data-internal-note-id],
+.ProseMirror span[data-note-id] {
+  font-weight: 700 !important;
+  text-decoration: underline !important;
+  background-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  color: inherit !important;
+  cursor: pointer !important;
+}

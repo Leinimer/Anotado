@@ -34,6 +34,40 @@ interface NoteQueueState {
 
 class SaveQueueManager {
   private queues: Map<string, NoteQueueState> = new Map();
+  // Timer de debounce de sincronização remota por nota (1,5 segundo após a última alteração de conteúdo)
+  private remoteSyncDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
+
+  /**
+   * Agenda a sincronização remota com debounce de 1500ms (1,5 segundo).
+   * A cada nova alteração de digitação da nota, o temporizador é reiniciado.
+   * Somente quando o usuário parar de digitar por 1,5s é que o SyncEngine agenda o PUSH.
+   */
+  private scheduleDebouncedRemoteSync(noteId: string, delayMs: number = 1500) {
+    const existingTimer = this.remoteSyncDebounceTimers.get(noteId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      this.remoteSyncDebounceTimers.delete(noteId);
+      console.log(`[SaveQueue] Debounce de 1.5s concluído para nota ${noteId}. Agendando SyncEngine...`);
+      syncEngine.scheduleSync(300);
+    }, delayMs);
+
+    this.remoteSyncDebounceTimers.set(noteId, timer);
+  }
+
+  /**
+   * Força o cancelamento ou disparo imediato do timer de sincronização remota pendente da nota.
+   */
+  private flushRemoteSyncDebounce(noteId: string) {
+    const existingTimer = this.remoteSyncDebounceTimers.get(noteId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this.remoteSyncDebounceTimers.delete(noteId);
+      syncEngine.scheduleSync(50);
+    }
+  }
 
   private getOrCreateState(userId: string, noteId: string): NoteQueueState {
     let state = this.queues.get(noteId);
@@ -148,8 +182,8 @@ class SaveQueueManager {
           'color: #0284c7; font-weight: bold;'
         );
 
-        // Dispara agendamento do SyncEngine em segundo plano
-        syncEngine.scheduleSync(500);
+        // Dispara agendamento debouncado do SyncEngine (1,5s após parar de digitar)
+        this.scheduleDebouncedRemoteSync(item.noteId, 1500);
 
         item.resolve({
           success: true,
@@ -187,8 +221,8 @@ class SaveQueueManager {
         'color: #16a34a; font-weight: bold;'
       );
 
-      // 6. Solicita agendamento de sincronização no SyncEngine (em segundo plano, sem bloquear)
-      syncEngine.scheduleSync(500);
+      // 6. Solicita agendamento debouncado de 1,5s no SyncEngine (em segundo plano, sem bloquear)
+      this.scheduleDebouncedRemoteSync(item.noteId, 1500);
 
       item.resolve({
         success: true,
@@ -220,7 +254,10 @@ class SaveQueueManager {
    */
   public async flushNote(noteId: string): Promise<void> {
     const state = this.queues.get(noteId);
-    if (!state) return;
+    if (!state) {
+      this.flushRemoteSyncDebounce(noteId);
+      return;
+    }
 
     while (state.isSaving || state.pendingItem || state.activePromise) {
       if (state.activePromise) {
@@ -229,13 +266,16 @@ class SaveQueueManager {
         break;
       }
     }
+
+    // Ao forçar flush da nota, dispara o agendamento do SyncEngine imediatamente
+    this.flushRemoteSyncDebounce(noteId);
   }
 
   /**
    * Força a conclusão de todas as notas pendentes no sistema (usado no logout e unmount).
    */
   public async flushAll(): Promise<void> {
-    const noteIds = Array.from(this.queues.keys());
+    const noteIds = Array.from(new Set([...this.queues.keys(), ...this.remoteSyncDebounceTimers.keys()]));
     await Promise.all(noteIds.map((id) => this.flushNote(id)));
   }
 

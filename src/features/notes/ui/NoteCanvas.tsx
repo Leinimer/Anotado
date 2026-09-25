@@ -18,7 +18,6 @@ import { NoteEditor } from './NoteEditor';
 import { EditorToolbar } from './EditorToolbar';
 import { NoteTagsBar } from './NoteTagsBar';
 import { formatDateReadable } from '../utils/diary-date';
-import { SyncStatusIndicator } from './SyncStatusIndicator';
 import { InternalNoteReferenceModal } from './InternalNoteReferenceModal';
 import { ExtendedNote } from '../db/indexed-db';
 import {
@@ -319,7 +318,7 @@ export function NoteCanvas({
     }
   }, [activeNote, localTitle, onUpdateTitle]);
 
-  // Handler de alteração no editor Tiptap com debounce de 400ms e rastreamento de pendência
+  // Handler de alteração no editor Tiptap: salvamento local no IndexedDB e rastreamento de pendência
   const handleEditorChange = useCallback(
     (htmlContent: string) => {
       if (readOnly || !activeNote) return;
@@ -330,11 +329,12 @@ export function NoteCanvas({
         clearTimeout(debounceTimerRef.current);
       }
 
+      // Despacha atualização para a fila local/IndexedDB rapidamente mantendo a digitação fluida
       debounceTimerRef.current = setTimeout(() => {
         debounceTimerRef.current = null;
         lastPendingContentRef.current = null;
         onUpdateContent(activeNote.id, htmlContent);
-      }, 400);
+      }, 50);
     },
     [activeNote, onUpdateContent, readOnly]
   );
@@ -462,9 +462,9 @@ export function NoteCanvas({
           )}
         </div>
 
-        {/* Indicador de Sincronização e Botão de Retorno de Referência no topo direito */}
-        <div className="absolute right-4 sm:right-6 top-3 sm:top-3.5 flex items-center gap-2">
-          {shouldShowReturnButton && (
+        {/* Botão de Retorno de Referência no topo direito (quando aberto via link interno) */}
+        {shouldShowReturnButton && (
+          <div className="absolute right-4 sm:right-6 top-3 sm:top-3.5 flex items-center gap-2">
             <button
               id="return-to-source-note-btn"
               type="button"
@@ -479,13 +479,8 @@ export function NoteCanvas({
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>{returnButtonLabel}</span>
             </button>
-          )}
-
-          <SyncStatusIndicator
-            userId={userId || activeNote.user_id}
-            readOnly={readOnly}
-          />
-        </div>
+          </div>
+        )}
       </header>
 
       {/* Região de Gerenciamento de Tags (Abaixo da linha divisória do título e acima do corpo da nota) */}

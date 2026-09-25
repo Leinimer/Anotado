@@ -81,7 +81,7 @@ export const InternalNoteLink = Mark.create<InternalNoteLinkOptions>({
       'a',
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         class:
-          'internal-note-link cursor-pointer font-medium text-[#68594d] bg-[#68594d]/10 hover:bg-[#68594d]/20 px-1 py-0.5 rounded-md underline decoration-[#68594d]/50 underline-offset-2 hover:decoration-[#68594d] transition-all inline-flex items-center gap-1 select-text',
+          'internal-note-link cursor-pointer font-bold underline decoration-current underline-offset-2 hover:opacity-80 transition-opacity bg-transparent select-text',
         href: '#',
       }),
       0,
