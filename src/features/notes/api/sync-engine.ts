@@ -1303,6 +1303,15 @@ class SyncEngine {
           hasPendingAttachments = true;
         }
 
+        if (!hasPendingAttachments) {
+          const hasUploadInQueue = pendingQueue.some(
+            (q) => q.action === 'UPLOAD_ATTACHMENT' && ((q.payload as any)?.noteId === noteId || attachmentRefs.includes(q.entity_id))
+          );
+          if (hasUploadInQueue) {
+            hasPendingAttachments = true;
+          }
+        }
+
         let contentToSend = '';
 
         if (hasPendingAttachments) {
@@ -1313,7 +1322,7 @@ class SyncEngine {
           // - Cria a nota no Supabase com conteúdo temporariamente seguro ('').
           // - O conteúdo completo continua 100% preservado no IndexedDB local.
           contentToSend = '';
-          console.log(`[NOTE] CREATE_NOTE noteId=${noteId}: criando registro no Supabase com conteúdo vazio temporário para viabilizar UPLOAD_ATTACHMENT`);
+          console.log(`[NOTE] CREATE_NOTE noteId=${noteId}: criando registro intermediário no Supabase com conteúdo vazio para satisfazer FK dos anexos`);
         } else {
           // Quando NÃO houver anexos pendentes: prepara e valida o conteúdo normalmente
           const { preparedContent, allResolved } = await prepareNoteContentForPersistence(
@@ -1330,12 +1339,14 @@ class SyncEngine {
             contentToSend = preparedContent;
           } else {
             contentToSend = '';
+            hasPendingAttachments = true;
           }
 
           // Validação: Nenhuma referência transitória ou Base64 permitida
           const validation = validateNoteContentForRemotePersistence(contentToSend);
           if (!validation.valid || hasUnresolvedLocalMedia(contentToSend)) {
             contentToSend = '';
+            hasPendingAttachments = true;
           }
         }
 
@@ -1414,18 +1425,6 @@ class SyncEngine {
           throw upsertError;
         }
 
-        // 4. Grava .md canônico no Supabase Storage se o conteúdo final estiver disponível
-        if (!hasPendingAttachments && contentToSend) {
-          try {
-            const fullMarkdown = serializeMarkdownWithTags(contentToSend, noteTags);
-            await writeNoteMarkdown(userId, noteId, fullMarkdown);
-          } catch (storageErr) {
-            console.warn(`[SyncEngine] Aviso ao gravar Markdown no Storage para nota ${noteId}:`, storageErr);
-          }
-        }
-
-        console.log(`[NOTE] CONTENT PERSIST SUCCESS noteId=${noteId}`);
-
         // Sincroniza tags associadas
         try {
           const wsType = (effectiveNote.workspace_type || (effectiveNote.entry_date || effectiveNote.diary_year ? 'diary' : 'notes')) as 'notes' | 'diary';
@@ -1434,9 +1433,44 @@ class SyncEngine {
           console.warn('[SyncEngine] Aviso ao sincronizar tags:', tagErr);
         }
 
-        // 5. Marca a nota como sincronizada APENAS em relação ao CREATE_NOTE
+        // 5. Marca a nota como sincronizada APENAS se não houver anexos pendentes e houver confirmação remota
         if (!hasPendingAttachments) {
-          // Sem anexos pendentes: a nota pode ser marcada como totalmente sincronizada
+          // 4. Grava .md canônico no Supabase Storage se o conteúdo final estiver disponível
+          if (contentToSend) {
+            try {
+              const fullMarkdown = serializeMarkdownWithTags(contentToSend, noteTags);
+              await writeNoteMarkdown(userId, noteId, fullMarkdown);
+            } catch (storageErr) {
+              console.warn(`[SyncEngine] Aviso ao gravar Markdown no Storage para nota ${noteId}:`, storageErr);
+            }
+          }
+
+          // Confirmação explícita no public.notes antes de marcar como sincronizada
+          const { data: confirmed, error: confirmErr } = await supabase
+            .from('notes')
+            .select('id, content, revision')
+            .eq('id', noteId)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (confirmErr || !confirmed) {
+            console.error(`[NOTE] Confirmação remota falhou para nota ${noteId}:`, confirmErr);
+            return false;
+          }
+
+          const expectedEmpty = !contentToSend || contentToSend.trim() === '';
+          const serverContent = confirmed.content || '';
+          if (!expectedEmpty && serverContent.trim() === '') {
+            console.error(`[NOTE] Confirmação falhou para nota ${noteId}: conteúdo no servidor está vazio`);
+            return false;
+          }
+
+          if (hasUnresolvedLocalMedia(serverContent)) {
+            console.error(`[NOTE] Confirmação falhou para nota ${noteId}: servidor contém referências locais pendentes`);
+            return false;
+          }
+
+          // Sem anexos pendentes e confirmado: a nota pode ser marcada como totalmente sincronizada
           await indexedDBStorage.markNoteSynced(userId, noteId, effectiveRevision);
           console.log(`[NOTE] SYNC_SUCCESS noteId=${noteId}`);
           console.log(`[NOTE] SYNC CONFIRMED noteId=${noteId} revision=${effectiveRevision}`);
@@ -1456,15 +1490,24 @@ class SyncEngine {
         } else {
           // Com anexos pendentes:
           // O CREATE_NOTE foi concluído com sucesso no Supabase (FK satisfeita para note_attachments),
-          // mas a nota NÃO é considerada totalmente sincronizada no IndexedDB.
-          // O conteúdo completo local permanece intacto no IndexedDB.
-          console.log(`[NOTE] CREATE_NOTE_PARTIAL noteId=${noteId}: registro remoto criado; aguardando upload dos anexos`);
+          // mas a nota NUNCA pode ser considerada sincronizada nesta etapa intermediária.
+          // Mantém explicitamente o estado pendente no IndexedDB.
+          console.log(`[NOTE] CREATE_NOTE_PARTIAL noteId=${noteId}: registro remoto criado para FK; nota NÃO sincronizada (aguardando upload dos anexos).`);
+          if (localNote) {
+            localNote.syncRequired = true;
+            localNote.syncStatus = 'pending';
+            localNote.needs_sync = true;
+            localNote.sync_status = 'pending_sync';
+            await indexedDBStorage.putNote(userId, localNote);
+          }
+
           const remainingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
           const hasUpdateInQueue = remainingQueue.some(
             (q) => q.entity_id === noteId && q.action === 'UPDATE_NOTE_CONTENT'
           );
           if (!hasUpdateInQueue) {
             await indexedDBStorage.enqueueSyncItem(userId, {
+              id: `sync_note_content_${noteId}`,
               action: 'UPDATE_NOTE_CONTENT',
               entity_type: 'note',
               entity_id: noteId,
@@ -1504,6 +1547,16 @@ class SyncEngine {
               return false; // Permanece na fila aguardando sincronização do anexo
             }
           }
+        }
+
+        // Verifica também se ainda existem uploads de anexos pendentes na fila para esta nota
+        const pendingQueueForNote = await indexedDBStorage.getPendingSyncQueue(userId);
+        const hasPendingUploads = pendingQueueForNote.some(
+          (q) => q.action === 'UPLOAD_ATTACHMENT' && ((q.payload as any)?.noteId === noteId || attachmentRefs.includes(q.entity_id))
+        );
+        if (hasPendingUploads) {
+          console.log(`[NOTE] WAITING_FOR_ATTACHMENT noteId=${noteId}: upload de anexo associado ainda pendente na fila`);
+          return false;
         }
 
         const { preparedContent, allResolved } = await prepareNoteContentForPersistence(
@@ -1688,7 +1741,43 @@ class SyncEngine {
           }
         }
 
-        // Grava arquivo .md no Supabase Storage se disponível (não-bloqueante)
+        // 4. Confirmação obrigatória no public.notes (ETAPA 6)
+        const { data: confirmedNote, error: confirmErr } = await supabase
+          .from('notes')
+          .select('id, content, revision')
+          .eq('id', noteId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (confirmErr || !confirmedNote) {
+          console.error(`[NOTE] PERSIST VERIFICATION FAILED noteId=${noteId}: erro ao consultar public.notes:`, confirmErr);
+          return false;
+        }
+
+        const expectedEmpty = !preparedContent || preparedContent.trim() === '';
+        const serverContent = confirmedNote.content || '';
+
+        // Confirmação 1: content não está vazio (a menos que a nota seja realmente vazia)
+        if (!expectedEmpty && serverContent.trim() === '') {
+          console.error(`[NOTE] PERSIST VERIFICATION FAILED noteId=${noteId}: servidor retornou conteúdo vazio em public.notes!`);
+          return false;
+        }
+
+        // Confirmação 2: content não possui referências locais
+        if (hasUnresolvedLocalMedia(serverContent)) {
+          console.error(`[NOTE] PERSIST VERIFICATION FAILED noteId=${noteId}: servidor contém referências locais pendentes!`);
+          return false;
+        }
+
+        // Confirmação 3: content corresponde ao esperado
+        if (!expectedEmpty && serverContent.trim() !== preparedContent.trim()) {
+          console.error(`[NOTE] PERSIST VERIFICATION FAILED noteId=${noteId}: conteúdo no servidor diverge do conteúdo preparado!`);
+          return false;
+        }
+
+        console.log(`[NOTE] PERSIST CONFIRMED ON SUPABASE noteId=${noteId} bytes=${serverContent.length}`);
+
+        // 5. Grava arquivo .md no Supabase Storage (não-bloqueante)
         try {
           const fullMarkdown = serializeMarkdownWithTags(preparedContent, cleanTags);
           await writeNoteMarkdown(userId, noteId, fullMarkdown);
@@ -1705,7 +1794,7 @@ class SyncEngine {
 
         console.log(`[NOTE] CONTENT PERSIST SUCCESS noteId=${noteId}`);
 
-        // Marca como sincronizado no IndexedDB APENAS após confirmação remota
+        // 6. Marca como sincronizado no IndexedDB APENAS após confirmação remota
         await indexedDBStorage.markNoteSynced(userId, noteId, revision);
         console.log(`[NOTE] SYNC_SUCCESS noteId=${noteId}`);
         console.log(`[NOTE] SYNC CONFIRMED noteId=${noteId} revision=${revision}`);
@@ -2051,11 +2140,28 @@ class SyncEngine {
             return false;
           }
 
-          const targetNoteId = attachment.note_id || noteId;
+          let targetNoteId = attachment.note_id || noteId;
+
+          // Se note_id não estiver associado diretamente ao anexo, localiza qual nota contém a referência
+          if (!targetNoteId) {
+            const allNotes = await indexedDBStorage.getAllNotes(userId);
+            const parentNote = allNotes.find(
+              (n) => n.content && (
+                n.content.includes(`attachment://${attachmentId}`) ||
+                n.content.includes(`local-attachment://${attachmentId}`)
+              )
+            );
+            if (parentNote) {
+              targetNoteId = parentNote.id;
+              attachment.note_id = targetNoteId;
+              await indexedDBStorage.putAttachment(userId, attachment);
+            }
+          }
 
           if (attachment.syncStatus === 'synced' && attachment.remote_url) {
             console.log(`[ATTACHMENT] ALREADY_SYNCED attachmentId=${attachmentId} remoteUrl="${attachment.remote_url}"`);
-            // Se o anexo já está sincronizado, garante que as referências locais na nota sejam substituídas e a sincronização prossiga
+            registerResolvedAttachmentUrl(attachmentId, attachment.remote_url);
+            // Se o anexo já está sincronizado, garante que as referências locais na nota sejam substituídas e UPDATE_NOTE_CONTENT prossiga
             if (targetNoteId) {
               const note = await indexedDBStorage.getNoteById(userId, targetNoteId);
               if (note && note.content) {
@@ -2069,9 +2175,35 @@ class SyncEngine {
                     updatedContent = updatedContent.split(attachment.data_url).join(attachment.remote_url);
                   }
                   note.content = updatedContent;
+                  note.syncRequired = true;
+                  note.syncStatus = 'pending';
+                  note.needs_sync = true;
+                  note.sync_status = 'pending_sync';
                   await indexedDBStorage.putNote(userId, note);
                   replaceAttachmentReferencesInEditor(targetNoteId, { [attachmentId]: attachment.remote_url });
                 }
+              }
+
+              // Garante que UPDATE_NOTE_CONTENT esteja na fila
+              const currentQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+              const hasUpdatePending = currentQueue.some(
+                (q) => q.entity_id === targetNoteId && q.action === 'UPDATE_NOTE_CONTENT'
+              );
+              if (!hasUpdatePending && note) {
+                const nextRev = (typeof note.revision === 'number' ? note.revision : 1) + 1;
+                await indexedDBStorage.enqueueSyncItem(userId, {
+                  id: `sync_note_content_${targetNoteId}`,
+                  action: 'UPDATE_NOTE_CONTENT',
+                  entity_type: 'note',
+                  entity_id: targetNoteId,
+                  revision: nextRev,
+                  payload: {
+                    noteId: targetNoteId,
+                    content: note.content,
+                    tags: note.tags || [],
+                    revision: nextRev,
+                  },
+                });
               }
               this.scheduleSync(10);
             }
@@ -2083,16 +2215,22 @@ class SyncEngine {
             return false;
           }
 
-          // Executa upload físico via kernel central desacoplado
+          // ETAPA C: Executa upload físico via kernel central
           const result = await uploadAttachmentBinary(userId, attachment, supabase);
-          if (!result.success || !result.remoteUrl) {
-            throw result.error || new Error('Upload falhou sem confirmação de URL remota');
+          // Confirmar:
+          // 1. Storage upload retornou sucesso
+          // 2. note_attachments upsert retornou sucesso
+          // 3. remote_url existe
+          // 4. storage_path existe
+          if (!result.success || !result.remoteUrl || !result.storagePath) {
+            console.error(`[ATTACHMENT] UPLOAD_ATTACHMENT falhou para attachmentId=${attachmentId}:`, result.error);
+            return false;
           }
 
           const remoteUrl = result.remoteUrl;
           const storagePath = result.storagePath;
 
-          // 4. Atualiza anexo local no IndexedDB com syncRequired = false e syncStatus = 'synced'
+          // Somente agora marca o attachment como sincronizado no IndexedDB
           attachment.remote_url = remoteUrl;
           attachment.storage_path = storagePath;
           attachment.syncRequired = false;
@@ -2105,117 +2243,89 @@ class SyncEngine {
           console.log(`[ATTACHMENT] SYNCED attachmentId=${attachmentId}`);
           console.log(`[ATTACHMENT] MARKED_SYNCED attachmentId=${attachmentId}`);
 
-          // 5. Se o anexo estiver associado a uma nota, substitui referências locais no Markdown
-          if (targetNoteId) {
-            const note = await indexedDBStorage.getNoteById(userId, targetNoteId);
-            if (note && note.content) {
-              let updatedContent = note.content;
+          // Registra a URL remota no cache em memória para acesso síncrono imediato
+          registerResolvedAttachmentUrl(attachmentId, remoteUrl);
 
-              const canonicalRefRegex = new RegExp(`attachment://${attachmentId}`, 'g');
-              const localRefRegex = new RegExp(`local-attachment://${attachmentId}`, 'g');
-              updatedContent = updatedContent.replace(canonicalRefRegex, remoteUrl);
-              updatedContent = updatedContent.replace(localRefRegex, remoteUrl);
+          // ETAPA D: Substituição de referências locais por URLs definitivas
+          // Varre todas as notas locais que contenham referências a este anexo
+          const allNotes = await indexedDBStorage.getAllNotes(userId);
+          const notesToUpdate = allNotes.filter(
+            (n) => n.content && (
+              n.content.includes(`attachment://${attachmentId}`) ||
+              n.content.includes(`local-attachment://${attachmentId}`) ||
+              (attachment.data_url && n.content.includes(attachment.data_url))
+            )
+          );
 
-              if (attachment.data_url && updatedContent.includes(attachment.data_url)) {
-                updatedContent = updatedContent.split(attachment.data_url).join(remoteUrl);
-              }
-
-              if (updatedContent !== note.content) {
-                console.log(`[ATTACHMENT] REPLACED REFS noteId=${targetNoteId} attachmentId=${attachmentId} remoteUrl="${remoteUrl}"`);
-                note.content = updatedContent;
-                await indexedDBStorage.putNote(userId, note);
-
-                // Notifica o editor Tiptap ativo sem recriar o documento
-                replaceAttachmentReferencesInEditor(targetNoteId, { [attachmentId]: remoteUrl });
-              }
-
-              // Valida se NÃO resta NENHUM outro anexo pendente (attachment://, local-attachment://, blob: ou Base64)
-              const remainingRefs = extractAttachmentReferences(note.content);
-              let allAttachmentsResolved = true;
-
-              if (remainingRefs.length > 0) {
-                for (const remainingId of remainingRefs) {
-                  const remAtt = await indexedDBStorage.getAttachment(userId, remainingId);
-                  if (!remAtt || remAtt.syncStatus !== 'synced' || !remAtt.remote_url) {
-                    allAttachmentsResolved = false;
-                    break;
-                  }
-                }
-              }
-
-              if (allAttachmentsResolved && !hasUnresolvedLocalMedia(note.content)) {
-                const validation = validateNoteContentForRemotePersistence(note.content);
-                if (validation.valid) {
-                  console.log(`[NOTE] ALL_ATTACHMENTS_RESOLVED noteId=${targetNoteId}: sincronizando conteúdo definitivo no Supabase`);
-                  const cleanTags = normalizeTags(note.tags || []);
-                  const effectiveRevision = typeof note.revision === 'number' ? note.revision : 1;
-
-                  // Atualiza .md canônico no Supabase Storage
-                  try {
-                    const fullMarkdown = serializeMarkdownWithTags(note.content, cleanTags);
-                    await writeNoteMarkdown(userId, targetNoteId, fullMarkdown);
-                  } catch (storageErr) {
-                    console.warn(`[SyncEngine] Erro ao atualizar Markdown no Storage para nota ${targetNoteId}:`, storageErr);
-                  }
-
-                  // Atualiza tabela notes no Supabase com conteúdo definitivo HTTPS
-                  const { error: noteUpdateError } = await supabase
-                    .from('notes')
-                    .update({
-                      content: note.content,
-                      tags: cleanTags,
-                      updated_at: new Date().toISOString(),
-                    })
-                    .eq('id', targetNoteId)
-                    .eq('user_id', userId);
-
-                  if (noteUpdateError) {
-                    console.error(`[NOTE] PERSIST ERROR noteId=${targetNoteId}:`, noteUpdateError.message || noteUpdateError);
-                  } else {
-                    // Sincroniza tags
-                    try {
-                      const wsType = (note.workspace_type || (note.entry_date || note.diary_year ? 'diary' : 'notes')) as 'notes' | 'diary';
-                      await this.syncTagsWithSupabase(supabase, userId, targetNoteId, cleanTags, wsType);
-                    } catch (tagErr) {
-                      console.warn('[SyncEngine] Aviso ao sincronizar tags:', tagErr);
-                    }
-
-                    // Marca a nota como sincronizada no IndexedDB
-                    await indexedDBStorage.markNoteSynced(userId, targetNoteId, effectiveRevision);
-                    console.log(`[NOTE] FULLY_SYNCED_AFTER_ATTACHMENTS noteId=${targetNoteId} revision=${effectiveRevision}`);
-
-                    // Remove operações UPDATE_NOTE_CONTENT pendentes para esta nota
-                    const remainingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
-                    for (const q of remainingQueue) {
-                      if (q.entity_id === targetNoteId && q.action === 'UPDATE_NOTE_CONTENT') {
-                        await indexedDBStorage.removeSyncQueueItem(userId, q.id);
-                      }
-                    }
-                  }
-                }
-              }
-            }
-
-            // Registra a URL remota no cache em memória para acesso síncrono imediato
-            if (remoteUrl) {
-              registerResolvedAttachmentUrl(attachmentId, remoteUrl);
-            }
-
-            if (targetNoteId) {
-              this.recentlySyncedNoteIds.set(targetNoteId, Date.now() + 15000);
-            }
-
-            // Emite evento interno e agenda sincronização imediata da fila
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(
-                new CustomEvent('attachment:sync-complete', {
-                  detail: { attachmentId, noteId: targetNoteId, remoteUrl },
-                })
-              );
-            }
-            this.scheduleSync(10);
+          if (targetNoteId && !notesToUpdate.some((n) => n.id === targetNoteId)) {
+            const targetN = await indexedDBStorage.getNoteById(userId, targetNoteId);
+            if (targetN) notesToUpdate.push(targetN);
           }
 
+          for (const note of notesToUpdate) {
+            if (!note.content) continue;
+            let updatedContent = note.content;
+            const canonicalRefRegex = new RegExp(`attachment://${attachmentId}`, 'g');
+            const localRefRegex = new RegExp(`local-attachment://${attachmentId}`, 'g');
+            updatedContent = updatedContent.replace(canonicalRefRegex, remoteUrl);
+            updatedContent = updatedContent.replace(localRefRegex, remoteUrl);
+
+            if (attachment.data_url && updatedContent.includes(attachment.data_url)) {
+              updatedContent = updatedContent.split(attachment.data_url).join(remoteUrl);
+            }
+
+            if (updatedContent !== note.content) {
+              console.log(`[ATTACHMENT] REPLACED REFS noteId=${note.id} attachmentId=${attachmentId} remoteUrl="${remoteUrl}"`);
+              note.content = updatedContent;
+              // A nota continua pendente até que UPDATE_NOTE_CONTENT final confirme no Supabase!
+              note.syncRequired = true;
+              note.syncStatus = 'pending';
+              note.needs_sync = true;
+              note.sync_status = 'pending_sync';
+              await indexedDBStorage.putNote(userId, note);
+
+              // Notifica o editor Tiptap ativo sem recriar o documento
+              replaceAttachmentReferencesInEditor(note.id, { [attachmentId]: remoteUrl });
+            }
+
+            // Garante que UPDATE_NOTE_CONTENT está na fila para cada nota associada
+            const remainingQueue = await indexedDBStorage.getPendingSyncQueue(userId);
+            const hasUpdateInQueue = remainingQueue.some(
+              (q) => q.entity_id === note.id && q.action === 'UPDATE_NOTE_CONTENT'
+            );
+            if (!hasUpdateInQueue) {
+              const nextRev = (typeof note.revision === 'number' ? note.revision : 1) + 1;
+              await indexedDBStorage.enqueueSyncItem(userId, {
+                id: `sync_note_content_${note.id}`,
+                action: 'UPDATE_NOTE_CONTENT',
+                entity_type: 'note',
+                entity_id: note.id,
+                revision: nextRev,
+                payload: {
+                  noteId: note.id,
+                  content: note.content,
+                  tags: note.tags || [],
+                  revision: nextRev,
+                },
+              });
+            }
+          }
+
+          if (targetNoteId) {
+            this.recentlySyncedNoteIds.set(targetNoteId, Date.now() + 15000);
+          }
+
+          // Emite evento interno de conclusão do anexo
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('attachment:sync-complete', {
+                detail: { attachmentId, noteId: targetNoteId, remoteUrl },
+              })
+            );
+          }
+
+          // Agenda imediatamente a próxima etapa da fila (UPDATE_NOTE_CONTENT final)
+          this.scheduleSync(10);
           return true;
         } finally {
           this.uploadingAttachments.delete(attachmentId);
