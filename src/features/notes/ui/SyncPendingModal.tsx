@@ -55,6 +55,7 @@ export interface PendingDisplayItem {
   status: 'pending' | 'processing' | 'failed' | 'synced' | 'cancelled';
   attempts: number;
   lastError?: string | null;
+  errorDetails?: any;
   fileSize?: number;
   fileType?: string;
 }
@@ -260,6 +261,7 @@ async function fetchAllPendingDisplayItems(
       status: item.status === 'processing' ? 'processing' : item.status === 'failed' ? 'failed' : 'pending',
       attempts: item.attempts || 0,
       lastError: item.last_error ? formatFriendlyErrorMessage(item.last_error) : null,
+      errorDetails: item.error_details || null,
       fileSize,
       fileType,
     });
@@ -785,12 +787,33 @@ export function SyncPendingModal({
                             <span>{formatRelativeTimestamp(item.timestamp)}</span>
                           </div>
 
-                          {/* Mensagem de Erro Amigável */}
+                          {/* Mensagem de Erro Amigável e Diagnóstico Exato */}
                           {item.lastError && (
-                            <div className="mt-1.5 flex items-start gap-1.5 bg-[#fff5f5] p-2 rounded-lg border border-[#fecaca] text-[11px] text-[#ba1a1a]">
-                              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#ba1a1a]" />
-                              <span className="leading-snug font-medium">{item.lastError}</span>
-                            </div>
+                            item.lastError === 'Aguardando sincronização de anexos pendentes' ? (
+                              <div className="mt-1.5 flex items-start gap-1.5 bg-[#fefce8] p-2 rounded-lg border border-[#fef08a] text-[11px] text-[#854d0e]">
+                                <Clock className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#a16207]" />
+                                <span className="leading-snug font-medium">Aguardando a conclusão do upload dos anexos/mídias desta nota no Storage...</span>
+                              </div>
+                            ) : (
+                              <div className="mt-1.5 flex flex-col gap-1 bg-[#fff5f5] p-2 rounded-lg border border-[#fecaca] text-[11px] text-[#ba1a1a]">
+                                <div className="flex items-start gap-1.5">
+                                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#ba1a1a]" />
+                                  <span className="leading-snug font-semibold">{item.lastError}</span>
+                                </div>
+                                {item.errorDetails && (item.errorDetails.stage || item.errorDetails.code || item.errorDetails.message || item.errorDetails.details) && (
+                                  <div className="mt-1 text-[10px] text-[#7f1d1d] bg-[#fee2e2]/60 px-2 py-1.5 rounded font-mono break-all space-y-0.5">
+                                    {item.errorDetails.stage && <div><strong>Etapa:</strong> {item.errorDetails.stage}</div>}
+                                    {item.errorDetails.code && <div><strong>Código:</strong> {item.errorDetails.code}</div>}
+                                    {item.errorDetails.message && item.errorDetails.message !== item.lastError && (
+                                      <div><strong>Detalhe:</strong> {item.errorDetails.message}</div>
+                                    )}
+                                    {item.errorDetails.details && item.errorDetails.details !== item.errorDetails.message && (
+                                      <div><strong>Info:</strong> {typeof item.errorDetails.details === 'object' ? JSON.stringify(item.errorDetails.details) : String(item.errorDetails.details)}</div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )
                           )}
                         </div>
                       </div>
@@ -815,7 +838,7 @@ export function SyncPendingModal({
                         ) : (
                           <span className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[#fef3c7] text-[#92400e] flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            Aguardando envio
+                            {item.lastError?.includes('Aguardando') ? 'Aguardando anexos' : 'Aguardando envio'}
                           </span>
                         )}
                       </div>

@@ -294,14 +294,19 @@ CREATE POLICY "Users can delete their own notes storage files"
 
 -- 10. Storage Objects RLS Policies for 'note-attachments' bucket
 -- Scoped strictly to authenticated users and their own folders: {user_id}/{attachment_id}.{ext}
+-- Utiliza split_part e storage.foldername com (select auth.uid())::text para máxima compatibilidade e segurança.
 DROP POLICY IF EXISTS "Users can read attachments" ON storage.objects;
 DROP POLICY IF EXISTS "Users can read their attachments" ON storage.objects;
+DROP POLICY IF EXISTS "Users can view their attachments" ON storage.objects;
 CREATE POLICY "Users can read their attachments"
     ON storage.objects FOR SELECT
     TO authenticated
     USING (
         bucket_id = 'note-attachments' AND
-        (storage.foldername(name))[1] = auth.uid()::text
+        (
+            split_part(name, '/', 1) = (select auth.uid())::text
+            OR (storage.foldername(name))[1] = (select auth.uid())::text
+        )
     );
 
 DROP POLICY IF EXISTS "Users can upload attachments" ON storage.objects;
@@ -311,7 +316,10 @@ CREATE POLICY "Users can insert their attachments"
     TO authenticated
     WITH CHECK (
         bucket_id = 'note-attachments' AND
-        (storage.foldername(name))[1] = auth.uid()::text
+        (
+            split_part(name, '/', 1) = (select auth.uid())::text
+            OR (storage.foldername(name))[1] = (select auth.uid())::text
+        )
     );
 
 DROP POLICY IF EXISTS "Users can update their attachments" ON storage.objects;
@@ -320,11 +328,17 @@ CREATE POLICY "Users can update their attachments"
     TO authenticated
     USING (
         bucket_id = 'note-attachments' AND
-        (storage.foldername(name))[1] = auth.uid()::text
+        (
+            split_part(name, '/', 1) = (select auth.uid())::text
+            OR (storage.foldername(name))[1] = (select auth.uid())::text
+        )
     )
     WITH CHECK (
         bucket_id = 'note-attachments' AND
-        (storage.foldername(name))[1] = auth.uid()::text
+        (
+            split_part(name, '/', 1) = (select auth.uid())::text
+            OR (storage.foldername(name))[1] = (select auth.uid())::text
+        )
     );
 
 DROP POLICY IF EXISTS "Users can delete their attachments" ON storage.objects;
@@ -333,7 +347,10 @@ CREATE POLICY "Users can delete their attachments"
     TO authenticated
     USING (
         bucket_id = 'note-attachments' AND
-        (storage.foldername(name))[1] = auth.uid()::text
+        (
+            split_part(name, '/', 1) = (select auth.uid())::text
+            OR (storage.foldername(name))[1] = (select auth.uid())::text
+        )
     );
 
 -- 11. Read-Only Shared Diary System (diary_shares, find_user_by_email RPC, RLS)

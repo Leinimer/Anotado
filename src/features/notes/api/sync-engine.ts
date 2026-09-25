@@ -43,10 +43,81 @@ export type DataChangePayload = {
 
 type DataSubscriber = (payload: DataChangePayload) => void;
 
+export function isPermanentSyncError(err: any): boolean {
+  if (!err) return false;
+  if (err?.isPermanent) return true;
+  const status = Number(err?.status || err?.statusCode || err?.code);
+  const msg = (typeof err === 'string' ? err : err.message || err.error_description || String(err)).toLowerCase();
+  const details = (err?.details ? String(err.details) : '').toLowerCase();
+  const full = `${msg} ${details}`;
+
+  if (status === 401 || status === 403 || status === 404) return true;
+  if (
+    full.includes('row-level security') ||
+    full.includes('policy') ||
+    full.includes('permission denied') ||
+    full.includes('not authorized') ||
+    full.includes('rls')
+  ) {
+    return true;
+  }
+  if (
+    full.includes('bucket not found') ||
+    (full.includes('relation') && full.includes('does not exist')) ||
+    (full.includes('column') && full.includes('does not exist'))
+  ) {
+    return true;
+  }
+  if (full.includes('blob_missing') || full.includes('zero_bytes_blob') || full.includes('0 bytes')) {
+    return true;
+  }
+  if (err?.code === '22P02' || full.includes('invalid input syntax for type uuid')) {
+    return true;
+  }
+  return false;
+}
+
 export function formatFriendlyErrorMessage(err: any): string {
   if (!err) return 'Falha na conexão ou execução da sincronização';
   const msg = typeof err === 'string' ? err : err.message || err.error_description || String(err);
   const lower = msg.toLowerCase();
+  const code = err?.code || err?.statusCode || (typeof err === 'object' && (err as any).status);
+  const stage = err?.stage;
+
+  if (stage === 'STORAGE_UPLOAD' || lower.includes('storage') || lower.includes('bucket')) {
+    if (lower.includes('403') || lower.includes('rls') || lower.includes('policy') || lower.includes('permission denied')) {
+      return 'Falha no upload do arquivo: 403 / RLS';
+    }
+    if (lower.includes('401') || lower.includes('unauthorized')) {
+      return 'Falha no upload do arquivo: 401 / Não autorizado';
+    }
+    if (lower.includes('duplicate') || lower.includes('already exists') || lower.includes('409')) {
+      return 'Anexo já existe no Storage';
+    }
+    return `Falha no upload do arquivo no Storage${code ? ` (${code})` : ''}`;
+  }
+
+  if (stage === 'NOTE_ATTACHMENTS' || lower.includes('note_attachments')) {
+    if (lower.includes('403') || lower.includes('rls') || lower.includes('policy')) {
+      return 'Falha ao registrar o anexo em note_attachments: 403 / RLS';
+    }
+    if (lower.includes('foreign key') || code === '23503') {
+      return 'Falha ao registrar o anexo: nota pai inexistente no Supabase';
+    }
+    return `Falha ao registrar o anexo em note_attachments${code ? ` (${code})` : ''}`;
+  }
+
+  if (stage === 'CONTENT_UPDATE' || lower.includes('conteúdo final')) {
+    return 'Anexo enviado, mas conteúdo final da nota não foi salvo';
+  }
+
+  if (lower.includes('blob_missing') || lower.includes('blob binário ausente')) {
+    return 'Arquivo local ausente no IndexedDB (BLOB_MISSING)';
+  }
+
+  if (lower.includes('zero_bytes_blob') || lower.includes('0 bytes')) {
+    return 'Arquivo selecionado possui 0 bytes (ZERO_BYTES_BLOB)';
+  }
 
   if (lower.includes('jwt') || lower.includes('session') || lower.includes('auth') || lower.includes('unauthenticated') || lower.includes('not logged in')) {
     return 'Sessão de autenticação indisponível';
@@ -55,19 +126,16 @@ export function formatFriendlyErrorMessage(err: any): string {
     return 'Falha de conexão com o Supabase';
   }
   if (lower.includes('permission') || lower.includes('denied') || lower.includes('rls') || lower.includes('row-level security') || lower.includes('policy')) {
-    return 'Permissão negada pelo Supabase';
+    return 'Permissão negada pelo Supabase (403 / RLS)';
   }
   if (lower.includes('timeout') || lower.includes('aborterror') || lower.includes('deadline')) {
     return 'Tempo de resposta esgotado (Timeout)';
-  }
-  if (lower.includes('storage') || lower.includes('bucket') || lower.includes('upload')) {
-    return 'Upload do anexo falhou';
   }
   if (lower.includes('relation') || lower.includes('column') || lower.includes('schema') || lower.includes('syntax')) {
     return 'Falha ao gravar no banco de dados remoto';
   }
   if (lower.includes('unresolved') || lower.includes('local media') || lower.includes('attachment:')) {
-    return 'Aguardando processamento de anexos locais';
+    return 'Aguardando sincronização de anexos pendentes';
   }
   if (lower.includes('config')) {
     return 'Configuração do Supabase ausente';
@@ -1145,8 +1213,8 @@ class SyncEngine {
               }
               processedCount++;
             } else {
-              const attempts = (item.attempts || 0) + 1;
               const isWaitingAtt = item.action === 'CREATE_NOTE' || item.action === 'UPDATE_NOTE_CONTENT';
+              const attempts = isWaitingAtt ? (item.attempts || 0) : (item.attempts || 0) + 1;
               const backoffDelay = isWaitingAtt ? 500 : this.calculateBackoffDelay(attempts);
               const nextRetryAt = Date.now() + backoffDelay;
               earliestRetryAt = earliestRetryAt === null ? nextRetryAt : Math.min(earliestRetryAt, nextRetryAt);
@@ -1156,31 +1224,54 @@ class SyncEngine {
               await indexedDBStorage.updateSyncItemStatus(
                 userId,
                 item.id,
-                'failed',
+                isWaitingAtt ? 'pending' : 'failed',
                 friendlyErr,
-                { reason: 'Execução retornou falso', attempts },
+                {
+                  reason: isWaitingAtt ? 'Aguardando sincronização de anexos pendentes' : 'Execução retornou falso',
+                  stage: isWaitingAtt ? 'WAITING_ATTACHMENT' : undefined,
+                  attempts,
+                },
                 nextRetryAt
               );
             }
           } catch (err: any) {
-            const attempts = (item.attempts || 0) + 1;
-            const backoffDelay = this.calculateBackoffDelay(attempts);
-            const nextRetryAt = Date.now() + backoffDelay;
-            earliestRetryAt = earliestRetryAt === null ? nextRetryAt : Math.min(earliestRetryAt, nextRetryAt);
-            console.error(`[SyncEngine] Falha ao processar item ${item.id} (${item.action}):`, err);
-            const friendlyErr = formatFriendlyErrorMessage(err);
+            const isWaitingAtt =
+              (item.action === 'CREATE_NOTE' || item.action === 'UPDATE_NOTE_CONTENT') &&
+              (err?.isWaitingAttachment || err?.code === 'NOTE_NOT_YET_CREATED' || err?.message?.includes('anexo') || err?.message?.includes('Aguardando'));
+            const attempts = isWaitingAtt ? (item.attempts || 0) : (item.attempts || 0) + 1;
+            const isPermanent = isPermanentSyncError(err);
+            const backoffDelay = isWaitingAtt ? 500 : this.calculateBackoffDelay(attempts);
+            const nextRetryAt = isPermanent ? null : Date.now() + backoffDelay;
+            if (!isPermanent && nextRetryAt !== null) {
+              earliestRetryAt = earliestRetryAt === null ? nextRetryAt : Math.min(earliestRetryAt, nextRetryAt);
+            }
+            console.error(
+              `[SyncEngine] Falha ao processar item ${item.id} (${item.action})${isPermanent ? ' [ERRO PERMANENTE]' : ''}:`,
+              err
+            );
+            const friendlyErr = isWaitingAtt
+              ? 'Aguardando sincronização de anexos pendentes'
+              : formatFriendlyErrorMessage(err);
             await indexedDBStorage.updateSyncItemStatus(
               userId,
               item.id,
-              'failed',
+              isWaitingAtt ? 'pending' : 'failed',
               friendlyErr,
               {
                 message: err?.message || String(err),
-                code: err?.code || err?.statusCode || null,
-                details: err?.details || null,
+                code: err?.code || err?.statusCode || (err as any)?.status || null,
+                details: err?.details || (err as any)?.error_description || null,
+                stage:
+                  err?.stage ||
+                  (item.action === 'UPLOAD_ATTACHMENT'
+                    ? 'STORAGE_UPLOAD'
+                    : item.action === 'UPDATE_NOTE_CONTENT'
+                    ? (isWaitingAtt ? 'WAITING_ATTACHMENT' : 'CONTENT_UPDATE')
+                    : undefined),
+                isPermanent,
                 attempts,
               },
-              nextRetryAt
+              nextRetryAt || undefined
             );
             if (err?.name === 'AbortError' || err?.message?.includes('fetch') || err?.message?.includes('network')) {
               break;
@@ -1662,7 +1753,7 @@ class SyncEngine {
           }
         }
 
-        console.log(`[NOTE] CONTENT PERSIST START noteId=${noteId} revision=${revision}`);
+        console.log(`[AttachmentSync] CONTENT_UPDATE_START noteId=${noteId} revision=${revision}`);
 
         let remotePersisted = false;
 
@@ -1681,7 +1772,8 @@ class SyncEngine {
             .select('id');
 
           if (updateErr) {
-            console.error(`[NOTE] PERSIST ERROR noteId=${noteId}:`, updateErr.message || updateErr);
+            console.error(`[AttachmentSync] CONTENT_UPDATE_ERROR noteId=${noteId}:`, updateErr.message || updateErr);
+            (updateErr as any).stage = 'CONTENT_UPDATE';
             throw updateErr;
           }
 
@@ -1737,7 +1829,8 @@ class SyncEngine {
           }
 
           if (upsertErr) {
-            console.error(`[NOTE] PERSIST UPSERT ERROR noteId=${noteId}:`, upsertErr.message || upsertErr);
+            console.error(`[AttachmentSync] CONTENT_UPDATE_ERROR noteId=${noteId}:`, upsertErr.message || upsertErr);
+            (upsertErr as any).stage = 'CONTENT_UPDATE';
             throw upsertErr;
           }
         }
@@ -1751,8 +1844,10 @@ class SyncEngine {
           .maybeSingle();
 
         if (confirmErr || !confirmedNote) {
-          console.error(`[NOTE] PERSIST VERIFICATION FAILED noteId=${noteId}: erro ao consultar public.notes:`, confirmErr);
-          return false;
+          console.error(`[AttachmentSync] CONTENT_UPDATE_ERROR noteId=${noteId}: erro ao consultar public.notes:`, confirmErr);
+          const err = new Error(`Anexo enviado, mas conteúdo final da nota não foi confirmado: ${confirmErr?.message || 'registro não encontrado'}`);
+          (err as any).stage = 'CONTENT_UPDATE';
+          throw err;
         }
 
         const expectedEmpty = !preparedContent || preparedContent.trim() === '';
@@ -1760,21 +1855,27 @@ class SyncEngine {
 
         // Confirmação 1: content não está vazio (a menos que a nota seja realmente vazia)
         if (!expectedEmpty && serverContent.trim() === '') {
-          console.error(`[NOTE] PERSIST VERIFICATION FAILED noteId=${noteId}: servidor retornou conteúdo vazio em public.notes!`);
-          return false;
+          console.error(`[AttachmentSync] CONTENT_UPDATE_ERROR noteId=${noteId}: servidor retornou conteúdo vazio em public.notes!`);
+          const err = new Error('Anexo enviado, mas conteúdo final da nota não foi salvo (conteúdo no servidor vazio)');
+          (err as any).stage = 'CONTENT_UPDATE';
+          throw err;
         }
 
         // Confirmação 2: content não possui referências locais
         if (hasUnresolvedLocalMedia(serverContent)) {
-          console.error(`[NOTE] PERSIST VERIFICATION FAILED noteId=${noteId}: servidor contém referências locais pendentes!`);
-          return false;
+          console.error(`[AttachmentSync] CONTENT_UPDATE_ERROR noteId=${noteId}: servidor contém referências locais pendentes!`);
+          const err = new Error('Anexo enviado, mas conteúdo final da nota não foi salvo (referências locais pendentes no servidor)');
+          (err as any).stage = 'CONTENT_UPDATE';
+          throw err;
         }
 
         // Confirmação 3: content corresponde ao esperado
         const normalizeForComparison = (str: string) => str.replace(/\r\n/g, '\n').trim();
         if (!expectedEmpty && normalizeForComparison(serverContent) !== normalizeForComparison(preparedContent)) {
-          console.error(`[NOTE] PERSIST VERIFICATION FAILED noteId=${noteId}: conteúdo no servidor diverge do conteúdo preparado!`);
-          return false;
+          console.error(`[AttachmentSync] CONTENT_UPDATE_ERROR noteId=${noteId}: conteúdo no servidor diverge do conteúdo preparado!`);
+          const err = new Error('Anexo enviado, mas conteúdo final da nota não foi salvo (divergência de conteúdo no servidor)');
+          (err as any).stage = 'CONTENT_UPDATE';
+          throw err;
         }
 
         console.log(`[NOTE] PERSIST CONFIRMED ON SUPABASE noteId=${noteId} bytes=${serverContent.length}`);
@@ -1794,7 +1895,7 @@ class SyncEngine {
           console.warn('[SyncEngine] Aviso ao sincronizar tags:', tagErr);
         }
 
-        console.log(`[NOTE] CONTENT PERSIST SUCCESS noteId=${noteId}`);
+        console.log(`[AttachmentSync] CONTENT_UPDATE_SUCCESS noteId=${noteId}`);
 
         // 6. Marca como sincronizado no IndexedDB APENAS após confirmação remota
         await indexedDBStorage.markNoteSynced(userId, noteId, revision);
@@ -2163,6 +2264,7 @@ class SyncEngine {
           // Se targetNoteId é conhecido, garante preventivamente que a linha da nota exista no Supabase
           // para satisfazer a chave estrangeira (FK note_attachments.note_id REFERENCES notes(id))
           if (targetNoteId) {
+            let noteConfirmed = false;
             try {
               const { data: remoteNoteRow } = await supabase
                 .from('notes')
@@ -2170,13 +2272,15 @@ class SyncEngine {
                 .eq('id', targetNoteId)
                 .maybeSingle();
 
-              if (!remoteNoteRow) {
+              if (remoteNoteRow?.id) {
+                noteConfirmed = true;
+              } else {
                 const localParent = await indexedDBStorage.getNoteById(userId, targetNoteId);
                 if (localParent) {
                   if (localParent.folder_id) {
                     await this.ensureFolderSyncedToSupabase(supabase, userId, localParent.folder_id);
                   }
-                  await supabase.from('notes').upsert({
+                  const { error: upsertParentErr } = await supabase.from('notes').upsert({
                     id: targetNoteId,
                     user_id: userId,
                     folder_id: localParent.folder_id || null,
@@ -2187,10 +2291,24 @@ class SyncEngine {
                     created_at: localParent.created_at || new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                   });
+                  if (!upsertParentErr) {
+                    noteConfirmed = true;
+                  } else {
+                    console.warn(`[SyncEngine] Falha ao pré-criar nota pai ${targetNoteId}:`, upsertParentErr);
+                  }
                 }
               }
             } catch (ensureErr) {
               console.warn('[SyncEngine] Aviso ao verificar nota remota para anexo:', ensureErr);
+            }
+
+            if (!noteConfirmed) {
+              // Se ainda não foi confirmada remotamente, verifica se há CREATE_NOTE pendente para processar primeiro
+              console.log(`[ATTACHMENT] Nota pai ${targetNoteId} ainda não confirmada remotamente. Reagendando UPLOAD_ATTACHMENT.`);
+              const err: any = new Error(`Nota pai ${targetNoteId} ainda não confirmada no Supabase. Aguardando criação.`);
+              err.isWaitingAttachment = true;
+              err.stage = 'NOTE_ATTACHMENTS';
+              throw err;
             }
           }
 
@@ -2239,7 +2357,9 @@ class SyncEngine {
 
           if (!attachment.blob) {
             console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachmentId} error="Blob missing in IndexedDB"`);
-            return false;
+            attachment.syncStatus = 'error';
+            await indexedDBStorage.putAttachment(userId, attachment);
+            throw new Error(`Blob binário ausente no IndexedDB para o anexo ${attachmentId}`);
           }
 
           // ETAPA C: Executa upload físico via kernel central (upsert: false)
@@ -2251,7 +2371,9 @@ class SyncEngine {
           // 4. storage_path existe
           if (!result.success || !result.remoteUrl || !result.storagePath) {
             console.error(`[ATTACHMENT] UPLOAD_ATTACHMENT falhou para attachmentId=${attachmentId}:`, result.error);
-            return false;
+            attachment.syncStatus = 'error';
+            await indexedDBStorage.putAttachment(userId, attachment);
+            throw result.error || new Error(`Upload falhou para o anexo ${attachmentId}`);
           }
 
           const remoteUrl = result.remoteUrl;

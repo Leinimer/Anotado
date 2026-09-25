@@ -348,10 +348,12 @@ export async function uploadAttachmentBinary(
 
   // 1. Obter e validar o Blob binário local
   const blob = attachment.blob;
-  if (!blob) {
-    const err = new Error('Blob binário ausente no IndexedDB');
+  if (!blob || blob.size === 0) {
+    const err = new Error('Blob binário ausente no IndexedDB (BLOB_MISSING)');
     (err as any).code = 'BLOB_MISSING';
-    console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} error="Blob missing in IndexedDB"`);
+    (err as any).stage = 'BLOB_VALIDATION';
+    (err as any).isPermanent = true;
+    console.error(`[AttachmentSync] BLOB_MISSING attachmentId=${attachment.id}`);
     return { success: false, remoteUrl: '', storagePath: '', error: err };
   }
 
@@ -360,25 +362,33 @@ export async function uploadAttachmentBinary(
   try {
     buffer = await blob.arrayBuffer();
   } catch (readErr: any) {
-    const err = readErr || new Error('Falha ao ler ArrayBuffer do Blob');
+    const err = new Error(`Falha ao ler ArrayBuffer do Blob: ${readErr?.message || readErr}`);
     (err as any).code = 'BUFFER_READ_FAILED';
-    console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} error="ArrayBuffer read error"`, readErr);
+    (err as any).stage = 'BLOB_VALIDATION';
+    (err as any).isPermanent = true;
+    console.error(`[AttachmentSync] BUFFER_READ_FAILED attachmentId=${attachment.id}`, readErr);
     return { success: false, remoteUrl: '', storagePath: '', error: err };
   }
 
   if (!buffer || buffer.byteLength === 0) {
-    const err = new Error('ArrayBuffer do arquivo possui 0 bytes');
+    const err = new Error('ArrayBuffer do arquivo possui 0 bytes (ZERO_BYTES_BLOB)');
     (err as any).code = 'ZERO_BYTES_BLOB';
-    console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} error="Buffer has 0 bytes"`);
+    (err as any).stage = 'BLOB_VALIDATION';
+    (err as any).isPermanent = true;
+    console.error(`[AttachmentSync] ZERO_BYTES_BLOB attachmentId=${attachment.id}`);
     return { success: false, remoteUrl: '', storagePath: '', error: err };
   }
 
-  console.log(`[ATTACHMENT] BLOB_VALIDATED attachmentId=${attachment.id} byteLength=${buffer.byteLength}`);
+  console.log(`[AttachmentSync] BLOB_VALIDATED attachmentId=${attachment.id} byteLength=${buffer.byteLength}`);
 
   // 3. Caminho permanente determinístico: {userId}/{attachmentId}.{extension}
   const sanitizedName = (attachment.file_name || 'file').replace(/[^a-zA-Z0-9.-]/g, '_');
   const fileExt = sanitizedName.includes('.') ? sanitizedName.split('.').pop() || 'dat' : 'dat';
-  const filePath = attachment.storage_path || `${userId}/${attachment.id}.${fileExt}`;
+  const expectedPrefix = `${userId}/`;
+  let filePath = attachment.storage_path ? attachment.storage_path.replace(/^\/+/, '') : '';
+  if (!filePath || !filePath.startsWith(expectedPrefix)) {
+    filePath = `${userId}/${attachment.id}.${fileExt}`;
+  }
   const mimeType = attachment.mime_type || attachment.file_type || 'application/octet-stream';
 
   // 4. Política de retry interno (Tentativa 1: imediata, Tentativa 2: 1s, Tentativa 3: 3s)
@@ -388,7 +398,7 @@ export async function uploadAttachmentBinary(
   for (let attempt = 1; attempt <= maxInternalAttempts; attempt++) {
     if (attempt > 1) {
       const waitMs = attempt === 2 ? 1000 : 3000;
-      console.log(`[ATTACHMENT] RETRY_WAIT attachmentId=${attachment.id} attempt=${attempt} waitMs=${waitMs}`);
+      console.log(`[AttachmentSync] RETRY_WAIT attachmentId=${attachment.id} attempt=${attempt} waitMs=${waitMs}`);
       await new Promise((resolve) => setTimeout(resolve, waitMs));
 
       // Se o erro anterior foi de autenticação (401/403), tenta atualizar a sessão do Supabase antes da nova tentativa
@@ -408,7 +418,7 @@ export async function uploadAttachmentBinary(
       }
     }
 
-    console.log(`[ATTACHMENT] UPLOAD_START path="${filePath}" size=${buffer.byteLength} attempt=${attempt}`);
+    console.log(`[AttachmentSync] STORAGE_UPLOAD_START path="${filePath}" size=${buffer.byteLength} attempt=${attempt}`);
 
     // Criar corpo binário estável com bytes validados
     const uploadBody = new Blob([buffer], { type: mimeType });
@@ -435,14 +445,20 @@ export async function uploadAttachmentBinary(
           statusCode === '409' ||
           errorMsg.includes('already exists') ||
           errorMsg.includes('duplicate') ||
-          (uploadError as any).error === 'Duplicate';
+          errorMsg.includes('23505') ||
+          (uploadError as any).error === 'Duplicate' ||
+          (uploadError as any).error === 'Conflict' ||
+          errorMsg.includes('conflict');
 
         if (isDuplicate) {
-          console.log(`[ATTACHMENT] Objeto já existe no storage em "${filePath}". Prosseguindo de forma idempotente.`);
+          console.log(`[AttachmentSync] Objeto já existe no storage em "${filePath}". Prosseguindo de forma idempotente.`);
           uploadSucceeded = true;
         } else {
           lastError = uploadError;
-          console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} attempt=${attempt} error="${lastError.message || lastError}"`);
+          (lastError as any).stage = 'STORAGE_UPLOAD';
+          console.error(
+            `[AttachmentSync] STORAGE_UPLOAD_ERROR status=${statusCode || 'unknown'} code=${uploadError.name || statusCode || 'ERROR'} message="${uploadError.message || uploadError}"`
+          );
           continue;
         }
       } else if (uploadData) {
@@ -450,12 +466,13 @@ export async function uploadAttachmentBinary(
       }
 
       if (!uploadSucceeded) {
-        lastError = new Error('Upload falhou sem confirmação de dados');
-        console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} attempt=${attempt} error="${lastError.message}"`);
+        lastError = new Error('Falha no upload do arquivo no Storage: sem confirmação de dados');
+        (lastError as any).stage = 'STORAGE_UPLOAD';
+        console.error(`[AttachmentSync] STORAGE_UPLOAD_ERROR status=unknown code=NO_DATA message="${lastError.message}"`);
         continue;
       }
 
-      console.log(`[ATTACHMENT] UPLOAD_SUCCESS path="${filePath}"`);
+      console.log(`[AttachmentSync] STORAGE_UPLOAD_SUCCESS path="${filePath}"`);
 
       // 6. Obter URL pública do Storage
       const { data: publicUrlData } = supabase.storage
@@ -465,14 +482,66 @@ export async function uploadAttachmentBinary(
       const remoteUrl = publicUrlData?.publicUrl;
       if (!remoteUrl) {
         lastError = new Error('Falha ao derivar URL pública do Storage');
-        console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} error="${lastError.message}"`);
+        (lastError as any).stage = 'STORAGE_UPLOAD';
+        console.error(`[AttachmentSync] STORAGE_UPLOAD_ERROR code=PUBLIC_URL_FAILED message="${lastError.message}"`);
         continue;
       }
 
       // 7. Upsert na tabela public.note_attachments (Obrigatório para conclusão)
-      console.log(`[ATTACHMENT] METADATA_START attachmentId=${attachment.id}`);
-      let targetNoteId = attachment.note_id || null;
-      let { error: dbErr } = await supabase.from('note_attachments').upsert({
+      // REGRA OBRIGATÓRIA (Requisitos 6 e 7):
+      // note_attachments.note_id -> public.notes.id
+      // A ordem obrigatória deve ser: CREATE_NOTE -> nota criada remotamente -> UPLOAD_ATTACHMENT -> note_attachments
+      // Nunca tentar criar note_attachments para uma nota que ainda não existe remotamente no Supabase.
+      console.log(`[AttachmentSync] NOTE_ATTACHMENTS_START attachmentId=${attachment.id}`);
+      const isUUID = (id: string | null | undefined): boolean =>
+        typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+
+      let targetNoteId = isUUID(attachment.note_id) ? attachment.note_id : null;
+
+      if (targetNoteId) {
+        const { data: remoteNoteRow, error: checkNoteErr } = await supabase
+          .from('notes')
+          .select('id')
+          .eq('id', targetNoteId)
+          .maybeSingle();
+
+        if (checkNoteErr || !remoteNoteRow) {
+          // Nota pai ainda não existe no Supabase.
+          // Tenta carregar do IndexedDB local para sincronizar a linha básica antes de prosseguir
+          const localParent = await indexedDBStorage.getNoteById(userId, targetNoteId);
+          if (localParent) {
+            console.log(`[AttachmentSync] Pré-criando nota pai remota ${targetNoteId} no Supabase para satisfazer chave estrangeira de note_attachments`);
+            const { error: preCreateErr } = await supabase.from('notes').upsert({
+              id: targetNoteId,
+              user_id: userId,
+              folder_id: localParent.folder_id || null,
+              title: localParent.title || 'Nova nota',
+              content: '',
+              position: localParent.position ?? 0,
+              revision: localParent.revision || 1,
+              created_at: localParent.created_at || new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
+
+            if (preCreateErr) {
+              lastError = new Error(`Nota pai (${targetNoteId}) não existe remotamente e falhou ao ser pré-criada: ${preCreateErr.message}`);
+              (lastError as any).code = preCreateErr.code || 'PARENT_NOTE_PRECREATE_FAILED';
+              (lastError as any).stage = 'NOTE_ATTACHMENTS';
+              (lastError as any).details = preCreateErr.details || preCreateErr.message;
+              console.error(`[AttachmentSync] NOTE_ATTACHMENTS_ERROR code=${(lastError as any).code} message="${lastError.message}"`);
+              continue;
+            }
+          } else {
+            lastError = new Error(`Nota pai (${targetNoteId}) não existe no Supabase e não foi encontrada localmente.`);
+            (lastError as any).code = '23503';
+            (lastError as any).stage = 'NOTE_ATTACHMENTS';
+            console.error(`[AttachmentSync] NOTE_ATTACHMENTS_ERROR code=23503 message="${lastError.message}"`);
+            continue;
+          }
+        }
+      }
+
+      const { error: dbErr } = await supabase.from('note_attachments').upsert({
         id: attachment.id,
         note_id: targetNoteId,
         user_id: userId,
@@ -484,34 +553,16 @@ export async function uploadAttachmentBinary(
         updated_at: new Date().toISOString(),
       });
 
-      // Se falhar por violação de chave estrangeira (FK note_id não encontrada no Supabase),
-      // faz fallback com note_id = null para garantir a persistência do metadado do anexo sem travar o upload
-      if (dbErr && (dbErr.code === '23503' || dbErr.message?.includes('note_attachments_note_id_fkey'))) {
-        console.warn(`[ATTACHMENT] Nota pai ${targetNoteId} ainda não encontrada no Supabase para anexo ${attachment.id}. Salvando metadados com note_id=null.`);
-        targetNoteId = null;
-        const retryMeta = await supabase.from('note_attachments').upsert({
-          id: attachment.id,
-          note_id: null,
-          user_id: userId,
-          file_name: attachment.file_name || 'file',
-          mime_type: mimeType,
-          file_size: buffer.byteLength,
-          storage_path: filePath,
-          created_at: attachment.created_at || new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-        dbErr = retryMeta.error;
-      }
-
       if (dbErr) {
-        lastError = new Error(`Falha ao registrar metadados em note_attachments: ${dbErr.message}`);
-        (lastError as any).code = dbErr.code || 'METADATA_UPSERT_FAILED';
+        lastError = new Error(`Falha ao registrar o anexo em note_attachments: ${dbErr.message}`);
+        (lastError as any).code = dbErr.code || 'NOTE_ATTACHMENTS_ERROR';
+        (lastError as any).stage = 'NOTE_ATTACHMENTS';
         (lastError as any).details = dbErr.details || dbErr.message;
-        console.error(`[ATTACHMENT] METADATA_ERROR attachmentId=${attachment.id} error="${dbErr.message}"`);
+        console.error(`[AttachmentSync] NOTE_ATTACHMENTS_ERROR code=${dbErr.code || 'ERROR'} message="${dbErr.message}"`);
         continue;
       }
 
-      console.log(`[ATTACHMENT] METADATA_SUCCESS attachmentId=${attachment.id}`);
+      console.log(`[AttachmentSync] NOTE_ATTACHMENTS_SUCCESS attachmentId=${attachment.id}`);
 
       return {
         success: true,
@@ -520,7 +571,8 @@ export async function uploadAttachmentBinary(
       };
     } catch (err: any) {
       lastError = err;
-      console.error(`[ATTACHMENT] UPLOAD_ERROR attachmentId=${attachment.id} attempt=${attempt} error="${err?.message || err}"`);
+      (lastError as any).stage = (lastError as any).stage || 'STORAGE_UPLOAD';
+      console.error(`[AttachmentSync] STORAGE_UPLOAD_ERROR attempt=${attempt} error="${err?.message || err}"`);
     }
   }
 

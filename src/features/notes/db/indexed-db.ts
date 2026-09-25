@@ -928,6 +928,10 @@ class IndexedDBStorage {
       getReq.onsuccess = () => {
         const existing = getReq.result as SyncQueueItem | undefined;
 
+        const isNewPayload = existing ? JSON.stringify(item.payload) !== JSON.stringify(existing.payload) : true;
+        const isNewRevision = Boolean(existing && typeof item.revision === 'number' && typeof existing.revision === 'number' && item.revision > existing.revision);
+        const shouldReset = !existing || isNewPayload || isNewRevision || existing.status === 'processing';
+
         const syncItem: SyncQueueItem = {
           id: deterministicId,
           user_id: userId,
@@ -937,12 +941,12 @@ class IndexedDBStorage {
           payload: item.payload,
           revision: item.revision || (existing ? existing.revision : 1),
           created_at: existing?.created_at || item.created_at || new Date().toISOString(),
-          attempts: existing ? existing.attempts : 0,
-          status: existing ? (existing.status === 'processing' ? 'pending' : existing.status) : 'pending',
-          last_error: existing?.last_error,
-          error_details: existing?.error_details,
+          attempts: shouldReset ? 0 : (existing ? existing.attempts : 0),
+          status: shouldReset ? 'pending' : (existing?.status || 'pending'),
+          last_error: shouldReset ? undefined : existing?.last_error,
+          error_details: shouldReset ? undefined : existing?.error_details,
           last_attempt_at: existing?.last_attempt_at,
-          next_retry_at: existing?.next_retry_at,
+          next_retry_at: shouldReset ? undefined : existing?.next_retry_at,
         };
 
         const putReq = store.put(syncItem);

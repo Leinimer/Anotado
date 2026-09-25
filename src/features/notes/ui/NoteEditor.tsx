@@ -8,6 +8,7 @@ import { defaultEditorExtensions } from '../editor/editor-config';
 import { FloatingBubbleToolbar } from './FloatingBubbleToolbar';
 import { isYouTubeUrl, getYouTubeEmbedUrl, normalizeUrl } from '../editor/utils/url-helper';
 import { perfProfiler } from '../editor/utils/media-optimizer';
+import { uploadNoteFile } from '../api/storage-api';
 
 function normalizeEditorSelection(editor: Editor) {
   if (!editor || !editor.state) return;
@@ -92,6 +93,52 @@ export function NoteEditor({
           'focus:outline-none min-h-[420px] text-[#1b1c19] font-serif-note text-base sm:text-lg leading-[1.6] selection:bg-[#f4dfcb] selection:text-[#1b1c19]',
       },
       handlePaste: (view, event) => {
+        const files = event.clipboardData?.files;
+        if (files && files.length > 0) {
+          const file = files[0];
+          if (
+            file.type.startsWith('image/') ||
+            file.type === 'application/pdf' ||
+            file.type.startsWith('video/') ||
+            file.type.includes('document')
+          ) {
+            event.preventDefault();
+            const effectiveUser =
+              userId && userId !== 'anonymous'
+                ? userId
+                : typeof window !== 'undefined'
+                ? localStorage.getItem('anotado_last_auth_user_id')
+                : null;
+            if (effectiveUser && effectiveUser !== 'anonymous') {
+              uploadNoteFile(effectiveUser, file, noteId)
+                .then((res) => {
+                  if (file.type.startsWith('image/')) {
+                    view.dispatch(
+                      view.state.tr.replaceSelectionWith(
+                        view.state.schema.nodes.image.create({ src: res.url, alt: res.name })
+                      )
+                    );
+                  } else {
+                    view.dispatch(
+                      view.state.tr.replaceSelectionWith(
+                        view.state.schema.nodes.documentAttachment.create({
+                          src: res.url,
+                          name: res.name,
+                          size: res.size,
+                          type: res.type,
+                        })
+                      )
+                    );
+                  }
+                })
+                .catch((err) => {
+                  console.error('[NoteEditor] Erro ao colar arquivo:', err);
+                });
+              return true;
+            }
+          }
+        }
+
         const text = event.clipboardData?.getData('text/plain')?.trim();
         // Se for um link do YouTube, intercepta para dar a escolha ao usuário
         if (text && isYouTubeUrl(text)) {
@@ -100,6 +147,49 @@ export function NoteEditor({
           return true;
         }
         // Para qualquer outra URL ou texto, deixa o comportamento padrão acontecer (autolink etc.)
+        return false;
+      },
+      handleDrop: (view, event) => {
+        const files = event.dataTransfer?.files;
+        if (files && files.length > 0) {
+          const file = files[0];
+          if (
+            file.type.startsWith('image/') ||
+            file.type === 'application/pdf' ||
+            file.type.startsWith('video/') ||
+            file.type.includes('document')
+          ) {
+            event.preventDefault();
+            const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY });
+            const dropPos = coordinates ? coordinates.pos : view.state.selection.from;
+            const effectiveUser =
+              userId && userId !== 'anonymous'
+                ? userId
+                : typeof window !== 'undefined'
+                ? localStorage.getItem('anotado_last_auth_user_id')
+                : null;
+            if (effectiveUser && effectiveUser !== 'anonymous') {
+              uploadNoteFile(effectiveUser, file, noteId)
+                .then((res) => {
+                  const tr = view.state.tr;
+                  const node = file.type.startsWith('image/')
+                    ? view.state.schema.nodes.image.create({ src: res.url, alt: res.name })
+                    : view.state.schema.nodes.documentAttachment.create({
+                        src: res.url,
+                        name: res.name,
+                        size: res.size,
+                        type: res.type,
+                      });
+                  tr.insert(dropPos, node);
+                  view.dispatch(tr);
+                })
+                .catch((err) => {
+                  console.error('[NoteEditor] Erro ao soltar arquivo:', err);
+                });
+              return true;
+            }
+          }
+        }
         return false;
       },
     },
