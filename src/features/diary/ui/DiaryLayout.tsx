@@ -605,14 +605,14 @@ export function DiaryLayout() {
   const todayReadable = useMemo(() => formatDateReadable(getLocalDateString()), []);
 
   return (
-    <div id="diary-layout-root" className="flex h-screen w-screen overflow-hidden bg-[#faf8f5]">
+    <div id="diary-layout-root" className="flex h-screen w-screen overflow-hidden bg-[#faf8f5] dark:bg-[#000000]">
       {/* Botão Hambúrguer Mobile */}
       <div className="md:hidden fixed top-3 left-3 z-30">
         <button
           id="diary-mobile-menu-toggle-btn"
           type="button"
           onClick={() => setMobileSidebarOpen(true)}
-          className="p-2 bg-[#fbf9f4] border border-[#eae8e3] rounded-xl shadow-xs text-[#1b1c19] hover:bg-[#eae8e3] transition-colors cursor-pointer"
+          className="p-2 bg-[#fbf9f4] dark:bg-[#111111] border border-[#eae8e3] dark:border-[#222222] rounded-xl shadow-xs text-[#1b1c19] dark:text-[#ffffff] hover:bg-[#eae8e3] dark:hover:bg-[#1a1a1a] transition-colors cursor-pointer"
           aria-label="Abrir Menu do Diário"
         >
           <Menu className="w-5 h-5" />
@@ -711,13 +711,13 @@ export function DiaryLayout() {
       ) : (
         <main
           id="diary-empty-canvas"
-          className="flex-1 flex flex-col h-full bg-[#fbf9f4] items-center justify-center p-6 text-center select-none relative"
+          className="flex-1 flex flex-col h-full bg-[#fbf9f4] dark:bg-[#000000] items-center justify-center p-6 text-center select-none relative"
         >
           {/* Header Bar com Menu Mobile e Indicador de Sincronização */}
           <div className="absolute top-4 left-4 right-4 flex items-center justify-between pointer-events-auto">
             <button
               onClick={() => setMobileSidebarOpen(true)}
-              className="p-2 md:hidden text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg transition-colors cursor-pointer"
+              className="p-2 md:hidden text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer"
               title="Abrir menu"
             >
               <Menu className="w-5 h-5" />
@@ -733,20 +733,20 @@ export function DiaryLayout() {
           </div>
 
           <div className="max-w-md space-y-4">
-            <div className="w-16 h-16 rounded-2xl bg-[#f4dfcb] text-[#68594d] mx-auto flex items-center justify-center shadow-xs">
+            <div className="w-16 h-16 rounded-2xl bg-[#f4dfcb] dark:bg-[#26201a] text-[#68594d] dark:text-[#d7c3b0] mx-auto flex items-center justify-center shadow-xs">
               <Calendar className="w-8 h-8 stroke-[1.5]" />
             </div>
 
             <div className="space-y-1">
-              <h2 className="font-serif-note font-bold text-2xl text-[#1b1c19]">
+              <h2 className="font-serif-note font-bold text-2xl text-[#1b1c19] dark:text-[#ffffff]">
                 Hoje, {todayReadable}
               </h2>
-              <p className="font-sans-ui text-sm text-[#7f756e]">
+              <p className="font-sans-ui text-sm text-[#7f756e] dark:text-[#a1a1aa]">
                 Nenhuma anotação criada para hoje ainda.
               </p>
             </div>
 
-            <p className="font-sans-ui text-xs text-[#a1968e] max-w-xs mx-auto leading-relaxed">
+            <p className="font-sans-ui text-xs text-[#a1968e] dark:text-[#71717a] max-w-xs mx-auto leading-relaxed">
               O diário mantém seus dias virtuais organizados. A anotação só nasce quando você começar a escrever.
             </p>
 
@@ -755,7 +755,7 @@ export function DiaryLayout() {
                 type="button"
                 id="diary-start-today-btn"
                 onClick={handleOpenToday}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] dark:hover:bg-[#3d3229] transition-colors cursor-pointer shadow-xs"
               >
                 <Plus className="w-4 h-4" />
                 <span>Começar a Escrever Hoje</span>

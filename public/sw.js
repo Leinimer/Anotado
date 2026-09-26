@@ -2,7 +2,7 @@
 // Cache focado estritamente no App Shell estático
 // IndexedDB e SyncEngine são os únicos responsáveis pela persistência de dados das notas
 
-const CACHE_NAME = 'anotado-app-shell-v1';
+const CACHE_NAME = 'anotado-app-shell-v2';
 
 const STATIC_PRECACHE_URLS = [
   '/',

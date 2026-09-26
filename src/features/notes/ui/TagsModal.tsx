@@ -47,31 +47,31 @@ export function TagsModal({
   return (
     <div
       id="tags-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1b1c19]/40 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1b1c19]/40 dark:bg-black/80 backdrop-blur-xs animate-in fade-in duration-150"
       onClick={handleClose}
     >
       <div
         id="tags-modal-container"
-        className="w-full max-w-md bg-[#fbf9f4] border border-[#e4e2dd] shadow-2xl rounded-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
+        className="w-full max-w-md bg-[#fbf9f4] dark:bg-[#0a0a0a] border border-[#e4e2dd] dark:border-[#1f1f1f] shadow-2xl rounded-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="tags-modal-title"
       >
         {/* Cabeçalho do Modal */}
-        <div className="px-5 py-4 border-b border-[#e4e2dd] flex items-center justify-between bg-[#f5f2eb]/60">
+        <div className="px-5 py-4 border-b border-[#e4e2dd] dark:border-[#1f1f1f] flex items-center justify-between bg-[#f5f2eb]/60 dark:bg-[#111111]">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-[#68594d]/10 flex items-center justify-center text-[#68594d]">
+            <div className="w-8 h-8 rounded-xl bg-[#68594d]/10 dark:bg-[#383028] flex items-center justify-center text-[#68594d] dark:text-[#d7c3b0]">
               <TagIcon className="w-4 h-4" />
             </div>
             <div>
               <h2
                 id="tags-modal-title"
-                className="font-serif-note font-bold text-lg text-[#1b1c19] leading-tight"
+                className="font-serif-note font-bold text-lg text-[#1b1c19] dark:text-white leading-tight"
               >
                 Etiquetas
               </h2>
-              <p className="text-xs text-[#7f756e] font-sans-ui">
+              <p className="text-xs text-[#7f756e] dark:text-[#a3a3a3] font-sans-ui">
                 {tags.length} {tags.length === 1 ? 'etiqueta encontrada' : 'etiquetas encontradas'}
               </p>
             </div>
@@ -81,7 +81,7 @@ export function TagsModal({
             type="button"
             id="tags-modal-close-btn"
             onClick={handleClose}
-            className="p-1.5 rounded-xl text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#e4e2dd] transition-colors cursor-pointer"
+            className="p-1.5 rounded-xl text-[#7f756e] dark:text-[#a3a3a3] hover:text-[#1b1c19] dark:hover:text-white hover:bg-[#e4e2dd] dark:hover:bg-[#1f1f1f] transition-colors cursor-pointer"
             aria-label="Fechar janela"
           >
             <X className="w-4 h-4" />
@@ -92,14 +92,14 @@ export function TagsModal({
         {tags.length > 5 && (
           <div className="px-5 pt-3 pb-1">
             <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#7f756e]" />
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#7f756e] dark:text-[#888888]" />
               <input
                 type="text"
                 id="tags-modal-search-input"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Filtrar etiquetas..."
-                className="w-full pl-8.5 pr-3 py-1.5 bg-white border border-[#e4e2dd] focus:border-[#68594d] rounded-xl text-xs text-[#1b1c19] placeholder-[#a89d95] outline-hidden font-sans-ui transition-colors"
+                className="w-full pl-8.5 pr-3 py-1.5 bg-white dark:bg-[#050505] border border-[#e4e2dd] dark:border-[#222222] focus:border-[#68594d] dark:focus:border-[#827165] rounded-xl text-xs text-[#1b1c19] dark:text-white placeholder-[#a89d95] dark:placeholder-[#666666] outline-hidden font-sans-ui transition-colors"
                 autoFocus
               />
             </div>
@@ -109,7 +109,7 @@ export function TagsModal({
         {/* Lista de Todas as Etiquetas */}
         <div className="p-5 overflow-y-auto max-h-[55vh] flex-1">
           {filteredTags.length === 0 ? (
-            <div className="text-center py-8 text-xs text-[#7f756e]">
+            <div className="text-center py-8 text-xs text-[#7f756e] dark:text-[#888888]">
               Nenhuma etiqueta encontrada para &quot;{searchTerm}&quot;.
             </div>
           ) : (
@@ -128,7 +128,7 @@ export function TagsModal({
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium font-sans-ui transition-all cursor-pointer active:scale-95 ${
                       isSelected
                         ? 'bg-[#68594d] text-white shadow-xs'
-                        : 'bg-[#f0ece5] text-[#5e4b3e] hover:bg-[#e4dcce] hover:text-[#1b1c19] border border-[#d7c3b0]/50'
+                        : 'bg-[#f0ece5] dark:bg-[#161616] text-[#5e4b3e] dark:text-[#d1c4bc] hover:bg-[#e4dcce] dark:hover:bg-[#202020] hover:text-[#1b1c19] dark:hover:text-white border border-[#d7c3b0]/50 dark:border-[#222222]'
                     }`}
                   >
                     <Hash className="w-3 h-3 opacity-70" />
@@ -141,11 +141,11 @@ export function TagsModal({
         </div>
 
         {/* Rodapé informativo */}
-        <div className="px-5 py-3 border-t border-[#e4e2dd] bg-[#f5f2eb]/40 text-right">
+        <div className="px-5 py-3 border-t border-[#e4e2dd] dark:border-[#1f1f1f] bg-[#f5f2eb]/40 dark:bg-[#111111] text-right">
           <button
             type="button"
             onClick={handleClose}
-            className="px-4 py-1.5 rounded-xl text-xs font-medium bg-[#e4e2dd] hover:bg-[#d7c3b0] text-[#1b1c19] transition-colors cursor-pointer"
+            className="px-4 py-1.5 rounded-xl text-xs font-medium bg-[#e4e2dd] dark:bg-[#1f1f1f] hover:bg-[#d7c3b0] dark:hover:bg-[#2a2a2a] text-[#1b1c19] dark:text-white transition-colors cursor-pointer"
           >
             Fechar
           </button>

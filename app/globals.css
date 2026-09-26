@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-primary: #68594d;
   --color-primary-hover: #574a40;
@@ -529,3 +531,505 @@ details[open] > div[data-type="detailsContent"] {
   color: inherit !important;
   cursor: pointer !important;
 }
+
+/* ==========================================================================
+   MODO DARK — PRETO ABSOLUTO (#000000)
+   ========================================================================== */
+
+html.dark {
+  color-scheme: dark;
+  background-color: #000000;
+}
+
+.dark body {
+  background-color: #000000;
+  color: #ededed;
+}
+
+/* Superfícies Principais em Preto Absoluto */
+.dark #main-app-container,
+.dark #diary-layout-container,
+.dark #shared-diary-container,
+.dark #login-container,
+.dark #sidebar-navigation-container,
+.dark #diary-sidebar-container,
+.dark #note-canvas-container,
+.dark #diary-canvas-container,
+.dark [data-workspace-canvas] {
+  background-color: #000000 !important;
+  color: #ededed;
+}
+
+/* Fundo da tela de Autenticação no Dark */
+.dark .auth-canvas-bg {
+  background-color: #000000;
+  background-image: 
+    radial-gradient(#1a1a1a 0.75px, transparent 0.75px),
+    radial-gradient(#141414 0.75px, #000000 0.75px);
+}
+
+/* Cartão de Papel Minimalista no Dark */
+.dark .paper-card {
+  background-color: #080808;
+  border: 1px solid #1f1f1f;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.7);
+}
+
+/* Folha de Caderno no Dark: Integração Contínua com o Preto Absoluto */
+.dark .paper-sheet {
+  background-color: #000000;
+  border: 1px solid #151515;
+  box-shadow: none;
+}
+
+/* Bordas da Sidebar e Divisórias Gerais */
+.dark #sidebar-navigation-container,
+.dark #diary-sidebar-container,
+.dark .border-r {
+  border-color: #1a1a1a !important;
+}
+
+.dark .border-t,
+.dark .border-b {
+  border-color: #1a1a1a;
+}
+
+/* Título da marca "anotado!" */
+.dark #sidebar-navigation-container span.font-serif-note,
+.dark #diary-sidebar-container span.font-serif-note {
+  color: #ffffff !important;
+}
+
+/* Inputs de Busca na Sidebar */
+.dark #sidebar-search-input,
+.dark #diary-search-input {
+  background-color: #0d0d0d !important;
+  border-color: #1f1f1f !important;
+  color: #ffffff !important;
+}
+
+.dark #sidebar-search-input::placeholder,
+.dark #diary-search-input::placeholder {
+  color: #71717a !important;
+}
+
+.dark #sidebar-search-input:focus,
+.dark #diary-search-input:focus {
+  background-color: #111111 !important;
+  border-color: #3f3f46 !important;
+}
+
+/* Dropdown de Modo de Busca */
+.dark #search-mode-dropdown {
+  background-color: #080808 !important;
+  border-color: #1f1f1f !important;
+  color: #ffffff !important;
+}
+
+.dark #search-mode-dropdown button:hover {
+  background-color: #171717 !important;
+}
+
+/* Barra de Ações para Multi-Seleção */
+.dark #sidebar-multi-select-bar {
+  background-color: #111111 !important;
+  border-color: #222222 !important;
+  color: #ffffff !important;
+}
+
+.dark #sidebar-multi-select-bar button:hover {
+  background-color: #1f1f1f !important;
+}
+
+/* Botões da Sidebar (Nova Pasta, Nova Nota, Novo Ano, Nova Entrada) */
+.dark #sidebar-create-folder-btn,
+.dark #diary-create-year-btn {
+  background-color: #111111 !important;
+  color: #d1d5db !important;
+  border: 1px solid #1f1f1f;
+}
+
+.dark #sidebar-create-folder-btn:hover,
+.dark #diary-create-year-btn:hover {
+  background-color: #1a1a1a !important;
+  color: #ffffff !important;
+}
+
+.dark #sidebar-create-note-btn,
+.dark #diary-create-entry-btn {
+  background-color: #2e2620 !important;
+  color: #ffffff !important;
+  border: 1px solid #4a3b2c;
+}
+
+.dark #sidebar-create-note-btn:hover,
+.dark #diary-create-entry-btn:hover {
+  background-color: #3d3229 !important;
+}
+
+/* Itens da Árvore de Pastas e Notas */
+.dark [data-tree-row] [data-tree-item] {
+  color: #d1d5db;
+}
+
+.dark [data-tree-row] [data-tree-item]:hover {
+  background-color: #111111 !important;
+  color: #ffffff !important;
+}
+
+.dark [data-tree-row] [data-tree-item].bg-\[\#f4dfcb\],
+.dark [data-tree-row] [data-tree-item].bg-\[\#e8decb\],
+.dark [data-tree-row] [data-tree-item][class*="bg-[#f4dfcb]"],
+.dark [data-tree-row] [data-tree-item][class*="bg-[#e8decb]"] {
+  background-color: #1a1a1a !important;
+  color: #ffffff !important;
+  border-color: #27272a !important;
+}
+
+.dark [data-tree-row] span {
+  color: inherit;
+}
+
+/* Etiquetas / Tags */
+.dark button[id^="tag-pill-"] {
+  background-color: #111111 !important;
+  color: #d1d5db !important;
+  border: 1px solid #1f1f1f;
+}
+
+.dark button[id^="tag-pill-"]:hover {
+  background-color: #1a1a1a !important;
+  color: #ffffff !important;
+}
+
+.dark button[id^="tag-pill-"].bg-\[\#68594d\],
+.dark button[id^="tag-pill-"][class*="bg-[#68594d]"] {
+  background-color: #2e2620 !important;
+  color: #f4dfcb !important;
+  border-color: #4a3b2c !important;
+}
+
+/* Rodapé do Usuário na Sidebar */
+.dark #sidebar-settings-btn,
+.dark #sidebar-logout-btn {
+  color: #a1a1aa !important;
+}
+
+.dark #sidebar-settings-btn:hover {
+  background-color: #141414 !important;
+  color: #ffffff !important;
+}
+
+.dark #sidebar-logout-btn:hover {
+  background-color: #141414 !important;
+  color: #f87171 !important;
+}
+
+/* ==========================================================================
+   Área do Editor Tiptap / ProseMirror no Modo Dark
+   ========================================================================== */
+.dark .ProseMirror {
+  color: #ededed;
+  caret-color: #ffffff;
+}
+
+.dark .ProseMirror p {
+  color: #ededed;
+}
+
+.dark .ProseMirror p.is-editor-empty:first-child::before {
+  color: #71717a;
+}
+
+.dark .ProseMirror h1,
+.dark .ProseMirror h2,
+.dark .ProseMirror h3 {
+  color: #ffffff;
+}
+
+.dark .ProseMirror blockquote {
+  border-left-color: #3f3f46;
+  color: #a1a1aa;
+}
+
+.dark .ProseMirror hr,
+.dark .ProseMirror .editorial-hr {
+  border-top-color: #1f1f1f;
+}
+
+/* Checklist / Task List no Dark */
+.dark .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+  border-color: #52525b;
+}
+
+.dark .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:hover {
+  border-color: #a1a1aa;
+}
+
+.dark .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+  border-color: #E7B515 !important;
+  background-color: #E7B515 !important;
+}
+
+.dark .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked::before {
+  color: #ffffff !important;
+}
+
+/* Toggle / Details no Dark */
+.dark div[data-type="details"] > button,
+.dark .tiptap-details-toggle-btn {
+  color: #a1a1aa;
+}
+
+.dark div[data-type="details"] > button:hover,
+.dark .tiptap-details-toggle-btn:hover {
+  background-color: #1a1a1a;
+  color: #ffffff;
+}
+
+.dark summary,
+.dark .tiptap-details-summary,
+.dark div[data-type="details"] summary {
+  color: #ffffff;
+}
+
+.dark div[data-type="detailsContent"],
+.dark .tiptap-details-content {
+  border-left-color: #222222;
+}
+
+/* Links no Dark */
+.dark .ProseMirror a:not(.internal-note-link) {
+  color: #60a5fa;
+}
+
+/* Referência Interna entre Notas: negrito e sublinhado, fundo transparente, cor compatível */
+.dark .ProseMirror .internal-note-link,
+.dark .ProseMirror a.internal-note-link,
+.dark .ProseMirror a[data-internal-note-id],
+.dark .ProseMirror a[data-note-id],
+.dark .ProseMirror span[data-internal-note-id],
+.dark .ProseMirror span[data-note-id] {
+  color: #ffffff !important;
+  background-color: transparent !important;
+  background: transparent !important;
+}
+
+/* Marca-Texto (Highlight) no Dark: preserva cores de fundo e garante contraste de texto */
+.dark .ProseMirror mark {
+  color: #111111;
+  border-radius: 2px;
+  padding: 0.05em 0.2em;
+}
+
+/* Adaptação inteligente de cores de texto personalizadas escuras em fundo preto */
+.dark .ProseMirror span[style*="color: #000000"],
+.dark .ProseMirror span[style*="color: #1b1c19"],
+.dark .ProseMirror span[style*="color: rgb(0, 0, 0)"],
+.dark .ProseMirror span[style*="color: rgb(27, 28, 25)"] {
+  color: #ffffff !important;
+}
+
+/* ==========================================================================
+   Toolbars, Modais e Popovers no Modo Dark
+   ========================================================================== */
+
+/* Barra de Ferramentas Inferior */
+.dark #editor-bottom-toolbar {
+  background-color: rgba(13, 13, 13, 0.95) !important;
+  border-color: #222222 !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8) !important;
+}
+
+.dark #editor-bottom-toolbar button {
+  color: #a1a1aa !important;
+}
+
+.dark #editor-bottom-toolbar button:hover {
+  background-color: #1c1c1c !important;
+  color: #ffffff !important;
+}
+
+.dark #editor-bottom-toolbar button[class*="bg-[#eae8e3]"],
+.dark #editor-bottom-toolbar button[class*="bg-[#f4dfcb]"] {
+  background-color: #262626 !important;
+  color: #ffffff !important;
+}
+
+.dark #editor-bottom-toolbar div[class*="bg-[#e4e2dd]"] {
+  background-color: #222222 !important;
+}
+
+/* Floating Bubble Toolbar */
+.dark #editor-floating-bubble-menu,
+.dark #floating-bubble-toolbar,
+.dark [data-floating-bubble-toolbar] {
+  background-color: #0d0d0d !important;
+  border-color: #222222 !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8) !important;
+  color: #ededed !important;
+}
+
+.dark #editor-floating-bubble-menu button,
+.dark #floating-bubble-toolbar button,
+.dark [data-floating-bubble-toolbar] button {
+  color: #a1a1aa !important;
+}
+
+.dark #editor-floating-bubble-menu button:hover,
+.dark #floating-bubble-toolbar button:hover,
+.dark [data-floating-bubble-toolbar] button:hover {
+  background-color: #1c1c1c !important;
+  color: #ffffff !important;
+}
+
+.dark #editor-floating-bubble-menu button[class*="bg-[#68594d]"],
+.dark #floating-bubble-toolbar button[class*="bg-[#68594d]"] {
+  background-color: #2e2620 !important;
+  color: #ffffff !important;
+}
+
+.dark #editor-floating-bubble-menu div[class*="bg-[#e4e2dd]"],
+.dark #floating-bubble-toolbar div[class*="bg-[#e4e2dd]"] {
+  background-color: #222222 !important;
+}
+
+/* Header do Canvas e Título */
+.dark #note-canvas-header,
+.dark #diary-canvas-header {
+  background-color: #000000 !important;
+  border-color: #1a1a1a !important;
+}
+
+.dark #note-title-input {
+  color: #ffffff !important;
+}
+
+.dark #note-title-input::placeholder {
+  color: #52525b !important;
+}
+
+/* Menus de Contexto */
+.dark #sidebar-context-menu {
+  background-color: #080808 !important;
+  border-color: #1f1f1f !important;
+  color: #ffffff !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.9) !important;
+}
+
+.dark #sidebar-context-menu button {
+  color: #d1d5db !important;
+}
+
+.dark #sidebar-context-menu button:hover {
+  background-color: #171717 !important;
+  color: #ffffff !important;
+}
+
+.dark #sidebar-context-menu hr,
+.dark #sidebar-context-menu div[class*="border-b"] {
+  border-color: #1a1a1a !important;
+}
+
+/* Modais Gerais (Configurações, Etiquetas, Exclusão, Compartilhamento, etc.) */
+.dark #settings-modal-card,
+.dark #tags-modal-card,
+.dark #tags-modal-container,
+.dark #confirm-delete-modal-card,
+.dark #batch-delete-modal-card,
+.dark #batch-move-modal-card,
+.dark #smart-folder-modal-card,
+.dark #sync-pending-modal-card,
+.dark #folder-custom-color-modal-card,
+.dark #note-reference-modal-card,
+.dark #internal-note-reference-modal,
+.dark #youtube-insert-modal-card,
+.dark #youtube-insert-modal,
+.dark #link-insert-modal,
+.dark #share-diary-modal-card,
+.dark #pending-invitation-modal-card,
+.dark #create-diary-year-modal,
+.dark #create-diary-entry-modal {
+  background-color: #080808 !important;
+  border-color: #1f1f1f !important;
+  color: #ffffff !important;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.9) !important;
+}
+
+.dark #settings-modal-card .bg-white,
+.dark #sync-pending-modal-card .bg-white,
+.dark #tags-modal-container .bg-white,
+.dark #share-diary-modal-card .bg-white {
+  background-color: #000000 !important;
+  border-color: #1a1a1a !important;
+}
+
+.dark #settings-modal-card input,
+.dark #tags-modal-container input,
+.dark #tags-modal-card input,
+.dark #sync-pending-modal-card input,
+.dark #note-reference-modal-card input,
+.dark #internal-note-reference-modal input,
+.dark #youtube-insert-modal input,
+.dark #link-insert-modal input,
+.dark #share-diary-modal-card input,
+.dark #folder-custom-color-modal-card input {
+  background-color: #0d0d0d !important;
+  border-color: #222222 !important;
+  color: #ffffff !important;
+}
+
+/* Popovers e Dropdowns da Barra de Ferramentas */
+.dark #toolbar-list-menu-popover,
+.dark #toolbar-add-file-popover,
+.dark #toolbar-color-popover,
+.dark #toolbar-highlight-popover,
+.dark #color-picker-popover,
+.dark #text-level-dropdown-menu,
+.dark #toolbar-btn-text-styles-popover,
+.dark #bubble-btn-style-menu-popover {
+  background-color: #080808 !important;
+  border-color: #1f1f1f !important;
+  color: #ffffff !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.9) !important;
+}
+
+.dark #toolbar-list-menu-popover button:hover,
+.dark #toolbar-add-file-popover button:hover,
+.dark #text-level-dropdown-menu button:hover,
+.dark #toolbar-btn-text-styles-popover button:hover,
+.dark #bubble-btn-style-menu-popover button:hover {
+  background-color: #171717 !important;
+  color: #ffffff !important;
+}
+
+.dark #toolbar-btn-text-styles-popover span,
+.dark #bubble-btn-style-menu-popover span {
+  color: #ededed !important;
+}
+
+.dark #toolbar-btn-text-styles-popover button.bg-\[\#f0eee9\],
+.dark #bubble-btn-style-menu-popover button.bg-\[\#f0eee9\] {
+  background-color: #222222 !important;
+}
+
+.dark #toolbar-color-popover input,
+.dark #toolbar-highlight-popover input {
+  background-color: #0d0d0d !important;
+  border-color: #222222 !important;
+  color: #ffffff !important;
+}
+
+/* Scrollbar Suave no Dark Mode */
+.dark ::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #27272a;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+

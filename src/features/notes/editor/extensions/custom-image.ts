@@ -18,6 +18,7 @@ declare module '@tiptap/core' {
         title?: string;
         width?: string | number;
         alignment?: 'left' | 'center' | 'right';
+        caption?: string;
       }) => ReturnType;
     };
   }
@@ -103,6 +104,19 @@ export const CustomImage = Node.create<CustomImageOptions>({
           };
         },
       },
+      caption: {
+        default: null,
+        parseHTML: (element) =>
+          element.getAttribute('data-caption') ||
+          element.getAttribute('caption') ||
+          null,
+        renderHTML: (attributes) => {
+          if (!attributes.caption) return {};
+          return {
+            'data-caption': attributes.caption,
+          };
+        },
+      },
     };
   },
 
@@ -131,6 +145,10 @@ export const CustomImage = Node.create<CustomImageOptions>({
               element.getAttribute('height') ||
               element.style?.height ||
               null,
+            caption:
+              element.getAttribute('data-caption') ||
+              element.getAttribute('caption') ||
+              null,
           };
         },
       },
@@ -157,6 +175,10 @@ export const CustomImage = Node.create<CustomImageOptions>({
               element.getAttribute('height') ||
               element.style?.height ||
               null,
+            caption:
+              element.getAttribute('data-caption') ||
+              element.getAttribute('caption') ||
+              null,
           };
         },
       },
@@ -180,6 +202,10 @@ export const CustomImage = Node.create<CustomImageOptions>({
           if (node.attrs.src) attrs.push(`src="${node.attrs.src}"`);
           if (node.attrs.alt) attrs.push(`alt="${node.attrs.alt}"`);
           if (node.attrs.title) attrs.push(`title="${node.attrs.title}"`);
+          if (node.attrs.caption) {
+            const escaped = String(node.attrs.caption).replace(/"/g, '&quot;');
+            attrs.push(`data-caption="${escaped}"`);
+          }
           if (node.attrs.alignment) attrs.push(`data-alignment="${node.attrs.alignment}"`);
           if (node.attrs.width) {
             const w = typeof node.attrs.width === 'number' ? `${node.attrs.width}px` : node.attrs.width;

@@ -45,6 +45,7 @@ import {
 import { extractAllUniqueTags } from '../utils/hashtag-extractor';
 import { buildFolderTree, filterTree, wouldCreateCycle } from '../utils/tree-builder';
 import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
+import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
 import {
   SEARCH_MODES,
   DropTargetInfo,
@@ -1533,11 +1534,14 @@ export function SidebarNavigation({
               />
             )}
 
+            {/* Botão de Troca de Tema (Lua/Sol) ao lado do botão Notas / Diário */}
+            <ThemeToggle />
+
             {onCloseMobile && (
               <button
                 id="sidebar-close-mobile-btn"
                 onClick={onCloseMobile}
-                className="p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg md:hidden cursor-pointer"
+                className="p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg md:hidden cursor-pointer"
                 aria-label="Fechar Menu Lateral"
               >
                 <X className="w-4 h-4" />
@@ -1809,17 +1813,6 @@ export function SidebarNavigation({
               );
             })}
           </div>
-
-          {hasTagsOverflow && (
-            <button
-              type="button"
-              id="sidebar-show-all-tags-btn"
-              onClick={() => setIsTagsModalOpen(true)}
-              className="w-full mt-1.5 py-1 px-2 text-[11px] font-sans-ui font-medium text-[#68594d] hover:text-[#1b1c19] hover:bg-[#eae8e3]/70 rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer border border-dashed border-[#d7c3b0]/70"
-            >
-              <span>Mostrar todas ({uniqueTags.length})</span>
-            </button>
-          )}
         </div>
       )}
 

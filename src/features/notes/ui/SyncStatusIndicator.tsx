@@ -175,16 +175,16 @@ export function SyncStatusIndicator({
       <div
         className={`relative inline-flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-medium tracking-tight select-none transition-colors duration-150 cursor-pointer ${
           networkState.status === 'error'
-            ? 'bg-[#fee2e2] text-[#991b1b]'
+            ? 'bg-[#fee2e2] text-[#991b1b] dark:bg-[#450a0a] dark:text-[#fca5a5]'
             : networkState.status === 'remote_change'
-            ? 'bg-[#e0f2fe] text-[#0369a1]'
+            ? 'bg-[#e0f2fe] text-[#0369a1] dark:bg-[#082f49] dark:text-[#7dd3fc]'
             : networkState.status === 'syncing'
-            ? 'bg-[#f0f9ff] text-[#0369a1]'
+            ? 'bg-[#f0f9ff] text-[#0369a1] dark:bg-[#082f49] dark:text-[#7dd3fc]'
             : !networkState.isBackendReachable
-            ? 'bg-[#fffbeb] text-[#92400e]'
+            ? 'bg-[#fffbeb] text-[#92400e] dark:bg-[#451a03] dark:text-[#fcd34d]'
             : networkState.pendingCount > 0
-            ? 'bg-[#fef3c7] text-[#92400e]'
-            : 'bg-[#f4f3ef] text-[#54483e] hover:bg-[#eae8e3]'
+            ? 'bg-[#fef3c7] text-[#92400e] dark:bg-[#451a03] dark:text-[#fcd34d]'
+            : 'bg-[#f4f3ef] text-[#54483e] hover:bg-[#eae8e3] dark:bg-[#0a0a0a] dark:border dark:border-[#1f1f1f] dark:text-[#ededed] dark:hover:bg-[#141414]'
         } ${className}`}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
@@ -201,9 +201,9 @@ export function SyncStatusIndicator({
 
         {/* Tooltip elegante */}
         {isHovered && (
-          <div className="absolute bottom-full left-0 mb-1.5 z-50 px-2.5 py-1 text-[11px] font-normal text-[#fbf9f4] bg-[#2d2823] rounded shadow-md whitespace-nowrap pointer-events-none transition-opacity duration-150">
+          <div className="absolute bottom-full left-0 mb-1.5 z-50 px-2.5 py-1 text-[11px] font-normal text-[#fbf9f4] bg-[#2d2823] dark:bg-[#141414] dark:border dark:border-[#222222] dark:text-[#ededed] rounded shadow-md whitespace-nowrap pointer-events-none transition-opacity duration-150">
             <p>{config.tooltip}</p>
-            <p className="text-[9px] text-[#baa89b] mt-0.5">1 clique: sincronizar • 2 cliques: pendências</p>
+            <p className="text-[9px] text-[#baa89b] dark:text-[#888888] mt-0.5">1 clique: sincronizar • 2 cliques: pendências</p>
           </div>
         )}
       </div>

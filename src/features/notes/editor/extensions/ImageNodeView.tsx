@@ -7,6 +7,11 @@ import { NodeSelection } from '@tiptap/pm/state';
 import {
   Image as ImageIcon,
   X,
+  Captions,
+  Maximize2,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
 } from 'lucide-react';
 import {
   moveNodeBlock,
@@ -30,6 +35,7 @@ export function ImageNodeView(props: NodeViewProps) {
   const title = node.attrs.title || '';
   const initialWidthAttr = node.attrs.width || '50%';
   const alignment = (node.attrs.alignment as 'left' | 'center' | 'right') || 'center';
+  const caption = (node.attrs.caption as string) || '';
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -44,6 +50,200 @@ export function ImageNodeView(props: NodeViewProps) {
     }
     return 16 / 10;
   });
+
+  // Estado da Legenda
+  const [isEditingCaption, setIsEditingCaption] = useState(false);
+  const [captionDraft, setCaptionDraft] = useState(caption);
+  const [prevCaption, setPrevCaption] = useState(caption);
+  const captionInputRef = useRef<HTMLInputElement>(null);
+
+  if (caption !== prevCaption) {
+    setPrevCaption(caption);
+    setCaptionDraft(caption);
+  }
+
+  useEffect(() => {
+    if (isEditingCaption && captionInputRef.current) {
+      captionInputRef.current.focus();
+      captionInputRef.current.select();
+    }
+  }, [isEditingCaption]);
+
+  const handleSaveCaption = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      updateAttributes({ caption: trimmed.length > 0 ? trimmed : null });
+      setIsEditingCaption(false);
+    },
+    [updateAttributes]
+  );
+
+  const handleRemoveCaption = useCallback(() => {
+    setCaptionDraft('');
+    updateAttributes({ caption: null });
+    setIsEditingCaption(false);
+  }, [updateAttributes]);
+
+  // Estado de Zoom e Pan no Visualizador / Lightbox
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const didDragRef = useRef(false);
+
+  // Abertura e fechamento com reset limpo e atômico do zoom e pan
+  const openLightbox = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setIsPanning(false);
+    didDragRef.current = false;
+    setIsLightboxOpen(true);
+  }, []);
+
+  const closeLightbox = useCallback(() => {
+    setIsLightboxOpen(false);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setIsPanning(false);
+    didDragRef.current = false;
+  }, []);
+
+  // Touch tracking para Mobile
+  const touchStartDistRef = useRef<number | null>(null);
+  const touchStartZoomRef = useRef<number>(1);
+
+  // Limites do Pan para impedir que a imagem saia da tela
+  const clampPan = useCallback((targetX: number, targetY: number, currentZoom: number) => {
+    if (currentZoom <= 1.0) return { x: 0, y: 0 };
+    const vpW = typeof window !== 'undefined' ? window.innerWidth : 1024;
+    const vpH = typeof window !== 'undefined' ? window.innerHeight : 768;
+
+    const maxPanX = (vpW * (currentZoom - 0.7)) / 2 + 60;
+    const maxPanY = (vpH * (currentZoom - 0.7)) / 2 + 60;
+
+    return {
+      x: Math.max(-maxPanX, Math.min(maxPanX, targetX)),
+      y: Math.max(-maxPanY, Math.min(maxPanY, targetY)),
+    };
+  }, []);
+
+  // Zoom suave com scroll do mouse no Lightbox (50% a 500%)
+  const handleWheelLightbox = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const delta = -e.deltaY;
+      const factor = delta > 0 ? 1.15 : 0.87;
+
+      setZoom((prevZoom) => {
+        let nextZoom = Math.min(5.0, Math.max(0.5, Number((prevZoom * factor).toFixed(3))));
+        if (nextZoom <= 1.0) {
+          setPan({ x: 0, y: 0 });
+        } else {
+          setPan((prevPan) => clampPan(prevPan.x, prevPan.y, nextZoom));
+        }
+        return nextZoom;
+      });
+    },
+    [clampPan]
+  );
+
+  // Início do arraste / Pan com o mouse (somente se zoom > 100%)
+  const handleMouseDownLightbox = useCallback(
+    (e: React.MouseEvent) => {
+      if (zoom <= 1.0) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      setIsPanning(true);
+      didDragRef.current = false;
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+      panStartRef.current = { ...pan };
+    },
+    [zoom, pan]
+  );
+
+  // Efeito global de arraste com o mouse
+  useEffect(() => {
+    if (!isPanning) return;
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      if (Math.hypot(dx, dy) > 4) {
+        didDragRef.current = true;
+      }
+      const nextX = panStartRef.current.x + dx;
+      const nextY = panStartRef.current.y + dy;
+      setPan(clampPan(nextX, nextY, zoom));
+    };
+
+    const handleGlobalMouseUp = () => {
+      setIsPanning(false);
+    };
+
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [isPanning, zoom, clampPan]);
+
+  // Touch handlers para Mobile (Pinch-to-zoom e Pan quando zoom > 1.0)
+  const handleTouchStartLightbox = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        touchStartDistRef.current = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        touchStartZoomRef.current = zoom;
+      } else if (e.touches.length === 1 && zoom > 1.0) {
+        const touch = e.touches[0];
+        setIsPanning(true);
+        didDragRef.current = false;
+        dragStartRef.current = { x: touch.clientX, y: touch.clientY };
+        panStartRef.current = { ...pan };
+      }
+    },
+    [zoom, pan]
+  );
+
+  const handleTouchMoveLightbox = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 2 && touchStartDistRef.current) {
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const curDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const scale = curDist / touchStartDistRef.current;
+        let nextZoom = Math.min(5.0, Math.max(0.5, touchStartZoomRef.current * scale));
+        setZoom(nextZoom);
+        if (nextZoom <= 1.0) {
+          setPan({ x: 0, y: 0 });
+        }
+      } else if (e.touches.length === 1 && isPanning && zoom > 1.0) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const dx = touch.clientX - dragStartRef.current.x;
+        const dy = touch.clientY - dragStartRef.current.y;
+        if (Math.hypot(dx, dy) > 4) {
+          didDragRef.current = true;
+        }
+        const nextX = panStartRef.current.x + dx;
+        const nextY = panStartRef.current.y + dy;
+        setPan(clampPan(nextX, nextY, zoom));
+      }
+    },
+    [isPanning, zoom, clampPan]
+  );
+
+  const handleTouchEndLightbox = useCallback(() => {
+    touchStartDistRef.current = null;
+    setIsPanning(false);
+  }, []);
 
   // Estado de visibilidade via IntersectionObserver
   const cachedAttachment = useMemo(() => getCachedAttachmentUrl(rawSrc), [rawSrc]);
@@ -198,7 +398,7 @@ export function ImageNodeView(props: NodeViewProps) {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setIsLightboxOpen(false);
+        closeLightbox();
       }
     };
 
@@ -210,7 +410,7 @@ export function ImageNodeView(props: NodeViewProps) {
       document.body.style.overflow = originalOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isLightboxOpen]);
+  }, [isLightboxOpen, closeLightbox]);
 
   // Handler de Long Press para Mobile / Tablet e Clique para Desktop
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -263,6 +463,20 @@ export function ImageNodeView(props: NodeViewProps) {
   };
 
   const handleClick = (e: React.MouseEvent) => {
+    // Se o editor não for editável (ex: visualização), o clique simples abre o lightbox
+    if (!editor?.isEditable) {
+      e.stopPropagation();
+      openLightbox();
+      return;
+    }
+
+    // Se já estiver selecionado, um segundo clique na imagem abre o visualizador existente
+    if (isLocalSelected) {
+      e.stopPropagation();
+      openLightbox();
+      return;
+    }
+
     // No Desktop (dispositivos com ponteiro fino), o clique simples seleciona a imagem
     if (typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches) {
       setIsLocalSelected(true);
@@ -273,7 +487,7 @@ export function ImageNodeView(props: NodeViewProps) {
     // Duplo clique abre o lightbox modal em tela cheia
     e.preventDefault();
     e.stopPropagation();
-    setIsLightboxOpen(true);
+    openLightbox();
   };
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -336,7 +550,47 @@ export function ImageNodeView(props: NodeViewProps) {
             }}
             onDelete={() => deleteNode()}
             deleteTitle="Excluir Imagem"
-          />
+          >
+            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
+
+            {/* Botão Adicionar / Editar Legenda */}
+            <button
+              type="button"
+              onClick={() => setIsEditingCaption(true)}
+              className="flex items-center gap-1 px-2 py-0.5 text-xs font-sans-ui text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer font-medium"
+              title={caption ? 'Editar legenda' : 'Adicionar legenda'}
+              aria-label={caption ? 'Editar legenda' : 'Adicionar legenda'}
+            >
+              <Captions className="w-3.5 h-3.5 text-[#68594d]" />
+              <span>{caption ? 'Editar legenda' : 'Adicionar legenda'}</span>
+            </button>
+
+            {/* Botão Remover Legenda (somente a legenda desaparece, imagem permanece) */}
+            {caption && (
+              <button
+                type="button"
+                onClick={handleRemoveCaption}
+                className="p-1 text-[#7f756e] hover:text-[#ba1a1a] hover:bg-[#ffdad6] rounded-md transition-colors cursor-pointer"
+                title="Remover legenda"
+                aria-label="Remover legenda"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
+
+            {/* Botão para abrir visualizador ampliado */}
+            <button
+              type="button"
+              onClick={() => openLightbox()}
+              className="p-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer"
+              title="Abrir visualizador"
+              aria-label="Abrir visualizador"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          </MediaFloatingToolbar>
         )}
 
         {/* Skeleton Placeholder durante o carregamento inicial (Zero Layout Shift) */}
@@ -399,50 +653,186 @@ export function ImageNodeView(props: NodeViewProps) {
             showTopHandles={true}
           />
         )}
+
+        {/* Legenda abaixo da Imagem */}
+        {isEditingCaption ? (
+          <div
+            className="mt-1.5 w-full flex items-center gap-1.5 px-0.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              ref={captionInputRef}
+              type="text"
+              value={captionDraft}
+              onChange={(e) => setCaptionDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSaveCaption(captionDraft);
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setIsEditingCaption(false);
+                  setCaptionDraft(caption);
+                }
+              }}
+              onBlur={() => handleSaveCaption(captionDraft)}
+              placeholder="Adicionar legenda..."
+              className={`w-full bg-transparent border-b border-[#c4bebb] focus:border-[#68594d] focus:outline-none py-0.5 px-1 text-xs text-[#5e534b] font-sans-ui placeholder:text-[#a89f91] ${
+                alignment === 'left' ? 'text-left' : alignment === 'right' ? 'text-right' : 'text-center'
+              }`}
+            />
+            <button
+              type="button"
+              onClick={handleRemoveCaption}
+              className="p-1 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-md transition-colors cursor-pointer shrink-0"
+              title="Remover legenda"
+              aria-label="Remover legenda"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : caption ? (
+          <figcaption
+            className={`mt-1.5 text-xs text-[#7f756e] font-sans-ui leading-relaxed break-words px-1 select-text ${
+              alignment === 'left' ? 'text-left' : alignment === 'right' ? 'text-right' : 'text-center'
+            } ${editor?.isEditable ? 'cursor-pointer hover:text-[#5e534b]' : ''}`}
+            onClick={(e) => {
+              if (editor?.isEditable) {
+                e.stopPropagation();
+                setIsEditingCaption(true);
+              }
+            }}
+            title={editor?.isEditable ? 'Clique para editar a legenda' : undefined}
+          >
+            {caption}
+          </figcaption>
+        ) : null}
       </div>
 
-      {/* Modal / Lightbox em Tela Cheia no Duplo Clique */}
+      {/* Modal / Lightbox em Tela Cheia com Zoom por Scroll e Pan por Arraste */}
       {isLightboxOpen &&
         typeof document !== 'undefined' &&
         createPortal(
           <div
             id="image-lightbox-modal"
-            className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200 select-none cursor-default"
+            className="fixed inset-0 z-[9999] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 select-none cursor-default animate-in fade-in duration-200"
             onClick={(e) => {
-              e.stopPropagation();
-              setIsLightboxOpen(false);
+              if (!didDragRef.current) {
+                e.stopPropagation();
+                closeLightbox();
+              }
             }}
             role="dialog"
             aria-modal="true"
             aria-label="Visualização ampliada da imagem"
           >
-            {/* Botão Fechar X */}
-            <button
-              id="image-lightbox-close-btn"
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsLightboxOpen(false);
-              }}
-              className="absolute top-4 right-4 sm:top-6 sm:right-6 p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/50 z-10"
-              title="Fechar (Esc)"
-              aria-label="Fechar visualização"
-            >
-              <X className="w-5 h-5 sm:w-6 sm:h-6" />
-            </button>
-
-            {/* Imagem Ampliada */}
+            {/* Header com Controles de Zoom e Botão Fechar */}
             <div
-              className="relative max-w-full max-h-full flex items-center justify-center pointer-events-auto"
+              className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex items-center justify-between z-30 pointer-events-auto"
               onClick={(e) => e.stopPropagation()}
+            >
+              {/* Controles de Zoom Suave */}
+              <div className="flex items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 px-2 py-1 rounded-full text-white text-xs font-sans-ui shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setZoom((prev) => {
+                      const next = Math.max(0.5, Number((prev * 0.85).toFixed(3)));
+                      if (next <= 1.0) setPan({ x: 0, y: 0 });
+                      return next;
+                    });
+                  }}
+                  className="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer text-white/80 hover:text-white"
+                  title="Diminuir zoom (scroll para baixo)"
+                  aria-label="Diminuir zoom"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+                <span className="font-mono text-[11px] font-medium px-1.5 min-w-[44px] text-center select-none text-white/90">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setZoom((prev) => Math.min(5.0, Number((prev * 1.15).toFixed(3))));
+                  }}
+                  className="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer text-white/80 hover:text-white"
+                  title="Aumentar zoom (scroll para cima)"
+                  aria-label="Aumentar zoom"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+                {(zoom !== 1 || pan.x !== 0 || pan.y !== 0) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setZoom(1);
+                      setPan({ x: 0, y: 0 });
+                    }}
+                    className="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer text-white/70 hover:text-white ml-0.5"
+                    title="Restaurar zoom (100%)"
+                    aria-label="Restaurar zoom"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Botão Fechar */}
+              <button
+                id="image-lightbox-close-btn"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeLightbox();
+                }}
+                className="p-2 sm:p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/50"
+                title="Fechar (Esc)"
+                aria-label="Fechar visualização"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Container Interativo de Imagem com Zoom via Wheel e Pan via Mouse Drag */}
+            <div
+              className="relative w-full h-full flex items-center justify-center overflow-hidden pointer-events-auto"
+              onWheel={handleWheelLightbox}
+              onMouseDown={handleMouseDownLightbox}
+              onTouchStart={handleTouchStartLightbox}
+              onTouchMove={handleTouchMoveLightbox}
+              onTouchEnd={handleTouchEndLightbox}
+              style={{
+                cursor: zoom > 1.0 ? (isPanning ? 'grabbing' : 'grab') : 'default',
+              }}
+              onClick={(e) => {
+                if (didDragRef.current) {
+                  e.stopPropagation();
+                }
+              }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={displayedSrc || currentSrc || rawSrc}
-                alt={alt || 'Visualização ampliada da imagem'}
-                className="max-w-[90vw] max-h-[88vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
+                alt={alt || caption || 'Visualização ampliada da imagem'}
+                draggable={false}
+                style={{
+                  transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+                  transition: isPanning ? 'none' : 'transform 120ms ease-out',
+                  willChange: 'transform',
+                  maxHeight: '85vh',
+                  maxWidth: '88vw',
+                }}
+                className="object-contain rounded-lg shadow-2xl select-none pointer-events-none"
               />
             </div>
+
+            {/* Legenda Discreta no Visualizador se Existente */}
+            {caption && (
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 max-w-[85vw] px-4 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-white/90 text-xs sm:text-sm font-sans-ui text-center pointer-events-none z-20 shadow-md border border-white/10">
+                {caption}
+              </div>
+            )}
           </div>,
           document.body
         )}

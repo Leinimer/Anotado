@@ -294,21 +294,21 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
   // Se o acesso foi revogado
   if (isRevoked) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#faf8f5] p-6 text-center">
-        <div className="max-w-md bg-white border border-red-200 rounded-2xl p-8 shadow-xl space-y-4">
-          <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+      <div className="flex h-screen w-screen items-center justify-center bg-[#faf8f5] dark:bg-[#000000] p-6 text-center">
+        <div className="max-w-md bg-white dark:bg-[#080808] border border-red-200 dark:border-red-900/40 rounded-2xl p-8 shadow-xl space-y-4">
+          <div className="w-12 h-12 rounded-full bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto">
             <ShieldAlert className="w-6 h-6" />
           </div>
-          <h2 className="font-serif-note font-bold text-lg text-[#1b1c19]">
+          <h2 className="font-serif-note font-bold text-lg text-[#1b1c19] dark:text-[#ffffff]">
             Acesso Revogado
           </h2>
-          <p className="text-xs text-[#7f756e] font-sans-ui leading-relaxed">
+          <p className="text-xs text-[#7f756e] dark:text-[#a1a1aa] font-sans-ui leading-relaxed">
             O proprietário encerrou o compartilhamento deste Diário. Você não tem mais permissão para visualizar estas entradas.
           </p>
           <div className="pt-2">
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#68594d] text-white text-xs font-sans-ui font-medium rounded-xl hover:bg-[#52443a] transition-colors shadow-2xs"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#68594d] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] text-white text-xs font-sans-ui font-medium rounded-xl hover:bg-[#52443a] transition-colors shadow-2xs"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Voltar para Meu Aplicativo</span>
@@ -322,10 +322,10 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
   // Estado de Carregamento
   if (loading) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#faf8f5]">
+      <div className="flex h-screen w-screen items-center justify-center bg-[#faf8f5] dark:bg-[#000000]">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-6 h-6 animate-spin text-[#68594d]" />
-          <p className="text-xs text-[#7f756e] font-sans-ui">
+          <p className="text-xs text-[#7f756e] dark:text-[#a1a1aa] font-sans-ui">
             Carregando Diário compartilhado...
           </p>
         </div>
@@ -336,21 +336,21 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
   // Estado de Erro
   if (error || !share) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#faf8f5] p-6 text-center">
-        <div className="max-w-md bg-white border border-[#eae8e3] rounded-2xl p-8 shadow-xl space-y-4">
-          <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
+      <div className="flex h-screen w-screen items-center justify-center bg-[#faf8f5] dark:bg-[#000000] p-6 text-center">
+        <div className="max-w-md bg-white dark:bg-[#080808] border border-[#eae8e3] dark:border-[#1f1f1f] rounded-2xl p-8 shadow-xl space-y-4">
+          <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
             <AlertCircle className="w-6 h-6" />
           </div>
-          <h2 className="font-serif-note font-bold text-lg text-[#1b1c19]">
+          <h2 className="font-serif-note font-bold text-lg text-[#1b1c19] dark:text-[#ffffff]">
             Não foi possível abrir o Diário
           </h2>
-          <p className="text-xs text-[#7f756e] font-sans-ui leading-relaxed">
+          <p className="text-xs text-[#7f756e] dark:text-[#a1a1aa] font-sans-ui leading-relaxed">
             {error || 'O compartilhamento solicitado não existe ou você não possui permissão de leitura.'}
           </p>
           <div className="pt-2">
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#68594d] text-white text-xs font-sans-ui font-medium rounded-xl hover:bg-[#52443a] transition-colors shadow-2xs"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#68594d] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] text-white text-xs font-sans-ui font-medium rounded-xl hover:bg-[#52443a] transition-colors shadow-2xs"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Voltar ao Meu Início</span>
@@ -366,13 +366,13 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
   const todayDateFormatted = formatDateReadable(getLocalDateString());
 
   return (
-    <div id="shared-diary-root" className="flex h-screen w-screen overflow-hidden bg-[#faf8f5]">
+    <div id="shared-diary-root" className="flex h-screen w-screen overflow-hidden bg-[#faf8f5] dark:bg-[#000000]">
       {/* Botão Mobile para Abrir Sidebar */}
       <div className="md:hidden fixed top-3 left-3 z-30">
         <button
           type="button"
           onClick={() => setMobileSidebarOpen(true)}
-          className="p-2 bg-[#fbf9f4] border border-[#eae8e3] rounded-xl shadow-xs text-[#1b1c19] hover:bg-[#eae8e3] transition-colors cursor-pointer"
+          className="p-2 bg-[#fbf9f4] dark:bg-[#111111] border border-[#eae8e3] dark:border-[#222222] rounded-xl shadow-xs text-[#1b1c19] dark:text-[#ffffff] hover:bg-[#eae8e3] dark:hover:bg-[#1a1a1a] transition-colors cursor-pointer"
           aria-label="Abrir Menu do Diário Compartilhado"
         >
           <Menu className="w-5 h-5" />
@@ -416,7 +416,7 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
       )}
 
       {/* Área Central: Canvas do Editor ou Mensagem Elegante de Leitura se Hoje não existir */}
-      <div className="flex-1 h-full flex flex-col min-w-0 bg-[#faf8f5] overflow-hidden">
+      <div className="flex-1 h-full flex flex-col min-w-0 bg-[#faf8f5] dark:bg-[#000000] overflow-hidden">
         {activeNote ? (
           <NoteCanvas
             key={activeNote.id}
@@ -431,16 +431,16 @@ export function SharedDiaryLayout({ shareId }: SharedDiaryLayoutProps) {
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none">
-            <div className="w-16 h-16 rounded-2xl bg-[#f0eee9] border border-[#e4dfd7] flex items-center justify-center text-[#68594d] mb-4 shadow-2xs">
+            <div className="w-16 h-16 rounded-2xl bg-[#f0eee9] dark:bg-[#141414] border border-[#e4dfd7] dark:border-[#222222] flex items-center justify-center text-[#68594d] dark:text-[#a1a1aa] mb-4 shadow-2xs">
               <Calendar className="w-8 h-8 stroke-[1.5]" />
             </div>
-            <h2 className="font-serif-note font-bold text-xl text-[#1b1c19] tracking-tight mb-2">
+            <h2 className="font-serif-note font-bold text-xl text-[#1b1c19] dark:text-[#ffffff] tracking-tight mb-2">
               Nenhuma entrada registrada para hoje
             </h2>
-            <p className="font-sans-ui text-sm text-[#7f756e] max-w-md mb-4 leading-relaxed">
+            <p className="font-sans-ui text-sm text-[#7f756e] dark:text-[#a1a1aa] max-w-md mb-4 leading-relaxed">
               O proprietário ({ownerDisplayName}) ainda não publicou uma entrada no diário para o dia de hoje. Você pode navegar pelas entradas anteriores na barra lateral à esquerda.
             </p>
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#f4dfcb]/60 border border-[#e8d2bd] text-[#5e4b3e] text-xs font-sans-ui font-medium">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#f4dfcb]/60 dark:bg-[#26201a] border border-[#e8d2bd] dark:border-[#3d3229] text-[#5e4b3e] dark:text-[#d7c3b0] text-xs font-sans-ui font-medium">
               <Eye className="w-3.5 h-3.5" />
               <span>Modo Leitura • {todayDateFormatted}</span>
             </div>

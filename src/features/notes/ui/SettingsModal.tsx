@@ -18,12 +18,15 @@ import {
   Sparkles,
   Monitor,
   Users,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { Note } from '../types';
 import { exportNonArchivedNotesToZip, ExportProgress } from '../utils/export-notes';
 import { usePwa } from '@/src/features/pwa/PwaProvider';
 import { SettingsSharingTab } from '@/src/features/diary/ui/SettingsSharingTab';
+import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -35,7 +38,7 @@ interface SettingsModalProps {
   onOpenShareModal?: () => void;
 }
 
-type TabType = 'password' | 'email' | 'export' | 'pwa' | 'sharing';
+type TabType = 'password' | 'email' | 'export' | 'pwa' | 'sharing' | 'appearance';
 
 export function SettingsModal({
   isOpen,
@@ -377,6 +380,20 @@ export function SettingsModal({
           >
             <Users className="w-3.5 h-3.5" />
             Compartilhamento
+          </button>
+
+          <button
+            type="button"
+            id="settings-tab-appearance"
+            onClick={() => setActiveTab('appearance')}
+            className={`flex items-center gap-1.5 py-3 px-3 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'appearance'
+                ? 'border-[#68594d] text-[#68594d]'
+                : 'border-transparent text-[#7f756e] hover:text-[#1b1c19]'
+            }`}
+          >
+            <Moon className="w-3.5 h-3.5" />
+            Tema
           </button>
         </div>
 
@@ -786,6 +803,39 @@ export function SettingsModal({
               }}
               onCloseSettings={onClose}
             />
+          )}
+
+          {/* ============================================================ */}
+          {/* ABA 6: TEMA / APARÊNCIA                                      */}
+          {/* ============================================================ */}
+          {activeTab === 'appearance' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-sm font-semibold text-[#1b1c19] dark:text-white">
+                  Modo de Visualização
+                </h3>
+                <p className="text-xs text-[#7f756e] dark:text-[#a3a3a3] mt-1">
+                  Escolha entre o modo claro de papel natural ou o modo dark com preto absoluto (#000000) e alto contraste.
+                </p>
+              </div>
+
+              <div className="p-4 bg-[#fbfaf8] dark:bg-[#111111] border border-[#f0eee9] dark:border-[#222222] rounded-2xl space-y-4">
+                <div className="text-xs font-medium text-[#4e453f] dark:text-[#d1c4bc]">
+                  Alternar Tema:
+                </div>
+                <ThemeToggle className="w-full max-w-xs" variant="segmented" />
+                <div className="grid grid-cols-2 gap-3 pt-2 text-[11px] text-[#7f756e] dark:text-[#a3a3a3]">
+                  <div className="p-2.5 rounded-xl border border-[#e4e2dd] dark:border-[#222222] bg-white dark:bg-[#050505]">
+                    <div className="font-semibold text-[#1b1c19] dark:text-white mb-0.5">☀ Claro</div>
+                    <div>Papel natural & tinta editorial. Padrão original do ANOTADO!</div>
+                  </div>
+                  <div className="p-2.5 rounded-xl border border-[#e4e2dd] dark:border-[#222222] bg-black text-white">
+                    <div className="font-semibold text-white mb-0.5">☾ Dark</div>
+                    <div className="text-zinc-400">Preto absoluto #000000, zero distração e leitura confortável no escuro.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>

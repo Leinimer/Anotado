@@ -344,14 +344,14 @@ export function NoteCanvas({
     return (
       <main
         id="main-note-workspace"
-        className="flex-1 flex flex-col h-full bg-[#fbf9f4] items-center justify-center p-6 text-center select-none relative"
+        className="flex-1 flex flex-col h-full bg-[#fbf9f4] dark:bg-[#000000] items-center justify-center p-6 text-center select-none relative"
       >
         {onOpenMobileMenu && (
           <div className="absolute left-4 top-3.5 flex items-center md:hidden">
             <button
               id="empty-state-mobile-menu-btn"
               onClick={onOpenMobileMenu}
-              className="p-2 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg transition-colors cursor-pointer"
+              className="p-2 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer"
               aria-label="Abrir Menu Lateral"
             >
               <Menu className="w-5 h-5" />
@@ -360,13 +360,13 @@ export function NoteCanvas({
         )}
 
         <div className="max-w-md space-y-4">
-          <div className="w-16 h-16 rounded-full bg-[#e4e2dd] text-[#68594d] mx-auto flex items-center justify-center">
+          <div className="w-16 h-16 rounded-full bg-[#e4e2dd] dark:bg-[#141414] text-[#68594d] dark:text-[#a1a1aa] mx-auto flex items-center justify-center">
             <FileText className="w-8 h-8 stroke-[1.5]" />
           </div>
-          <h2 className="font-serif-note font-bold text-2xl text-[#1b1c19]">
+          <h2 className="font-serif-note font-bold text-2xl text-[#1b1c19] dark:text-[#ffffff]">
             {readOnly ? 'Nenhuma entrada selecionada' : 'Nenhuma nota selecionada'}
           </h2>
-          <p className="font-sans-ui text-sm text-[#7f756e] leading-relaxed">
+          <p className="font-sans-ui text-sm text-[#7f756e] dark:text-[#a1a1aa] leading-relaxed">
             {readOnly
               ? 'Selecione uma entrada no menu lateral para visualizar seu conteúdo.'
               : 'Selecione uma nota na barra lateral para começar a ler ou editar, ou crie uma nova anotação agora.'}
@@ -376,7 +376,7 @@ export function NoteCanvas({
               <button
                 id="empty-state-new-note-btn"
                 onClick={onCreateNewNote}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] transition-colors cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] dark:hover:bg-[#3d3229] transition-colors cursor-pointer shadow-xs"
               >
                 <FilePlus className="w-4 h-4" />
                 <span>Criar Nova Nota</span>
@@ -393,19 +393,19 @@ export function NoteCanvas({
   return (
     <main
       id="main-note-workspace"
-      className="flex-1 flex flex-col h-full overflow-hidden bg-[#fbf9f4] relative"
+      className="flex-1 flex flex-col h-full overflow-hidden bg-[#fbf9f4] dark:bg-[#000000] relative"
     >
       {/* Top Header Bar (Título centralizado horizontalmente na área principal) */}
       <header
         id="note-header-bar"
-        className="w-full px-4 sm:px-8 pt-3 sm:pt-3.5 pb-3 relative flex items-center justify-center border-b border-[#eae8e3]/80 shrink-0 select-none bg-[#fbf9f4]/90 backdrop-blur-xs z-10"
+        className="w-full px-4 sm:px-8 pt-3 sm:pt-3.5 pb-3 relative flex items-center justify-center border-b border-[#eae8e3]/80 dark:border-[#1a1a1a] shrink-0 select-none bg-[#fbf9f4]/90 dark:bg-[#000000]/90 backdrop-blur-xs z-10"
       >
         {onOpenMobileMenu && (
           <div className="absolute left-4 sm:left-6 top-3 sm:top-3.5 flex items-center md:hidden">
             <button
               id="header-mobile-menu-btn"
               onClick={onOpenMobileMenu}
-              className="p-2 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] rounded-lg transition-colors cursor-pointer"
+              className="p-2 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer"
               aria-label="Abrir Menu Lateral"
             >
               <Menu className="w-5 h-5" />
@@ -417,8 +417,8 @@ export function NoteCanvas({
         <div className="w-full max-w-[850px] mx-auto text-center px-10 min-w-0">
           {activeNote.workspace_type === 'diary' && (
             <div className="flex items-center justify-center mb-1.5">
-              <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-sans-ui font-medium bg-[#f4dfcb] text-[#68594d] border border-[#e8d2bd] capitalize shadow-2xs">
-                <Calendar className="w-3.5 h-3.5 text-[#68594d]" />
+              <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-sans-ui font-medium bg-[#f4dfcb] dark:bg-[#26201a] text-[#68594d] dark:text-[#d7c3b0] border border-[#e8d2bd] dark:border-[#3d3229] capitalize shadow-2xs">
+                <Calendar className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0]" />
                 {activeNote.entry_date ? formatDateReadable(activeNote.entry_date) : 'Diário'}
               </span>
             </div>
@@ -439,7 +439,7 @@ export function NoteCanvas({
                 }
               }}
               onChange={(e) => setLocalTitle(e.target.value)}
-              className="font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] bg-transparent text-center border-b border-[#68594d] focus:outline-none w-full max-w-lg mx-auto"
+              className="font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] dark:text-[#ffffff] bg-transparent text-center border-b border-[#68594d] dark:border-[#3f3f46] focus:outline-none w-full max-w-lg mx-auto"
               placeholder="Título da anotação..."
             />
           ) : (
@@ -450,7 +450,7 @@ export function NoteCanvas({
                 setLocalTitle(activeNote.title || '');
                 setIsEditingTitle(true);
               }}
-              className={`font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] tracking-tight truncate inline-block max-w-full ${
+              className={`font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] dark:text-[#ffffff] tracking-tight truncate inline-block max-w-full ${
                 readOnly
                   ? 'cursor-default select-text'
                   : 'cursor-pointer hover:opacity-80 transition-opacity'
@@ -469,7 +469,7 @@ export function NoteCanvas({
               id="return-to-source-note-btn"
               type="button"
               onClick={handleReturnToSource}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#68594d] hover:bg-[#53463c] text-white font-sans-ui text-xs font-semibold transition-all cursor-pointer shadow-xs active:scale-95 animate-in fade-in zoom-in-95 duration-150"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#68594d] hover:bg-[#53463c] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] text-white font-sans-ui text-xs font-semibold transition-all cursor-pointer shadow-xs active:scale-95 animate-in fade-in zoom-in-95 duration-150"
               title={
                 navContext?.sourceNoteTitle
                   ? `Retornar para: ${navContext.sourceNoteTitle}`
@@ -484,7 +484,7 @@ export function NoteCanvas({
       </header>
 
       {/* Região de Gerenciamento de Tags (Abaixo da linha divisória do título e acima do corpo da nota) */}
-      <div id="note-tags-section-wrapper" className="w-full shrink-0 pt-2 pb-1 bg-[#fbf9f4]">
+      <div id="note-tags-section-wrapper" className="w-full shrink-0 pt-2 pb-1 bg-[#fbf9f4] dark:bg-[#000000]">
         <NoteTagsBar
           tags={activeNote.tags || []}
           onUpdateTags={(newTags) => {
@@ -507,7 +507,7 @@ export function NoteCanvas({
             transformOrigin: 'top center',
             transition: 'transform 0.15s ease-out',
           }}
-          className="paper-sheet rounded-2xl w-full max-w-[850px] p-6 sm:p-10 md:p-12 text-[#1b1c19] font-serif-note shadow-sm relative flex flex-col min-h-[550px] h-auto mb-12"
+          className="paper-sheet rounded-2xl w-full max-w-[850px] p-6 sm:p-10 md:p-12 text-[#1b1c19] dark:text-[#ededed] font-serif-note shadow-sm relative flex flex-col min-h-[550px] h-auto mb-12"
         >
           <NoteEditor
             key={activeNote.id}
@@ -532,7 +532,7 @@ export function NoteCanvas({
         {/* Caixa Flutuante dos Controles de Zoom (- 100% +) */}
         <div
           id="note-zoom-expanded-controls"
-          className={`transition-all duration-200 ease-out origin-bottom-right flex items-center bg-[#ffffff]/95 backdrop-blur-md border border-[#e4e2dd] shadow-md rounded-xl p-1 gap-1 text-[#4e453f] font-sans-ui text-xs ${
+          className={`transition-all duration-200 ease-out origin-bottom-right flex items-center bg-[#ffffff]/95 dark:bg-[#0d0d0d]/95 backdrop-blur-md border border-[#e4e2dd] dark:border-[#222222] shadow-md rounded-xl p-1 gap-1 text-[#4e453f] dark:text-[#a1a1aa] font-sans-ui text-xs ${
             showZoomControls
               ? 'opacity-100 scale-100 pointer-events-auto translate-y-0'
               : 'opacity-0 scale-90 pointer-events-none translate-y-2'
@@ -543,7 +543,7 @@ export function NoteCanvas({
             id="note-zoom-out-btn"
             onClick={handleZoomOut}
             disabled={zoomLevel <= 50}
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[#f0eee9] hover:text-[#1b1c19] active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
+            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[#f0eee9] hover:text-[#1b1c19] dark:hover:bg-[#1f1f1f] dark:hover:text-[#ffffff] active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
             title="Diminuir zoom (-10%)"
             aria-label="Diminuir zoom"
           >
@@ -554,7 +554,7 @@ export function NoteCanvas({
             type="button"
             id="note-zoom-reset-btn"
             onClick={handleResetZoom}
-            className="px-2 py-1 rounded-lg hover:bg-[#f0eee9] text-xs font-semibold text-[#1b1c19] tabular-nums transition-colors cursor-pointer"
+            className="px-2 py-1 rounded-lg hover:bg-[#f0eee9] dark:hover:bg-[#1f1f1f] text-xs font-semibold text-[#1b1c19] dark:text-[#ffffff] tabular-nums transition-colors cursor-pointer"
             title="Restaurar zoom original (100%)"
             aria-label="Restaurar zoom"
           >
@@ -566,7 +566,7 @@ export function NoteCanvas({
             id="note-zoom-in-btn"
             onClick={handleZoomIn}
             disabled={zoomLevel >= 200}
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[#f0eee9] hover:text-[#1b1c19] active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
+            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[#f0eee9] hover:text-[#1b1c19] dark:hover:bg-[#1f1f1f] dark:hover:text-[#ffffff] active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
             title="Aumentar zoom (+10%)"
             aria-label="Aumentar zoom"
           >
@@ -579,8 +579,8 @@ export function NoteCanvas({
           type="button"
           id="note-zoom-trigger-btn"
           onClick={() => setIsZoomOpen((prev) => !prev)}
-          className={`w-8 h-8 rounded-xl flex items-center justify-center bg-[#ffffff]/90 hover:bg-[#ffffff] text-[#68594d] hover:text-[#1b1c19] border border-[#e4e2dd] shadow-xs backdrop-blur-md transition-all cursor-pointer ${
-            showZoomControls ? 'ring-2 ring-[#68594d]/30 text-[#1b1c19] bg-[#ffffff]' : ''
+          className={`w-8 h-8 rounded-xl flex items-center justify-center bg-[#ffffff]/90 hover:bg-[#ffffff] text-[#68594d] hover:text-[#1b1c19] dark:bg-[#0d0d0d]/90 dark:hover:bg-[#1a1a1a] dark:text-[#a1a1aa] dark:hover:text-[#ffffff] border border-[#e4e2dd] dark:border-[#222222] shadow-xs backdrop-blur-md transition-all cursor-pointer ${
+            showZoomControls ? 'ring-2 ring-[#68594d]/30 dark:ring-[#a1a1aa]/30 text-[#1b1c19] dark:text-[#ffffff] bg-[#ffffff] dark:bg-[#1a1a1a]' : ''
           }`}
           title="Ajustar zoom da folha"
           aria-label="Ajustar zoom da folha"

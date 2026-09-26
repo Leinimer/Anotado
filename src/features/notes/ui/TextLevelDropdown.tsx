@@ -19,28 +19,28 @@ export const TEXT_LEVEL_OPTIONS: TextLevelOption[] = [
   {
     id: 'h1',
     label: 'Título',
-    previewClass: 'font-serif-note font-bold text-base sm:text-lg text-[#1b1c19] tracking-tight leading-tight',
+    previewClass: 'font-serif-note font-bold text-base sm:text-lg text-[#1b1c19] dark:text-white tracking-tight leading-tight',
     isActive: (editor) => editor.isActive('heading', { level: 1 }),
     action: (editor) => editor.chain().focus().setHeading({ level: 1 }).run(),
   },
   {
     id: 'h2',
     label: 'Subtítulo',
-    previewClass: 'font-serif-note font-bold text-sm sm:text-base text-[#1b1c19] leading-snug',
+    previewClass: 'font-serif-note font-bold text-sm sm:text-base text-[#1b1c19] dark:text-white leading-snug',
     isActive: (editor) => editor.isActive('heading', { level: 2 }),
     action: (editor) => editor.chain().focus().setHeading({ level: 2 }).run(),
   },
   {
     id: 'h3',
     label: 'Parágrafo',
-    previewClass: 'font-serif-note font-semibold text-xs sm:text-sm text-[#4e453f] leading-snug',
+    previewClass: 'font-serif-note font-semibold text-xs sm:text-sm text-[#4e453f] dark:text-[#a3a3a3] leading-snug',
     isActive: (editor) => editor.isActive('heading', { level: 3 }),
     action: (editor) => editor.chain().focus().setHeading({ level: 3 }).run(),
   },
   {
     id: 'paragraph',
     label: 'Corpo',
-    previewClass: 'font-serif-note font-normal text-xs sm:text-sm text-[#1b1c19] leading-normal',
+    previewClass: 'font-serif-note font-normal text-xs sm:text-sm text-[#1b1c19] dark:text-[#f5f5f5] leading-normal',
     isActive: (editor) => !editor.isActive('heading'),
     action: (editor) => editor.chain().focus().setParagraph().run(),
   },
@@ -238,7 +238,7 @@ export function TextLevelDropdown({
               transform: 'translateX(-50%)',
               zIndex: 100000,
             }}
-            className="bg-white/98 backdrop-blur-md border border-[#e4e2dd] p-1.5 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[190px] animate-in fade-in zoom-in-95 font-sans-ui pointer-events-auto select-none"
+            className="bg-white/98 dark:bg-[#0a0a0a]/98 backdrop-blur-md border border-[#e4e2dd] dark:border-[#1a1a1a] p-1.5 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[190px] animate-in fade-in zoom-in-95 font-sans-ui pointer-events-auto select-none"
           >
             {TEXT_LEVEL_OPTIONS.map((opt) => {
               const active = opt.isActive(editor);
@@ -258,13 +258,13 @@ export function TextLevelDropdown({
                   }}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-colors cursor-pointer text-left ${
                     active
-                      ? 'bg-[#f0eee9] text-[#1b1c19] font-medium'
-                      : 'hover:bg-[#fbf9f4] text-[#4e453f] hover:text-[#1b1c19]'
+                      ? 'bg-[#f0eee9] text-[#1b1c19] dark:bg-[#1a1612] dark:text-white font-medium'
+                      : 'hover:bg-[#fbf9f4] dark:hover:bg-[#161616] text-[#4e453f] dark:text-[#a3a3a3] hover:text-[#1b1c19] dark:hover:text-white'
                   }`}
                 >
                   <span className={opt.previewClass}>{opt.label}</span>
                   {active && (
-                    <span className="text-[#68594d] font-bold text-xs ml-3 shrink-0">✓</span>
+                    <span className="text-[#68594d] dark:text-[#d7c3b0] font-bold text-xs ml-3 shrink-0">✓</span>
                   )}
                 </button>
               );

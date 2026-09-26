@@ -72,7 +72,7 @@ export function SidebarContextMenu({
         top: `${menuPosition.top}px`,
         left: `${menuPosition.left}px`,
       }}
-      className="bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[170px] font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
+      className="bg-white dark:bg-[#0a0a0a] border border-[#e4e2dd] dark:border-[#1f1f1f] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[170px] font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
       onClick={(e) => e.stopPropagation()}
     >
       {/* Opção 1: Renomear */}
@@ -85,10 +85,10 @@ export function SidebarContextMenu({
               : notes.find((n) => n.id === menuOpenId)?.title || '';
           onStartRenaming(menuOpenId, menuItemType!, currentName);
         }}
-        className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+        className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
         title="Renomear"
       >
-        <Edit2 className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
+        <Edit2 className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" />
         <span>Renomear</span>
       </button>
 
@@ -104,10 +104,10 @@ export function SidebarContextMenu({
                 }
                 onClose();
               }}
-              className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+              className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
               title="Desarquivar nota"
             >
-              <ArchiveRestore className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
+              <ArchiveRestore className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
               <span>Desarquivar</span>
             </button>
           ) : (
@@ -119,10 +119,10 @@ export function SidebarContextMenu({
                 }
                 onClose();
               }}
-              className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+              className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
               title="Arquivar nota"
             >
-              <Archive className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
+              <Archive className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" />
               <span>Arquivar</span>
             </button>
           )}
@@ -142,10 +142,10 @@ export function SidebarContextMenu({
               }
               onClose();
             }}
-            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
             title="Criar nota nesta pasta"
           >
-            <Plus className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
+            <Plus className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
             <span>Criar nota</span>
           </button>
 
@@ -162,14 +162,14 @@ export function SidebarContextMenu({
                 e.stopPropagation();
                 onToggleColorSubmenu();
               }}
-              className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+              className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
               title="Cor da pasta"
             >
               <div className="flex items-center gap-2">
-                <Palette className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
+                <Palette className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" />
                 <span>Cor da pasta</span>
               </div>
-              <ChevronRight className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
+              <ChevronRight className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" />
             </button>
 
             {/* Submenu Lateral de Cores com Hover Bridge Contínua e Detecção de Borda */}
@@ -179,7 +179,7 @@ export function SidebarContextMenu({
                 onMouseEnter={onMouseEnterColorOption}
                 onMouseLeave={onMouseLeaveColorOption}
                 onClick={(e) => e.stopPropagation()}
-                className={`absolute top-0 z-60 min-w-[140px] bg-white border border-[#e4e2dd] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 ${
+                className={`absolute top-0 z-60 min-w-[140px] bg-white dark:bg-[#0a0a0a] border border-[#e4e2dd] dark:border-[#1f1f1f] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 ${
                   menuPosition &&
                   menuPosition.left + 175 + 145 > (typeof window !== 'undefined' ? window.innerWidth : 1000)
                     ? 'right-full mr-1.5 before:absolute before:-right-3 before:top-0 before:bottom-0 before:w-4 before:content-[""]'
@@ -200,7 +200,7 @@ export function SidebarContextMenu({
                         colorSubmenuTimerRef.current = null;
                       }
                     }}
-                    className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] text-[#4e453f] text-xs transition-colors cursor-pointer text-left"
+                    className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] dark:hover:bg-[#161616] text-[#4e453f] dark:text-[#d1c4bc] hover:text-[#1b1c19] dark:hover:text-white text-xs transition-colors cursor-pointer text-left"
                   >
                     <span
                       className="w-3 h-3 rounded-full border border-black/10 shrink-0 block"
@@ -211,7 +211,7 @@ export function SidebarContextMenu({
                 ))}
 
                 {/* Opção 🌈 Seletor de Cor Personalizado */}
-                <div className="pt-1 mt-0.5 border-t border-[#e4e2dd]">
+                <div className="pt-1 mt-0.5 border-t border-[#e4e2dd] dark:border-[#1f1f1f]">
                   <button
                     type="button"
                     id="folder-custom-color-btn"
@@ -221,7 +221,7 @@ export function SidebarContextMenu({
                       }
                       onClose();
                     }}
-                    className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] text-[#4e453f] text-xs transition-colors cursor-pointer text-left"
+                    className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] dark:hover:bg-[#161616] text-[#4e453f] dark:text-[#d1c4bc] hover:text-[#1b1c19] dark:hover:text-white text-xs transition-colors cursor-pointer text-left"
                     title="Definir cor personalizada"
                   >
                     <span className="text-xs">🌈</span>
@@ -240,7 +240,7 @@ export function SidebarContextMenu({
               onOpenSmartConfig(menuOpenId, targetFolder?.smart_tags || []);
               onClose();
             }}
-            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
             title="Configurar Pasta Inteligente"
           >
             <Sparkles className="w-3.5 h-3.5 text-[#eab308] shrink-0 fill-[#eab308]" />
@@ -256,16 +256,16 @@ export function SidebarContextMenu({
               }
               onClose();
             }}
-            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] transition-colors cursor-pointer text-left"
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
             title="Arquivar todas as notas desta pasta"
           >
-            <Archive className="w-3.5 h-3.5 text-[#7f756e] shrink-0" />
+            <Archive className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" />
             <span>Arquivar</span>
           </button>
         </>
       )}
 
-      <div className="h-[1px] bg-[#e4e2dd] my-1" />
+      <div className="h-[1px] bg-[#e4e2dd] dark:bg-[#1f1f1f] my-1" />
 
       {/* Opção: Excluir */}
       <button
@@ -275,7 +275,7 @@ export function SidebarContextMenu({
             onPromptDelete(menuOpenId, menuItemType);
           }
         }}
-        className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#ba1a1a] hover:bg-[#fceded] transition-colors cursor-pointer text-left"
+        className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#ba1a1a] dark:text-[#ffb4ab] hover:bg-[#fceded] dark:hover:bg-[#3a1515] transition-colors cursor-pointer text-left"
         title="Excluir"
       >
         <Trash2 className="w-3.5 h-3.5 shrink-0" />

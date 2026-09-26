@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Folder, Note } from '@/src/features/notes/types';
 import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
+import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
 import { SettingsModal } from '@/src/features/notes/ui/SettingsModal';
 import { SyncStatusIndicator } from '@/src/features/notes/ui/SyncStatusIndicator';
 import { createClient } from '@/src/features/auth/api/supabase-client';
@@ -584,16 +585,16 @@ export function DiarySidebarNavigation({
   return (
     <aside
       id="diary-sidebar-container"
-      className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0 relative"
+      className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] dark:bg-[#000000] border-r border-[#eae8e3] dark:border-[#1a1a1a] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0 relative"
     >
       {/* Top Header: Logo + Switch Discreta + Compartilhamento */}
       <div className="space-y-3 shrink-0">
         <div className="flex items-center justify-between py-1 px-1">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#68594d] text-white flex items-center justify-center font-serif-note font-bold text-sm shadow-xs">
+            <div className="w-7 h-7 rounded-lg bg-[#68594d] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] text-white flex items-center justify-center font-serif-note font-bold text-sm shadow-xs">
               A
             </div>
-            <span className="font-serif-note font-bold text-lg text-[#1b1c19] tracking-tight">
+            <span className="font-serif-note font-bold text-lg text-[#1b1c19] dark:text-[#ffffff] tracking-tight">
               anotado!
             </span>
           </div>
@@ -601,6 +602,9 @@ export function DiarySidebarNavigation({
           <div className="flex items-center gap-1.5">
             {/* Chavezinha / Switch Discreta e Elegante */}
             <WorkspaceSwitch currentWorkspace="diary" onToggle={onToggleWorkspace} />
+
+            {/* Botão de Troca de Tema (Lua/Sol) ao lado de Notas / Diário */}
+            <ThemeToggle />
 
             {/* Botão Circular de Compartilhamento do Diário */}
             <div className="relative" ref={shareMenuRef}>
@@ -610,8 +614,8 @@ export function DiarySidebarNavigation({
                 onClick={handleShareClick}
                 className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all cursor-pointer relative ${
                   acceptedSharedDiaries && acceptedSharedDiaries.length > 0
-                    ? 'bg-[#f4dfcb] text-[#68594d] border-[#e8d2bd] hover:bg-[#ebd0b7]'
-                    : 'bg-[#ffffff] text-[#7f756e] border-[#eae8e3] hover:text-[#1b1c19] hover:bg-[#f0eee9]'
+                    ? 'bg-[#f4dfcb] text-[#68594d] border-[#e8d2bd] hover:bg-[#ebd0b7] dark:bg-[#2e2620] dark:text-[#f4dfcb] dark:border-[#4a3b2c] dark:hover:bg-[#3d3229]'
+                    : 'bg-[#ffffff] text-[#7f756e] border-[#eae8e3] hover:text-[#1b1c19] hover:bg-[#f0eee9] dark:bg-[#111111] dark:border-[#222222] dark:text-[#a1a1aa] dark:hover:text-[#ffffff] dark:hover:bg-[#1a1a1a]'
                 }`}
                 title={
                   acceptedSharedDiaries && acceptedSharedDiaries.length > 0
@@ -621,7 +625,7 @@ export function DiarySidebarNavigation({
               >
                 <CalendarDays className="w-3.5 h-3.5" />
                 {acceptedSharedDiaries && acceptedSharedDiaries.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-[#68594d] text-white text-[9px] font-bold rounded-full flex items-center justify-center shadow-xs">
+                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-[#68594d] dark:bg-[#3d3229] text-white text-[9px] font-bold rounded-full flex items-center justify-center shadow-xs">
                     {acceptedSharedDiaries.length}
                   </span>
                 )}
@@ -629,12 +633,12 @@ export function DiarySidebarNavigation({
 
               {/* Menu dropdown para trocar para Diário compartilhado */}
               {isShareMenuOpen && (
-                <div className="absolute right-0 mt-1.5 w-60 bg-white rounded-xl shadow-lg border border-[#e4e2dd] p-1.5 z-50 text-xs font-sans-ui animate-in fade-in zoom-in-95 duration-100">
-                  <div className="px-2 py-1 text-[11px] font-semibold text-[#8a8178] uppercase tracking-wider">
+                <div className="absolute right-0 mt-1.5 w-60 bg-white dark:bg-[#080808] rounded-xl shadow-lg border border-[#e4e2dd] dark:border-[#1f1f1f] p-1.5 z-50 text-xs font-sans-ui animate-in fade-in zoom-in-95 duration-100">
+                  <div className="px-2 py-1 text-[11px] font-semibold text-[#8a8178] dark:text-[#71717a] uppercase tracking-wider">
                     Diários
                   </div>
-                  <div className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#f4dfcb]/60 text-[#5e4b3e] font-medium">
-                    <Calendar className="w-3.5 h-3.5 text-[#68594d]" />
+                  <div className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#f4dfcb]/60 dark:bg-[#222222] text-[#5e4b3e] dark:text-[#ffffff] font-medium">
+                    <Calendar className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d1d5db]" />
                     <span className="truncate">Meu Diário</span>
                   </div>
 
@@ -646,10 +650,10 @@ export function DiarySidebarNavigation({
                         setIsShareMenuOpen(false);
                         router.push(`/shared-diary/${share.id}`);
                       }}
-                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[#4e453f] hover:bg-[#f0eee9] transition-colors cursor-pointer text-left"
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[#4e453f] hover:bg-[#f0eee9] dark:text-[#d1d5db] dark:hover:bg-[#151515] dark:hover:text-[#ffffff] transition-colors cursor-pointer text-left"
                     >
                       <div className="flex items-center gap-2 truncate">
-                        <CalendarDays className="w-3.5 h-3.5 text-[#8c6b4f]" />
+                        <CalendarDays className="w-3.5 h-3.5 text-[#8c6b4f] dark:text-[#a1a1aa]" />
                         <span className="truncate">
                           Diário de {share.owner_email ? share.owner_email.split('@')[0] : 'Convidado'}
                         </span>
@@ -657,14 +661,14 @@ export function DiarySidebarNavigation({
                     </button>
                   ))}
 
-                  <div className="border-t border-[#f0eee9] mt-1 pt-1">
+                  <div className="border-t border-[#f0eee9] dark:border-[#1a1a1a] mt-1 pt-1">
                     <button
                       type="button"
                       onClick={() => {
                         setIsShareMenuOpen(false);
                         if (onOpenShareModal) onOpenShareModal();
                       }}
-                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[#68594d] hover:bg-[#f4dfcb]/40 font-medium transition-colors cursor-pointer"
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[#68594d] hover:bg-[#f4dfcb]/40 dark:text-[#d1d5db] dark:hover:bg-[#1a1a1a] dark:hover:text-[#ffffff] font-medium transition-colors cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>Convidar para meu diário</span>
@@ -678,20 +682,20 @@ export function DiarySidebarNavigation({
 
         {/* Barra de Busca de Entradas */}
         <div className="relative">
-          <Search className="w-3.5 h-3.5 text-[#7f756e] absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a1a1aa] absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input
             id="diary-search-input"
             type="text"
             placeholder="Buscar no diário..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-7 py-1.5 text-xs font-sans-ui bg-white/70 border border-[#eae8e3] rounded-xl text-[#1b1c19] placeholder-[#7f756e] focus:outline-hidden focus:ring-1 focus:ring-[#68594d] transition-all"
+            className="w-full pl-8 pr-7 py-1.5 text-xs font-sans-ui bg-white/70 dark:bg-[#0d0d0d] border border-[#eae8e3] dark:border-[#1f1f1f] rounded-xl text-[#1b1c19] dark:text-[#ffffff] placeholder-[#7f756e] dark:placeholder-[#71717a] focus:outline-hidden focus:ring-1 focus:ring-[#68594d] dark:focus:ring-[#3f3f46] transition-all"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[#7f756e] hover:text-[#1b1c19] cursor-pointer"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[#7f756e] hover:text-[#1b1c19] dark:text-[#71717a] dark:hover:text-[#ffffff] cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -706,12 +710,12 @@ export function DiarySidebarNavigation({
       >
         {diaryTree.length === 0 ? (
           <div className="text-center py-8 px-2">
-            <Calendar className="w-8 h-8 text-[#8c6b4f] mx-auto mb-2 opacity-60" />
-            <p className="text-xs text-[#7f756e] font-sans-ui">Nenhum ano cadastrado.</p>
+            <Calendar className="w-8 h-8 text-[#8c6b4f] dark:text-[#a1a1aa] mx-auto mb-2 opacity-60" />
+            <p className="text-xs text-[#7f756e] dark:text-[#a1a1aa] font-sans-ui">Nenhum ano cadastrado.</p>
             <button
               type="button"
               onClick={onCreateYear}
-              className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-sans-ui font-medium bg-[#68594d] text-white rounded-lg shadow-2xs hover:bg-[#53463c] cursor-pointer"
+              className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-sans-ui font-medium bg-[#68594d] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] text-white rounded-lg shadow-2xs hover:bg-[#53463c] dark:hover:bg-[#3d3229] cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Criar Ano {currentYear}</span>
@@ -724,7 +728,7 @@ export function DiarySidebarNavigation({
             return (
               <div
                 key={`year-group-${yearNum}`}
-                className="rounded-xl overflow-hidden bg-white/40 border border-[#eae8e3]/80"
+                className="rounded-xl overflow-hidden bg-white/40 dark:bg-[#080808] border border-[#eae8e3]/80 dark:border-[#1a1a1a]"
               >
                 {/* 1. Nível: ANO */}
                 <button
@@ -739,29 +743,29 @@ export function DiarySidebarNavigation({
                       totalNotes
                     )
                   }
-                  className="w-full flex items-center justify-between px-2.5 py-2 hover:bg-[#eae8e3]/60 transition-colors text-left cursor-pointer group"
+                  className="w-full flex items-center justify-between px-2.5 py-2 hover:bg-[#eae8e3]/60 dark:hover:bg-[#151515] transition-colors text-left cursor-pointer group"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[#7f756e] group-hover:text-[#1b1c19] transition-transform">
+                    <span className="text-[#7f756e] group-hover:text-[#1b1c19] dark:text-[#a1a1aa] dark:group-hover:text-[#ffffff] transition-transform">
                       {isYearOpen ? (
                         <ChevronDown className="w-3.5 h-3.5 stroke-[2]" />
                       ) : (
                         <ChevronRight className="w-3.5 h-3.5 stroke-[2]" />
                       )}
                     </span>
-                    <Calendar className="w-4 h-4 text-[#68594d] shrink-0" />
-                    <span className="font-serif-note font-bold text-sm text-[#1b1c19] tracking-wide">
+                    <Calendar className="w-4 h-4 text-[#68594d] dark:text-[#d1d5db] shrink-0" />
+                    <span className="font-serif-note font-bold text-sm text-[#1b1c19] dark:text-[#ffffff] tracking-wide">
                       {yearFolder.name}
                     </span>
                   </div>
-                  <span className="text-[10px] font-sans-ui font-medium text-[#7f756e] px-1.5 py-0.5 rounded-full bg-[#f0eee9]">
+                  <span className="text-[10px] font-sans-ui font-medium text-[#7f756e] dark:text-[#a1a1aa] px-1.5 py-0.5 rounded-full bg-[#f0eee9] dark:bg-[#141414]">
                     {totalNotes} {totalNotes === 1 ? 'entrada' : 'entradas'}
                   </span>
                 </button>
 
                 {/* 2. Nível: OS 12 MESES DO ANO */}
                 {isYearOpen && (
-                  <div className="pl-3 pr-1 py-1 space-y-1 bg-[#faf8f4]/40 border-t border-[#eae8e3]/60">
+                  <div className="pl-3 pr-1 py-1 space-y-1 bg-[#faf8f4]/40 dark:bg-[#000000] border-t border-[#eae8e3]/60 dark:border-[#1a1a1a]">
                     {months.map(
                       ({
                         monthFolder,
@@ -784,7 +788,7 @@ export function DiarySidebarNavigation({
                             onDragLeave={handleMonthDragLeave}
                             onDrop={(e) => handleMonthDrop(e, monthFolder.id)}
                             className={`rounded-lg transition-colors ${
-                              isDragOver ? 'bg-[#f4dfcb]/80 ring-2 ring-[#68594d]' : ''
+                              isDragOver ? 'bg-[#f4dfcb]/80 dark:bg-[#222222] ring-2 ring-[#68594d] dark:ring-[#4a3b2c]' : ''
                             }`}
                           >
                             <button
@@ -799,10 +803,10 @@ export function DiarySidebarNavigation({
                                   notesByDay.size
                                 )
                               }
-                              className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-[#eae8e3]/60 rounded-lg transition-colors text-left cursor-pointer group"
+                              className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-[#eae8e3]/60 dark:hover:bg-[#151515] rounded-lg transition-colors text-left cursor-pointer group"
                             >
                               <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="text-[#a1968e] group-hover:text-[#1b1c19]">
+                                <span className="text-[#a1968e] group-hover:text-[#1b1c19] dark:text-[#71717a] dark:group-hover:text-[#ffffff]">
                                   {isMonthOpen ? (
                                     <ChevronDown className="w-3 h-3 stroke-[2]" />
                                   ) : (
@@ -812,19 +816,19 @@ export function DiarySidebarNavigation({
                                 <span
                                   className={`font-sans-ui text-xs truncate ${
                                     notesByDay.size > 0
-                                      ? 'font-medium text-[#2d2824]'
-                                      : 'text-[#7f756e]'
+                                      ? 'font-medium text-[#2d2824] dark:text-[#ffffff]'
+                                      : 'text-[#7f756e] dark:text-[#a1a1aa]'
                                   }`}
                                 >
                                   {monthFolder.name}
                                 </span>
                               </div>
                               {notesByDay.size > 0 ? (
-                                <span className="text-[10px] font-sans-ui text-[#68594d] px-1.5 py-0.2 rounded-full bg-[#f4dfcb] font-medium">
+                                <span className="text-[10px] font-sans-ui text-[#68594d] dark:text-[#d1d5db] px-1.5 py-0.2 rounded-full bg-[#f4dfcb] dark:bg-[#222222] font-medium">
                                   {notesByDay.size}
                                 </span>
                               ) : (
-                                <span className="text-[10px] font-sans-ui text-[#a1968e] px-1">
+                                <span className="text-[10px] font-sans-ui text-[#a1968e] dark:text-[#888888] px-1">
                                   {daysInMonth}d
                                 </span>
                               )}
@@ -832,10 +836,10 @@ export function DiarySidebarNavigation({
 
                             {/* 3. Nível: OS DIAS DO MÊS (VIRTUAIS + NOTAS EXISTENTES) */}
                             {isMonthOpen && (
-                              <div className="pl-3 pr-1 py-0.5 space-y-0.5 border-l border-[#e4e0d7] ml-3 mt-0.5">
+                              <div className="pl-3 pr-1 py-0.5 space-y-0.5 border-l border-[#e4e0d7] dark:border-[#222222] ml-3 mt-0.5">
                                 {/* Barra de filtro rápida se houver notas criadas */}
                                 {notesByDay.size > 0 && (
-                                  <div className="flex items-center justify-between px-1.5 py-1 mb-0.5 text-[10px] font-sans-ui text-[#7f756e]">
+                                  <div className="flex items-center justify-between px-1.5 py-1 mb-0.5 text-[10px] font-sans-ui text-[#7f756e] dark:text-[#a1a1aa]">
                                     <span>
                                       {notesByDay.size} de {daysInMonth} dias
                                     </span>
@@ -851,8 +855,8 @@ export function DiarySidebarNavigation({
                                         }}
                                         className={`px-1.5 py-0.5 rounded transition-colors ${
                                           filterMode === 'all'
-                                            ? 'bg-[#e4dfd7] text-[#2d2824] font-medium'
-                                            : 'text-[#8a8178] hover:text-[#2d2824]'
+                                            ? 'bg-[#e4dfd7] text-[#2d2824] dark:bg-[#222222] dark:text-[#ffffff] font-medium'
+                                            : 'text-[#8a8178] hover:text-[#2d2824] dark:text-[#888888] dark:hover:text-[#ffffff]'
                                         }`}
                                       >
                                         Todos
@@ -868,8 +872,8 @@ export function DiarySidebarNavigation({
                                         }}
                                         className={`px-1.5 py-0.5 rounded transition-colors ${
                                           filterMode === 'created'
-                                            ? 'bg-[#e4dfd7] text-[#2d2824] font-medium'
-                                            : 'text-[#8a8178] hover:text-[#2d2824]'
+                                            ? 'bg-[#e4dfd7] text-[#2d2824] dark:bg-[#222222] dark:text-[#ffffff] font-medium'
+                                            : 'text-[#8a8178] hover:text-[#2d2824] dark:text-[#888888] dark:hover:text-[#ffffff]'
                                         }`}
                                       >
                                         Anotados ({notesByDay.size})
@@ -940,27 +944,27 @@ export function DiarySidebarNavigation({
                                         }
                                         className={`group/entry relative flex items-center justify-between px-2 py-1 rounded-lg text-xs font-sans-ui transition-all cursor-pointer ${
                                           isActive
-                                            ? 'bg-[#f4dfcb] text-[#5e4b3e] font-semibold border border-[#e8d2bd] shadow-2xs'
-                                            : 'text-[#1b1c19] font-medium hover:bg-[#eae8e3]/70'
+                                            ? 'bg-[#f4dfcb] text-[#5e4b3e] font-semibold border border-[#e8d2bd] shadow-2xs dark:bg-[#1a1a1a] dark:text-[#ffffff] dark:border-[#2a2a2a]'
+                                            : 'text-[#1b1c19] font-medium hover:bg-[#eae8e3]/70 dark:text-[#ededed] dark:hover:bg-[#151515] dark:hover:text-[#ffffff]'
                                         }`}
                                       >
                                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                           <Calendar
                                             className={`w-3.5 h-3.5 shrink-0 ${
                                               isActive
-                                                ? 'text-[#68594d] stroke-[2]'
-                                                : 'text-[#68594d] stroke-[1.75]'
+                                                ? 'text-[#68594d] dark:text-[#ffffff] stroke-[2]'
+                                                : 'text-[#68594d] dark:text-[#d1d5db] stroke-[1.75]'
                                             }`}
                                           />
                                           <span className="truncate">{displayTitle}</span>
                                           {hasContent && (
                                             <span
-                                              className="w-1.5 h-1.5 rounded-full bg-[#68594d] shrink-0"
+                                              className="w-1.5 h-1.5 rounded-full bg-[#68594d] dark:bg-[#ffffff] shrink-0"
                                               title="Possui conteúdo escrito"
                                             />
                                           )}
                                           {isToday && (
-                                            <span className="shrink-0 text-[9px] font-sans-ui font-medium px-1.5 py-0.2 rounded-full bg-[#e8d2bd] text-[#5e4b3e]">
+                                            <span className="shrink-0 text-[9px] font-sans-ui font-medium px-1.5 py-0.2 rounded-full bg-[#e8d2bd] text-[#5e4b3e] dark:bg-[#1a1a1a] dark:text-[#ededed] dark:border dark:border-[#2a2a2a]">
                                               Hoje
                                             </span>
                                           )}
@@ -979,7 +983,7 @@ export function DiarySidebarNavigation({
                                                 existingNote.title
                                               );
                                             }}
-                                            className="p-1 text-[#7f756e] hover:text-[#1b1c19] rounded cursor-pointer"
+                                            className="p-1 text-[#7f756e] hover:text-[#1b1c19] dark:text-[#a1a1aa] dark:hover:text-[#f87171] rounded cursor-pointer"
                                             title="Opções da entrada"
                                           >
                                             <Trash2 className="w-3 h-3" />
@@ -1005,18 +1009,18 @@ export function DiarySidebarNavigation({
                                         }
                                       }}
                                       onContextMenu={(e) => e.preventDefault()}
-                                      className="group/virtual relative flex items-center justify-between px-2 py-1 rounded-lg text-xs font-sans-ui text-[#8a8178] hover:text-[#1b1c19] hover:bg-[#eae8e3]/60 transition-colors cursor-pointer"
+                                      className="group/virtual relative flex items-center justify-between px-2 py-1 rounded-lg text-xs font-sans-ui text-[#8a8178] hover:text-[#1b1c19] hover:bg-[#eae8e3]/60 dark:text-[#888888] dark:hover:text-[#ffffff] dark:hover:bg-[#151515] transition-colors cursor-pointer"
                                     >
                                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                        <Calendar className="w-3.5 h-3.5 shrink-0 text-[#b5aba2] stroke-[1.2] group-hover/virtual:text-[#68594d]" />
+                                        <Calendar className="w-3.5 h-3.5 shrink-0 text-[#b5aba2] stroke-[1.2] group-hover/virtual:text-[#68594d] dark:text-[#444444] dark:group-hover/virtual:text-[#d1d5db]" />
                                         <span className="truncate">{defaultTitle}</span>
                                         {isToday && (
-                                          <span className="shrink-0 text-[9px] font-sans-ui font-medium px-1.5 py-0.2 rounded-full bg-[#eae5de] text-[#7f756e] group-hover/virtual:bg-[#e8d2bd] group-hover/virtual:text-[#5e4b3e]">
+                                          <span className="shrink-0 text-[9px] font-sans-ui font-medium px-1.5 py-0.2 rounded-full bg-[#eae5de] text-[#7f756e] group-hover/virtual:bg-[#e8d2bd] group-hover/virtual:text-[#5e4b3e] dark:bg-[#1a1a1a] dark:text-[#ededed] dark:border dark:border-[#2a2a2a] dark:group-hover/virtual:bg-[#222222] dark:group-hover/virtual:text-[#ffffff]">
                                             Hoje
                                           </span>
                                         )}
                                       </div>
-                                      <span className="text-[10px] font-sans-ui text-[#8a8178] opacity-0 group-hover/virtual:opacity-100 transition-opacity flex items-center gap-0.5">
+                                      <span className="text-[10px] font-sans-ui text-[#8a8178] dark:text-[#a1a1aa] opacity-0 group-hover/virtual:opacity-100 transition-opacity flex items-center gap-0.5">
                                         <Plus className="w-2.5 h-2.5" /> Escrever
                                       </span>
                                     </div>

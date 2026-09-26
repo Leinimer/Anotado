@@ -149,9 +149,9 @@ export function NoteTagsBar({ tags = [], onUpdateTags, disabled = false }: NoteT
             <div
               key={`editing-tag-${index}`}
               id={`tag-edit-wrapper-${index}`}
-              className="inline-flex items-center text-xs font-sans-ui text-[#8c6b4f] border-b border-[#8c6b4f]/70 pb-0.5 animate-in fade-in"
+              className="inline-flex items-center text-xs font-sans-ui text-[#8c6b4f] dark:text-[#d7c3b0] border-b border-[#8c6b4f]/70 dark:border-[#d7c3b0]/70 pb-0.5 animate-in fade-in"
             >
-              <span className="font-semibold mr-0.5 text-[#8c6b4f]">#</span>
+              <span className="font-semibold mr-0.5 text-[#8c6b4f] dark:text-[#d7c3b0]">#</span>
               <input
                 ref={editInputRef}
                 id={`tag-edit-input-${index}`}
@@ -169,7 +169,7 @@ export function NoteTagsBar({ tags = [], onUpdateTags, disabled = false }: NoteT
                     setEditingInput('');
                   }
                 }}
-                className="bg-transparent outline-hidden w-16 sm:w-20 text-xs font-medium text-[#8c6b4f] focus:ring-0 p-0"
+                className="bg-transparent outline-hidden w-16 sm:w-20 text-xs font-medium text-[#8c6b4f] dark:text-[#d7c3b0] focus:ring-0 p-0"
                 placeholder="tag..."
               />
             </div>
@@ -183,7 +183,7 @@ export function NoteTagsBar({ tags = [], onUpdateTags, disabled = false }: NoteT
             onDoubleClick={(e) => startEditing(index, e)}
             onTouchStart={() => handleTouchStart(index)}
             onTouchEnd={(e) => handleTouchEnd(index, e)}
-            className="group inline-flex items-center text-[#8c6b4f] hover:text-[#6e533d] font-sans-ui text-xs font-medium transition-colors duration-150 cursor-pointer"
+            className="group inline-flex items-center text-[#8c6b4f] hover:text-[#6e533d] dark:text-[#d7c3b0] dark:hover:text-[#ffffff] font-sans-ui text-xs font-medium transition-colors duration-150 cursor-pointer"
             title="Clique duplo para editar • Toque para opções"
           >
             {/* Ícone de Exclusão (Lixeira à ESQUERDA do #, zero espaço quando invisível) */}
@@ -198,7 +198,7 @@ export function NoteTagsBar({ tags = [], onUpdateTags, disabled = false }: NoteT
               className={`cursor-pointer transition-all duration-150 inline-flex items-center justify-center overflow-hidden ${
                 isMobileSelected
                   ? 'w-4 opacity-100 mr-1 text-[#b91c1c]'
-                  : 'w-0 opacity-0 group-hover:w-4 group-hover:opacity-100 group-hover:mr-1 text-[#8c6b4f] hover:text-[#b91c1c]'
+                  : 'w-0 opacity-0 group-hover:w-4 group-hover:opacity-100 group-hover:mr-1 text-[#8c6b4f] hover:text-[#b91c1c] dark:text-[#d7c3b0] dark:hover:text-[#f87171]'
               }`}
               aria-label={`Excluir tag #${cleanTag}`}
               title="Excluir tag"
@@ -207,8 +207,8 @@ export function NoteTagsBar({ tags = [], onUpdateTags, disabled = false }: NoteT
             </button>
 
             {/* Texto da Tag */}
-            <span className="font-semibold text-[#8c6b4f] group-hover:text-[#6e533d]">#</span>
-            <span className="leading-tight text-[#8c6b4f] group-hover:text-[#6e533d]">{cleanTag}</span>
+            <span className="font-semibold text-[#8c6b4f] group-hover:text-[#6e533d] dark:text-[#d7c3b0] dark:group-hover:text-[#ffffff]">#</span>
+            <span className="leading-tight text-[#8c6b4f] group-hover:text-[#6e533d] dark:text-[#d7c3b0] dark:group-hover:text-[#ffffff]">{cleanTag}</span>
           </div>
         );
       })}
@@ -217,9 +217,9 @@ export function NoteTagsBar({ tags = [], onUpdateTags, disabled = false }: NoteT
       {isAdding ? (
         <div
           id="tag-new-input-wrapper"
-          className="inline-flex items-center text-xs font-sans-ui text-[#8c6b4f] border-b border-[#8c6b4f]/70 pb-0.5 animate-in fade-in"
+          className="inline-flex items-center text-xs font-sans-ui text-[#8c6b4f] dark:text-[#d7c3b0] border-b border-[#8c6b4f]/70 dark:border-[#d7c3b0]/70 pb-0.5 animate-in fade-in"
         >
-          <span className="font-semibold mr-0.5 text-[#8c6b4f]">#</span>
+          <span className="font-semibold mr-0.5 text-[#8c6b4f] dark:text-[#d7c3b0]">#</span>
           <input
             ref={addInputRef}
             id="tag-new-input"
@@ -237,7 +237,7 @@ export function NoteTagsBar({ tags = [], onUpdateTags, disabled = false }: NoteT
                 setNewTagInput('');
               }
             }}
-            className="bg-transparent outline-hidden w-16 sm:w-24 text-xs font-medium text-[#8c6b4f] focus:ring-0 p-0"
+            className="bg-transparent outline-hidden w-16 sm:w-24 text-xs font-medium text-[#8c6b4f] dark:text-[#d7c3b0] focus:ring-0 p-0"
             placeholder="nova tag..."
           />
         </div>
@@ -250,7 +250,7 @@ export function NoteTagsBar({ tags = [], onUpdateTags, disabled = false }: NoteT
             if (disabled) return;
             setIsAdding(true);
           }}
-          className="w-4.5 h-4.5 rounded-full border border-[#d8cec4] hover:border-[#b8a898] bg-transparent text-[#8c6b4f] hover:text-[#6e533d] flex items-center justify-center cursor-pointer transition-colors duration-150 shrink-0"
+          className="w-4.5 h-4.5 rounded-full border border-[#d8cec4] hover:border-[#b8a898] dark:border-[#3f3f46] dark:hover:border-[#71717a] bg-transparent text-[#8c6b4f] hover:text-[#6e533d] dark:text-[#d7c3b0] dark:hover:text-[#ffffff] flex items-center justify-center cursor-pointer transition-colors duration-150 shrink-0"
           title="Adicionar tag"
           aria-label="Adicionar tag"
         >
