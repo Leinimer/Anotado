@@ -67,8 +67,8 @@ interface SidebarNavigationProps {
   onCreateNote: (folderId?: string | null) => Promise<string | void>;
   onRenameFolder: (folderId: string, newName: string) => void;
   onRenameNote: (noteId: string, newTitle: string) => void;
-  onDeleteFolder: (folderId: string) => void;
-  onDeleteNote: (noteId: string) => void;
+  onDeleteFolder: (folderId: string) => void | Promise<void>;
+  onDeleteNote: (noteId: string) => void | Promise<void>;
   onArchiveNote?: (noteId: string) => void;
   onUnarchiveNote?: (noteId: string) => void;
   onArchiveFolderNotes?: (folderId: string) => void;
@@ -946,18 +946,26 @@ export function SidebarNavigation({
   }, [filteredFolders, filteredNotes, filteredArchivedFolder, openFolderIds, isFiltering]);
 
   // Exclusão em lote
-  const handleBatchConfirmDelete = () => {
+  const handleBatchConfirmDelete = async () => {
     if (selectedItems.size === 0) return;
-    selectedItems.forEach((type, id) => {
-      if (type === 'folder') {
-        onDeleteFolder(id);
-      } else {
-        onDeleteNote(id);
+
+    // Executa as exclusões em sequência para evitar concorrência
+    // entre operações que leem/modificam a mesma SyncQueue no IndexedDB.
+    const itemsToDelete = Array.from(selectedItems.entries());
+
+    try {
+      for (const [id, type] of itemsToDelete) {
+        if (type === 'folder') {
+          await onDeleteFolder(id);
+        } else {
+          await onDeleteNote(id);
+        }
       }
-    });
-    setSelectedItems(new Map());
-    lastSelectedIdRef.current = null;
-    setShowBatchDeleteConfirm(false);
+    } finally {
+      setSelectedItems(new Map());
+      lastSelectedIdRef.current = null;
+      setShowBatchDeleteConfirm(false);
+    }
   };
 
   // Movimentação em lote
