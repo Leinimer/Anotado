@@ -823,7 +823,7 @@ export function SettingsModal({
                 <div className="text-xs font-medium text-[#4e453f] dark:text-[#d1c4bc]">
                   Alternar Tema:
                 </div>
-                <ThemeToggle className="w-full max-w-xs" variant="segmented" />
+                <ThemeToggle className="w-full max-w-xs" />
                 <div className="grid grid-cols-2 gap-3 pt-2 text-[11px] text-[#7f756e] dark:text-[#a3a3a3]">
                   <div className="p-2.5 rounded-xl border border-[#e4e2dd] dark:border-[#222222] bg-white dark:bg-[#050505]">
                     <div className="font-semibold text-[#1b1c19] dark:text-white mb-0.5">☀ Claro</div>
