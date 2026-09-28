@@ -173,6 +173,7 @@ export function SyncStatusIndicator({
   return (
     <>
       <div
+        suppressHydrationWarning
         className={`relative inline-flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-medium tracking-tight select-none transition-colors duration-150 cursor-pointer ${
           networkState.status === 'error'
             ? 'bg-[#fee2e2] text-[#991b1b] dark:bg-[#450a0a] dark:text-[#fca5a5]'

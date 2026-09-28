@@ -1,6 +1,6 @@
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
-import Highlight from '@tiptap/extension-highlight';
+import { CustomHighlight } from './extensions/custom-highlight';
 import { TextStyle } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
 import TextAlign from '@tiptap/extension-text-align';
@@ -193,7 +193,7 @@ export const defaultEditorExtensions = [
   CustomHorizontalRule,
   ArrowTransformExtension,
   Underline,
-  Highlight.configure({
+  CustomHighlight.configure({
     multicolor: true,
   }),
   TextStyle,

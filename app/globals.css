@@ -815,28 +815,58 @@ html.dark {
   background: transparent !important;
 }
 
-/* Marca-Texto (Highlight) no Dark: garante contraste mesmo quando o texto possui
-   uma cor inline própria. A cor de fundo do grifo permanece intacta. */
-.dark .ProseMirror mark,
-.dark .ProseMirror mark > span,
-.dark .ProseMirror mark > strong,
-.dark .ProseMirror mark > em,
-.dark .ProseMirror mark > u,
-.dark .ProseMirror mark > a {
-  color: #111111 !important;
-  -webkit-text-fill-color: #111111 !important;
-  border-radius: 2px;
-  padding: 0.05em 0.2em;
+/* ==========================================================================
+   Marca-Texto (Highlight) no Modo Dark: Tonalidade mais escura da mesma cor
+   ========================================================================== */
+
+/* Fallbacks pré-computados para os principais tons e paleta pastel padrão */
+
+/* Amarelo claro -> texto amarelo escuro / mostarda */
+.dark .ProseMirror mark[style*="background-color: #fef08a"],
+.dark .ProseMirror mark[style*="background-color: rgb(254, 240, 138)"],
+.dark .ProseMirror mark:not([style*="background-color"]) {
+  --highlight-fallback: #554b02;
 }
 
-/* O conteúdo de texto dentro do grifo precisa obedecer ao contraste do Dark Mode,
-   mesmo quando existir style="color: ..." inline vindo do Tiptap. */
-.dark .ProseMirror mark * {
-  color: #111111 !important;
-  -webkit-text-fill-color: #111111 !important;
+/* Verde claro -> texto verde escuro */
+.dark .ProseMirror mark[style*="background-color: #bbf7d0"],
+.dark .ProseMirror mark[style*="background-color: rgb(187, 247, 208)"] {
+  --highlight-fallback: #0a5223;
 }
 
-/* Destaques escuros personalizados: texto branco para manter leitura no Dark Mode. */
+/* Azul claro -> texto azul escuro */
+.dark .ProseMirror mark[style*="background-color: #bfdbfe"],
+.dark .ProseMirror mark[style*="background-color: rgb(191, 219, 254)"] {
+  --highlight-fallback: #03336d;
+}
+
+/* Rosa / Vermelho claro -> texto vermelho/vinho escuro */
+.dark .ProseMirror mark[style*="background-color: #fecdd3"],
+.dark .ProseMirror mark[style*="background-color: rgb(254, 205, 211)"],
+.dark .ProseMirror mark[style*="background-color: #fca5a5"],
+.dark .ProseMirror mark[style*="background-color: rgb(252, 165, 165)"],
+.dark .ProseMirror mark[style*="background-color: #ef4444"],
+.dark .ProseMirror mark[style*="background-color: rgb(239, 68, 68)"] {
+  --highlight-fallback: #5e020d;
+}
+
+/* Laranja claro -> texto laranja escuro */
+.dark .ProseMirror mark[style*="background-color: #fed7aa"],
+.dark .ProseMirror mark[style*="background-color: rgb(254, 215, 170)"],
+.dark .ProseMirror mark[style*="background-color: #f97316"],
+.dark .ProseMirror mark[style*="background-color: rgb(249, 115, 22)"] {
+  --highlight-fallback: #5e3402;
+}
+
+/* Roxo / Lilás claro -> texto roxo escuro */
+.dark .ProseMirror mark[style*="background-color: #e9d5ff"],
+.dark .ProseMirror mark[style*="background-color: rgb(233, 213, 255)"],
+.dark .ProseMirror mark[style*="background-color: #a855f7"],
+.dark .ProseMirror mark[style*="background-color: rgb(168, 85, 247)"] {
+  --highlight-fallback: #340368;
+}
+
+/* Fundo muito escuro personalizado -> texto branco para contraste legível */
 .dark .ProseMirror mark[style*="background-color: rgb(30, 58, 138)"],
 .dark .ProseMirror mark[style*="background-color: rgb(20, 83, 45)"],
 .dark .ProseMirror mark[style*="background-color: rgb(74, 55, 40)"],
@@ -847,29 +877,33 @@ html.dark {
 .dark .ProseMirror mark[style*="background-color: #4a3728"],
 .dark .ProseMirror mark[style*="background-color: #111111"],
 .dark .ProseMirror mark[style*="background-color: #000000"] {
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
+  --highlight-fallback: #ffffff;
 }
 
-.dark .ProseMirror mark[style*="background-color: rgb(30, 58, 138)"] *,
-.dark .ProseMirror mark[style*="background-color: rgb(20, 83, 45)"] *,
-.dark .ProseMirror mark[style*="background-color: rgb(74, 55, 40)"] *,
-.dark .ProseMirror mark[style*="background-color: rgb(17, 17, 17)"] *,
-.dark .ProseMirror mark[style*="background-color: rgb(0, 0, 0)"] *,
-.dark .ProseMirror mark[style*="background-color: #1e3a8a"] *,
-.dark .ProseMirror mark[style*="background-color: #14532d"] *,
-.dark .ProseMirror mark[style*="background-color: #4a3728"] *,
-.dark .ProseMirror mark[style*="background-color: #111111"] *,
-.dark .ProseMirror mark[style*="background-color: #000000"] * {
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
+/* Aplicação da tonalidade mais escura da mesma cor no Dark Mode:
+   Utiliza a variável calculada dinamicamente (--highlight-text-dark) ou o fallback */
+.dark .ProseMirror mark,
+.dark .ProseMirror mark > span,
+.dark .ProseMirror mark > strong,
+.dark .ProseMirror mark > em,
+.dark .ProseMirror mark > u,
+.dark .ProseMirror mark > a {
+  color: var(--highlight-text-dark, var(--highlight-fallback, #554b02)) !important;
+  -webkit-text-fill-color: var(--highlight-text-dark, var(--highlight-fallback, #554b02)) !important;
+  border-radius: 2px;
+  padding: 0.05em 0.2em;
 }
 
-/* Adaptação inteligente de cores de texto personalizadas escuras em fundo preto */
-.dark .ProseMirror span[style*="color: #000000"],
-.dark .ProseMirror span[style*="color: #1b1c19"],
-.dark .ProseMirror span[style*="color: rgb(0, 0, 0)"],
-.dark .ProseMirror span[style*="color: rgb(27, 28, 25)"] {
+.dark .ProseMirror mark * {
+  color: var(--highlight-text-dark, var(--highlight-fallback, #554b02)) !important;
+  -webkit-text-fill-color: var(--highlight-text-dark, var(--highlight-fallback, #554b02)) !important;
+}
+
+/* Adaptação inteligente de cores de texto personalizadas escuras em fundo preto (FORA do marca-texto) */
+.dark .ProseMirror :not(mark) > span[style*="color: #000000"],
+.dark .ProseMirror :not(mark) > span[style*="color: #1b1c19"],
+.dark .ProseMirror :not(mark) > span[style*="color: rgb(0, 0, 0)"],
+.dark .ProseMirror :not(mark) > span[style*="color: rgb(27, 28, 25)"] {
   color: #ffffff !important;
 }
 

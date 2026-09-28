@@ -1042,10 +1042,10 @@ export function DiarySidebarNavigation({
 
       {/* Tags Globais do Diário Extraídas Dinamicamente */}
       {uniqueDiaryTags.length > 0 && !searchQuery && (
-        <div className="py-2 border-t border-[#eae8e3] shrink-0">
-          <div className="flex items-center justify-between px-1 mb-1.5 text-xs text-[#7f756e] font-sans-ui font-medium">
+        <div className="py-2 border-t border-[#eae8e3] dark:border-[#1a1a1a] shrink-0">
+          <div className="flex items-center justify-between px-1 mb-1.5 text-xs text-[#7f756e] dark:text-[#d1d5db] font-sans-ui font-medium">
             <div className="flex items-center gap-1.5">
-              <Tag className="w-3 h-3 text-[#68594d]" />
+              <Tag className="w-3 h-3 text-[#68594d] dark:text-[#d1d5db]" />
               <span>Etiquetas do Diário</span>
             </div>
             {activeTag && (
@@ -1053,7 +1053,7 @@ export function DiarySidebarNavigation({
                 type="button"
                 id="diary-tags-clear-btn"
                 onClick={() => setActiveTag(null)}
-                className="text-[11px] text-[#68594d] hover:text-[#1b1c19] hover:underline font-medium cursor-pointer"
+                className="text-[11px] text-[#68594d] hover:text-[#1b1c19] dark:text-[#a1a1aa] dark:hover:text-[#ffffff] hover:underline font-medium cursor-pointer"
               >
                 Limpar
               </button>
@@ -1069,8 +1069,8 @@ export function DiarySidebarNavigation({
                   onClick={() => setActiveTag(isSelected ? null : tag)}
                   className={`px-2 py-0.5 rounded-md text-[11px] font-sans-ui font-medium transition-colors cursor-pointer ${
                     isSelected
-                      ? 'bg-[#68594d] text-white shadow-2xs'
-                      : 'bg-[#eae8e3] text-[#4e453f] hover:bg-[#dcd9d2]'
+                      ? 'bg-[#68594d] text-white shadow-2xs dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] dark:text-[#ffffff]'
+                      : 'bg-[#eae8e3] text-[#4e453f] hover:bg-[#dcd9d2] dark:bg-[#111111] dark:border dark:border-[#252525] dark:text-[#ededed] dark:hover:bg-[#1c1c1c] dark:hover:text-[#ffffff]'
                   }`}
                 >
                   {tag}
@@ -1082,7 +1082,7 @@ export function DiarySidebarNavigation({
       )}
 
       {/* Bottom Actions: Indicador de Sincronização, + Ano, + Entrada, Usuário */}
-      <div className="pt-2 border-t border-[#eae8e3] space-y-2 shrink-0">
+      <div className="pt-2 border-t border-[#eae8e3] dark:border-[#1a1a1a] space-y-2 shrink-0">
         <div className="flex items-center justify-between px-0.5">
           <SyncStatusIndicator
             userId={userId || undefined}
@@ -1097,10 +1097,10 @@ export function DiarySidebarNavigation({
             id="diary-create-year-btn"
             type="button"
             onClick={onCreateYear}
-            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#eae8e3] hover:bg-[#e0ded8] text-[#4e453f] hover:text-[#1b1c19] text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer"
+            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#eae8e3] hover:bg-[#e0ded8] text-[#4e453f] hover:text-[#1b1c19] dark:bg-[#111111] dark:border dark:border-[#1f1f1f] dark:text-[#d1d5db] dark:hover:bg-[#1a1a1a] dark:hover:text-[#ffffff] text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer"
             title="Criar novo ano no Diário"
           >
-            <CalendarPlus className="w-4 h-4 text-[#68594d]" />
+            <CalendarPlus className="w-4 h-4 text-[#68594d] dark:text-[#d1d5db]" />
             <span>+ Ano</span>
           </button>
 
@@ -1108,7 +1108,7 @@ export function DiarySidebarNavigation({
             id="diary-create-entry-btn"
             type="button"
             onClick={onCreateEntry}
-            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#68594d] hover:bg-[#53463c] text-white text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer shadow-2xs"
+            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#68594d] hover:bg-[#53463c] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] text-white text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer shadow-2xs"
             title="Criar nova entrada por data"
           >
             <Calendar className="w-4 h-4" />
@@ -1117,10 +1117,10 @@ export function DiarySidebarNavigation({
         </div>
 
         {/* Rodapé do Usuário e Configurações */}
-        <div className="flex items-center justify-between px-1 pt-1 text-xs text-[#7f756e]">
+        <div className="flex items-center justify-between px-1 pt-1 text-xs text-[#7f756e] dark:text-[#a1a1aa]">
           <div className="flex items-center gap-1.5 truncate max-w-[150px]" title={userEmail || ''}>
-            <User className="w-3.5 h-3.5 shrink-0 text-[#68594d]" />
-            <span className="truncate font-sans-ui">{userEmail || 'Conta'}</span>
+            <User className="w-3.5 h-3.5 shrink-0 text-[#68594d] dark:text-[#a1a1aa]" />
+            <span className="truncate font-sans-ui dark:text-[#d1d5db]">{userEmail || 'Conta'}</span>
           </div>
 
           <div className="flex items-center gap-1">
@@ -1128,7 +1128,7 @@ export function DiarySidebarNavigation({
               id="diary-settings-btn"
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className="p-1 hover:bg-[#eae8e3] rounded-lg transition-colors text-[#7f756e] hover:text-[#1b1c19] cursor-pointer"
+              className="p-1 hover:bg-[#eae8e3] dark:hover:bg-[#141414] rounded-lg transition-colors text-[#7f756e] hover:text-[#1b1c19] dark:text-[#a1a1aa] dark:hover:text-[#ffffff] cursor-pointer"
               title="Configurações"
             >
               <Settings className="w-4 h-4" />
@@ -1142,7 +1142,7 @@ export function DiarySidebarNavigation({
                 await supabase.auth.signOut();
                 window.location.href = '/login';
               }}
-              className="p-1 hover:bg-[#eae8e3] rounded-lg transition-colors text-[#7f756e] hover:text-[#1b1c19] cursor-pointer"
+              className="p-1 hover:bg-[#eae8e3] dark:hover:bg-[#141414] rounded-lg transition-colors text-[#7f756e] hover:text-[#1b1c19] dark:text-[#a1a1aa] dark:hover:text-[#f87171] cursor-pointer"
               title="Sair"
             >
               <LogOut className="w-4 h-4" />
@@ -1156,9 +1156,9 @@ export function DiarySidebarNavigation({
         <div
           ref={contextMenuRef}
           style={{ top: contextMenu.y, left: contextMenu.x }}
-          className="fixed z-50 w-44 bg-white rounded-xl shadow-xl border border-[#e4e2dd] p-1 font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-50 w-44 bg-white dark:bg-[#080808] rounded-xl shadow-xl border border-[#e4e2dd] dark:border-[#1f1f1f] p-1 font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
         >
-          <div className="px-2.5 py-1 text-[10px] font-semibold text-[#8a8178] uppercase tracking-wider border-b border-[#f0eee9] mb-1 truncate">
+          <div className="px-2.5 py-1 text-[10px] font-semibold text-[#8a8178] dark:text-[#71717a] uppercase tracking-wider border-b border-[#f0eee9] dark:border-[#1a1a1a] mb-1 truncate">
             {contextMenu.type === 'year'
               ? `Ano: ${contextMenu.name}`
               : contextMenu.type === 'month'
@@ -1169,18 +1169,18 @@ export function DiarySidebarNavigation({
           <button
             type="button"
             onClick={handleTriggerRename}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[#2d2824] hover:bg-[#f0eee9] transition-colors cursor-pointer text-left"
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[#2d2824] hover:bg-[#f0eee9] dark:text-[#ededed] dark:hover:bg-[#151515] dark:hover:text-[#ffffff] transition-colors cursor-pointer text-left"
           >
-            <Edit2 className="w-3.5 h-3.5 text-[#68594d]" />
+            <Edit2 className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d1d5db]" />
             <span>Editar (renomear)</span>
           </button>
 
           <button
             type="button"
             onClick={handleTriggerDelete}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-red-600 hover:bg-red-50 transition-colors cursor-pointer text-left"
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer text-left"
           >
-            <Trash2 className="w-3.5 h-3.5 text-red-600" />
+            <Trash2 className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
             <span>Excluir</span>
           </button>
         </div>
@@ -1189,24 +1189,24 @@ export function DiarySidebarNavigation({
       {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO COM AVISO CLARO */}
       {deleteModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 font-sans-ui">
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl border border-[#eae8e3] space-y-4 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white dark:bg-[#080808] rounded-2xl p-5 max-w-sm w-full shadow-xl border border-[#eae8e3] dark:border-[#1f1f1f] space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-serif-note font-bold text-base text-[#1b1c19]">
+                <h3 className="font-serif-note font-bold text-base text-[#1b1c19] dark:text-[#ffffff]">
                   {deleteModal.type === 'year'
                     ? `Excluir Ano ${deleteModal.name}?`
                     : deleteModal.type === 'month'
                     ? `Excluir Mês de ${deleteModal.name}?`
                     : `Excluir entrada "${deleteModal.name}"?`}
                 </h3>
-                <p className="text-xs text-[#7f756e]">Confirmação necessária</p>
+                <p className="text-xs text-[#7f756e] dark:text-[#a1a1aa]">Confirmação necessária</p>
               </div>
             </div>
 
-            <p className="text-xs text-[#4e453f] leading-relaxed">
+            <p className="text-xs text-[#4e453f] dark:text-[#d1d5db] leading-relaxed">
               {deleteModal.type === 'year' && deleteModal.notesCount > 0
                 ? `Atenção: Este ano possui ${deleteModal.notesCount} anotação(ões) em seus meses. Ao excluir o ano, todas as suas anotações e pastas de meses serão excluídas.`
                 : deleteModal.type === 'month' && deleteModal.notesCount > 0
@@ -1216,7 +1216,7 @@ export function DiarySidebarNavigation({
                 : 'Deseja realmente excluir esta pasta?'}
             </p>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#f0eee9]">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#f0eee9] dark:border-[#1a1a1a]">
               <button
                 type="button"
                 onClick={() =>
@@ -1228,7 +1228,7 @@ export function DiarySidebarNavigation({
                     notesCount: 0,
                   })
                 }
-                className="px-3 py-1.5 text-xs font-medium text-[#7f756e] hover:bg-[#f0eee9] rounded-lg transition-colors cursor-pointer"
+                className="px-3 py-1.5 text-xs font-medium text-[#7f756e] hover:bg-[#f0eee9] dark:text-[#a1a1aa] dark:hover:bg-[#151515] dark:hover:text-[#ffffff] rounded-lg transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
@@ -1247,8 +1247,8 @@ export function DiarySidebarNavigation({
       {/* MODAL DE RENOMEAR */}
       {renameModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 font-sans-ui">
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl border border-[#eae8e3] space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <h3 className="font-serif-note font-bold text-base text-[#1b1c19]">
+          <div className="bg-white dark:bg-[#080808] rounded-2xl p-5 max-w-sm w-full shadow-xl border border-[#eae8e3] dark:border-[#1f1f1f] space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="font-serif-note font-bold text-base text-[#1b1c19] dark:text-[#ffffff]">
               {renameModal.type === 'year'
                 ? 'Renomear Ano'
                 : renameModal.type === 'month'
@@ -1263,10 +1263,10 @@ export function DiarySidebarNavigation({
                 onChange={(e) => setRenameInputValue(e.target.value)}
                 placeholder="Novo nome..."
                 autoFocus
-                className="w-full px-3 py-2 text-xs font-sans-ui bg-white border border-[#e4e2dd] rounded-xl text-[#1b1c19] focus:outline-hidden focus:ring-1 focus:ring-[#68594d]"
+                className="w-full px-3 py-2 text-xs font-sans-ui bg-white dark:bg-[#0d0d0d] border border-[#e4e2dd] dark:border-[#222222] rounded-xl text-[#1b1c19] dark:text-[#ffffff] focus:outline-hidden focus:ring-1 focus:ring-[#68594d] dark:focus:ring-[#3f3f46]"
               />
 
-              <div className="flex items-center justify-end gap-2 pt-1">
+              <div className="flex items-center justify-end gap-2 pt-1 border-t border-[#f0eee9] dark:border-[#1a1a1a]">
                 <button
                   type="button"
                   onClick={() =>
@@ -1277,13 +1277,13 @@ export function DiarySidebarNavigation({
                       currentName: '',
                     })
                   }
-                  className="px-3 py-1.5 text-xs font-medium text-[#7f756e] hover:bg-[#f0eee9] rounded-lg transition-colors cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-medium text-[#7f756e] hover:bg-[#f0eee9] dark:text-[#a1a1aa] dark:hover:bg-[#151515] dark:hover:text-[#ffffff] rounded-lg transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-xs font-medium text-white bg-[#68594d] hover:bg-[#53463c] rounded-lg shadow-2xs transition-colors cursor-pointer"
+                  className="px-4 py-1.5 text-xs font-medium text-white bg-[#68594d] hover:bg-[#53463c] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] rounded-lg shadow-2xs transition-colors cursor-pointer"
                 >
                   Salvar
                 </button>
