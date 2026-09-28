@@ -815,11 +815,54 @@ html.dark {
   background: transparent !important;
 }
 
-/* Marca-Texto (Highlight) no Dark: preserva cores de fundo e garante contraste de texto */
-.dark .ProseMirror mark {
-  color: #111111;
+/* Marca-Texto (Highlight) no Dark: garante contraste mesmo quando o texto possui
+   uma cor inline própria. A cor de fundo do grifo permanece intacta. */
+.dark .ProseMirror mark,
+.dark .ProseMirror mark > span,
+.dark .ProseMirror mark > strong,
+.dark .ProseMirror mark > em,
+.dark .ProseMirror mark > u,
+.dark .ProseMirror mark > a {
+  color: #111111 !important;
+  -webkit-text-fill-color: #111111 !important;
   border-radius: 2px;
   padding: 0.05em 0.2em;
+}
+
+/* O conteúdo de texto dentro do grifo precisa obedecer ao contraste do Dark Mode,
+   mesmo quando existir style="color: ..." inline vindo do Tiptap. */
+.dark .ProseMirror mark * {
+  color: #111111 !important;
+  -webkit-text-fill-color: #111111 !important;
+}
+
+/* Destaques escuros personalizados: texto branco para manter leitura no Dark Mode. */
+.dark .ProseMirror mark[style*="background-color: rgb(30, 58, 138)"],
+.dark .ProseMirror mark[style*="background-color: rgb(20, 83, 45)"],
+.dark .ProseMirror mark[style*="background-color: rgb(74, 55, 40)"],
+.dark .ProseMirror mark[style*="background-color: rgb(17, 17, 17)"],
+.dark .ProseMirror mark[style*="background-color: rgb(0, 0, 0)"],
+.dark .ProseMirror mark[style*="background-color: #1e3a8a"],
+.dark .ProseMirror mark[style*="background-color: #14532d"],
+.dark .ProseMirror mark[style*="background-color: #4a3728"],
+.dark .ProseMirror mark[style*="background-color: #111111"],
+.dark .ProseMirror mark[style*="background-color: #000000"] {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.dark .ProseMirror mark[style*="background-color: rgb(30, 58, 138)"] *,
+.dark .ProseMirror mark[style*="background-color: rgb(20, 83, 45)"] *,
+.dark .ProseMirror mark[style*="background-color: rgb(74, 55, 40)"] *,
+.dark .ProseMirror mark[style*="background-color: rgb(17, 17, 17)"] *,
+.dark .ProseMirror mark[style*="background-color: rgb(0, 0, 0)"] *,
+.dark .ProseMirror mark[style*="background-color: #1e3a8a"] *,
+.dark .ProseMirror mark[style*="background-color: #14532d"] *,
+.dark .ProseMirror mark[style*="background-color: #4a3728"] *,
+.dark .ProseMirror mark[style*="background-color: #111111"] *,
+.dark .ProseMirror mark[style*="background-color: #000000"] * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 /* Adaptação inteligente de cores de texto personalizadas escuras em fundo preto */
