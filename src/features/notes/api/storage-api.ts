@@ -4,8 +4,9 @@ import { networkMonitor } from './network-monitor';
 import { base64AttachmentMigrator } from './base64-attachment-migrator';
 import { generateUUID } from '../utils/uuid';
 import { registerResolvedAttachmentUrl } from '../editor/utils/media-common';
+import { ATTACHMENTS_BUCKET_NAME } from './storage-constants';
 
-export const ATTACHMENTS_BUCKET_NAME = 'note-attachments';
+export { ATTACHMENTS_BUCKET_NAME };
 
 export interface UploadedMediaResult {
   url: string;

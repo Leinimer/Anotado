@@ -92,10 +92,23 @@ export function NoteEditor({
         class:
           'focus:outline-none min-h-[420px] text-[#1b1c19] font-serif-note text-base sm:text-lg leading-[1.6] selection:bg-[#f4dfcb] selection:text-[#1b1c19]',
       },
-      handlePaste: (view, event) => {
-        const files = event.clipboardData?.files;
-        if (files && files.length > 0) {
-          const file = files[0];
+      handlePaste: (view, event, slice) => {
+        // 1. Verifica se há arquivo de imagem ou anexo no clipboardData (files ou items)
+        let file: File | null = null;
+        const clipboardFiles = event.clipboardData?.files;
+        if (clipboardFiles && clipboardFiles.length > 0) {
+          file = clipboardFiles[0];
+        } else if (event.clipboardData?.items) {
+          for (let i = 0; i < event.clipboardData.items.length; i++) {
+            const item = event.clipboardData.items[i];
+            if (item.type.startsWith('image/')) {
+              file = item.getAsFile();
+              if (file) break;
+            }
+          }
+        }
+
+        if (file) {
           if (
             file.type.startsWith('image/') ||
             file.type === 'application/pdf' ||
@@ -107,35 +120,107 @@ export function NoteEditor({
               userId && userId !== 'anonymous'
                 ? userId
                 : typeof window !== 'undefined'
-                ? localStorage.getItem('anotado_last_auth_user_id')
-                : null;
-            if (effectiveUser && effectiveUser !== 'anonymous') {
-              uploadNoteFile(effectiveUser, file, noteId)
-                .then((res) => {
-                  if (file.type.startsWith('image/')) {
-                    view.dispatch(
-                      view.state.tr.replaceSelectionWith(
-                        view.state.schema.nodes.image.create({ src: res.url, alt: res.name })
-                      )
-                    );
+                ? localStorage.getItem('anotado_last_auth_user_id') || 'anonymous'
+                : 'anonymous';
+            uploadNoteFile(effectiveUser, file, noteId)
+              .then((res) => {
+                if (file!.type.startsWith('image/')) {
+                  const { state } = view;
+                  const { schema } = state;
+                  const tr = state.tr;
+                  const imageNode = schema.nodes.image.create({ src: res.url, alt: res.name });
+                  const paragraphType = schema.nodes.paragraph;
+
+                  // Substitui a seleção atual pela imagem
+                  tr.replaceSelectionWith(imageNode);
+
+                  // Posiciona o cursor imediatamente após a imagem
+                  const afterPos = tr.selection.to;
+                  const $after = tr.doc.resolve(Math.min(afterPos, tr.doc.content.size));
+                  const nextNode = $after.nodeAfter;
+
+                  // Se não houver um bloco de texto logo após ou se for o fim do documento, insere um parágrafo
+                  if (afterPos >= tr.doc.content.size || !nextNode || !nextNode.isTextblock) {
+                    if (paragraphType) {
+                      const emptyParagraph = paragraphType.create();
+                      tr.insert(afterPos, emptyParagraph);
+                      const textPos = Math.min(afterPos + 1, tr.doc.content.size);
+                      try {
+                        tr.setSelection(TextSelection.near(tr.doc.resolve(textPos), 1));
+                      } catch {}
+                    }
                   } else {
-                    view.dispatch(
-                      view.state.tr.replaceSelectionWith(
-                        view.state.schema.nodes.documentAttachment.create({
-                          src: res.url,
-                          name: res.name,
-                          size: res.size,
-                          type: res.type,
-                        })
-                      )
-                    );
+                    // Já existe um parágrafo logo depois da imagem, posiciona o cursor no início dele
+                    const textPos = Math.min(afterPos + 1, tr.doc.content.size);
+                    try {
+                      tr.setSelection(TextSelection.near(tr.doc.resolve(textPos), 1));
+                    } catch {}
                   }
-                })
-                .catch((err) => {
-                  console.error('[NoteEditor] Erro ao colar arquivo:', err);
-                });
-              return true;
+
+                  tr.scrollIntoView();
+                  view.dispatch(tr);
+                  setTimeout(() => {
+                    view.focus();
+                  }, 10);
+                } else {
+                  view.dispatch(
+                    view.state.tr.replaceSelectionWith(
+                      view.state.schema.nodes.documentAttachment.create({
+                        src: res.url,
+                        name: res.name,
+                        size: res.size,
+                        type: res.type,
+                      })
+                    )
+                  );
+                }
+              })
+              .catch((err) => {
+                console.error('[NoteEditor] Erro ao colar arquivo:', err);
+              });
+            return true;
+          }
+        }
+
+        // 2. Se for um slice colado contendo imagem (ex: cópia de imagem via HTML ou Ctrl+C em nó de imagem)
+        if (slice && slice.content.size > 0) {
+          let containsImage = false;
+          slice.content.forEach((node) => {
+            if (node.type.name === 'image') containsImage = true;
+          });
+
+          if (containsImage) {
+            event.preventDefault();
+            const tr = view.state.tr;
+            tr.replaceSelection(slice);
+
+            const afterPos = tr.selection.to;
+            const paragraphType = view.state.schema.nodes.paragraph;
+            const $after = tr.doc.resolve(Math.min(afterPos, tr.doc.content.size));
+            const nextNode = $after.nodeAfter;
+
+            if (afterPos >= tr.doc.content.size || !nextNode || !nextNode.isTextblock) {
+              if (paragraphType) {
+                const emptyParagraph = paragraphType.create();
+                tr.insert(afterPos, emptyParagraph);
+                const textPos = Math.min(afterPos + 1, tr.doc.content.size);
+                try {
+                  tr.setSelection(TextSelection.near(tr.doc.resolve(textPos), 1));
+                } catch {}
+              }
+            } else {
+              const textPos = Math.min(afterPos + 1, tr.doc.content.size);
+              try {
+                tr.setSelection(TextSelection.near(tr.doc.resolve(textPos), 1));
+              } catch {}
             }
+
+            tr.scrollIntoView();
+            view.dispatch(tr);
+            setTimeout(() => {
+              view.focus();
+            }, 10);
+            return true;
           }
         }
 

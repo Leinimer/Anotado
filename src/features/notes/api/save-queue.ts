@@ -11,7 +11,6 @@
 import { extractHashtagsFromText, normalizeTags } from '../utils/hashtag-extractor';
 import { indexedDBStorage } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
-import { syncEngine } from './sync-engine';
 
 interface PendingSaveItem {
   userId: string;
@@ -36,6 +35,11 @@ class SaveQueueManager {
   private queues: Map<string, NoteQueueState> = new Map();
   // Timer de debounce de sincronização remota por nota (1,5 segundo após a última alteração de conteúdo)
   private remoteSyncDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
+  private syncScheduler: ((delayMs: number) => void) | null = null;
+
+  public setSyncScheduler(fn: (delayMs: number) => void) {
+    this.syncScheduler = fn;
+  }
 
   /**
    * Agenda a sincronização remota com debounce de 1500ms (1,5 segundo).
@@ -51,7 +55,9 @@ class SaveQueueManager {
     const timer = setTimeout(() => {
       this.remoteSyncDebounceTimers.delete(noteId);
       console.log(`[SaveQueue] Debounce de 1.5s concluído para nota ${noteId}. Agendando SyncEngine...`);
-      syncEngine.scheduleSync(300);
+      if (this.syncScheduler) {
+        this.syncScheduler(300);
+      }
     }, delayMs);
 
     this.remoteSyncDebounceTimers.set(noteId, timer);
@@ -65,7 +71,9 @@ class SaveQueueManager {
     if (existingTimer) {
       clearTimeout(existingTimer);
       this.remoteSyncDebounceTimers.delete(noteId);
-      syncEngine.scheduleSync(50);
+      if (this.syncScheduler) {
+        this.syncScheduler(50);
+      }
     }
   }
 

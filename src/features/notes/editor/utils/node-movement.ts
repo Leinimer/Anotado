@@ -180,11 +180,22 @@ export function insertMediaNode(
   const paragraphType = schema.nodes.paragraph;
 
   const appendParagraphAndFocus = (afterPos: number) => {
-    if (paragraphType) {
-      tr.insert(afterPos, paragraphType.create());
+    const safeAfterPos = Math.min(afterPos, tr.doc.content.size);
+    const $after = tr.doc.resolve(safeAfterPos);
+    const nextNode = $after.nodeAfter;
+
+    if (safeAfterPos >= tr.doc.content.size || !nextNode || !nextNode.isTextblock) {
+      if (paragraphType) {
+        tr.insert(safeAfterPos, paragraphType.create());
+        const textCursorPos = Math.min(safeAfterPos + 1, tr.doc.content.size);
+        try {
+          tr.setSelection(TextSelection.near(tr.doc.resolve(textCursorPos), 1));
+        } catch {}
+      }
+    } else {
+      const textCursorPos = Math.min(safeAfterPos + 1, tr.doc.content.size);
       try {
-        const textCursorPos = Math.min(afterPos + 1, tr.doc.content.size);
-        tr.setSelection(TextSelection.create(tr.doc, textCursorPos));
+        tr.setSelection(TextSelection.near(tr.doc.resolve(textCursorPos), 1));
       } catch {}
     }
   };

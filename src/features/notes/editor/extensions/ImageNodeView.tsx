@@ -295,7 +295,7 @@ export function ImageNodeView(props: NodeViewProps) {
     setDisplayedSrc(currentSrc);
   }
 
-  const { isResizing, resizingWidth, handleResizeStart } = useMediaResize({
+  const { isResizing, resizingWidth, handleResizeStart, wasJustResized } = useMediaResize({
     containerRef,
     targetRef: imgRef,
     aspectRatio,
@@ -470,21 +470,38 @@ export function ImageNodeView(props: NodeViewProps) {
       return;
     }
 
-    // Se já estiver selecionado, um segundo clique na imagem abre o visualizador existente
-    if (isLocalSelected) {
+    // Se acabou de redimensionar ou está redimensionando, não abre nem processa clique
+    if (wasJustResized()) {
+      e.preventDefault();
       e.stopPropagation();
-      openLightbox();
       return;
     }
 
-    // No Desktop (dispositivos com ponteiro fino), o clique simples seleciona a imagem
-    if (typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches) {
-      setIsLocalSelected(true);
+    // Clique simples na imagem: seleciona a imagem e mostra as alças de redimensionamento
+    e.stopPropagation();
+    setIsLocalSelected(true);
+
+    const pos = typeof getPos === 'function' ? getPos() : undefined;
+    if (typeof pos === 'number' && editor?.view) {
+      try {
+        const { doc } = editor.view.state;
+        const selection = NodeSelection.create(doc, pos);
+        editor.view.dispatch(editor.view.state.tr.setSelection(selection));
+      } catch (err) {
+        // ignora
+      }
     }
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
-    // Duplo clique abre o lightbox modal em tela cheia
+    // Se acabou de redimensionar, ignora para não abrir inadvertidamente
+    if (wasJustResized()) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    // DOIS CLIQUES na imagem: aí sim abre o visualizador/zoom da imagem
     e.preventDefault();
     e.stopPropagation();
     openLightbox();

@@ -1,6 +1,6 @@
 import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
-import { ATTACHMENTS_BUCKET_NAME } from '@/src/features/notes/api/storage-api';
+import { ATTACHMENTS_BUCKET_NAME } from '@/src/features/notes/api/storage-constants';
 import { networkMonitor } from '@/src/features/notes/api/network-monitor';
 
 export type ResizeDirection =

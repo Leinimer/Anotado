@@ -24,6 +24,16 @@ export function useMediaResize({
   // Mantém referência ao callback de persistência para evitar reanexar listeners
   const onPersistWidthRef = useRef(onPersistWidth);
   const cleanupListenersRef = useRef<(() => void) | null>(null);
+  const lastResizeEndTimeRef = useRef<number>(0);
+  const justFinishedResizeRef = useRef(false);
+
+  const wasJustResized = useCallback(() => {
+    return (
+      isResizing ||
+      justFinishedResizeRef.current ||
+      Date.now() - lastResizeEndTimeRef.current < 450
+    );
+  }, [isResizing]);
 
   useEffect(() => {
     onPersistWidthRef.current = onPersistWidth;
@@ -97,6 +107,21 @@ export function useMediaResize({
         setIsResizing(false);
         setResizingWidth(null);
 
+        lastResizeEndTimeRef.current = Date.now();
+        justFinishedResizeRef.current = true;
+
+        // Bloqueia o próximo clique involuntário gerado após o término do resize
+        const blockClick = (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+        };
+        window.addEventListener('click', blockClick, true);
+        setTimeout(() => {
+          window.removeEventListener('click', blockClick, true);
+          justFinishedResizeRef.current = false;
+        }, 450);
+
         const finalWidth = `${Math.round(latestCalculatedWidth)}px`;
         onPersistWidthRef.current(finalWidth);
       };
@@ -111,5 +136,6 @@ export function useMediaResize({
     isResizing,
     resizingWidth,
     handleResizeStart,
+    wasJustResized,
   };
 }

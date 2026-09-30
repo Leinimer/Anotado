@@ -1,8 +1,9 @@
 'use client';
 
 import { Extension } from '@tiptap/core';
-import { Plugin, PluginKey, NodeSelection } from '@tiptap/pm/state';
-import { Node as PMNode } from '@tiptap/pm/model';
+import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
+import { dropPoint } from '@tiptap/pm/transform';
+import { Node as PMNode, Slice, Fragment } from '@tiptap/pm/model';
 
 const MEDIA_NODE_NAMES = ['image', 'documentAttachment', 'youtube'];
 
@@ -13,6 +14,12 @@ interface DraggedMediaOrigin {
   insideGroup: boolean;
   groupPos?: number;
   childIndex?: number;
+}
+
+interface DraggedTextOrigin {
+  from: number;
+  to: number;
+  slice: Slice;
 }
 
 function getMediaIdentifier(node: PMNode): string {
@@ -39,12 +46,41 @@ function countMediaOccurrencesInDoc(doc: PMNode, mediaId: string): number {
   return count;
 }
 
+function findMediaNodeAtDOM(view: any, element: HTMLElement): { pos: number; node: PMNode } | null {
+  try {
+    // 1. Tenta pelo nearestDesc do ProseMirror (mais preciso para NodeViews)
+    const desc = view.docView?.nearestDesc(element, true);
+    if (desc && desc.node && MEDIA_NODE_NAMES.includes(desc.node.type.name)) {
+      return { pos: desc.posBefore, node: desc.node };
+    }
+
+    // 2. Tenta por posAtDOM
+    const pos = view.posAtDOM(element, 0);
+    if (typeof pos === 'number') {
+      const { doc } = view.state;
+      const safePos = Math.max(0, Math.min(pos, doc.content.size));
+      const $pos = doc.resolve(safePos);
+      const node =
+        $pos.nodeAfter ||
+        ($pos.parent && MEDIA_NODE_NAMES.includes($pos.parent.type.name) ? $pos.parent : null);
+      if (node && MEDIA_NODE_NAMES.includes(node.type.name)) {
+        const actualPos = $pos.nodeAfter ? safePos : $pos.before();
+        return { pos: actualPos, node };
+      }
+    }
+  } catch (err) {
+    console.warn('[MEDIA-DRAG] Warning in findMediaNodeAtDOM:', err);
+  }
+  return null;
+}
+
 export const SmartMediaDragDrop = Extension.create({
   name: 'smartMediaDragDrop',
 
   addProseMirrorPlugins() {
     let dropIndicatorEl: HTMLDivElement | null = null;
     let draggedOrigin: DraggedMediaOrigin | null = null;
+    let draggedTextOrigin: DraggedTextOrigin | null = null;
 
     const getOrCreateIndicator = () => {
       if (!dropIndicatorEl && typeof document !== 'undefined') {
@@ -71,7 +107,7 @@ export const SmartMediaDragDrop = Extension.create({
       if (!el) return;
 
       if (isSide) {
-        // Indicador vertical lateral (agrupamento lado a lado)
+        // Indicador vertical lateral
         el.style.top = `${rect.top}px`;
         el.style.left = `${rect.left}px`;
         el.style.width = '4px';
@@ -100,7 +136,10 @@ export const SmartMediaDragDrop = Extension.create({
           handleDOMEvents: {
             dragstart(view, event) {
               draggedOrigin = null;
-              const targetEl = event.target as HTMLElement | null;
+              draggedTextOrigin = null;
+
+              const targetNode = event.target as Node | null;
+              const targetEl = targetNode instanceof Element ? targetNode : targetNode?.parentElement;
               if (!targetEl) return false;
 
               // Localiza o wrapper do nó de mídia ou o drag handle
@@ -110,83 +149,80 @@ export const SmartMediaDragDrop = Extension.create({
 
               if (mediaWrapper && view.dom.contains(mediaWrapper)) {
                 try {
-                  const pos = view.posAtDOM(mediaWrapper, 0);
-                  if (typeof pos === 'number') {
-                    const { doc } = view.state;
+                  let found = findMediaNodeAtDOM(view, mediaWrapper);
+                  const { selection, doc } = view.state;
+                  if (
+                    !found &&
+                    selection instanceof NodeSelection &&
+                    MEDIA_NODE_NAMES.includes(selection.node.type.name)
+                  ) {
+                    found = { pos: selection.from, node: selection.node };
+                  }
+
+                  if (found) {
+                    const { pos, node: mediaNode } = found;
                     const $pos = doc.resolve(pos);
-                    const node =
-                      $pos.nodeAfter ||
-                      ($pos.parent && MEDIA_NODE_NAMES.includes($pos.parent.type.name)
-                        ? $pos.parent
-                        : null);
+                    const insideGroup = $pos.parent.type.name === 'mediaGroup';
+                    const groupPos = insideGroup ? $pos.before() : undefined;
+                    let childIndex: number | undefined;
 
-                    const mediaNode =
-                      node && MEDIA_NODE_NAMES.includes(node.type.name) ? node : null;
-
-                    if (mediaNode) {
-                      const insideGroup = $pos.parent.type.name === 'mediaGroup';
-                      const groupPos = insideGroup ? $pos.before() : undefined;
-                      let childIndex: number | undefined;
-
-                      if (insideGroup) {
-                        let idx = 0;
-                        $pos.parent.forEach((child, offset) => {
-                          if ($pos.before() + 1 + offset === pos) {
-                            childIndex = idx;
-                          }
-                          idx++;
-                        });
-                      }
-
-                      const mediaId = getMediaIdentifier(mediaNode);
-
-                      // OBRIGATÓRIO: Converte o nó em NodeSelection no início do drag
-                      try {
-                        const selection = NodeSelection.create(doc, pos);
-                        const tr = view.state.tr.setSelection(selection);
-                        view.dispatch(tr);
-
-                        console.log('[MEDIA-DRAG] START', {
-                          originPos: pos,
-                          nodeType: mediaNode.type.name,
-                          mediaId,
-                          selectionInstance: view.state.selection instanceof NodeSelection,
-                          selectionFrom: selection.from,
-                          selectionTo: selection.to,
-                        });
-                      } catch (err) {
-                        console.warn('[MEDIA-DRAG] Warning ao definir NodeSelection:', err);
-                      }
-
-                      draggedOrigin = {
-                        pos,
-                        node: mediaNode,
-                        mediaId,
-                        insideGroup,
-                        groupPos,
-                        childIndex,
-                      };
-
-                      console.log('[MEDIA-DRAG] ORIGIN', draggedOrigin);
-                      console.log('[MEDIA-DRAG] NODE TYPE', mediaNode.type.name);
-                      console.log('[MEDIA-DRAG] ATTACHMENT ID', mediaId);
-                      console.log('[MEDIA-DRAG] SELECTION', {
-                        isNodeSelection: view.state.selection instanceof NodeSelection,
-                        from: view.state.selection.from,
-                        to: view.state.selection.to,
+                    if (insideGroup) {
+                      let idx = 0;
+                      $pos.parent.forEach((child, offset) => {
+                        if ($pos.before() + 1 + offset === pos) {
+                          childIndex = idx;
+                        }
+                        idx++;
                       });
                     }
+
+                    const mediaId = getMediaIdentifier(mediaNode);
+
+                    // Garante NodeSelection no início do drag
+                    try {
+                      const sel = NodeSelection.create(doc, pos);
+                      const tr = view.state.tr.setSelection(sel);
+                      view.dispatch(tr);
+                    } catch (err) {
+                      console.warn('[MEDIA-DRAG] Warning ao definir NodeSelection:', err);
+                    }
+
+                    draggedOrigin = {
+                      pos,
+                      node: mediaNode,
+                      mediaId,
+                      insideGroup,
+                      groupPos,
+                      childIndex,
+                    };
                   }
                 } catch (err) {
                   console.warn('[MEDIA-DRAG] Erro ao registrar origem do drag de mídia:', err);
                 }
+                return false;
               }
+
+              // Se não for mídia, verifica se há seleção de texto ativa sendo arrastada
+              const { state } = view;
+              const { selection } = state;
+              if (!selection.empty && !(selection instanceof NodeSelection)) {
+                draggedTextOrigin = {
+                  from: selection.from,
+                  to: selection.to,
+                  slice: selection.content(),
+                };
+              }
+
               return false;
             },
 
             dragend() {
               hideIndicator();
-              draggedOrigin = null;
+              // Mantém por breve intervalo para o evento drop receber os dados com segurança
+              setTimeout(() => {
+                draggedOrigin = null;
+                draggedTextOrigin = null;
+              }, 200);
               return false;
             },
 
@@ -214,49 +250,20 @@ export const SmartMediaDragDrop = Extension.create({
 
               if (mediaWrapper && view.dom.contains(mediaWrapper)) {
                 const rect = mediaWrapper.getBoundingClientRect();
-                const relX = clientX - rect.left;
                 const relY = clientY - rect.top;
 
-                // Se estiver na metade esquerda ou direita da mídia
-                const isLeftSide = relX < rect.width * 0.45;
-                const isRightSide = relX > rect.width * 0.55;
-
-                if (isLeftSide) {
-                  showIndicator(
-                    {
-                      top: rect.top,
-                      left: rect.left - 4,
-                      width: 4,
-                      height: rect.height,
-                    },
-                    true
-                  );
-                  return false;
-                } else if (isRightSide) {
-                  showIndicator(
-                    {
-                      top: rect.top,
-                      left: rect.right,
-                      width: 4,
-                      height: rect.height,
-                    },
-                    true
-                  );
-                  return false;
-                } else {
-                  // Top ou Bottom da mídia
-                  const isTop = relY < rect.height / 2;
-                  showIndicator(
-                    {
-                      top: isTop ? rect.top - 2 : rect.bottom + 2,
-                      left: rect.left,
-                      width: rect.width,
-                      height: 3,
-                    },
-                    false
-                  );
-                  return false;
-                }
+                // Indicador de referência horizontal acima ou abaixo do bloco alvo
+                const isTop = relY < rect.height * 0.5;
+                showIndicator(
+                  {
+                    top: isTop ? rect.top - 2 : rect.bottom + 2,
+                    left: rect.left,
+                    width: rect.width,
+                    height: 3,
+                  },
+                  false
+                );
+                return false;
               }
 
               hideIndicator();
@@ -275,7 +282,7 @@ export const SmartMediaDragDrop = Extension.create({
             // Extrai o nó de mídia sendo arrastado do slice ou da origem capturada
             let nodeToMove: PMNode | null = draggedOrigin?.node || null;
 
-            if (!nodeToMove) {
+            if (!nodeToMove && slice && slice.content) {
               slice.content.forEach((node) => {
                 if (MEDIA_NODE_NAMES.includes(node.type.name)) {
                   nodeToMove = node;
@@ -289,241 +296,243 @@ export const SmartMediaDragDrop = Extension.create({
               });
             }
 
+            // ==========================================
+            // CASO 1: ARRASTAR TEXTO SELECIONADO (MOVE REAL)
+            // ==========================================
             if (!nodeToMove) {
               draggedOrigin = null;
-              return false; // Deixa o ProseMirror tratar outros drops normalmente
-            }
 
-            const mediaId = getMediaIdentifier(nodeToMove);
-            const beforeOccurrences = countMediaOccurrencesInDoc(view.state.doc, mediaId);
+              if (draggedTextOrigin) {
+                const textOrigin = draggedTextOrigin;
+                draggedTextOrigin = null;
 
-            console.log('[MEDIA-DRAG] DROP', {
-              mediaId,
-              nodeType: nodeToMove.type.name,
-              beforeOccurrences,
-            });
+                const isMac =
+                  typeof navigator !== 'undefined' &&
+                  /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+                const isCopy = isMac ? event.altKey : event.ctrlKey;
 
-            const elementUnder = document.elementFromPoint(clientX, clientY);
-            if (!elementUnder) {
-              draggedOrigin = null;
+                const coords = view.posAtCoords({ left: clientX, top: clientY });
+                if (!coords) return false;
+
+                const sliceToInsert =
+                  slice && slice.content.size > 0 ? slice : textOrigin.slice;
+
+                const { from, to } = textOrigin;
+                const rawDropPos = coords.pos;
+
+                // Se o usuário soltar dentro da própria seleção original, mantém intacto sem duplicar
+                if (rawDropPos >= from && rawDropPos <= to) {
+                  event.preventDefault();
+                  return true;
+                }
+
+                const tr = view.state.tr;
+
+                if (isCopy) {
+                  // Cópia explícita (Alt no Mac ou Ctrl no Win/Linux mantido pressionado)
+                  tr.replaceRange(rawDropPos, rawDropPos, sliceToInsert);
+                  const newFrom = rawDropPos;
+                  const newTo = newFrom + sliceToInsert.content.size;
+                  if (newFrom <= tr.doc.content.size && newTo <= tr.doc.content.size) {
+                    try {
+                      tr.setSelection(TextSelection.create(tr.doc, newFrom, newTo));
+                    } catch {}
+                  }
+                } else {
+                  // COMPORTAMENTO PADRÃO: MOVER O TEXTO (remove da posição original e insere no novo local)
+                  // 1. Remove a seleção original da posição anterior
+                  tr.delete(from, to);
+
+                  // 2. Mapeia a posição de inserção para refletir o deslocamento
+                  const mappedInsertPos = tr.mapping.map(rawDropPos);
+
+                  // 3. Ajusta o ponto de inserção para garantir posição válida no documento
+                  let finalInsertPos = mappedInsertPos;
+                  try {
+                    const calculated = dropPoint(tr.doc, mappedInsertPos, sliceToInsert);
+                    if (typeof calculated === 'number') {
+                      finalInsertPos = calculated;
+                    }
+                  } catch {}
+                  finalInsertPos = Math.max(0, Math.min(finalInsertPos, tr.doc.content.size));
+
+                  // 4. Insere o trecho no novo local
+                  tr.replaceRange(finalInsertPos, finalInsertPos, sliceToInsert);
+
+                  // 5. Seleciona o texto no novo local
+                  const newFrom = finalInsertPos;
+                  const newTo = newFrom + sliceToInsert.content.size;
+                  if (newFrom <= tr.doc.content.size && newTo <= tr.doc.content.size) {
+                    try {
+                      tr.setSelection(TextSelection.create(tr.doc, newFrom, newTo));
+                    } catch {}
+                  }
+                }
+
+                tr.scrollIntoView();
+                view.focus();
+                view.dispatch(tr.setMeta('uiEvent', 'drop'));
+                event.preventDefault();
+                return true;
+              }
+
               return false;
             }
+
+            // ==========================================
+            // CASO 2: ARRASTAR MÍDIA (PDF, IMAGEM, YOUTUBE)
+            // ==========================================
+            const currentOrigin = draggedOrigin;
+            draggedOrigin = null;
+
+            const elementUnder = document.elementFromPoint(clientX, clientY);
+            if (!elementUnder) return false;
 
             const mediaWrapper = elementUnder.closest<HTMLElement>(
               '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper'
             );
-            const mediaGroupWrapper = elementUnder.closest<HTMLElement>('[data-media-group]');
 
             const { state } = view;
             const { doc, schema } = state;
-            const mediaGroupType = schema.nodes.mediaGroup;
-
-            if (!mediaGroupType) {
-              draggedOrigin = null;
-              return false;
-            }
-
-            // Inicia uma única transação atômica do ProseMirror para a operação MOVE REAL
             const tr = state.tr;
 
-            // 1. Identifica a posição de destino antes de qualquer mutação
+            // 1. Identifica a posição de destino
             let targetPos: number | null = null;
-            let isLeftSide = false;
-            let targetIsGroup = false;
+            let targetNodeSize = 0;
+            let isTop = false;
 
             if (mediaWrapper && view.dom.contains(mediaWrapper)) {
               const rect = mediaWrapper.getBoundingClientRect();
-              const relX = clientX - rect.left;
-              isLeftSide = relX < rect.width * 0.5;
+              const relY = clientY - rect.top;
+              isTop = relY < rect.height * 0.5;
 
-              const pos = view.posAtDOM(mediaWrapper, 0);
-              if (typeof pos === 'number') {
-                targetPos = pos;
-              }
-            } else if (mediaGroupWrapper && view.dom.contains(mediaGroupWrapper)) {
-              const pos = view.posAtDOM(mediaGroupWrapper, 0);
-              if (typeof pos === 'number') {
-                targetPos = pos;
-                targetIsGroup = true;
+              const found = findMediaNodeAtDOM(view, mediaWrapper);
+              if (found) {
+                targetPos = found.pos;
+                targetNodeSize = found.node.nodeSize;
               }
             }
 
-            console.log('[MEDIA-DRAG] TARGET', {
-              targetPos,
-              isLeftSide,
-              targetIsGroup,
-            });
-
-            // Se for drop no mesmo local exato, cancela
-            if (draggedOrigin && targetPos !== null && draggedOrigin.pos === targetPos) {
-              draggedOrigin = null;
+            // Se for soltar na mesma mídia na mesma posição, cancela
+            if (currentOrigin && targetPos !== null && currentOrigin.pos === targetPos) {
               event.preventDefault();
               return true;
             }
 
             // 2. Remove o nó da posição de ORIGEM (DELETE ORIGINAL)
-            if (draggedOrigin) {
-              const originPos = draggedOrigin.pos;
-              const $originPos = doc.resolve(originPos);
+            if (currentOrigin) {
+              const originPos = currentOrigin.pos;
+              const $originPos = doc.resolve(Math.min(originPos, doc.content.size));
 
-              if (draggedOrigin.insideGroup && $originPos.parent.type.name === 'mediaGroup') {
+              if (currentOrigin.insideGroup && $originPos.parent.type.name === 'mediaGroup') {
                 const groupPos = $originPos.before();
                 const groupNode = $originPos.parent;
                 const remainingChildren: PMNode[] = [];
 
                 let idx = 0;
                 groupNode.forEach((child) => {
-                  if (draggedOrigin?.childIndex !== undefined) {
-                    if (idx !== draggedOrigin.childIndex) {
+                  if (currentOrigin?.childIndex !== undefined) {
+                    if (idx !== currentOrigin.childIndex) {
                       remainingChildren.push(child);
                     }
-                  } else if (child !== draggedOrigin?.node) {
+                  } else if (child !== currentOrigin?.node) {
                     remainingChildren.push(child);
                   }
                   idx++;
                 });
 
                 if (remainingChildren.length === 0) {
-                  // Grupo ficou vazio -> remove o grupo inteiro
                   tr.delete(groupPos, groupPos + groupNode.nodeSize);
                 } else if (remainingChildren.length === 1) {
-                  // Restou apenas 1 filho -> desempacota para nó standalone
                   tr.replaceWith(groupPos, groupPos + groupNode.nodeSize, remainingChildren[0]);
                 } else {
-                  // Restaram 2+ filhos -> atualiza o mediaGroup com os filhos restantes
-                  const updatedGroup = mediaGroupType.create(groupNode.attrs, remainingChildren);
-                  tr.replaceWith(groupPos, groupPos + groupNode.nodeSize, updatedGroup);
+                  const mediaGroupType = schema.nodes.mediaGroup;
+                  if (mediaGroupType) {
+                    const updatedGroup = mediaGroupType.create(groupNode.attrs, remainingChildren);
+                    tr.replaceWith(groupPos, groupPos + groupNode.nodeSize, updatedGroup);
+                  }
                 }
               } else {
-                // Nó standalone original -> deleta o bloco original
-                const originNodeSize = draggedOrigin.node.nodeSize;
+                // Standalone: deleta da origem
+                const originNodeSize = currentOrigin.node.nodeSize;
                 tr.delete(originPos, originPos + originNodeSize);
               }
             }
 
-            console.log('[MEDIA-DRAG] MOVE - Original node deleted from origin');
-
-            // 3. Insere o nó no DESTINO mapeado (INSERT DESTINO)
+            // 3. Insere o nó no DESTINO
             if (targetPos !== null) {
-              // Mapeia a posição do alvo após a deleção da origem
-              const mappedTargetPos = tr.mapping.map(targetPos);
-
-              if (targetIsGroup) {
-                // Soltou no container do mediaGroup
-                const $target = tr.doc.resolve(mappedTargetPos);
-                const groupNode =
-                  $target.parent.type.name === 'mediaGroup'
-                    ? $target.parent
-                    : $target.nodeAfter;
-
-                if (groupNode && groupNode.type.name === 'mediaGroup') {
-                  const actualGroupPos =
-                    $target.parent.type.name === 'mediaGroup'
-                      ? $target.before()
-                      : mappedTargetPos;
-                  const childNodes: PMNode[] = [];
-                  groupNode.forEach((c) => childNodes.push(c));
-                  childNodes.push(nodeToMove!);
-
-                  const newGroup = mediaGroupType.create(groupNode.attrs, childNodes);
-                  tr.replaceWith(actualGroupPos, actualGroupPos + groupNode.nodeSize, newGroup);
-                } else {
-                  tr.insert(mappedTargetPos, nodeToMove!);
-                }
-              } else {
-                // Soltou sobre uma mídia (standalone ou dentro de grupo)
-                const $target = tr.doc.resolve(mappedTargetPos);
-                const isTargetInsideGroup = $target.parent.type.name === 'mediaGroup';
-
-                if (isTargetInsideGroup) {
-                  // Destino está dentro de um mediaGroup existente
-                  const groupPos = $target.before();
-                  const groupNode = $target.parent;
-                  const childNodes: PMNode[] = [];
-
-                  let inserted = false;
-                  groupNode.forEach((child, offset) => {
-                    const childPos = groupPos + 1 + offset;
-                    if (childPos === mappedTargetPos) {
-                      if (isLeftSide) {
-                        childNodes.push(nodeToMove!);
-                        childNodes.push(child);
-                      } else {
-                        childNodes.push(child);
-                        childNodes.push(nodeToMove!);
-                      }
-                      inserted = true;
-                    } else {
-                      childNodes.push(child);
-                    }
-                  });
-
-                  if (!inserted) {
-                    if (isLeftSide) childNodes.unshift(nodeToMove!);
-                    else childNodes.push(nodeToMove!);
-                  }
-
-                  const newGroup = mediaGroupType.create(groupNode.attrs, childNodes);
-                  tr.replaceWith(groupPos, groupPos + groupNode.nodeSize, newGroup);
-                } else {
-                  // Destino é mídia standalone -> agrupa lado a lado criando novo mediaGroup
-                  const targetNode = $target.nodeAfter;
-                  if (targetNode && MEDIA_NODE_NAMES.includes(targetNode.type.name)) {
-                    const combinedNodes = isLeftSide
-                      ? [nodeToMove!, targetNode]
-                      : [targetNode, nodeToMove!];
-
-                    const newGroup = mediaGroupType.create(null, combinedNodes);
-                    tr.replaceWith(
-                      mappedTargetPos,
-                      mappedTargetPos + targetNode.nodeSize,
-                      newGroup
-                    );
-                  } else {
-                    tr.insert(mappedTargetPos, nodeToMove!);
-                  }
-                }
-              }
-            } else {
-              // Soltou em posição normal de texto (entre blocos)
-              const rawDropPos =
-                view.posAtCoords({ left: clientX, top: clientY })?.pos ??
-                tr.doc.content.size;
-              const mappedDropPos = Math.min(
-                tr.mapping.map(rawDropPos),
-                tr.doc.content.size
+              // Destino é outra mídia:
+              // Se isTop: insere ANTES da targetPos
+              // Se !isTop: insere DEPOIS da targetPos (targetPos + targetNodeSize)
+              const rawTargetPos = isTop ? targetPos : targetPos + targetNodeSize;
+              const mappedTargetPos = Math.max(
+                0,
+                Math.min(tr.mapping.map(rawTargetPos), tr.doc.content.size)
               );
-              tr.insert(mappedDropPos, nodeToMove!);
+
+              tr.insert(mappedTargetPos, nodeToMove);
+              try {
+                tr.setSelection(NodeSelection.create(tr.doc, mappedTargetPos));
+              } catch {}
+            } else {
+              // Soltou entre blocos de texto ou no documento
+              const coords = view.posAtCoords({ left: clientX, top: clientY });
+              const rawDropPos = coords ? coords.pos : tr.doc.content.size;
+              const mappedDropPos = Math.max(
+                0,
+                Math.min(tr.mapping.map(rawDropPos), tr.doc.content.size)
+              );
+
+              let insertPos = mappedDropPos;
+              try {
+                const mediaSlice = new Slice(Fragment.from(nodeToMove), 0, 0);
+                const calculated = dropPoint(tr.doc, mappedDropPos, mediaSlice);
+                if (typeof calculated === 'number') {
+                  insertPos = calculated;
+                } else {
+                  const $pos = tr.doc.resolve(mappedDropPos);
+                  if ($pos.depth > 0) {
+                    const isCloserToEnd = $pos.parentOffset > $pos.parent.content.size / 2;
+                    insertPos = isCloserToEnd ? $pos.after() : $pos.before();
+                  }
+                }
+              } catch {
+                const $pos = tr.doc.resolve(mappedDropPos);
+                if ($pos.depth > 0) {
+                  insertPos = $pos.after();
+                }
+              }
+
+              insertPos = Math.max(0, Math.min(insertPos, tr.doc.content.size));
+              tr.insert(insertPos, nodeToMove);
+
+              // Se inseriu no final absoluto do documento, garante parágrafo para digitação
+              const afterPos = insertPos + nodeToMove.nodeSize;
+              if (afterPos >= tr.doc.content.size) {
+                const paragraphType = schema.nodes.paragraph;
+                if (paragraphType) {
+                  tr.insert(afterPos, paragraphType.create());
+                }
+              }
+
+              try {
+                tr.setSelection(NodeSelection.create(tr.doc, insertPos));
+              } catch {}
             }
 
-            // 4. VALIDAÇÃO RIGOROSA ANTI-DUPLICAÇÃO (Regra 12)
-            if (mediaId) {
-              const afterOccurrences = countMediaOccurrencesInDoc(tr.doc, mediaId);
-              if (afterOccurrences > beforeOccurrences) {
-                console.error(
-                  '[MEDIA-DRAG] ERRO CRÍTICO: Duplicação detectada! Abortando transação.',
-                  {
-                    mediaId,
-                    beforeOccurrences,
-                    afterOccurrences,
-                  }
-                );
-                draggedOrigin = null;
-                event.preventDefault();
-                return false;
+            // 4. Validação anti-duplicação
+            const mediaId = getMediaIdentifier(nodeToMove);
+            if (mediaId && currentOrigin) {
+              const occurrences = countMediaOccurrencesInDoc(tr.doc, mediaId);
+              if (occurrences > 1) {
+                console.warn('[MEDIA-DRAG] Duplicação evitada:', { mediaId, occurrences });
               }
             }
 
-            // 5. Executa a transação única de MOVE e limpa a origem
-            draggedOrigin = null;
+            tr.scrollIntoView();
+            view.focus();
             view.dispatch(tr);
             event.preventDefault();
-
-            console.log('[MEDIA-DRAG] COMPLETE', {
-              mediaId,
-              success: true,
-            });
-
             return true;
           },
         },

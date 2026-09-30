@@ -182,6 +182,8 @@ class SyncEngine {
   }
 
   constructor() {
+    saveQueue.setSyncScheduler((delayMs) => this.scheduleSync(delayMs));
+
     if (typeof window !== 'undefined') {
       this.lastKnownReachable = networkMonitor.getState().isBackendReachable;
 
