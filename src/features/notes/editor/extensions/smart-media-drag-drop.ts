@@ -5,7 +5,7 @@ import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/stat
 import { dropPoint } from '@tiptap/pm/transform';
 import { Node as PMNode, Slice, Fragment } from '@tiptap/pm/model';
 
-const MEDIA_NODE_NAMES = ['image', 'documentAttachment', 'youtube'];
+const MEDIA_NODE_NAMES = ['image', 'youtube'];
 
 interface DraggedMediaOrigin {
   pos: number;
@@ -168,7 +168,7 @@ export const SmartMediaDragDrop = Extension.create({
 
               // Localiza o wrapper do nó de mídia ou o drag handle
               const mediaWrapper = targetEl.closest<HTMLElement>(
-                '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper'
+                '.image-node-view-wrapper, .youtube-node-view-wrapper'
               );
 
               if (mediaWrapper && view.dom.contains(mediaWrapper)) {
@@ -267,10 +267,10 @@ export const SmartMediaDragDrop = Extension.create({
               // Localiza wrapper de nó de mídia ou grupo
               const mediaWrapper =
                 elementUnder?.closest<HTMLElement>(
-                  '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper, [data-media-group]'
+                  '.image-node-view-wrapper, .youtube-node-view-wrapper, [data-media-group]'
                 ) ||
                 targetEl?.closest<HTMLElement>(
-                  '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper, [data-media-group]'
+                  '.image-node-view-wrapper, .youtube-node-view-wrapper, [data-media-group]'
                 );
 
               if (mediaWrapper && view.dom.contains(mediaWrapper)) {
@@ -469,10 +469,10 @@ export const SmartMediaDragDrop = Extension.create({
               const targetEl = targetNode instanceof Element ? targetNode : targetNode?.parentElement;
               targetMediaWrapper =
                 elementUnder?.closest<HTMLElement>(
-                  '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper'
+                  '.image-node-view-wrapper, .youtube-node-view-wrapper'
                 ) ||
                 targetEl?.closest<HTMLElement>(
-                  '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper'
+                  '.image-node-view-wrapper, .youtube-node-view-wrapper'
                 ) ||
                 null;
 

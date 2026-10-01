@@ -13,13 +13,24 @@ const supabaseCookieOptions = {
  * Configurado com SameSite=None e Secure para suportar tanto o iframe do Preview quanto o Deploy.
  */
 export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+
+  // Bypassa completamente requisições internas do Next.js, arquivos estáticos, chunks e APIs
+  if (
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/api') ||
+    pathname.includes('.') ||
+    pathname === '/favicon.ico'
+  ) {
+    return NextResponse.next();
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   });
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-  const pathname = request.nextUrl.pathname;
   const isLoginPage = pathname.startsWith('/login');
 
   // Verifica se as chaves do Supabase estão configuradas
@@ -116,6 +127,6 @@ export const config = {
      * Aplica o middleware em rotas da aplicação, exceto arquivos estáticos,
      * manifestos, imagens e rotas de suporte da infraestrutura
      */
-    '/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest|manifest\\.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|html|js|css)$).*)',
+    '/((?!_next|api|favicon\\.ico|manifest\\.webmanifest|manifest\\.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|html|js|css|map|woff|woff2|ttf|eot)$).*)',
   ],
 };

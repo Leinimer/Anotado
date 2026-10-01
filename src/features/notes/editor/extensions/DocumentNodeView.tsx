@@ -201,6 +201,7 @@ export function DocumentNodeView(props: NodeViewProps) {
     <NodeViewWrapper
       as="div"
       ref={containerRef}
+      data-type="documentAttachment"
       className={`document-attachment-wrapper my-4 relative flex ${alignClass} max-w-full select-none`}
       onClick={handleClick}
       onDragStart={handleDragStart}

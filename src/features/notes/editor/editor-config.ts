@@ -19,6 +19,7 @@ import { DocumentAttachment } from './extensions/document-attachment';
 import { MediaGroup } from './extensions/media-group';
 import { DoubleDashBulletList } from './extensions/double-dash-bullet-list';
 import { SmartMediaDragDrop } from './extensions/smart-media-drag-drop';
+import { PdfDragDrop } from './extensions/pdf-drag-drop';
 import { CustomTaskItem } from './extensions/custom-task-item';
 import { InternalNoteLink } from './extensions/internal-note-link';
 
@@ -217,6 +218,7 @@ export const defaultEditorExtensions = [
   }),
   CustomYoutube,
   DocumentAttachment,
+  PdfDragDrop,
   MediaGroup,
   SmartMediaDragDrop,
   DoubleDashBulletList,
