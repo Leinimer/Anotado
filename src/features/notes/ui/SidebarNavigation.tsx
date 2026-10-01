@@ -80,6 +80,13 @@ interface SidebarNavigationProps {
     targetFolderId: string | null,
     targetPosition: number
   ) => void;
+  onReorderItem?: (
+    itemType: 'folder' | 'note',
+    itemId: string,
+    targetId: string | null,
+    targetParentId: string | null,
+    dropPosition: 'before' | 'after' | 'inside'
+  ) => void;
   onCloseMobile?: () => void;
   currentWorkspace?: WorkspaceType;
   onToggleWorkspace?: () => void;
@@ -108,6 +115,7 @@ export function SidebarNavigation({
   onUpdateFolderColor,
   onUpdateFolderSmartConfig,
   onMoveItem,
+  onReorderItem,
   onCloseMobile,
   currentWorkspace = 'notes',
   onToggleWorkspace,
@@ -772,7 +780,11 @@ export function SidebarNavigation({
           return;
         }
         unarchiveIfArchived(item.type, item.id);
-        onMoveItem(item.type, item.id, targetParentId, targetPosition + index);
+        if (onReorderItem) {
+          onReorderItem(item.type, item.id, targetId, targetParentId, dropPosition);
+        } else {
+          onMoveItem(item.type, item.id, targetParentId, targetPosition + index);
+        }
       });
 
       if (dropPosition === 'inside' && dropTarget.targetId) {
@@ -803,7 +815,11 @@ export function SidebarNavigation({
     }
 
     unarchiveIfArchived(type, id);
-    onMoveItem(type, id, targetParentId, targetPosition);
+    if (onReorderItem) {
+      onReorderItem(type, id, targetId, targetParentId, dropPosition);
+    } else {
+      onMoveItem(type, id, targetParentId, targetPosition);
+    }
 
     // Se soltou dentro de uma pasta, abre a pasta para mostrar o item
     if (dropPosition === 'inside' && dropTarget.targetId) {
@@ -832,7 +848,11 @@ export function SidebarNavigation({
         if (isArchived && item.type === 'note' && onUnarchiveNote) {
           onUnarchiveNote(item.id);
         }
-        onMoveItem(item.type, item.id, null, folders.length + notes.length + index);
+        if (onReorderItem) {
+          onReorderItem(item.type, item.id, null, null, 'inside');
+        } else {
+          onMoveItem(item.type, item.id, null, folders.length + notes.length + index);
+        }
       });
       setSelectedItems(new Map());
       resetDragState();
@@ -846,7 +866,11 @@ export function SidebarNavigation({
         onUnarchiveNote(id);
       }
     }
-    onMoveItem(type, id, null, folders.length + notes.length);
+    if (onReorderItem) {
+      onReorderItem(type, id, null, null, 'inside');
+    } else {
+      onMoveItem(type, id, null, folders.length + notes.length);
+    }
 
     resetDragState();
   };

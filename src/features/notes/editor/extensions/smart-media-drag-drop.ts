@@ -81,6 +81,11 @@ export const SmartMediaDragDrop = Extension.create({
     let dropIndicatorEl: HTMLDivElement | null = null;
     let draggedOrigin: DraggedMediaOrigin | null = null;
     let draggedTextOrigin: DraggedTextOrigin | null = null;
+    let activeMediaDropTarget: {
+      mediaWrapper: HTMLElement;
+      isTop: boolean;
+      timestamp: number;
+    } | null = null;
 
     const getOrCreateIndicator = () => {
       if (!dropIndicatorEl && typeof document !== 'undefined') {
@@ -137,6 +142,7 @@ export const SmartMediaDragDrop = Extension.create({
             dragstart(view, event) {
               draggedOrigin = null;
               draggedTextOrigin = null;
+              activeMediaDropTarget = null;
 
               const targetNode = event.target as Node | null;
               const targetEl = targetNode instanceof Element ? targetNode : targetNode?.parentElement;
@@ -178,13 +184,11 @@ export const SmartMediaDragDrop = Extension.create({
 
                     const mediaId = getMediaIdentifier(mediaNode);
 
-                    // Garante NodeSelection no início do drag
-                    try {
-                      const sel = NodeSelection.create(doc, pos);
-                      const tr = view.state.tr.setSelection(sel);
-                      view.dispatch(tr);
-                    } catch (err) {
-                      console.warn('[MEDIA-DRAG] Warning ao definir NodeSelection:', err);
+                    if (event.dataTransfer) {
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData('text/x-anotado-media-id', mediaId);
+                      event.dataTransfer.setData('text/x-anotado-media-pos', String(pos));
+                      event.dataTransfer.setData('text/x-anotado-media-type', mediaNode.type.name);
                     }
 
                     draggedOrigin = {
@@ -218,17 +222,18 @@ export const SmartMediaDragDrop = Extension.create({
 
             dragend() {
               hideIndicator();
-              // Mantém por breve intervalo para o evento drop receber os dados com segurança
               setTimeout(() => {
                 draggedOrigin = null;
                 draggedTextOrigin = null;
-              }, 200);
+                activeMediaDropTarget = null;
+              }, 400);
               return false;
             },
 
             dragleave(view, event) {
               if (!view.dom.contains(event.relatedTarget as Node)) {
                 hideIndicator();
+                activeMediaDropTarget = null;
               }
               return false;
             },
@@ -238,15 +243,17 @@ export const SmartMediaDragDrop = Extension.create({
               const clientY = event.clientY;
 
               const elementUnder = document.elementFromPoint(clientX, clientY);
-              if (!elementUnder) {
-                hideIndicator();
-                return false;
-              }
+              const targetNode = event.target as Node | null;
+              const targetEl = targetNode instanceof Element ? targetNode : targetNode?.parentElement;
 
               // Localiza wrapper de nó de mídia ou grupo
-              const mediaWrapper = elementUnder.closest<HTMLElement>(
-                '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper, [data-media-group]'
-              );
+              const mediaWrapper =
+                elementUnder?.closest<HTMLElement>(
+                  '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper, [data-media-group]'
+                ) ||
+                targetEl?.closest<HTMLElement>(
+                  '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper, [data-media-group]'
+                );
 
               if (mediaWrapper && view.dom.contains(mediaWrapper)) {
                 const rect = mediaWrapper.getBoundingClientRect();
@@ -263,10 +270,19 @@ export const SmartMediaDragDrop = Extension.create({
                   },
                   false
                 );
-                return false;
+
+                activeMediaDropTarget = {
+                  mediaWrapper,
+                  isTop,
+                  timestamp: Date.now(),
+                };
+
+                event.preventDefault();
+                return true;
               }
 
               hideIndicator();
+              activeMediaDropTarget = null;
               return false;
             },
           },
@@ -279,8 +295,29 @@ export const SmartMediaDragDrop = Extension.create({
             const clientX = event.clientX;
             const clientY = event.clientY;
 
-            // Extrai o nó de mídia sendo arrastado do slice ou da origem capturada
+            // Extrai o nó de mídia sendo arrastado do slice, da origem capturada ou do dataTransfer
             let nodeToMove: PMNode | null = draggedOrigin?.node || null;
+
+            if (!nodeToMove && event.dataTransfer) {
+              const posStr = event.dataTransfer.getData('text/x-anotado-media-pos');
+              if (posStr) {
+                const p = parseInt(posStr, 10);
+                if (!isNaN(p) && p >= 0 && p < view.state.doc.content.size) {
+                  const n = view.state.doc.nodeAt(p);
+                  if (n && MEDIA_NODE_NAMES.includes(n.type.name)) {
+                    nodeToMove = n;
+                    if (!draggedOrigin) {
+                      draggedOrigin = {
+                        pos: p,
+                        node: n,
+                        mediaId: getMediaIdentifier(n),
+                        insideGroup: false,
+                      };
+                    }
+                  }
+                }
+              }
+            }
 
             if (!nodeToMove && slice && slice.content) {
               slice.content.forEach((node) => {
@@ -340,13 +377,10 @@ export const SmartMediaDragDrop = Extension.create({
                   }
                 } else {
                   // COMPORTAMENTO PADRÃO: MOVER O TEXTO (remove da posição original e insere no novo local)
-                  // 1. Remove a seleção original da posição anterior
                   tr.delete(from, to);
 
-                  // 2. Mapeia a posição de inserção para refletir o deslocamento
                   const mappedInsertPos = tr.mapping.map(rawDropPos);
 
-                  // 3. Ajusta o ponto de inserção para garantir posição válida no documento
                   let finalInsertPos = mappedInsertPos;
                   try {
                     const calculated = dropPoint(tr.doc, mappedInsertPos, sliceToInsert);
@@ -356,10 +390,8 @@ export const SmartMediaDragDrop = Extension.create({
                   } catch {}
                   finalInsertPos = Math.max(0, Math.min(finalInsertPos, tr.doc.content.size));
 
-                  // 4. Insere o trecho no novo local
                   tr.replaceRange(finalInsertPos, finalInsertPos, sliceToInsert);
 
-                  // 5. Seleciona o texto no novo local
                   const newFrom = finalInsertPos;
                   const newTo = newFrom + sliceToInsert.content.size;
                   if (newFrom <= tr.doc.content.size && newTo <= tr.doc.content.size) {
@@ -385,46 +417,86 @@ export const SmartMediaDragDrop = Extension.create({
             const currentOrigin = draggedOrigin;
             draggedOrigin = null;
 
-            const elementUnder = document.elementFromPoint(clientX, clientY);
-            if (!elementUnder) return false;
+            // Prioriza o alvo ativo capturado durante o dragover (onde a linha visual foi desenhada)
+            let targetMediaWrapper: HTMLElement | null = null;
+            let isTop = false;
 
-            const mediaWrapper = elementUnder.closest<HTMLElement>(
-              '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper'
-            );
+            if (
+              activeMediaDropTarget &&
+              Date.now() - activeMediaDropTarget.timestamp < 1000 &&
+              view.dom.contains(activeMediaDropTarget.mediaWrapper)
+            ) {
+              targetMediaWrapper = activeMediaDropTarget.mediaWrapper;
+              isTop = activeMediaDropTarget.isTop;
+            }
+
+            if (!targetMediaWrapper) {
+              const elementUnder = document.elementFromPoint(clientX, clientY);
+              const targetNode = event.target as Node | null;
+              const targetEl = targetNode instanceof Element ? targetNode : targetNode?.parentElement;
+              targetMediaWrapper =
+                elementUnder?.closest<HTMLElement>(
+                  '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper'
+                ) ||
+                targetEl?.closest<HTMLElement>(
+                  '.image-node-view-wrapper, .document-attachment-wrapper, .youtube-node-view-wrapper'
+                ) ||
+                null;
+
+              if (targetMediaWrapper) {
+                const rect = targetMediaWrapper.getBoundingClientRect();
+                const relY = clientY - rect.top;
+                isTop = relY < rect.height * 0.5;
+              }
+            }
+
+            activeMediaDropTarget = null;
 
             const { state } = view;
             const { doc, schema } = state;
             const tr = state.tr;
 
-            // 1. Identifica a posição de destino
+            // 1. Identifica a posição de destino no documento
             let targetPos: number | null = null;
             let targetNodeSize = 0;
-            let isTop = false;
 
-            if (mediaWrapper && view.dom.contains(mediaWrapper)) {
-              const rect = mediaWrapper.getBoundingClientRect();
-              const relY = clientY - rect.top;
-              isTop = relY < rect.height * 0.5;
-
-              const found = findMediaNodeAtDOM(view, mediaWrapper);
+            if (targetMediaWrapper && view.dom.contains(targetMediaWrapper)) {
+              const found = findMediaNodeAtDOM(view, targetMediaWrapper);
               if (found) {
                 targetPos = found.pos;
                 targetNodeSize = found.node.nodeSize;
               }
             }
 
+            // 2. Se a origem não foi encontrada via state, localiza pelo ID da mídia no doc
+            let effectiveOriginPos = currentOrigin?.pos;
+            if (effectiveOriginPos === undefined && nodeToMove) {
+              const mediaId = getMediaIdentifier(nodeToMove);
+              if (mediaId) {
+                doc.descendants((node, pos) => {
+                  if (effectiveOriginPos !== undefined) return false;
+                  if (MEDIA_NODE_NAMES.includes(node.type.name)) {
+                    if (getMediaIdentifier(node) === mediaId) {
+                      effectiveOriginPos = pos;
+                      return false;
+                    }
+                  }
+                });
+              }
+            }
+
             // Se for soltar na mesma mídia na mesma posição, cancela
-            if (currentOrigin && targetPos !== null && currentOrigin.pos === targetPos) {
+            if (effectiveOriginPos !== undefined && targetPos !== null && effectiveOriginPos === targetPos) {
               event.preventDefault();
               return true;
             }
 
-            // 2. Remove o nó da posição de ORIGEM (DELETE ORIGINAL)
-            if (currentOrigin) {
-              const originPos = currentOrigin.pos;
+            // 3. Remove o nó da posição de ORIGEM (DELETE ORIGINAL)
+            if (effectiveOriginPos !== undefined) {
+              const originPos = effectiveOriginPos;
               const $originPos = doc.resolve(Math.min(originPos, doc.content.size));
 
-              if (currentOrigin.insideGroup && $originPos.parent.type.name === 'mediaGroup') {
+              if (currentOrigin?.insideGroup && $originPos.parent.type.name === 'mediaGroup') {
                 const groupPos = $originPos.before();
                 const groupNode = $originPos.parent;
                 const remainingChildren: PMNode[] = [];
@@ -454,12 +526,12 @@ export const SmartMediaDragDrop = Extension.create({
                 }
               } else {
                 // Standalone: deleta da origem
-                const originNodeSize = currentOrigin.node.nodeSize;
+                const originNodeSize = nodeToMove.nodeSize;
                 tr.delete(originPos, originPos + originNodeSize);
               }
             }
 
-            // 3. Insere o nó no DESTINO
+            // 4. Insere o MESMO nó no DESTINO
             if (targetPos !== null) {
               // Destino é outra mídia:
               // Se isTop: insere ANTES da targetPos
@@ -520,9 +592,9 @@ export const SmartMediaDragDrop = Extension.create({
               } catch {}
             }
 
-            // 4. Validação anti-duplicação
+            // 5. Validação anti-duplicação
             const mediaId = getMediaIdentifier(nodeToMove);
-            if (mediaId && currentOrigin) {
+            if (mediaId && effectiveOriginPos !== undefined) {
               const occurrences = countMediaOccurrencesInDoc(tr.doc, mediaId);
               if (occurrences > 1) {
                 console.warn('[MEDIA-DRAG] Duplicação evitada:', { mediaId, occurrences });

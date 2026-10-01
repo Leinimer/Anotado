@@ -23,6 +23,7 @@ import {
   unarchiveNote,
   archiveFolderNotes,
   moveItem,
+  reorderNotesBatch,
   flushNoteSaves,
   flushAllPendingSaves,
 } from '@/src/features/notes/api/notes-api';
@@ -617,6 +618,142 @@ export function MainLayout() {
     [userId]
   );
 
+  const handleReorderItem = useCallback(
+    async (
+      itemType: 'folder' | 'note',
+      itemId: string,
+      targetId: string | null,
+      targetParentId: string | null,
+      dropPosition: 'before' | 'after' | 'inside'
+    ) => {
+      if (itemType === 'note') {
+        setNotes((prevNotes) => {
+          const draggedNote = prevNotes.find((n) => n.id === itemId);
+          if (!draggedNote) return prevNotes;
+
+          // Filtra todas as notas irmãs do container de destino (excluindo a nota arrastada)
+          const targetSiblings = prevNotes
+            .filter(
+              (n) =>
+                n.id !== itemId &&
+                !n.is_archived &&
+                (targetParentId === null ? n.folder_id === null : n.folder_id === targetParentId)
+            )
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.created_at.localeCompare(b.created_at));
+
+          let newOrderedList: typeof targetSiblings;
+
+          if (dropPosition === 'inside' || !targetId) {
+            newOrderedList = [...targetSiblings, { ...draggedNote, folder_id: targetParentId }];
+          } else {
+            const targetIndex = targetSiblings.findIndex((n) => n.id === targetId);
+            if (targetIndex === -1) {
+              newOrderedList = [...targetSiblings, { ...draggedNote, folder_id: targetParentId }];
+            } else {
+              const insertIndex = dropPosition === 'before' ? targetIndex : targetIndex + 1;
+              newOrderedList = [
+                ...targetSiblings.slice(0, insertIndex),
+                { ...draggedNote, folder_id: targetParentId },
+                ...targetSiblings.slice(insertIndex),
+              ];
+            }
+          }
+
+          // Atribui posições estritamente sequenciais 0, 1, 2, 3...
+          const updatesMap = new Map<string, { folder_id: string | null; position: number }>();
+          newOrderedList.forEach((n, idx) => {
+            updatesMap.set(n.id, { folder_id: targetParentId, position: idx });
+          });
+
+          // Se a nota veio de outra pasta, reordena as notas restantes na pasta de origem
+          if (draggedNote.folder_id !== targetParentId && draggedNote.folder_id !== undefined) {
+            const sourceFolderId = draggedNote.folder_id;
+            const sourceSiblings = prevNotes
+              .filter(
+                (n) =>
+                  n.id !== itemId &&
+                  !n.is_archived &&
+                  (sourceFolderId === null ? n.folder_id === null : n.folder_id === sourceFolderId)
+              )
+              .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.created_at.localeCompare(b.created_at));
+
+            sourceSiblings.forEach((n, idx) => {
+              updatesMap.set(n.id, { folder_id: sourceFolderId, position: idx });
+            });
+          }
+
+          const updatesArray = Array.from(updatesMap.entries()).map(([id, val]) => ({
+            id,
+            folder_id: val.folder_id,
+            position: val.position,
+          }));
+
+          reorderNotesBatch(userId, updatesArray).catch((err) => {
+            console.error('[REORDER-NOTES] Erro ao persistir nova ordem de notas:', err);
+          });
+
+          return prevNotes.map((n) => {
+            const u = updatesMap.get(n.id);
+            if (u) {
+              return { ...n, folder_id: u.folder_id, position: u.position, updated_at: new Date().toISOString() };
+            }
+            return n;
+          });
+        });
+      } else {
+        // Reordenação de pastas
+        setFolders((prevFolders) => {
+          const draggedFolder = prevFolders.find((f) => f.id === itemId);
+          if (!draggedFolder) return prevFolders;
+
+          const targetSiblings = prevFolders
+            .filter(
+              (f) =>
+                f.id !== itemId &&
+                (targetParentId === null ? f.parent_id === null : f.parent_id === targetParentId)
+            )
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.created_at.localeCompare(b.created_at));
+
+          let newOrderedList: typeof targetSiblings;
+
+          if (dropPosition === 'inside' || !targetId) {
+            newOrderedList = [...targetSiblings, { ...draggedFolder, parent_id: targetParentId }];
+          } else {
+            const targetIndex = targetSiblings.findIndex((f) => f.id === targetId);
+            if (targetIndex === -1) {
+              newOrderedList = [...targetSiblings, { ...draggedFolder, parent_id: targetParentId }];
+            } else {
+              const insertIndex = dropPosition === 'before' ? targetIndex : targetIndex + 1;
+              newOrderedList = [
+                ...targetSiblings.slice(0, insertIndex),
+                { ...draggedFolder, parent_id: targetParentId },
+                ...targetSiblings.slice(insertIndex),
+              ];
+            }
+          }
+
+          const updatesMap = new Map<string, { parent_id: string | null; position: number }>();
+          newOrderedList.forEach((f, idx) => {
+            updatesMap.set(f.id, { parent_id: targetParentId, position: idx });
+          });
+
+          updatesMap.forEach((val, fId) => {
+            moveItem(userId, 'folder', fId, val.parent_id, val.position).catch(console.error);
+          });
+
+          return prevFolders.map((f) => {
+            const u = updatesMap.get(f.id);
+            if (u) {
+              return { ...f, parent_id: u.parent_id, position: u.position, updated_at: new Date().toISOString() };
+            }
+            return f;
+          });
+        });
+      }
+    },
+    [userId]
+  );
+
   return (
     <div
       id="main-app-container"
@@ -645,6 +782,7 @@ export function MainLayout() {
             onUpdateFolderColor={handleUpdateFolderColor}
             onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
             onMoveItem={handleMoveItem}
+            onReorderItem={handleReorderItem}
             currentWorkspace="notes"
             onToggleWorkspace={handleToggleWorkspace}
           />
@@ -686,6 +824,7 @@ export function MainLayout() {
                 onUpdateFolderColor={handleUpdateFolderColor}
                 onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
                 onMoveItem={handleMoveItem}
+                onReorderItem={handleReorderItem}
                 onCloseMobile={() => setMobileSidebarOpen(false)}
                 currentWorkspace="notes"
                 onToggleWorkspace={handleToggleWorkspace}

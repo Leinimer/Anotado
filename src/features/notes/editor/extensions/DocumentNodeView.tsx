@@ -188,14 +188,12 @@ export function DocumentNodeView(props: NodeViewProps) {
 
   const handleDragStart = (e: React.DragEvent) => {
     const pos = typeof getPos === 'function' ? getPos() : undefined;
-    if (typeof pos === 'number' && editor?.view) {
-      try {
-        const { doc } = editor.view.state;
-        const selection = NodeSelection.create(doc, pos);
-        editor.view.dispatch(editor.view.state.tr.setSelection(selection));
-      } catch (err) {
-        console.warn('[MEDIA-DRAG] Could not set NodeSelection on doc drag start:', err);
-      }
+    if (typeof pos === 'number' && e.dataTransfer) {
+      const mediaId = node.attrs.src || node.attrs.name || String(pos);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/x-anotado-media-id', mediaId);
+      e.dataTransfer.setData('text/x-anotado-media-pos', String(pos));
+      e.dataTransfer.setData('text/x-anotado-media-type', node.type.name);
     }
   };
 

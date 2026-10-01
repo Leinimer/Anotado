@@ -1071,6 +1071,48 @@ export async function moveItem(
 }
 
 /**
+ * Persiste a reordenação em lote de notas no IndexedDB e enfileira para sincronização.
+ */
+export async function reorderNotesBatch(
+  userId: string,
+  updates: Array<{ id: string; folder_id: string | null; position: number }>
+): Promise<boolean> {
+  for (const update of updates) {
+    const localNote = await indexedDBStorage.getNoteById(userId, update.id);
+    const nextRevision = (localNote?.revision || 0) + 1;
+
+    if (localNote) {
+      localNote.folder_id = update.folder_id;
+      localNote.position = update.position;
+      localNote.revision = nextRevision;
+      localNote.syncRequired = true;
+      localNote.syncStatus = 'pending';
+      localNote.needs_sync = true;
+      localNote.updated_at = new Date().toISOString();
+      localNote.sync_status = 'pending_sync';
+      await indexedDBStorage.putNote(userId, localNote);
+    }
+
+    await indexedDBStorage.enqueueSyncItem(userId, {
+      action: 'MOVE_NOTE',
+      entity_type: 'note',
+      entity_id: update.id,
+      payload: { noteId: update.id, newFolderId: update.folder_id, newPosition: update.position },
+      revision: nextRevision,
+    });
+  }
+
+  const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
+  networkMonitor.updatePendingCount(pendingCount);
+
+  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+    syncEngine.scheduleSync(50);
+  }
+
+  return true;
+}
+
+/**
  * Atualiza o conjunto de tags explícitas de uma nota no IndexedDB e enfileira para sincronização.
  */
 export async function updateNoteTags(
