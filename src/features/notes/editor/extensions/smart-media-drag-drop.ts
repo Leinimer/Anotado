@@ -305,10 +305,25 @@ export const SmartMediaDragDrop = Extension.create({
             },
           },
 
-          handleDrop(view, event, slice) {
+          handleDrop(view, event, slice, moved) {
             hideIndicator();
 
             if (!view.editable) return false;
+
+            // DELEGATE internal editor drags to ProseMirror's native implementation.
+            // ProseMirror already knows how to move a dragged NodeView/selection:
+            // it tracks view.dragging, computes dropPoint(), deletes the original
+            // selection/node when moved=true, inserts the slice, and restores NodeSelection.
+            //
+            // Our previous custom implementation duplicated that logic and could
+            // calculate a different target than the drop cursor, which is why the
+            // reference line appeared but the PDF did not actually move.
+            //
+            // For an in-editor drag (moved === true), do not intercept the drop.
+            if (moved) {
+              activeMediaDropTarget = null;
+              return false;
+            }
 
             const clientX = event.clientX;
             const clientY = event.clientY;
