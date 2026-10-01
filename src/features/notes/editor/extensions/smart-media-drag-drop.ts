@@ -593,10 +593,6 @@ export const SmartMediaDragDrop = Extension.create({
               }
             }
 
-            tr.scrollIntoView();
-            view.focus();
-            view.dispatch(tr.setMeta('uiEvent', 'drop'));
-
             // 5. Validação anti-duplicação
             const mediaId = getMediaIdentifier(nodeToMove);
             if (mediaId && effectiveOriginPos !== undefined) {
