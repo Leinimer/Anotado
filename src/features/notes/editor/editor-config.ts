@@ -123,42 +123,83 @@ export const CustomHorizontalRule = HorizontalRule.extend({
   addInputRules() {
     return [
       new InputRule({
-        find: /^(?:---|—-)$/,
+        find: /(?:---|—-|———)$/,
         handler: ({ state, range, match }) => {
           const { tr } = state;
-          const start = range.from;
-          const end = range.to;
+          const $from = state.doc.resolve(range.from);
+          const parentBlock = $from.parent;
+          const paragraphType = state.schema.nodes.paragraph;
 
-          // Cria o nó horizontalRule
+          if (!paragraphType) return null;
+
           const hrNode = this.type.create(this.options.HTMLAttributes);
 
-          // Substitui o parágrafo / texto '---' pela linha horizontal
-          const $start = state.doc.resolve(start);
-          const isEntireBlock = $start.parent.textContent.trim() === match[0].trim();
+          // Texto anterior no parágrafo antes dos traços
+          const textBefore = parentBlock.textBetween(0, $from.parentOffset).trimEnd();
 
-          if (isEntireBlock) {
-            // Substitui o bloco inteiro (parágrafo) pelo hrNode
-            const blockStart = $start.before();
-            const blockEnd = $start.after();
-            tr.replaceWith(blockStart, blockEnd, hrNode);
+          if (textBefore.length > 0) {
+            // =========================================================================
+            // CASO 1: O usuário digitou texto seguido de '---' (ex: "Meu texto---")
+            // 1. O texto original permanece intacto na linha atual
+            // 2. Removemos os traços e espaços excedentes desta linha
+            // 3. Inserimos a linha horizontal imediatamente abaixo do texto
+            // 4. Posicionamos o cursor em um único parágrafo imediatamente após a linha
+            // =========================================================================
+            const cutFrom = $from.start() + textBefore.length;
+            const cutTo = range.to;
+            tr.delete(cutFrom, cutTo);
 
-            // Posicionamento inteligente do cursor em um novo parágrafo após a linha
-            const posAfterHr = blockStart + hrNode.nodeSize;
-            const $after = tr.doc.resolve(Math.min(posAfterHr, tr.doc.content.size));
+            // Posição final do bloco de texto original após a deleção
+            const currentBlockEnd = tr.mapping.map($from.after());
+            tr.insert(currentBlockEnd, hrNode);
 
-            if (posAfterHr >= tr.doc.content.size || !$after.nodeAfter || !$after.nodeAfter.isTextblock) {
-              const paragraphType = state.schema.nodes.paragraph;
-              if (paragraphType) {
-                const emptyParagraph = paragraphType.create();
-                tr.insert(posAfterHr, emptyParagraph);
-                tr.setSelection(TextSelection.create(tr.doc, posAfterHr + 1));
-              }
+            // Posição imediatamente após a linha horizontal
+            const posAfterHr = currentBlockEnd + hrNode.nodeSize;
+            const $afterHr = tr.doc.resolve(posAfterHr);
+            const nextNode = $afterHr.nodeAfter;
+
+            // Se o próximo bloco já for um parágrafo vazio existente, reutiliza-o sem criar linha vazia extra
+            if (nextNode && nextNode.type === paragraphType && nextNode.content.size === 0) {
+              tr.setSelection(TextSelection.create(tr.doc, posAfterHr + 1));
             } else {
-              // Posiciona o cursor no início do próximo parágrafo existente
+              // Insere exatamente um novo parágrafo vazio logo abaixo da linha horizontal
+              const emptyParagraph = paragraphType.create();
+              tr.insert(posAfterHr, emptyParagraph);
               tr.setSelection(TextSelection.create(tr.doc, posAfterHr + 1));
             }
           } else {
-            tr.replaceWith(start, end, hrNode);
+            // =========================================================================
+            // CASO 2: O parágrafo contém apenas '---' (ou espaços antes de '---')
+            // =========================================================================
+            const blockStart = $from.before();
+            const blockEnd = $from.after();
+
+            // Se o parágrafo imediatamente anterior for vazio (ex: usuário pressionou Enter 2x),
+            // removemos o parágrafo vazio para garantir que não haja salto de linha antes da HR
+            let effectiveStart = blockStart;
+            const $beforeBlock = state.doc.resolve(blockStart);
+            const prevNode = $beforeBlock.nodeBefore;
+            if (prevNode && prevNode.type === paragraphType && prevNode.content.size === 0) {
+              effectiveStart = blockStart - prevNode.nodeSize;
+            }
+
+            // Substitui o bloco de '---' pela linha horizontal
+            tr.replaceWith(effectiveStart, blockEnd, hrNode);
+
+            // Posição imediatamente abaixo da linha horizontal
+            const posAfterHr = effectiveStart + hrNode.nodeSize;
+            const $afterHr = tr.doc.resolve(posAfterHr);
+            const nextNode = $afterHr.nodeAfter;
+
+            // Se já existir um parágrafo vazio logo após, posiciona o cursor nele
+            if (nextNode && nextNode.type === paragraphType && nextNode.content.size === 0) {
+              tr.setSelection(TextSelection.create(tr.doc, posAfterHr + 1));
+            } else {
+              // Cria estritamente um único novo parágrafo vazio para o cursor
+              const emptyParagraph = paragraphType.create();
+              tr.insert(posAfterHr, emptyParagraph);
+              tr.setSelection(TextSelection.create(tr.doc, posAfterHr + 1));
+            }
           }
 
           tr.scrollIntoView();

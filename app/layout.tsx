@@ -1,22 +1,7 @@
 import type { Metadata, Viewport } from 'next';
-import { Manrope, Source_Serif_4 } from 'next/font/google';
 import './globals.css';
 import { PwaProvider } from '@/src/features/pwa/PwaProvider';
 import { ThemeProvider } from '@/src/features/theme/theme-context';
-
-const manrope = Manrope({
-  subsets: ['latin'],
-  variable: '--font-manrope',
-  display: 'swap',
-  weight: ['400', '500', '600', '700'],
-});
-
-const sourceSerif = Source_Serif_4({
-  subsets: ['latin'],
-  variable: '--font-source-serif',
-  display: 'swap',
-  weight: ['400', '600', '700'],
-});
 
 export const metadata: Metadata = {
   title: 'ANOTADO!',
@@ -56,7 +41,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning className={`${manrope.variable} ${sourceSerif.variable}`}>
+    <html lang="pt-BR" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{

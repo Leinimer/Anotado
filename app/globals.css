@@ -747,6 +747,45 @@ html.dark {
   color: #ffffff;
 }
 
+/* Texto em Negrito no Dark Mode: Permanece sempre branco/claro com espessura de fonte bold (peso 700) */
+.dark .ProseMirror strong,
+.dark .ProseMirror b,
+.dark .ProseMirror p strong,
+.dark .ProseMirror p b,
+.dark .ProseMirror li strong,
+.dark .ProseMirror li b,
+.dark .ProseMirror h1 strong,
+.dark .ProseMirror h1 b,
+.dark .ProseMirror h2 strong,
+.dark .ProseMirror h2 b,
+.dark .ProseMirror h3 strong,
+.dark .ProseMirror h3 b,
+.dark .ProseMirror blockquote strong,
+.dark .ProseMirror blockquote b,
+.dark .ProseMirror span strong,
+.dark .ProseMirror span b,
+.dark .ProseMirror a strong,
+.dark .ProseMirror a b {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* Previne que qualquer estilo inline escuro herde cor preta no negrito em Dark Mode */
+.dark .ProseMirror strong[style*="color: #000000"],
+.dark .ProseMirror strong[style*="color: #1b1c19"],
+.dark .ProseMirror strong[style*="color: rgb(0, 0, 0)"],
+.dark .ProseMirror strong[style*="color: rgb(27, 28, 25)"],
+.dark .ProseMirror strong[style*="color: black"],
+.dark .ProseMirror b[style*="color: #000000"],
+.dark .ProseMirror b[style*="color: #1b1c19"],
+.dark .ProseMirror b[style*="color: rgb(0, 0, 0)"],
+.dark .ProseMirror b[style*="color: rgb(27, 28, 25)"],
+.dark .ProseMirror b[style*="color: black"] {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
 .dark .ProseMirror blockquote {
   border-left-color: #3f3f46;
   color: #a1a1aa;
@@ -754,7 +793,7 @@ html.dark {
 
 .dark .ProseMirror hr,
 .dark .ProseMirror .editorial-hr {
-  border-top-color: #1f1f1f;
+  border-top-color: #333333;
 }
 
 /* Checklist / Task List no Dark */
@@ -888,15 +927,15 @@ html.dark {
 .dark .ProseMirror mark > em,
 .dark .ProseMirror mark > u,
 .dark .ProseMirror mark > a {
-  color: var(--highlight-text-dark, var(--highlight-fallback, #554b02)) !important;
-  -webkit-text-fill-color: var(--highlight-text-dark, var(--highlight-fallback, #554b02)) !important;
+  color: var(--highlight-text-dark, var(--highlight-fallback, #ffffff)) !important;
+  -webkit-text-fill-color: var(--highlight-text-dark, var(--highlight-fallback, #ffffff)) !important;
   border-radius: 2px;
   padding: 0.05em 0.2em;
 }
 
 .dark .ProseMirror mark * {
-  color: var(--highlight-text-dark, var(--highlight-fallback, #554b02)) !important;
-  -webkit-text-fill-color: var(--highlight-text-dark, var(--highlight-fallback, #554b02)) !important;
+  color: var(--highlight-text-dark, var(--highlight-fallback, #ffffff)) !important;
+  -webkit-text-fill-color: var(--highlight-text-dark, var(--highlight-fallback, #ffffff)) !important;
 }
 
 /* Adaptação inteligente de cores de texto personalizadas escuras em fundo preto (FORA do marca-texto) */

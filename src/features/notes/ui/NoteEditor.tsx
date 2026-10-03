@@ -90,7 +90,7 @@ export function NoteEditor({
         id: 'tiptap-note-content-editable',
         'data-user-id': userId || 'anonymous',
         class:
-          'focus:outline-none min-h-[420px] text-[#1b1c19] font-serif-note text-base sm:text-lg leading-[1.6] selection:bg-[#f4dfcb] selection:text-[#1b1c19]',
+          'focus:outline-none min-h-[420px] text-[#1b1c19] dark:text-[#ededed] font-serif-note text-base sm:text-lg leading-[1.6] selection:bg-[#f4dfcb] selection:text-[#1b1c19] dark:selection:bg-[#333333] dark:selection:text-[#ffffff]',
       },
       handlePaste: (view, event, slice) => {
         // 1. Verifica se há arquivo de imagem ou anexo no clipboardData (files ou items)
