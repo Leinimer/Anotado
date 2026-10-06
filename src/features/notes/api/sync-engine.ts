@@ -741,6 +741,7 @@ class SyncEngine {
           existingLocalNote.folder_id === newRecord.folder_id &&
           existingLocalNote.position === newRecord.position &&
           Boolean(existingLocalNote.is_archived) === Boolean(newRecord.is_archived) &&
+          Boolean(existingLocalNote.is_favorite) === Boolean(newRecord.is_favorite) &&
           JSON.stringify(existingLocalNote.tags || []) === JSON.stringify(noteTags);
 
         if (isIdentical && !hasLocalPendingEdits) {
@@ -764,6 +765,7 @@ class SyncEngine {
           tags: noteTags,
           position: newRecord.position ?? 0,
           is_archived: Boolean(newRecord.is_archived),
+          is_favorite: Boolean(newRecord.is_favorite),
           syncRequired: false,
           syncStatus: 'synced',
           sync_status: 'synced',
@@ -849,6 +851,7 @@ class SyncEngine {
         ...remoteRecord,
         tags: remoteTags,
         is_archived: Boolean(remoteRecord.is_archived),
+        is_favorite: Boolean(remoteRecord.is_favorite),
         syncRequired: false,
         syncStatus: 'synced',
         sync_status: 'synced',
@@ -1462,6 +1465,7 @@ class SyncEngine {
           position: effectiveNote.position ?? 0,
           tags: noteTags,
           is_archived: Boolean(effectiveNote.is_archived),
+          is_favorite: Boolean(effectiveNote.is_favorite),
           previous_folder_id: effectiveNote.previous_folder_id || null,
           revision: effectiveRevision,
           workspace_type: effectiveNote.workspace_type || 'notes',
@@ -1474,6 +1478,11 @@ class SyncEngine {
         };
 
         let { error: upsertError } = await supabase.from('notes').upsert(notePayload);
+
+        if (upsertError && upsertError.message?.includes('is_favorite')) {
+          delete notePayload.is_favorite;
+          upsertError = (await supabase.from('notes').upsert(notePayload)).error;
+        }
 
         // Tratamento de violação de Foreign Key (notes_folder_id_fkey / code 23503)
         if (
@@ -1800,6 +1809,7 @@ class SyncEngine {
             position: localNote?.position ?? 0,
             tags: cleanTags,
             is_archived: Boolean(localNote?.is_archived),
+            is_favorite: Boolean(localNote?.is_favorite),
             previous_folder_id: localNote?.previous_folder_id || null,
             revision: revision,
             workspace_type: localNote?.workspace_type || 'notes',
@@ -1821,6 +1831,7 @@ class SyncEngine {
           }
 
           if (upsertErr && upsertErr.message && (upsertErr.message.includes('column') || upsertErr.message.includes('schema cache'))) {
+            delete notePayload.is_favorite;
             delete notePayload.workspace_type;
             delete notePayload.entry_date;
             delete notePayload.diary_year;
@@ -2088,6 +2099,30 @@ class SyncEngine {
               .eq('user_id', userId);
             error = retryNoFolder.error;
           }
+        }
+
+        if (error) throw error;
+        await indexedDBStorage.markNoteSynced(userId, noteId, revision);
+        console.log(`[SyncGuard] MARK SYNCED noteId=${noteId} revision=${revision}`);
+        return true;
+      }
+
+      case 'FAVORITE_NOTE': {
+        const { noteId, isFavorite } = item.payload;
+        const revision = item.revision || 1;
+        let { error } = await supabase
+          .from('notes')
+          .update({
+            is_favorite: Boolean(isFavorite),
+            revision,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', noteId)
+          .eq('user_id', userId);
+
+        if (error && error.message?.includes('is_favorite')) {
+          console.warn(`[SyncEngine] Coluna is_favorite não existe no Supabase ainda. Execute a migration SQL.`);
+          error = null;
         }
 
         if (error) throw error;
@@ -2843,17 +2878,30 @@ class SyncEngine {
       // 2. Busca notas remotas (filtrado por lastSync se disponível, incluindo content e workspace_type)
       let notesQuery = supabase
         .from('notes')
-        .select('id, user_id, folder_id, title, content, position, is_archived, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
+        .select('id, user_id, folder_id, title, content, position, is_archived, is_favorite, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
         .eq('user_id', userId);
 
       if (lastSync) {
         notesQuery = notesQuery.gt('updated_at', lastSync);
       }
 
-      const { data: remoteNotes, error: notesErr } = await remoteOperationGuard.execute(
+      let { data: remoteNotes, error: notesErr } = await remoteOperationGuard.execute(
         `fetch:notes:${userId}`,
         async () => notesQuery
       );
+
+      if (notesErr && notesErr.message?.includes('is_favorite')) {
+        let fallbackQuery = supabase
+          .from('notes')
+          .select('id, user_id, folder_id, title, content, position, is_archived, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
+          .eq('user_id', userId);
+        if (lastSync) {
+          fallbackQuery = fallbackQuery.gt('updated_at', lastSync);
+        }
+        const fallbackRes = await fallbackQuery;
+        remoteNotes = fallbackRes.data;
+        notesErr = fallbackRes.error;
+      }
 
       if (notesErr) {
         if (notesErr.status === 402 || (notesErr.message && notesErr.message.includes('exceed_egress_quota'))) {
@@ -2912,6 +2960,7 @@ class SyncEngine {
               syncStatus: 'synced',
               needs_sync: false,
               is_archived: Boolean(rNote.is_archived),
+              is_favorite: Boolean(rNote.is_favorite),
               sync_status: 'synced',
               workspace_type: rNote.workspace_type || 'notes',
               entry_date: rNote.entry_date || null,
@@ -2937,6 +2986,7 @@ class SyncEngine {
             existingNote.folder_id === rNote.folder_id &&
             existingNote.position === rNote.position &&
             Boolean(existingNote.is_archived) === Boolean(rNote.is_archived) &&
+            Boolean(existingNote.is_favorite) === Boolean(rNote.is_favorite) &&
             existingNote.previous_folder_id === rNote.previous_folder_id &&
             existingNote.workspace_type === rNote.workspace_type &&
             JSON.stringify(existingNote.tags || []) === JSON.stringify(noteTags);
@@ -2966,6 +3016,7 @@ class SyncEngine {
             syncStatus: 'synced',
             needs_sync: false,
             is_archived: Boolean(rNote.is_archived),
+            is_favorite: Boolean(rNote.is_favorite),
             sync_status: 'synced',
             workspace_type: rNote.workspace_type || existingNote.workspace_type || 'notes',
             entry_date: rNote.entry_date || existingNote.entry_date || null,
@@ -3097,15 +3148,17 @@ class SyncEngine {
       }
 
       // 2. Busca estado canônico remoto no Supabase
-      const [foldersRes, notesRes, tombstonesRes] = await Promise.all([
+      let notesQueryPromise = supabase
+        .from('notes')
+        .select('id, user_id, folder_id, title, content, position, is_archived, is_favorite, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
+        .eq('user_id', userId);
+
+      const [foldersRes, notesResInitial, tombstonesRes] = await Promise.all([
         supabase
           .from('folders')
           .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, workspace_type, diary_year, diary_month, created_at, updated_at')
           .eq('user_id', userId),
-        supabase
-          .from('notes')
-          .select('id, user_id, folder_id, title, content, position, is_archived, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
-          .eq('user_id', userId),
+        notesQueryPromise,
         supabase
           .from('sync_tombstones')
           .select('id, entity_type, entity_id, deleted_at')
@@ -3113,6 +3166,14 @@ class SyncEngine {
           .order('deleted_at', { ascending: false })
           .limit(1000),
       ]);
+
+      let notesRes = notesResInitial;
+      if (notesRes.error && notesRes.error.message?.includes('is_favorite')) {
+        notesRes = await supabase
+          .from('notes')
+          .select('id, user_id, folder_id, title, content, position, is_archived, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
+          .eq('user_id', userId);
+      }
 
       if (foldersRes.error) {
         console.warn('[RebuildCache] Erro ao buscar pastas remotas:', foldersRes.error);
@@ -3210,6 +3271,7 @@ class SyncEngine {
             sync_status: 'synced',
             needs_sync: false,
             is_archived: Boolean(rNote.is_archived),
+            is_favorite: Boolean(rNote.is_favorite),
             workspace_type: rNote.workspace_type || 'notes',
             entry_date: rNote.entry_date || null,
             diary_year: rNote.diary_year,
@@ -3228,6 +3290,7 @@ class SyncEngine {
             sync_status: 'synced',
             needs_sync: false,
             is_archived: Boolean(rNote.is_archived),
+            is_favorite: Boolean(rNote.is_favorite),
             workspace_type: rNote.workspace_type || lNote.workspace_type || 'notes',
             entry_date: rNote.entry_date || lNote.entry_date || null,
             diary_year: rNote.diary_year !== undefined ? rNote.diary_year : lNote.diary_year,

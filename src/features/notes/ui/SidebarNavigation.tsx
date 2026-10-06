@@ -26,18 +26,20 @@ import {
   Calendar,
   CalendarDays,
   CalendarPlus,
+  Star,
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { TagsModal } from './TagsModal';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import { createClient } from '@/src/features/auth/api/supabase-client';
-import { flushAllPendingSaves } from '@/src/features/notes/api/notes-api';
+import { flushAllPendingSaves, toggleNoteFavorite } from '@/src/features/notes/api/notes-api';
 import { usePwa } from '@/src/features/pwa/PwaProvider';
 import {
   Folder as FolderType,
   Note as NoteType,
   SearchMode,
   SYSTEM_ARCHIVE_FOLDER_ID,
+  SYSTEM_FAVORITES_FOLDER_ID,
   TreeFolderNode,
   TreeNodeItem,
   WorkspaceType,
@@ -71,6 +73,7 @@ interface SidebarNavigationProps {
   onDeleteNote: (noteId: string) => void;
   onArchiveNote?: (noteId: string) => void;
   onUnarchiveNote?: (noteId: string) => void;
+  onToggleFavoriteNote?: (noteId: string) => void;
   onArchiveFolderNotes?: (folderId: string) => void;
   onUpdateFolderColor?: (folderId: string, color: string | null) => void;
   onUpdateFolderSmartConfig?: (folderId: string, isSmart: boolean, smartTags: string[]) => void;
@@ -111,6 +114,7 @@ export function SidebarNavigation({
   onDeleteNote,
   onArchiveNote,
   onUnarchiveNote,
+  onToggleFavoriteNote,
   onArchiveFolderNotes,
   onUpdateFolderColor,
   onUpdateFolderSmartConfig,
@@ -135,13 +139,14 @@ export function SidebarNavigation({
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('demo-user');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2']));
+  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2', SYSTEM_FAVORITES_FOLDER_ID]));
 
   // Estado para menu flutuante de opções (...)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [menuItemType, setMenuItemType] = useState<'folder' | 'note' | null>(null);
   const [menuNoteIsArchived, setMenuNoteIsArchived] = useState(false);
+  const [menuNoteIsFavorite, setMenuNoteIsFavorite] = useState(false);
   const [showColorSubmenu, setShowColorSubmenu] = useState(false);
   const colorSubmenuTimerRef = useRef<NodeJS.Timeout | null>(null);
   const customColorInputRef = useRef<HTMLInputElement>(null);
@@ -444,17 +449,27 @@ export function SidebarNavigation({
     }
   };
 
+  const handleToggleFavorite = async (noteId: string) => {
+    if (onToggleFavoriteNote) {
+      onToggleFavoriteNote(noteId);
+    } else {
+      await toggleNoteFavorite(userId, noteId);
+    }
+  };
+
   const openContextMenuAt = (
     top: number,
     left: number,
     id: string,
     type: 'folder' | 'note',
-    isArchived: boolean
+    isArchived: boolean,
+    isFavorite = false
   ) => {
     setMenuPosition({ top, left });
     setMenuOpenId(id);
     setMenuItemType(type);
     setMenuNoteIsArchived(isArchived);
+    setMenuNoteIsFavorite(isFavorite);
     setShowColorSubmenu(false);
     if (colorSubmenuTimerRef.current) {
       clearTimeout(colorSubmenuTimerRef.current);
@@ -467,7 +482,8 @@ export function SidebarNavigation({
     e: React.MouseEvent,
     id: string,
     type: 'folder' | 'note',
-    isArchived = false
+    isArchived = false,
+    isFavorite = false
   ) => {
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -483,7 +499,7 @@ export function SidebarNavigation({
       top = Math.max(10, rect.top - menuHeight - 4);
     }
 
-    openContextMenuAt(top, left, id, type, isArchived);
+    openContextMenuAt(top, left, id, type, isArchived, isFavorite);
   };
 
   // Abre menu contextual ao clicar com o botão direito do mouse
@@ -491,7 +507,8 @@ export function SidebarNavigation({
     e: React.MouseEvent,
     id: string,
     type: 'folder' | 'note',
-    isArchived = false
+    isArchived = false,
+    isFavorite = false
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -512,7 +529,7 @@ export function SidebarNavigation({
       top = Math.max(10, top - menuHeight);
     }
 
-    openContextMenuAt(top, left, id, type, isArchived);
+    openContextMenuAt(top, left, id, type, isArchived, isFavorite);
   };
 
   // Inicia confirmação de exclusão
@@ -638,6 +655,12 @@ export function SidebarNavigation({
       } else {
         setDropTarget(null);
       }
+      return;
+    }
+
+    // Se a pasta for a visão especial "Favoritos" (não aceita drops de movimentação física)
+    if (folder.id === SYSTEM_FAVORITES_FOLDER_ID) {
+      setDropTarget(null);
       return;
     }
 
@@ -806,6 +829,12 @@ export function SidebarNavigation({
       return;
     }
 
+    // Previne soltar dentro da pasta especial "Favoritos"
+    if (targetId === SYSTEM_FAVORITES_FOLDER_ID || targetParentId === SYSTEM_FAVORITES_FOLDER_ID) {
+      resetDragState();
+      return;
+    }
+
     // Verificação estrita contra ciclos se for pasta
     if (type === 'folder') {
       if (wouldCreateCycle(id, targetParentId, folders)) {
@@ -912,20 +941,24 @@ export function SidebarNavigation({
   };
 
   // Constrói e filtra a árvore de pastas e notas
-  const { folders: rawTreeFolders, rootNotes: rawRootNotes, archivedFolder: rawArchivedFolder } = buildFolderTree(
-    folders,
-    notes
-  );
+  const {
+    folders: rawTreeFolders,
+    rootNotes: rawRootNotes,
+    favoritesFolder: rawFavoritesFolder,
+    archivedFolder: rawArchivedFolder,
+  } = buildFolderTree(folders, notes);
 
-  const isFiltering = debouncedSearchQuery.trim().length > 0 || activeTag !== null || searchMode !== 'all';
+  const isFiltering = (debouncedSearchQuery || '').trim().length > 0 || activeTag !== null || searchMode !== 'all';
   const {
     filteredFolders,
     filteredNotes,
+    filteredFavoritesFolder,
     filteredArchivedFolder,
     hasResults,
   } = filterTree(
     rawTreeFolders,
     rawRootNotes,
+    rawFavoritesFolder,
     rawArchivedFolder,
     debouncedSearchQuery,
     activeTag,
@@ -961,13 +994,16 @@ export function SidebarNavigation({
         folder.notes.forEach((note) => items.push({ id: note.id, type: 'note' }));
       }
     };
+    if (filteredFavoritesFolder) {
+      traverseFolder(filteredFavoritesFolder);
+    }
     filteredFolders.forEach(traverseFolder);
     filteredNotes.forEach((note) => items.push({ id: note.id, type: 'note' }));
     if (filteredArchivedFolder) {
       traverseFolder(filteredArchivedFolder);
     }
     return items;
-  }, [filteredFolders, filteredNotes, filteredArchivedFolder, openFolderIds, isFiltering]);
+  }, [filteredFavoritesFolder, filteredFolders, filteredNotes, filteredArchivedFolder, openFolderIds, isFiltering]);
 
   // Exclusão em lote
   const handleBatchConfirmDelete = () => {
@@ -1099,14 +1135,18 @@ export function SidebarNavigation({
 
   // Renderização Recursiva de Pasta (Com linha de inserção e destaque ao entrar)
   const renderFolderNode = (folder: TreeFolderNode) => {
-    const isSystemArchive = folder.id === SYSTEM_ARCHIVE_FOLDER_ID || folder.isSystem;
+    const isSystemArchive = folder.id === SYSTEM_ARCHIVE_FOLDER_ID;
+    const isSystemFavorites = folder.id === SYSTEM_FAVORITES_FOLDER_ID;
+    const isSystemFolder = isSystemArchive || isSystemFavorites || Boolean(folder.isSystem);
     const isOpen = isFiltering || openFolderIds.has(folder.id);
     const isEditing = editingItemId === folder.id && editingItemType === 'folder';
     const isSmart = folder.isSmart || (folder.smartTags && folder.smartTags.length > 0);
     const isMenuOpenForThisFolder = menuOpenId === folder.id;
     const isSelectedInMulti = selectedItems.has(folder.id);
     const effectiveColor = folder.effectiveColor || folder.color;
-    const iconColor = isSystemArchive
+    const iconColor = isSystemFavorites
+      ? '#f59e0b'
+      : isSystemArchive
       ? '#8c6b4f'
       : effectiveColor || (isOpen ? '#68594d' : '#7f756e');
 
@@ -1119,7 +1159,7 @@ export function SidebarNavigation({
       if (isEditing) return;
 
       // Ctrl / Cmd + Clique para selecionar/deselecionar individualmente
-      if ((e.ctrlKey || e.metaKey) && !isSystemArchive) {
+      if ((e.ctrlKey || e.metaKey) && !isSystemFolder) {
         e.stopPropagation();
         setSelectedItems((prev) => {
           const next = new Map(prev);
@@ -1135,7 +1175,7 @@ export function SidebarNavigation({
       }
 
       // Shift + Clique para seleção em intervalo (range selection)
-      if (e.shiftKey && lastSelectedIdRef.current && !isSystemArchive) {
+      if (e.shiftKey && lastSelectedIdRef.current && !isSystemFolder) {
         e.stopPropagation();
         const visibleItems = getVisibleTreeItems();
         const lastIdx = visibleItems.findIndex((it) => it.id === lastSelectedIdRef.current?.id);
@@ -1147,7 +1187,7 @@ export function SidebarNavigation({
           setSelectedItems((prev) => {
             const next = new Map(prev);
             rangeItems.forEach((it) => {
-              if (it.id !== SYSTEM_ARCHIVE_FOLDER_ID) {
+              if (it.id !== SYSTEM_ARCHIVE_FOLDER_ID && it.id !== SYSTEM_FAVORITES_FOLDER_ID) {
                 next.set(it.id, it.type);
               }
             });
@@ -1167,7 +1207,7 @@ export function SidebarNavigation({
       const last = lastClickRef.current;
       if (last && last.id === folder.id && last.type === 'folder' && now - last.time < 350) {
         lastClickRef.current = null;
-        if (!isSystemArchive) {
+        if (!isSystemFolder) {
           startRenaming(folder.id, 'folder', folder.name);
           return;
         }
@@ -1178,14 +1218,14 @@ export function SidebarNavigation({
 
     const handleFolderDoubleClick = (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (isSystemArchive || isEditing) return;
+      if (isSystemFolder || isEditing) return;
       startRenaming(folder.id, 'folder', folder.name);
     };
 
     return (
       <div key={folder.id} className="space-y-0.5 select-none relative w-full" data-tree-row="true">
         {/* Linha de Inserção Horizontal ANTES da Pasta */}
-        {isDropBefore && !isSystemArchive && (
+        {isDropBefore && !isSystemFolder && (
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
         )}
 
@@ -1205,7 +1245,7 @@ export function SidebarNavigation({
             data-tree-item="true"
             data-item-id={folder.id}
             data-item-type="folder"
-            draggable={!isEditing && !isSystemArchive}
+            draggable={!isEditing && !isSystemFolder}
             onDragStart={(e) => handleDragStart(e, 'folder', folder.id)}
             onDragEnd={handleDragEnd}
             onDragOver={(e) => handleDragOverFolder(e, folder)}
@@ -1217,7 +1257,7 @@ export function SidebarNavigation({
             onClick={handleFolderClick}
             onDoubleClick={handleFolderDoubleClick}
             onContextMenu={(e) => {
-              if (!isSystemArchive) {
+              if (!isSystemFolder) {
                 handleContextMenu(e, folder.id, 'folder');
               }
             }}
@@ -1228,6 +1268,8 @@ export function SidebarNavigation({
                 ? 'bg-[#d7c3b0]/70 border-2 border-dashed border-[#68594d]'
                 : isMenuOpenForThisFolder
                 ? 'bg-[#e4e2dd]/90 text-[#1b1c19]'
+                : isSystemFavorites
+                ? 'text-amber-900 dark:text-amber-200 hover:bg-amber-50/80 dark:hover:bg-amber-950/30'
                 : isSystemArchive
                 ? 'text-[#5e4b3e] hover:bg-[#f0ece5]'
                 : 'text-[#4e453f] hover:bg-[#e4e2dd]/70'
@@ -1252,7 +1294,11 @@ export function SidebarNavigation({
               </span>
 
               <div className="relative shrink-0 flex items-center justify-center">
-                {isSystemArchive ? (
+                {isSystemFavorites ? (
+                  <Star
+                    className="w-4 h-4 shrink-0 stroke-[1.75] text-amber-500 fill-amber-400"
+                  />
+                ) : isSystemArchive ? (
                   <Archive
                     className="w-4 h-4 shrink-0 stroke-[1.75]"
                     style={{ color: iconColor }}
@@ -1277,7 +1323,7 @@ export function SidebarNavigation({
                 )}
               </div>
 
-              {isEditing && !isSystemArchive ? (
+              {isEditing && !isSystemFolder ? (
                 <input
                   ref={editInputRef}
                   type="text"
@@ -1298,9 +1344,20 @@ export function SidebarNavigation({
                 />
               ) : (
                 <div className="flex items-center gap-1.5 truncate">
-                  <span className={`font-sans-ui truncate text-xs sm:text-sm ${isSystemArchive ? 'font-semibold text-[#5e4b3e]' : 'font-medium text-[#3b332d]'}`}>
+                  <span className={`font-sans-ui truncate text-xs sm:text-sm ${
+                    isSystemFavorites
+                      ? 'font-semibold text-amber-900 dark:text-amber-200'
+                      : isSystemArchive
+                      ? 'font-semibold text-[#5e4b3e] dark:text-[#c4ad9d]'
+                      : 'font-medium text-[#3b332d] dark:text-[#d1c4bc]'
+                  }`}>
                     {folder.name}
                   </span>
+                  {isSystemFavorites && folder.notes.length > 0 && (
+                    <span className="text-[10px] text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 px-1.5 py-0.2 rounded-full font-medium">
+                      {folder.notes.length}
+                    </span>
+                  )}
                   {isSystemArchive && folder.notes.length > 0 && (
                     <span className="text-[10px] text-[#8c6b4f] bg-[#e8ded3] px-1.5 py-0.2 rounded-full font-medium">
                       {folder.notes.length}
@@ -1310,8 +1367,8 @@ export function SidebarNavigation({
               )}
             </div>
 
-            {/* Menu ... (Não exibido para a pasta de sistema Notas Arquivadas) */}
-            {!isSystemArchive && (
+            {/* Menu ... (Não exibido para pastas de sistema) */}
+            {!isSystemFolder && (
               <button
                 id={`folder-menu-btn-${folder.id}`}
                 onClick={(e) => handleOpenMenu(e, folder.id, 'folder')}
@@ -1326,7 +1383,7 @@ export function SidebarNavigation({
         </div>
 
         {/* Linha de Inserção Horizontal DEPOIS da Pasta */}
-        {isDropAfter && !isSystemArchive && (
+        {isDropAfter && !isSystemFolder && (
           <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
         )}
 
@@ -1346,6 +1403,7 @@ export function SidebarNavigation({
     const isActive = activeNoteId === note.id;
     const isEditing = editingItemId === note.id && editingItemType === 'note';
     const isArchived = Boolean(note.isArchived);
+    const isFavorite = Boolean(note.isFavorite);
     const isMenuOpenForThisNote = menuOpenId === note.id;
     const isSelectedInMulti = selectedItems.has(note.id);
 
@@ -1453,7 +1511,7 @@ export function SidebarNavigation({
             onTouchEnd={handleTouchEnd}
             onClick={handleNoteClick}
             onDoubleClick={handleNoteDoubleClick}
-            onContextMenu={(e) => handleContextMenu(e, note.id, 'note', isArchived)}
+            onContextMenu={(e) => handleContextMenu(e, note.id, 'note', isArchived, isFavorite)}
             className={`group flex items-center justify-between gap-1.5 px-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative w-fit max-w-[calc(100%-4px)] min-w-[120px] ${
               isSelectedInMulti
                 ? 'bg-[#f4dfcb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
@@ -1511,10 +1569,22 @@ export function SidebarNavigation({
               )}
             </div>
 
+            {/* Estrela Dourada quando a nota estiver favoritada */}
+            {isFavorite && (
+              <span
+                id={`note-star-badge-${note.id}`}
+                className="inline-flex items-center justify-center shrink-0 ml-auto mr-0.5 text-amber-500 select-none"
+                title="Nota favorita"
+                aria-label="Favorita"
+              >
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500 stroke-[1.5]" />
+              </span>
+            )}
+
             {/* Menu Horizontal ... */}
             <button
               id={`note-menu-btn-${note.id}`}
-              onClick={(e) => handleOpenMenu(e, note.id, 'note', isArchived)}
+              onClick={(e) => handleOpenMenu(e, note.id, 'note', isArchived, isFavorite)}
               className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity ml-1 shrink-0"
               title="Opções da Nota"
               aria-label="Opções da Nota"
@@ -1758,6 +1828,9 @@ export function SidebarNavigation({
           </div>
         )}
 
+        {/* Pasta Especial do Sistema: "⭐ Favoritos" */}
+        {filteredFavoritesFolder && renderFolderNode(filteredFavoritesFolder)}
+
         {/* Pastas e Subpastas Normais */}
         {filteredFolders.map((folder) => renderFolderNode(folder))}
 
@@ -1918,6 +1991,7 @@ export function SidebarNavigation({
         menuPosition={menuPosition}
         menuItemType={menuItemType}
         menuNoteIsArchived={menuNoteIsArchived}
+        menuNoteIsFavorite={menuNoteIsFavorite}
         folders={folders}
         notes={notes}
         showColorSubmenu={showColorSubmenu}
@@ -1933,6 +2007,7 @@ export function SidebarNavigation({
         onStartRenaming={startRenaming}
         onArchiveNote={onArchiveNote}
         onUnarchiveNote={onUnarchiveNote}
+        onToggleFavoriteNote={handleToggleFavorite}
         onArchiveFolderNotes={onArchiveFolderNotes}
         onUpdateFolderColor={onUpdateFolderColor}
         onOpenSmartConfig={(folderId, smartTags) => {

@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS public.notes (
     content TEXT NOT NULL DEFAULT '',
     position INTEGER NOT NULL DEFAULT 0,
     is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+    is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
     previous_folder_id UUID REFERENCES public.folders(id) ON DELETE SET NULL,
     revision BIGINT NOT NULL DEFAULT 0,
     workspace_type TEXT NOT NULL DEFAULT 'notes',
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS public.notes (
 
 -- Ensure columns exist if notes table was already created earlier
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS previous_folder_id UUID REFERENCES public.folders(id) ON DELETE SET NULL;
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'::text[];
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;
@@ -55,6 +57,9 @@ ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS entry_date DATE DEFAULT NULL;
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS diary_year INTEGER DEFAULT NULL;
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS diary_month INTEGER DEFAULT NULL;
 ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS diary_day INTEGER DEFAULT NULL;
+
+-- Index for favorite notes performance
+CREATE INDEX IF NOT EXISTS idx_notes_user_favorite ON public.notes(user_id, is_favorite) WHERE is_favorite = TRUE;
 
 -- Normalized tags and note_tags relation for user-scoped tag persistence with workspace isolation
 CREATE TABLE IF NOT EXISTS public.tags (

@@ -45,6 +45,7 @@ export type SyncAction =
   | 'MOVE_NOTE'
   | 'ARCHIVE_NOTE'
   | 'UNARCHIVE_NOTE'
+  | 'FAVORITE_NOTE'
   | 'CREATE_FOLDER'
   | 'UPDATE_FOLDER'
   | 'DELETE_FOLDER'
@@ -124,7 +125,7 @@ export interface EntitiesRequiringSync {
   totalCount: number;
 }
 
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 class IndexedDBStorage {
   private dbInstances: Map<string, Promise<IDBDatabase>> = new Map();
@@ -159,6 +160,7 @@ class IndexedDBStorage {
           notesStore.createIndex('user_id', 'user_id', { unique: false });
           notesStore.createIndex('folder_id', 'folder_id', { unique: false });
           notesStore.createIndex('is_archived', 'is_archived', { unique: false });
+          notesStore.createIndex('is_favorite', 'is_favorite', { unique: false });
           notesStore.createIndex('position', 'position', { unique: false });
           notesStore.createIndex('updated_at', 'updated_at', { unique: false });
           notesStore.createIndex('syncRequired', 'syncRequired', { unique: false });
@@ -172,6 +174,9 @@ class IndexedDBStorage {
           notesStore.createIndex('user_entry_date', ['user_id', 'entry_date'], { unique: false });
         } else {
           notesStore = tx.objectStore('notes');
+          if (!notesStore.indexNames.contains('is_favorite')) {
+            notesStore.createIndex('is_favorite', 'is_favorite', { unique: false });
+          }
           if (!notesStore.indexNames.contains('syncRequired')) {
             notesStore.createIndex('syncRequired', 'syncRequired', { unique: false });
           }

@@ -10,6 +10,7 @@ import {
   ArchiveRestore,
   ChevronRight,
   Plus,
+  Star,
 } from 'lucide-react';
 import { Folder as FolderType, Note as NoteType } from '../types';
 import { FOLDER_PRESET_COLORS } from './sidebar-constants';
@@ -19,6 +20,7 @@ interface SidebarContextMenuProps {
   menuPosition: { top: number; left: number } | null;
   menuItemType: 'folder' | 'note' | null;
   menuNoteIsArchived: boolean;
+  menuNoteIsFavorite?: boolean;
   folders: FolderType[];
   notes: NoteType[];
   showColorSubmenu: boolean;
@@ -27,6 +29,7 @@ interface SidebarContextMenuProps {
   onCreateNoteInFolder?: (folderId: string) => void;
   onArchiveNote?: (id: string) => void;
   onUnarchiveNote?: (id: string) => void;
+  onToggleFavoriteNote?: (id: string) => void;
   onArchiveFolderNotes?: (folderId: string) => void;
   onUpdateFolderColor?: (folderId: string, color: string | null) => void;
   onOpenCustomColor?: (folderId: string) => void;
@@ -44,6 +47,7 @@ export function SidebarContextMenu({
   menuPosition,
   menuItemType,
   menuNoteIsArchived,
+  menuNoteIsFavorite,
   folders,
   notes,
   showColorSubmenu,
@@ -52,6 +56,7 @@ export function SidebarContextMenu({
   onCreateNoteInFolder,
   onArchiveNote,
   onUnarchiveNote,
+  onToggleFavoriteNote,
   onArchiveFolderNotes,
   onUpdateFolderColor,
   onOpenCustomColor,
@@ -92,9 +97,32 @@ export function SidebarContextMenu({
         <span>Renomear</span>
       </button>
 
-      {/* Opções para NOTAS: Arquivar / Desarquivar */}
+      {/* Opções para NOTAS */}
       {menuItemType === 'note' && (
         <>
+          {/* Opção: Favoritar / Remover dos favoritos */}
+          <button
+            id="context-menu-toggle-favorite-note-btn"
+            onClick={() => {
+              if (onToggleFavoriteNote && menuOpenId) {
+                onToggleFavoriteNote(menuOpenId);
+              }
+              onClose();
+            }}
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
+            title={menuNoteIsFavorite ? 'Remover dos favoritos' : 'Favoritar'}
+          >
+            <Star
+              className={`w-3.5 h-3.5 shrink-0 ${
+                menuNoteIsFavorite
+                  ? 'text-amber-500 fill-amber-400'
+                  : 'text-[#7f756e] dark:text-[#a3a3a3]'
+              }`}
+            />
+            <span>{menuNoteIsFavorite ? 'Remover dos favoritos' : 'Favoritar'}</span>
+          </button>
+
+          {/* Arquivar / Desarquivar */}
           {menuNoteIsArchived ? (
             <button
               id="context-menu-unarchive-note-btn"

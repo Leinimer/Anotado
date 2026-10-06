@@ -1,4 +1,5 @@
 export const SYSTEM_ARCHIVE_FOLDER_ID = 'system-archive-folder';
+export const SYSTEM_FAVORITES_FOLDER_ID = 'system-favorites-folder';
 
 export type WorkspaceType = 'notes' | 'diary';
 
@@ -38,6 +39,7 @@ export interface Note {
   diary_month?: number | null;
   diary_day?: number | null;
   is_archived?: boolean;
+  is_favorite?: boolean;
   previous_folder_id?: string | null;
   syncRequired?: boolean;
   syncStatus?: 'synced' | 'pending' | 'syncing' | 'error' | 'cancelled';
@@ -76,6 +78,7 @@ export interface TreeNodeItem {
   tags: string[];
   isFromSmartFolder?: boolean;
   isArchived?: boolean;
+  isFavorite?: boolean;
   previousFolderId?: string | null;
   workspace_type?: WorkspaceType;
   entry_date?: string | null;

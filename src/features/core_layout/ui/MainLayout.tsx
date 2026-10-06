@@ -22,6 +22,7 @@ import {
   archiveNote,
   unarchiveNote,
   archiveFolderNotes,
+  toggleNoteFavorite,
   moveItem,
   reorderNotesBatch,
   flushNoteSaves,
@@ -588,6 +589,24 @@ export function MainLayout() {
     [userId, folders]
   );
 
+  const handleToggleFavoriteNote = useCallback(
+    async (noteId: string) => {
+      setNotes((prev) =>
+        prev.map((n) =>
+          n.id === noteId
+            ? {
+                ...n,
+                is_favorite: !n.is_favorite,
+                updated_at: new Date().toISOString(),
+              }
+            : n
+        )
+      );
+      await toggleNoteFavorite(userId, noteId);
+    },
+    [userId]
+  );
+
   const handleMoveItem = useCallback(
     async (
       itemType: 'folder' | 'note',
@@ -778,6 +797,7 @@ export function MainLayout() {
             onDeleteNote={handleDeleteNote}
             onArchiveNote={handleArchiveNote}
             onUnarchiveNote={handleUnarchiveNote}
+            onToggleFavoriteNote={handleToggleFavoriteNote}
             onArchiveFolderNotes={handleArchiveFolderNotes}
             onUpdateFolderColor={handleUpdateFolderColor}
             onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
@@ -820,6 +840,7 @@ export function MainLayout() {
                 onDeleteNote={handleDeleteNote}
                 onArchiveNote={handleArchiveNote}
                 onUnarchiveNote={handleUnarchiveNote}
+                onToggleFavoriteNote={handleToggleFavoriteNote}
                 onArchiveFolderNotes={handleArchiveFolderNotes}
                 onUpdateFolderColor={handleUpdateFolderColor}
                 onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}

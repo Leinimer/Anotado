@@ -1,4 +1,4 @@
-import { Folder, Note, SearchMode, SYSTEM_ARCHIVE_FOLDER_ID, TreeFolderNode, TreeNodeItem } from '../types';
+import { Folder, Note, SearchMode, SYSTEM_ARCHIVE_FOLDER_ID, SYSTEM_FAVORITES_FOLDER_ID, TreeFolderNode, TreeNodeItem } from '../types';
 import { extractHashtagsFromText, noteHasTag, stripToPlainText } from './hashtag-extractor';
 
 /**
@@ -35,7 +35,7 @@ export function buildFolderTree(
   notes: Note[],
   parentId: string | null = null,
   depth = 0
-): { folders: TreeFolderNode[]; rootNotes: TreeNodeItem[]; archivedFolder: TreeFolderNode } {
+): { folders: TreeFolderNode[]; rootNotes: TreeNodeItem[]; favoritesFolder: TreeFolderNode; archivedFolder: TreeFolderNode } {
   // Segrega notas ativas de notas arquivadas
   const activeNotes = notes.filter((n) => !n.is_archived);
   const archivedNotes = notes.filter((n) => Boolean(n.is_archived));
@@ -78,6 +78,7 @@ export function buildFolderTree(
         tags: note.tags || [],
         isFromSmartFolder: true,
         isArchived: false,
+        isFavorite: Boolean(note.is_favorite),
         previousFolderId: note.previous_folder_id ?? null,
         workspace_type: note.workspace_type,
         entry_date: note.entry_date,
@@ -121,6 +122,7 @@ export function buildFolderTree(
     depth,
     tags: note.tags || [],
     isArchived: false,
+    isFavorite: Boolean(note.is_favorite),
     previousFolderId: note.previous_folder_id ?? null,
     workspace_type: note.workspace_type,
     entry_date: note.entry_date,
@@ -128,6 +130,40 @@ export function buildFolderTree(
     diary_month: note.diary_month,
     diary_day: note.diary_day,
   }));
+
+  // Cria a pasta especial do sistema "Favoritos" (Visão das notas favoritas)
+  const favoriteNotes = activeNotes
+    .filter((n) => Boolean(n.is_favorite))
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || a.position - b.position);
+
+  const favoritesFolder: TreeFolderNode = {
+    type: 'folder',
+    id: SYSTEM_FAVORITES_FOLDER_ID,
+    name: 'Favoritos',
+    parentId: null,
+    position: -1,
+    isSystem: true,
+    subfolders: [],
+    notes: favoriteNotes.map((note) => ({
+      type: 'note',
+      id: note.id,
+      title: note.title,
+      content: note.content,
+      folderId: note.folder_id, // Preserva a pasta física de origem!
+      position: note.position,
+      depth: 1,
+      tags: note.tags || [],
+      isArchived: false,
+      isFavorite: true,
+      previousFolderId: note.previous_folder_id ?? null,
+      workspace_type: note.workspace_type,
+      entry_date: note.entry_date,
+      diary_year: note.diary_year,
+      diary_month: note.diary_month,
+      diary_day: note.diary_day,
+    })),
+    depth: 0,
+  };
 
   // Cria a pasta especial do sistema "Notas arquivadas"
   const archivedFolder: TreeFolderNode = {
@@ -150,12 +186,13 @@ export function buildFolderTree(
         depth: 1,
         tags: note.tags || [],
         isArchived: true,
+        isFavorite: Boolean(note.is_favorite),
         previousFolderId: note.previous_folder_id ?? null,
       })),
     depth: 0,
   };
 
-  return { folders: treeFolders, rootNotes: treeNotes, archivedFolder };
+  return { folders: treeFolders, rootNotes: treeNotes, favoritesFolder, archivedFolder };
 }
 
 /**
@@ -195,18 +232,20 @@ export function wouldCreateCycle(
 export function filterTree(
   rootFolders: TreeFolderNode[],
   rootNotes: TreeNodeItem[],
+  favoritesFolder: TreeFolderNode,
   archivedFolder: TreeFolderNode,
-  searchQuery: string,
-  activeTag: string | null,
+  searchQuery: string = '',
+  activeTag: string | null = null,
   searchMode: SearchMode = 'all'
 ): {
   filteredFolders: TreeFolderNode[];
   filteredNotes: TreeNodeItem[];
+  filteredFavoritesFolder: TreeFolderNode | null;
   filteredArchivedFolder: TreeFolderNode | null;
   hasResults: boolean;
   matchingIds: Set<string>;
 } {
-  const query = searchQuery.trim().toLowerCase();
+  const query = (searchQuery ?? '').trim().toLowerCase();
   const matchingIds = new Set<string>();
 
   function matchesNote(note: TreeNodeItem, isArchivedContext = false): boolean {
@@ -326,9 +365,25 @@ export function filterTree(
     }
   }
 
+  // Filtragem da Pasta Especial "Favoritos"
+  let filteredFavoritesFolder: TreeFolderNode | null = null;
+  if (favoritesFolder && favoritesFolder.notes && searchMode !== 'archived') {
+    const favoriteMatchingNotes = favoritesFolder.notes.filter((note) => matchesNote(note, false));
+    if (!query && !activeTag) {
+      filteredFavoritesFolder = favoritesFolder;
+    } else if (favoriteMatchingNotes.length > 0) {
+      matchingIds.add(favoritesFolder.id);
+      favoriteMatchingNotes.forEach((n) => matchingIds.add(n.id));
+      filteredFavoritesFolder = {
+        ...favoritesFolder,
+        notes: favoriteMatchingNotes,
+      };
+    }
+  }
+
   // Filtragem da Pasta Especial "Notas arquivadas"
   let filteredArchivedFolder: TreeFolderNode | null = null;
-  if (searchMode === 'all' || searchMode === 'archived' || searchMode === 'title' || searchMode === 'content' || searchMode === 'tags') {
+  if (archivedFolder && archivedFolder.notes && (searchMode === 'all' || searchMode === 'archived' || searchMode === 'title' || searchMode === 'content' || searchMode === 'tags')) {
     const archivedMatchingNotes = archivedFolder.notes.filter((note) => matchesNote(note, true));
     
     // No modo "all" sem busca, ou quando há notas arquivadas correspondentes, mantém visível
@@ -349,11 +404,13 @@ export function filterTree(
   const hasResults =
     filteredFolders.length > 0 ||
     filteredNotes.length > 0 ||
+    Boolean(filteredFavoritesFolder && filteredFavoritesFolder.notes.length > 0) ||
     Boolean(filteredArchivedFolder && filteredArchivedFolder.notes.length > 0);
 
   return {
     filteredFolders,
     filteredNotes,
+    filteredFavoritesFolder,
     filteredArchivedFolder,
     hasResults,
     matchingIds,

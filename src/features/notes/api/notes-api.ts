@@ -61,6 +61,7 @@ export const INITIAL_DEMO_NOTES: Omit<Note, 'user_id'>[] = [
     content: 'Primeira nota de rascunho com apontamentos iniciais.\n\n#Estudo #Nota',
     tags: ['estudo', 'nota'],
     position: 0,
+    is_favorite: false,
     created_at: '2026-08-20T10:05:00Z',
     updated_at: '2026-08-20T10:05:00Z',
   },
@@ -87,6 +88,7 @@ Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu 
 #Nota #Estudo #Livro`,
     tags: ['nota', 'estudo', 'livro'],
     position: 1,
+    is_favorite: false,
     created_at: '2026-08-20T10:06:00Z',
     updated_at: '2026-08-20T10:06:00Z',
   },
@@ -262,12 +264,24 @@ export async function fetchFoldersAndNotes(
           remoteOperationGuard.execute(`fetch:notes:${userId}:${workspaceType || 'all'}`, async () => {
             let q = supabase
               .from('notes')
-              .select('id, user_id, folder_id, title, content, position, is_archived, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
+              .select('id, user_id, folder_id, title, content, position, is_archived, is_favorite, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
               .eq('user_id', userId);
             if (workspaceType) {
               q = q.eq('workspace_type', workspaceType);
             }
-            return q.order('position', { ascending: true }).order('created_at', { ascending: true });
+            const res = await q.order('position', { ascending: true }).order('created_at', { ascending: true });
+            if (res.error && res.error.message?.includes('is_favorite')) {
+              // Fallback gracioso caso a migration de is_favorite ainda não tenha sido aplicada no Supabase
+              let fallbackQ = supabase
+                .from('notes')
+                .select('id, user_id, folder_id, title, content, position, is_archived, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
+                .eq('user_id', userId);
+              if (workspaceType) {
+                fallbackQ = fallbackQ.eq('workspace_type', workspaceType);
+              }
+              return fallbackQ.order('position', { ascending: true }).order('created_at', { ascending: true });
+            }
+            return res;
           }),
         ]);
 
@@ -731,6 +745,7 @@ export async function createNote(
     diary_month: noteData.diaryMonth !== undefined ? noteData.diaryMonth : null,
     diary_day: noteData.diaryDay !== undefined ? noteData.diaryDay : null,
     is_archived: false,
+    is_favorite: false,
     previous_folder_id: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -855,6 +870,98 @@ export async function unarchiveNote(
   }
 
   return true;
+}
+
+/**
+ * Alterna o estado de favorito de uma nota no IndexedDB e enfileira para sincronização.
+ * Preserva integralmente a pasta física de origem (folder_id), posição e conteúdo da nota.
+ */
+export async function toggleFavoriteNote(
+  userId: string,
+  noteId: string
+): Promise<boolean> {
+  const targetNote = await indexedDBStorage.getNoteById(userId, noteId);
+  if (!targetNote) return false;
+
+  const newFavoriteState = !targetNote.is_favorite;
+  const nextRevision = (targetNote.revision || 0) + 1;
+
+  targetNote.is_favorite = newFavoriteState;
+  targetNote.revision = nextRevision;
+  targetNote.syncRequired = true;
+  targetNote.syncStatus = 'pending';
+  targetNote.needs_sync = true;
+  targetNote.updated_at = new Date().toISOString();
+  targetNote.sync_status = 'pending_sync';
+
+  await indexedDBStorage.putNote(userId, targetNote);
+
+  await indexedDBStorage.enqueueSyncItem(userId, {
+    action: 'FAVORITE_NOTE',
+    entity_type: 'note',
+    entity_id: noteId,
+    payload: { noteId, isFavorite: newFavoriteState },
+    revision: nextRevision,
+  });
+
+  const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
+  networkMonitor.updatePendingCount(pendingCount);
+
+  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+    syncEngine.scheduleSync(50);
+  }
+
+  return newFavoriteState;
+}
+
+/**
+ * Alias para toggleFavoriteNote para compatibilidade de nomenclatura.
+ */
+export const toggleNoteFavorite = toggleFavoriteNote;
+
+/**
+ * Define explicitamente o estado de favorito de uma nota no IndexedDB e enfileira para sincronização.
+ */
+export async function setNoteFavorite(
+  userId: string,
+  noteId: string,
+  isFavorite: boolean
+): Promise<boolean> {
+  const targetNote = await indexedDBStorage.getNoteById(userId, noteId);
+  if (!targetNote) return false;
+
+  if (Boolean(targetNote.is_favorite) === isFavorite) {
+    return isFavorite;
+  }
+
+  const nextRevision = (targetNote.revision || 0) + 1;
+
+  targetNote.is_favorite = isFavorite;
+  targetNote.revision = nextRevision;
+  targetNote.syncRequired = true;
+  targetNote.syncStatus = 'pending';
+  targetNote.needs_sync = true;
+  targetNote.updated_at = new Date().toISOString();
+  targetNote.sync_status = 'pending_sync';
+
+  await indexedDBStorage.putNote(userId, targetNote);
+
+  await indexedDBStorage.enqueueSyncItem(userId, {
+    action: 'FAVORITE_NOTE',
+    entity_type: 'note',
+    entity_id: noteId,
+    payload: { noteId, isFavorite },
+    revision: nextRevision,
+  });
+
+  const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
+  networkMonitor.updatePendingCount(pendingCount);
+
+  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+    syncEngine.scheduleSync(50);
+  }
+
+  return isFavorite;
 }
 
 /**
