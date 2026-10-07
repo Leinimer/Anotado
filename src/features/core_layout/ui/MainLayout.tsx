@@ -33,8 +33,6 @@ import { saveQueue } from '@/src/features/notes/api/save-queue';
 import { perfProfiler } from '@/src/features/notes/editor/utils/media-optimizer';
 import { WorkspaceType } from '@/src/features/notes/types';
 import { NoteTabItem } from '@/src/features/notes/ui/NoteTabs';
-import { recordNoteRevision, recordRecentNote } from '@/src/features/notes/utils/user-activity';
-import { buildKnowledgeGraph, folderPathFor } from '@/src/features/notes/utils/knowledge-graph';
 
 export function MainLayout() {
   const router = useRouter();
@@ -47,8 +45,24 @@ export function MainLayout() {
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
 
   // Estado do Sistema de Abas (Apenas interface/memória do cliente)
-  const [tabs, setTabs] = useState<NoteTabItem[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [tabs, setTabs] = useState<NoteTabItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('anotado_active_notes_id');
+      if (saved) {
+        return [{ id: `tab-${saved}`, noteId: saved }];
+      }
+    }
+    return [];
+  });
+  const [activeTabId, setActiveTabId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('anotado_active_notes_id');
+      if (saved) {
+        return `tab-${saved}`;
+      }
+    }
+    return null;
+  });
 
   // Estado de Divisão de Tela (Apenas interface/memória do cliente)
   const [isSplit, setIsSplit] = useState(false);
@@ -61,8 +75,10 @@ export function MainLayout() {
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
+    if (activeNoteId) {
+      sessionStorage.setItem('anotado_active_notes_id', activeNoteId);
+    }
   }, [activeNoteId]);
-
 
   // 1. Carregamento inicial do Supabase, ouvintes de autenticação e reatividade do SyncEngine
   useEffect(() => {
@@ -236,11 +252,23 @@ export function MainLayout() {
         setFolders(fetchedFolders);
         setNotes(fetchedNotes);
 
-        // O aplicativo inicia sempre sem nenhuma nota aberta.
-        // A primeira nota só é aberta quando o usuário a seleciona.
-        setActiveNoteId(null);
-        setTabs([]);
-        setActiveTabId(null);
+        const savedActiveId = typeof window !== 'undefined' ? sessionStorage.getItem('anotado_active_notes_id') : null;
+        if (savedActiveId && fetchedNotes.some((n) => n.id === savedActiveId)) {
+          setActiveNoteId(savedActiveId);
+          const initialTabId = `tab-${savedActiveId}`;
+          setTabs([{ id: initialTabId, noteId: savedActiveId }]);
+          setActiveTabId(initialTabId);
+        } else if (fetchedNotes.length > 0) {
+          const firstId = fetchedNotes[0].id;
+          setActiveNoteId(firstId);
+          const initialTabId = `tab-${firstId}`;
+          setTabs([{ id: initialTabId, noteId: firstId }]);
+          setActiveTabId(initialTabId);
+        } else {
+          setActiveNoteId(null);
+          setTabs([]);
+          setActiveTabId(null);
+        }
 
         // Apenas verifica se há mutações pendentes locais na fila (sem disparar PULL desnecessário)
         syncEngine.checkWatchdog(currentUserId);
@@ -298,11 +326,7 @@ export function MainLayout() {
 
       // Garante que saves pendentes da nota anterior sejam finalizados
       if (activeNoteId && activeNoteId !== noteId) {
-        try {
-          await flushNoteSaves(activeNoteId);
-        } catch (e) {
-          console.warn('[MainLayout] Aviso ao descarregar saves:', e);
-        }
+        await flushNoteSaves(activeNoteId);
       }
 
       if (isSplit) {
@@ -355,42 +379,29 @@ export function MainLayout() {
           setActiveNoteId(noteId);
         } else {
           // Clicar em uma nota na Sidebar abre a nota na aba atual
-          const targetTabId = activeTabId && tabs.some((t) => t.id === activeTabId) ? activeTabId : tabs[0]?.id;
-          if (targetTabId) {
-            setTabs((prev) =>
-              prev.map((t) => (t.id === targetTabId ? { ...t, noteId } : t))
-            );
-            setActiveTabId(targetTabId);
-          } else {
-            const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            setTabs((prev) => [...prev, { id: newTabId, noteId }]);
-            setActiveTabId(newTabId);
-          }
+          setTabs((prev) =>
+            prev.map((t) => (t.id === activeTabId ? { ...t, noteId } : t))
+          );
           setActiveNoteId(noteId);
         }
       }
 
       const targetNote = notes.find((n) => n.id === noteId);
       if (targetNote) {
-        recordRecentNote(targetNote);
-        try {
-          perfProfiler.mark(noteId, 'T0.5 - Buscando Markdown no Storage');
-          const { content, tags } = await fetchNoteContent(userId, targetNote);
-          perfProfiler.mark(noteId, 'T0.8 - Markdown Recebido do Storage');
-          setNotes((prev) =>
-            prev.map((n) =>
-              n.id === noteId
-                ? {
-                    ...n,
-                    content: content !== undefined ? content : n.content,
-                    tags: tags && tags.length > 0 ? tags : n.tags,
-                  }
-                : n
-            )
-          );
-        } catch (e) {
-          console.warn('[MainLayout] Aviso ao carregar conteúdo da nota:', e);
-        }
+        perfProfiler.mark(noteId, 'T0.5 - Buscando Markdown no Storage');
+        const { content, tags } = await fetchNoteContent(userId, targetNote);
+        perfProfiler.mark(noteId, 'T0.8 - Markdown Recebido do Storage');
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === noteId
+              ? {
+                  ...n,
+                  content: content !== undefined ? content : n.content,
+                  tags: tags && tags.length > 0 ? tags : n.tags,
+                }
+              : n
+          )
+        );
       }
     },
     [activeNoteId, isSplit, leftNoteId, rightNoteId, activeSplitPane, tabs, activeTabId, notes, userId]
@@ -783,12 +794,6 @@ export function MainLayout() {
     return notes.find((n) => n.id === activeNoteId) || null;
   }, [notes, activeNoteId]);
 
-  const activeNotePathLabel = useMemo(() => {
-    if (!activeNote) return 'Notas';
-    const path = folderPathFor(activeNote.folder_id, folders);
-    return path === 'Raiz' ? 'Notas' : 'Notas / ' + path;
-  }, [activeNote, folders]);
-
   // Filtros de isolamento por espaço (Notas vs Diário)
   const handleToggleWorkspace = useCallback(() => {
     flushAllPendingSaves();
@@ -869,16 +874,16 @@ export function MainLayout() {
   );
 
   // Handlers de Notas (com persistência em Markdown no Supabase Storage)
-  const handleCreateNote = useCallback(async (folderId: string | null = null, openInNewTab: boolean = false, template?: { title?: string; content?: string }) => {
+  const handleCreateNote = useCallback(async (folderId: string | null = null, openInNewTab: boolean = false) => {
     // Se folderId for especificado, calcula a posição dentro daquela pasta; caso contrário, na raiz
     const targetFolderId = folderId || null;
     const position = notes.filter((n) => n.folder_id === targetFolderId).length;
 
     const newNote = await createNote(userId, {
-      title: template?.title || 'Nova nota',
+      title: 'Nova nota',
       folderId: targetFolderId,
       position,
-      content: template?.content || '',
+      content: '',
       workspaceType: 'notes',
     });
 
@@ -916,59 +921,18 @@ export function MainLayout() {
     await handleCreateNote(null, true);
   }, [activeNoteId, handleCreateNote]);
 
-  // Atalhos de produtividade inspirados no fluxo de abas do Obsidian.
-  useEffect(() => {
-    const handleTabShortcuts = (e: KeyboardEvent) => {
-      const activeElement = document.activeElement as HTMLElement | null;
-      const isTyping =
-        activeElement instanceof HTMLInputElement ||
-        activeElement instanceof HTMLTextAreaElement ||
-        activeElement?.isContentEditable;
-
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't' && !isTyping) {
-        e.preventDefault();
-        void handleNewTab();
-        return;
-      }
-
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w' && !isTyping) {
-        if (activeTabId) {
-          e.preventDefault();
-          void handleCloseTab(activeTabId);
-        }
-        return;
-      }
-
-      if ((e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key) && !isTyping) {
-        const index = Number(e.key) - 1;
-        const target = tabs[index];
-        if (target) {
-          e.preventDefault();
-          void handleSelectTab(target.id);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleTabShortcuts);
-    return () => window.removeEventListener('keydown', handleTabShortcuts);
-  }, [handleNewTab, handleCloseTab, handleSelectTab, tabs, activeTabId]);
-
   const handleUpdateTitle = useCallback(
     async (noteId: string, newTitle: string) => {
-      const previousNote = notes.find((n) => n.id === noteId);
-      if (previousNote) recordNoteRevision(previousNote, previousNote.content, previousNote.title, 'antes da alteração do título');
       setNotes((prev) =>
         prev.map((n) => (n.id === noteId ? { ...n, title: newTitle, updated_at: new Date().toISOString() } : n))
       );
       await updateNoteTitle(userId, noteId, newTitle);
     },
-    [userId, notes]
+    [userId]
   );
 
   const handleUpdateContent = useCallback(
     async (noteId: string, newContent: string) => {
-      const currentNote = notes.find((n) => n.id === noteId);
-      if (currentNote) recordNoteRevision(currentNote, currentNote.content, currentNote.title, 'antes da alteração');
       // 1. Atualização Otimista Imediata na Memória da UI
       setNotes((prev) =>
         prev.map((n) =>
@@ -983,8 +947,8 @@ export function MainLayout() {
       );
 
       // 2. Persistência Serializada em Background (IndexedDB + Supabase)
-      const updatedSource = notes.find((n) => n.id === noteId);
-      const res = await updateNoteContent(userId, noteId, newContent, updatedSource?.tags);
+      const currentNote = notes.find((n) => n.id === noteId);
+      const res = await updateNoteContent(userId, noteId, newContent, currentNote?.tags);
       if (res && res.tags) {
         setNotes((prev) =>
           prev.map((n) => (n.id === noteId ? { ...n, tags: res.tags } : n))
@@ -1011,56 +975,6 @@ export function MainLayout() {
     },
     [userId, notes]
   );
-
-  useEffect(() => {
-    const handleTemplateCreate = async (e: Event) => {
-      const detail = (e as CustomEvent<{ title?: string; content?: string }>).detail;
-      await handleCreateNote(null, false, detail || {});
-    };
-
-    const handleRestoreHistory = async (e: Event) => {
-      const detail = (e as CustomEvent<{ noteId?: string; content?: string; title?: string }>).detail;
-      if (!detail?.noteId) return;
-      if (detail.title !== undefined) await handleUpdateTitle(detail.noteId, detail.title);
-      if (detail.content !== undefined) await handleUpdateContent(detail.noteId, detail.content);
-    };
-
-    window.addEventListener('anotado:create-note-from-template', handleTemplateCreate);
-    window.addEventListener('anotado:restore-note-history', handleRestoreHistory);
-
-    return () => {
-      window.removeEventListener('anotado:create-note-from-template', handleTemplateCreate);
-      window.removeEventListener('anotado:restore-note-history', handleRestoreHistory);
-    };
-  }, [handleCreateNote, handleUpdateTitle, handleUpdateContent]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const rawTemplate = sessionStorage.getItem('anotado_pending_template');
-    if (rawTemplate) {
-      sessionStorage.removeItem('anotado_pending_template');
-      try {
-        const template = JSON.parse(rawTemplate) as { title?: string; content?: string };
-        setTimeout(() => {
-          void handleCreateNote(null, false, template);
-        }, 0);
-      } catch {}
-    }
-
-    const rawRestore = sessionStorage.getItem('anotado_pending_history_restore');
-    if (rawRestore) {
-      sessionStorage.removeItem('anotado_pending_history_restore');
-      try {
-        const restore = JSON.parse(rawRestore) as { noteId?: string; title?: string; content?: string };
-        if (restore.noteId) {
-          void (async () => {
-            if (restore.title !== undefined) await handleUpdateTitle(restore.noteId!, restore.title);
-            if (restore.content !== undefined) await handleUpdateContent(restore.noteId!, restore.content);
-          })();
-        }
-      } catch {}
-    }
-  }, [handleCreateNote, handleUpdateTitle, handleUpdateContent]);
 
   const handleDeleteNote = useCallback(
     async (noteId: string) => {
@@ -1393,7 +1307,6 @@ export function MainLayout() {
             onReorderItem={handleReorderItem}
             currentWorkspace="notes"
             onToggleWorkspace={handleToggleWorkspace}
-            onOpenMap={() => router.push('/mapa')}
           />
         </div>
 
@@ -1442,7 +1355,6 @@ export function MainLayout() {
                 onCloseMobile={() => setMobileSidebarOpen(false)}
                 currentWorkspace="notes"
                 onToggleWorkspace={handleToggleWorkspace}
-                onOpenMap={() => router.push('/mapa')}
               />
             </div>
           </div>
@@ -1461,7 +1373,6 @@ export function MainLayout() {
           onOpenMobileMenu={() => setMobileSidebarOpen(true)}
           isNewNoteJustCreated={isNewNoteJustCreated}
           currentWorkspace="notes"
-          notePathLabel={activeNotePathLabel}
           onSelectNote={handleSelectNote}
           tabs={tabs}
           activeTabId={activeTabId}

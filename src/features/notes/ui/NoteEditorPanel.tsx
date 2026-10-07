@@ -1,13 +1,12 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Calendar, Link2 } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 import { Note as NoteType } from '../types';
 import { NoteEditor } from './NoteEditor';
 import { NoteTagsBar } from './NoteTagsBar';
 import { formatDateReadable } from '../utils/diary-date';
 import { Editor } from '@tiptap/react';
-import { KnowledgeGraphNode, UnlinkedMention } from '../utils/knowledge-graph';
 
 interface NoteEditorPanelProps {
   note: NoteType;
@@ -24,14 +23,6 @@ interface NoteEditorPanelProps {
   onEditorReady?: (editor: Editor | null) => void;
   isNewNoteJustCreated?: boolean;
   zoomLevel?: number;
-  notePathLabel?: string;
-  shouldShowReturnButton?: boolean;
-  returnButtonLabel?: string;
-  onReturnToSource?: () => void;
-  backlinks?: KnowledgeGraphNode[];
-  outgoingLinks?: KnowledgeGraphNode[];
-  unlinkedMentions?: UnlinkedMention[];
-  onOpenBacklink?: (noteId: string, workspace: 'notes' | 'diary') => void;
 }
 
 export function NoteEditorPanel({
@@ -49,14 +40,6 @@ export function NoteEditorPanel({
   onEditorReady,
   isNewNoteJustCreated = false,
   zoomLevel = 100,
-  notePathLabel = '',
-  shouldShowReturnButton = false,
-  returnButtonLabel = 'Voltar',
-  onReturnToSource,
-  backlinks = [],
-  outgoingLinks = [],
-  unlinkedMentions = [],
-  onOpenBacklink,
 }: NoteEditorPanelProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(isNewNoteJustCreated && !readOnly);
   const [titleInput, setTitleInput] = useState(note?.title || '');
@@ -169,123 +152,13 @@ export function NoteEditorPanel({
         />
       </div>
 
-      {backlinks.length > 0 && (
-        <div
-          id={`note-backlinks-section-${note.id}`}
-          className="w-full shrink-0 px-4 sm:px-6 pb-1.5 bg-[#fbf9f4] dark:bg-[#000000]"
-        >
-          <div className="max-w-[850px] mx-auto rounded-xl border border-[#eae8e3] dark:border-[#1d1d1d] bg-white/55 dark:bg-[#080808] px-3 py-2 flex items-center gap-2 min-w-0">
-            <Link2 className="w-3.5 h-3.5 shrink-0 text-[#8c7e72]" />
-            <span className="text-[10px] font-semibold text-[#7f756e] shrink-0">
-              Referenciada por
-            </span>
-            <div className="flex items-center gap-1.5 overflow-hidden">
-              {backlinks.slice(0, 5).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onOpenBacklink?.(item.id, item.workspace)}
-                  className="max-w-[180px] truncate px-2 py-1 rounded-lg text-[10px] font-medium text-[#68594d] dark:text-[#d7c3b0] hover:bg-[#f0eee9] dark:hover:bg-[#151515] transition-colors"
-                  title={item.label}
-                >
-                  {item.label}
-                </button>
-              ))}
-              {backlinks.length > 5 && (
-                <span className="text-[10px] text-[#8c7e72] shrink-0">
-                  +{backlinks.length - 5}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {(outgoingLinks.length > 0 || unlinkedMentions.length > 0) && (
-        <div
-          id={`note-link-relations-section-${note.id}`}
-          className="w-full shrink-0 px-4 sm:px-6 pb-1.5 bg-[#fbf9f4] dark:bg-[#000000]"
-        >
-          <div className="max-w-[850px] mx-auto rounded-xl border border-[#eae8e3] dark:border-[#1d1d1d] bg-white/55 dark:bg-[#080808] px-3 py-2 grid gap-2 sm:grid-cols-2">
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold text-[#7f756e] mb-1.5">
-                Links de saída
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {outgoingLinks.slice(0, 5).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onOpenBacklink?.(item.id, item.workspace)}
-                    className="max-w-full truncate px-2 py-1 rounded-lg text-[10px] font-medium text-[#68594d] dark:text-[#d7c3b0] hover:bg-[#f0eee9] dark:hover:bg-[#151515]"
-                    title={item.label}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-                {!outgoingLinks.length && (
-                  <span className="text-[10px] text-[#8c7e72]">Nenhum link de saída.</span>
-                )}
-              </div>
-            </div>
-
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold text-[#7f756e] mb-1.5">
-                Menções sem link
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {unlinkedMentions.slice(0, 5).map((item) => (
-                  <button
-                    key={item.note.id}
-                    type="button"
-                    onClick={() => onOpenBacklink?.(item.note.id, item.note.workspace)}
-                    className="max-w-full truncate px-2 py-1 rounded-lg text-[10px] font-medium text-[#68594d] dark:text-[#d7c3b0] hover:bg-[#f0eee9] dark:hover:bg-[#151515]"
-                    title={item.note.label}
-                  >
-                    {item.note.label}
-                  </button>
-                ))}
-                {!unlinkedMentions.length && (
-                  <span className="text-[10px] text-[#8c7e72]">Nenhuma menção encontrada.</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Área da Folha e Editor TipTap com Rolagem Independente */}
       <div
         id={`note-scroll-container-${note.id}`}
-        className={`flex-1 overflow-y-auto py-3 sm:py-5 flex justify-center items-start relative ${
+        className={`flex-1 overflow-y-auto py-3 sm:py-5 flex justify-center items-start ${
           isSplit ? 'px-2 sm:px-4 md:px-6' : 'px-3 sm:px-6 md:px-12'
         }`}
       >
-        {(notePathLabel || shouldShowReturnButton) && (
-          <div
-            id={`note-path-controls-${note.id}`}
-            className="absolute top-2.5 right-3 sm:right-5 z-20 flex items-center gap-2 pointer-events-none max-w-[min(78%,520px)]"
-          >
-            {notePathLabel && (
-              <div className="pointer-events-auto max-w-[55%] truncate px-2.5 py-1 rounded-lg bg-[#ffffff]/82 dark:bg-[#080808]/82 border border-[#e4e2dd] dark:border-[#222] backdrop-blur text-[10px] font-sans-ui text-[#7f756e] dark:text-[#a1a1aa] shadow-xs">
-                {notePathLabel}
-              </div>
-            )}
-
-            {shouldShowReturnButton && (
-              <button
-                id={`return-to-source-note-btn-${note.id}`}
-                type="button"
-                onClick={onReturnToSource}
-                className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#68594d] hover:bg-[#53463c] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] text-white font-sans-ui text-[10px] font-semibold transition-all cursor-pointer shadow-xs active:scale-95"
-                title={returnButtonLabel}
-              >
-                <ArrowLeft className="w-3 h-3" />
-                <span>{returnButtonLabel}</span>
-              </button>
-            )}
-          </div>
-        )}
         <article
           id={`note-paper-sheet-${note.id}`}
           style={{

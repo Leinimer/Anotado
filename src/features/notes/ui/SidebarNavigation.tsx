@@ -27,7 +27,6 @@ import {
   CalendarDays,
   CalendarPlus,
   Star,
-  BrainCircuit,
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { TagsModal } from './TagsModal';
@@ -47,6 +46,7 @@ import {
 } from '../types';
 import { extractAllUniqueTags } from '../utils/hashtag-extractor';
 import { buildFolderTree, filterTree, wouldCreateCycle } from '../utils/tree-builder';
+import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
 import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
 import {
   SEARCH_MODES,
@@ -98,7 +98,6 @@ interface SidebarNavigationProps {
   onOpenTodayDiary?: () => void;
   onCreateDiaryYear?: () => void;
   onCreateDiaryEntry?: () => void;
-  onOpenMap?: () => void;
 }
 
 export function SidebarNavigation({
@@ -130,7 +129,6 @@ export function SidebarNavigation({
   onOpenTodayDiary,
   onCreateDiaryYear,
   onCreateDiaryEntry,
-  onOpenMap,
 }: SidebarNavigationProps) {
   const { isStandalone, openInstallModal } = usePwa();
   const [searchQuery, setSearchQuery] = useState('');
@@ -243,20 +241,6 @@ export function SidebarNavigation({
     return () => {
       isCancelled = true;
     };
-  }, []);
-
-  // Atalho global de busca rápida: Ctrl/Cmd + K
-  useEffect(() => {
-    const handleGlobalSearchShortcut = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        const input = document.getElementById('sidebar-search-input') as HTMLInputElement | null;
-        input?.focus();
-        input?.select();
-      }
-    };
-    window.addEventListener('keydown', handleGlobalSearchShortcut);
-    return () => window.removeEventListener('keydown', handleGlobalSearchShortcut);
   }, []);
 
   // Debounce para busca
@@ -1472,13 +1456,12 @@ export function SidebarNavigation({
 
       const now = Date.now();
       const last = lastClickRef.current;
-      lastClickRef.current = { id: note.id, type: 'note', time: now };
-
       if (last && last.id === note.id && last.type === 'note' && now - last.time < 350) {
         lastClickRef.current = null;
         startRenaming(note.id, 'note', note.title || 'Sem título');
+        return;
       }
-
+      lastClickRef.current = { id: note.id, type: 'note', time: now };
       onSelectNote(note.id, false);
       if (onCloseMobile) onCloseMobile();
     };
@@ -1633,28 +1616,41 @@ export function SidebarNavigation({
       id="sidebar-navigation-container"
       className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0"
     >
-      {/* Marca centralizada + navegação principal */}
+      {/* Top Header: Brand Logo Centered in Sidebar & Search Bar */}
       <div className="space-y-3">
-        <div className="relative flex items-center justify-center py-1.5">
-          <div className="flex flex-col items-center gap-1">
-            <div className="w-9 h-9 rounded-xl bg-[#68594d] text-white flex items-center justify-center font-serif-note font-bold text-base shadow-xs">
+        <div className="flex items-center justify-between py-1 px-1">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-[#68594d] text-white flex items-center justify-center font-serif-note font-bold text-sm shadow-xs">
               A
             </div>
-            <span className="font-serif-note font-bold text-lg text-[#1b1c19] dark:text-white tracking-tight">
+            <span className="font-serif-note font-bold text-lg text-[#1b1c19] tracking-tight">
               anotado!
             </span>
           </div>
 
-          {onCloseMobile && (
-            <button
-              id="sidebar-close-mobile-btn"
-              onClick={onCloseMobile}
-              className="absolute right-0 top-0 p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg md:hidden cursor-pointer"
-              aria-label="Fechar Menu Lateral"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {/* Chavezinha / Switch Discreta e Elegante ao lado da Logo */}
+            {(onToggleWorkspace || onWorkspaceChange) && (
+              <WorkspaceSwitch
+                currentWorkspace={currentWorkspace}
+                onToggle={onToggleWorkspace || (() => onWorkspaceChange && onWorkspaceChange(currentWorkspace === 'diary' ? 'notes' : 'diary'))}
+              />
+            )}
+
+            {/* Botão de Troca de Tema (Lua/Sol) ao lado do botão Notas / Diário */}
+            <ThemeToggle />
+
+            {onCloseMobile && (
+              <button
+                id="sidebar-close-mobile-btn"
+                onClick={onCloseMobile}
+                className="p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg md:hidden cursor-pointer"
+                aria-label="Fechar Menu Lateral"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Search Bar with Mode Selector */}
@@ -1928,42 +1924,6 @@ export function SidebarNavigation({
 
       {/* Bottom Action Footer */}
       <div className="pt-2 border-t border-[#eae8e3] space-y-2">
-        <div className="grid grid-cols-3 gap-1.5">
-          <button
-            id="sidebar-knowledge-map-btn"
-            type="button"
-            onClick={() => onOpenMap?.()}
-            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
-            title="Mapa completo de conexões"
-          >
-            <BrainCircuit className="w-4 h-4" />
-            <span>Mapa</span>
-          </button>
-          <button
-            id="sidebar-diary-btn"
-            type="button"
-            onClick={() => {
-              if (onToggleWorkspace) onToggleWorkspace();
-              else onWorkspaceChange?.(currentWorkspace === 'diary' ? 'notes' : 'diary');
-            }}
-            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
-            title={currentWorkspace === 'diary' ? 'Ir para Notas' : 'Abrir Diário'}
-          >
-            <Calendar className="w-4 h-4" />
-            <span>{currentWorkspace === 'diary' ? 'Notas' : 'Diário'}</span>
-          </button>
-          <div
-            id="sidebar-theme-btn-wrapper"
-            className="flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl hover:bg-[#eae8e3] dark:hover:bg-[#141414]"
-            title="Modo escuro / claro"
-          >
-            <ThemeToggle />
-            <span className="text-[9px] font-semibold text-[#7f756e] dark:text-[#a1a1aa]">
-              Tema
-            </span>
-          </div>
-        </div>
-
         <div className="flex items-center justify-between px-0.5">
           <SyncStatusIndicator
             userId={userId || undefined}
