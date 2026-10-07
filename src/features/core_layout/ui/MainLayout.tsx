@@ -32,6 +32,7 @@ import { syncEngine } from '@/src/features/notes/api/sync-engine';
 import { saveQueue } from '@/src/features/notes/api/save-queue';
 import { perfProfiler } from '@/src/features/notes/editor/utils/media-optimizer';
 import { WorkspaceType } from '@/src/features/notes/types';
+import { NoteTabItem } from '@/src/features/notes/ui/NoteTabs';
 
 export function MainLayout() {
   const router = useRouter();
@@ -42,6 +43,26 @@ export function MainLayout() {
   const [userId, setUserId] = useState<string>('');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
+
+  // Estado do Sistema de Abas (Apenas interface/memória do cliente)
+  const [tabs, setTabs] = useState<NoteTabItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('anotado_active_notes_id');
+      if (saved) {
+        return [{ id: `tab-${saved}`, noteId: saved }];
+      }
+    }
+    return [];
+  });
+  const [activeTabId, setActiveTabId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('anotado_active_notes_id');
+      if (saved) {
+        return `tab-${saved}`;
+      }
+    }
+    return null;
+  });
 
   const activeNoteIdRef = useRef<string | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
@@ -228,10 +249,19 @@ export function MainLayout() {
         const savedActiveId = typeof window !== 'undefined' ? sessionStorage.getItem('anotado_active_notes_id') : null;
         if (savedActiveId && fetchedNotes.some((n) => n.id === savedActiveId)) {
           setActiveNoteId(savedActiveId);
+          const initialTabId = `tab-${savedActiveId}`;
+          setTabs([{ id: initialTabId, noteId: savedActiveId }]);
+          setActiveTabId(initialTabId);
         } else if (fetchedNotes.length > 0) {
-          setActiveNoteId(fetchedNotes[0].id);
+          const firstId = fetchedNotes[0].id;
+          setActiveNoteId(firstId);
+          const initialTabId = `tab-${firstId}`;
+          setTabs([{ id: initialTabId, noteId: firstId }]);
+          setActiveTabId(initialTabId);
         } else {
           setActiveNoteId(null);
+          setTabs([]);
+          setActiveTabId(null);
         }
 
         // Apenas verifica se há mutações pendentes locais na fila (sem disparar PULL desnecessário)
@@ -284,7 +314,7 @@ export function MainLayout() {
 
   // Carrega o conteúdo do arquivo Markdown no Storage ao selecionar uma nota
   const handleSelectNote = useCallback(
-    async (noteId: string) => {
+    async (noteId: string, openInNewTab: boolean = false) => {
       perfProfiler.start(noteId);
       setIsNewNoteJustCreated(false);
 
@@ -293,7 +323,27 @@ export function MainLayout() {
         await flushNoteSaves(activeNoteId);
       }
 
-      setActiveNoteId(noteId);
+      // 1. Verifica se a nota já está aberta em alguma aba
+      const existingTabIndex = tabs.findIndex((t) => t.noteId === noteId);
+
+      if (existingTabIndex !== -1) {
+        // Se a nota já estiver aberta em outra aba, apenas ativar essa aba
+        const existingTab = tabs[existingTabIndex];
+        setActiveTabId(existingTab.id);
+        setActiveNoteId(noteId);
+      } else if (openInNewTab || tabs.length === 0) {
+        // Ctrl + clique em uma nota → abrir em nova aba, ou se não houver abas
+        const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        setTabs((prev) => [...prev, { id: newTabId, noteId }]);
+        setActiveTabId(newTabId);
+        setActiveNoteId(noteId);
+      } else {
+        // Clicar em uma nota na Sidebar abre a nota na aba atual
+        setTabs((prev) =>
+          prev.map((t) => (t.id === activeTabId ? { ...t, noteId } : t))
+        );
+        setActiveNoteId(noteId);
+      }
 
       const targetNote = notes.find((n) => n.id === noteId);
       if (targetNote) {
@@ -313,7 +363,87 @@ export function MainLayout() {
         );
       }
     },
-    [notes, userId, activeNoteId]
+    [activeNoteId, tabs, activeTabId, notes, userId]
+  );
+
+  // Seleciona uma aba existente pelo seu ID
+  const handleSelectTab = useCallback(
+    async (tabId: string) => {
+      const targetTab = tabs.find((t) => t.id === tabId);
+      if (!targetTab || targetTab.id === activeTabId) return;
+
+      if (activeNoteId && activeNoteId !== targetTab.noteId) {
+        await flushNoteSaves(activeNoteId);
+      }
+
+      setActiveTabId(tabId);
+      setActiveNoteId(targetTab.noteId);
+
+      const targetNote = notes.find((n) => n.id === targetTab.noteId);
+      if (targetNote && targetNote.content === undefined) {
+        const { content, tags } = await fetchNoteContent(userId, targetNote);
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === targetTab.noteId
+              ? {
+                  ...n,
+                  content: content !== undefined ? content : n.content,
+                  tags: tags && tags.length > 0 ? tags : n.tags,
+                }
+              : n
+          )
+        );
+      }
+    },
+    [tabs, activeTabId, activeNoteId, notes, userId]
+  );
+
+  // Fecha uma aba pelo seu ID e ativa outra disponível automaticamente
+  const handleCloseTab = useCallback(
+    async (tabIdToClose: string) => {
+      const tabIndex = tabs.findIndex((t) => t.id === tabIdToClose);
+      if (tabIndex === -1) return;
+
+      const remainingTabs = tabs.filter((t) => t.id !== tabIdToClose);
+
+      if (activeTabId === tabIdToClose) {
+        if (activeNoteId) {
+          await flushNoteSaves(activeNoteId);
+        }
+
+        if (remainingTabs.length > 0) {
+          // Se fechar a aba ativa, abrir automaticamente outra aba disponível
+          const nextIndex = Math.min(tabIndex, remainingTabs.length - 1);
+          const nextTab = remainingTabs[nextIndex];
+          setTabs(remainingTabs);
+          setActiveTabId(nextTab.id);
+          setActiveNoteId(nextTab.noteId);
+
+          const targetNote = notes.find((n) => n.id === nextTab.noteId);
+          if (targetNote && targetNote.content === undefined) {
+            const { content, tags } = await fetchNoteContent(userId, targetNote);
+            setNotes((prev) =>
+              prev.map((n) =>
+                n.id === nextTab.noteId
+                  ? {
+                      ...n,
+                      content: content !== undefined ? content : n.content,
+                      tags: tags && tags.length > 0 ? tags : n.tags,
+                    }
+                  : n
+              )
+            );
+          }
+        } else {
+          setTabs([]);
+          setActiveTabId(null);
+          setActiveNoteId(null);
+        }
+      } else {
+        setTabs(remainingTabs);
+      }
+    },
+    [tabs, activeTabId, activeNoteId, notes, userId]
   );
 
   // Ouvinte global para abertura de notas a partir de modais e navegações internas
@@ -425,7 +555,7 @@ export function MainLayout() {
   );
 
   // Handlers de Notas (com persistência em Markdown no Supabase Storage)
-  const handleCreateNote = useCallback(async (folderId: string | null = null) => {
+  const handleCreateNote = useCallback(async (folderId: string | null = null, openInNewTab: boolean = false) => {
     // Se folderId for especificado, calcula a posição dentro daquela pasta; caso contrário, na raiz
     const targetFolderId = folderId || null;
     const position = notes.filter((n) => n.folder_id === targetFolderId).length;
@@ -441,8 +571,28 @@ export function MainLayout() {
     setNotes((prev) => [...prev, newNote]);
     setIsNewNoteJustCreated(true);
     setActiveNoteId(newNote.id);
+
+    // Se solicitado abrir em nova aba ou se não existiam abas abertas
+    if (openInNewTab || tabs.length === 0) {
+      const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      setTabs((prev) => [...prev, { id: newTabId, noteId: newNote.id }]);
+      setActiveTabId(newTabId);
+    } else {
+      setTabs((prev) =>
+        prev.map((t) => (t.id === activeTabId ? { ...t, noteId: newNote.id } : t))
+      );
+    }
+
     return newNote.id;
-  }, [userId, notes]);
+  }, [userId, notes, tabs.length, activeTabId]);
+
+  // Cria uma nova aba via botão +
+  const handleNewTab = useCallback(async () => {
+    if (activeNoteId) {
+      await flushNoteSaves(activeNoteId);
+    }
+    await handleCreateNote(null, true);
+  }, [activeNoteId, handleCreateNote]);
 
   const handleUpdateTitle = useCallback(
     async (noteId: string, newTitle: string) => {
@@ -501,13 +651,32 @@ export function MainLayout() {
 
   const handleDeleteNote = useCallback(
     async (noteId: string) => {
+      // Fecha quaisquer abas associadas a esta nota excluída
+      setTabs((prev) => {
+        const remaining = prev.filter((t) => t.noteId !== noteId);
+        if (remaining.length !== prev.length) {
+          const closedTab = prev.find((t) => t.noteId === noteId);
+          if (closedTab && closedTab.id === activeTabId) {
+            if (remaining.length > 0) {
+              const nextTab = remaining[remaining.length - 1];
+              setActiveTabId(nextTab.id);
+              setActiveNoteId(nextTab.noteId);
+            } else {
+              setActiveTabId(null);
+              setActiveNoteId(null);
+            }
+          }
+        }
+        return remaining;
+      });
+
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
       if (activeNoteId === noteId) {
         setActiveNoteId(null);
       }
       await deleteNote(userId, noteId);
     },
-    [userId, activeNoteId]
+    [userId, activeNoteId, activeTabId]
   );
 
   const handleArchiveNote = useCallback(
@@ -827,8 +996,8 @@ export function MainLayout() {
                 notes={notes}
                 activeNoteId={activeNoteId}
                 activeFolderId={activeFolderId}
-                onSelectNote={(id) => {
-                  handleSelectNote(id);
+                onSelectNote={(id, openInNewTab) => {
+                  handleSelectNote(id, openInNewTab);
                   setMobileSidebarOpen(false);
                 }}
                 onSelectFolder={(id) => setActiveFolderId(id)}
@@ -868,6 +1037,12 @@ export function MainLayout() {
           isNewNoteJustCreated={isNewNoteJustCreated}
           currentWorkspace="notes"
           onSelectNote={handleSelectNote}
+          tabs={tabs}
+          activeTabId={activeTabId}
+          notes={notes}
+          onSelectTab={handleSelectTab}
+          onCloseTab={handleCloseTab}
+          onNewTab={handleNewTab}
         />
       </div>
     </div>

@@ -15,12 +15,16 @@ const supabaseCookieOptions = {
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
-  // Bypassa completamente requisições internas do Next.js, arquivos estáticos, chunks e APIs
+  // Bypassa completamente requisições internas do Next.js, arquivos estáticos, chunks, páginas de erro e APIs
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
     pathname.includes('.') ||
-    pathname === '/favicon.ico'
+    pathname === '/favicon.ico' ||
+    pathname === '/404' ||
+    pathname === '/500' ||
+    pathname === '/_error' ||
+    pathname === '/_not-found'
   ) {
     return NextResponse.next();
   }

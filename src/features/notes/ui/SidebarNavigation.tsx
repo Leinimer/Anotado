@@ -63,7 +63,7 @@ interface SidebarNavigationProps {
   notes: NoteType[];
   activeNoteId: string | null;
   activeFolderId: string | null;
-  onSelectNote: (noteId: string) => void;
+  onSelectNote: (noteId: string, openInNewTab?: boolean) => void;
   onSelectFolder: (folderId: string | null) => void;
   onCreateFolder: (parentId?: string | null) => Promise<string | void>;
   onCreateNote: (folderId?: string | null) => Promise<string | void>;
@@ -1414,19 +1414,12 @@ export function SidebarNavigation({
     const handleNoteClick = (e: React.MouseEvent) => {
       if (isEditing) return;
 
-      // Ctrl / Cmd + Clique para selecionar/deselecionar individualmente
+      // Atalho: Ctrl / Cmd + Clique para abrir em nova aba
       if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
         e.stopPropagation();
-        setSelectedItems((prev) => {
-          const next = new Map(prev);
-          if (next.has(note.id)) {
-            next.delete(note.id);
-          } else {
-            next.set(note.id, 'note');
-          }
-          return next;
-        });
-        lastSelectedIdRef.current = { id: note.id, type: 'note' };
+        onSelectNote(note.id, true);
+        if (onCloseMobile) onCloseMobile();
         return;
       }
 
@@ -1467,7 +1460,7 @@ export function SidebarNavigation({
         return;
       }
       lastClickRef.current = { id: note.id, type: 'note', time: now };
-      onSelectNote(note.id);
+      onSelectNote(note.id, false);
       if (onCloseMobile) onCloseMobile();
     };
 
@@ -1512,6 +1505,20 @@ export function SidebarNavigation({
             onClick={handleNoteClick}
             onDoubleClick={handleNoteDoubleClick}
             onContextMenu={(e) => handleContextMenu(e, note.id, 'note', isArchived, isFavorite)}
+            onAuxClick={(e) => {
+              // Atalho: Botão do meio do mouse (button === 1) → abrir em nova aba
+              if (e.button === 1) {
+                e.preventDefault();
+                e.stopPropagation();
+                onSelectNote(note.id, true);
+                if (onCloseMobile) onCloseMobile();
+              }
+            }}
+            onMouseDown={(e) => {
+              if (e.button === 1) {
+                e.preventDefault();
+              }
+            }}
             className={`group flex items-center justify-between gap-1.5 px-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative w-fit max-w-[calc(100%-4px)] min-w-[120px] ${
               isSelectedInMulti
                 ? 'bg-[#f4dfcb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'

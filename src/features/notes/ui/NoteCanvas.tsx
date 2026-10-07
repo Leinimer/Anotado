@@ -20,6 +20,7 @@ import { NoteTagsBar } from './NoteTagsBar';
 import { formatDateReadable } from '../utils/diary-date';
 import { InternalNoteReferenceModal } from './InternalNoteReferenceModal';
 import { ExtendedNote } from '../db/indexed-db';
+import { NoteTabs, NoteTabItem } from './NoteTabs';
 import {
   getInternalNavigationContext,
   returnToSourceNote,
@@ -40,6 +41,12 @@ interface NoteCanvasProps {
   readOnly?: boolean;
   currentWorkspace?: 'notes' | 'diary';
   onSelectNote?: (noteId: string) => void;
+  tabs?: NoteTabItem[];
+  activeTabId?: string | null;
+  notes?: NoteType[];
+  onSelectTab?: (tabId: string) => void;
+  onCloseTab?: (tabId: string) => void;
+  onNewTab?: () => void;
 }
 
 export function NoteCanvas({
@@ -54,6 +61,12 @@ export function NoteCanvas({
   readOnly = false,
   currentWorkspace,
   onSelectNote,
+  tabs,
+  activeTabId,
+  notes,
+  onSelectTab,
+  onCloseTab,
+  onNewTab,
 }: NoteCanvasProps) {
   const router = useRouter();
   const [isEditingTitle, setIsEditingTitle] = useState(isNewNoteJustCreated && !readOnly);
@@ -344,45 +357,68 @@ export function NoteCanvas({
     return (
       <main
         id="main-note-workspace"
-        className="flex-1 flex flex-col h-full bg-[#fbf9f4] dark:bg-[#000000] items-center justify-center p-6 text-center select-none relative"
+        className="flex-1 flex flex-col h-full bg-[#fbf9f4] dark:bg-[#000000] select-none relative overflow-hidden"
       >
-        {onOpenMobileMenu && (
-          <div className="absolute left-4 top-3.5 flex items-center md:hidden">
-            <button
-              id="empty-state-mobile-menu-btn"
-              onClick={onOpenMobileMenu}
-              className="p-2 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer"
-              aria-label="Abrir Menu Lateral"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
+        {/* Barra Superior da Área de Edição */}
+        <header
+          id="editor-top-bar"
+          className="w-full px-4 sm:px-6 h-9 flex items-center justify-between border-b border-[#eae8e3]/80 dark:border-[#1a1a1a] bg-[#fbf9f4] dark:bg-[#000000] shrink-0 select-none z-20"
+        >
+          <div className="flex items-center gap-2">
+            {onOpenMobileMenu && (
+              <button
+                id="empty-state-mobile-menu-btn"
+                onClick={onOpenMobileMenu}
+                className="p-1.5 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer md:hidden"
+                aria-label="Abrir Menu Lateral"
+              >
+                <Menu className="w-4 h-4" />
+              </button>
+            )}
+            <span className="text-[11px] font-sans-ui font-semibold text-[#8c7e72] dark:text-[#737373] tracking-wider uppercase">
+              {effectiveWorkspace === 'diary' ? 'Diário' : 'Notas'}
+            </span>
           </div>
+        </header>
+
+        {/* Sistema de Abas (Visível mesmo no estado vazio se houver abas ou para criar nova via +) */}
+        {tabs && onSelectTab && onCloseTab && onNewTab && (
+          <NoteTabs
+            tabs={tabs}
+            activeTabId={activeTabId || null}
+            notes={notes || []}
+            onSelectTab={onSelectTab}
+            onCloseTab={onCloseTab}
+            onNewTab={onNewTab}
+          />
         )}
 
-        <div className="max-w-md space-y-4">
-          <div className="w-16 h-16 rounded-full bg-[#e4e2dd] dark:bg-[#141414] text-[#68594d] dark:text-[#a1a1aa] mx-auto flex items-center justify-center">
-            <FileText className="w-8 h-8 stroke-[1.5]" />
-          </div>
-          <h2 className="font-serif-note font-bold text-2xl text-[#1b1c19] dark:text-[#ffffff]">
-            {readOnly ? 'Nenhuma entrada selecionada' : 'Nenhuma nota selecionada'}
-          </h2>
-          <p className="font-sans-ui text-sm text-[#7f756e] dark:text-[#a1a1aa] leading-relaxed">
-            {readOnly
-              ? 'Selecione uma entrada no menu lateral para visualizar seu conteúdo.'
-              : 'Selecione uma nota na barra lateral para começar a ler ou editar, ou crie uma nova anotação agora.'}
-          </p>
-          {!readOnly && (
-            <div className="pt-2">
-              <button
-                id="empty-state-new-note-btn"
-                onClick={onCreateNewNote}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] dark:hover:bg-[#3d3229] transition-colors cursor-pointer shadow-xs"
-              >
-                <FilePlus className="w-4 h-4" />
-                <span>Criar Nova Nota</span>
-              </button>
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+          <div className="max-w-md space-y-4">
+            <div className="w-16 h-16 rounded-full bg-[#e4e2dd] dark:bg-[#141414] text-[#68594d] dark:text-[#a1a1aa] mx-auto flex items-center justify-center">
+              <FileText className="w-8 h-8 stroke-[1.5]" />
             </div>
-          )}
+            <h2 className="font-serif-note font-bold text-2xl text-[#1b1c19] dark:text-[#ffffff]">
+              {readOnly ? 'Nenhuma entrada selecionada' : 'Nenhuma nota selecionada'}
+            </h2>
+            <p className="font-sans-ui text-sm text-[#7f756e] dark:text-[#a1a1aa] leading-relaxed">
+              {readOnly
+                ? 'Selecione uma entrada no menu lateral para visualizar seu conteúdo.'
+                : 'Selecione uma nota na barra lateral para começar a ler ou editar, ou crie uma nova anotação agora.'}
+            </p>
+            {!readOnly && (
+              <div className="pt-2">
+                <button
+                  id="empty-state-new-note-btn"
+                  onClick={onNewTab || onCreateNewNote}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#68594d] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] text-white rounded-xl text-xs font-sans-ui font-medium hover:bg-[#53463c] dark:hover:bg-[#3d3229] transition-colors cursor-pointer shadow-xs"
+                >
+                  <FilePlus className="w-4 h-4" />
+                  <span>Criar Nova Nota</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </main>
     );
@@ -395,25 +431,65 @@ export function NoteCanvas({
       id="main-note-workspace"
       className="flex-1 flex flex-col h-full overflow-hidden bg-[#fbf9f4] dark:bg-[#000000] relative"
     >
-      {/* Top Header Bar (Título centralizado horizontalmente na área principal) */}
+      {/* 1. Barra Superior da Área de Edição */}
       <header
-        id="note-header-bar"
-        className="w-full px-4 sm:px-8 pt-3 sm:pt-3.5 pb-3 relative flex items-center justify-center border-b border-[#eae8e3]/80 dark:border-[#1a1a1a] shrink-0 select-none bg-[#fbf9f4]/90 dark:bg-[#000000]/90 backdrop-blur-xs z-10"
+        id="editor-top-bar"
+        className="w-full px-4 sm:px-6 h-9 flex items-center justify-between border-b border-[#eae8e3]/80 dark:border-[#1a1a1a] bg-[#fbf9f4] dark:bg-[#000000] shrink-0 select-none z-20"
       >
-        {onOpenMobileMenu && (
-          <div className="absolute left-4 sm:left-6 top-3 sm:top-3.5 flex items-center md:hidden">
+        <div className="flex items-center gap-2">
+          {onOpenMobileMenu && (
             <button
               id="header-mobile-menu-btn"
               onClick={onOpenMobileMenu}
-              className="p-2 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer"
+              className="p-1.5 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer md:hidden"
               aria-label="Abrir Menu Lateral"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="w-4 h-4" />
+            </button>
+          )}
+          <span className="text-[11px] font-sans-ui font-semibold text-[#8c7e72] dark:text-[#737373] tracking-wider uppercase">
+            {effectiveWorkspace === 'diary' ? 'Diário' : 'Notas'}
+          </span>
+        </div>
+
+        {/* Botão de Retorno de Referência no topo direito (quando aberto via link interno) */}
+        {shouldShowReturnButton && (
+          <div className="flex items-center gap-2">
+            <button
+              id="return-to-source-note-btn"
+              type="button"
+              onClick={handleReturnToSource}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#68594d] hover:bg-[#53463c] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] text-white font-sans-ui text-xs font-semibold transition-all cursor-pointer shadow-xs active:scale-95 animate-in fade-in zoom-in-95 duration-150"
+              title={
+                navContext?.sourceNoteTitle
+                  ? `Retornar para: ${navContext.sourceNoteTitle}`
+                  : `Retornar à nota de origem`
+              }
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>{returnButtonLabel}</span>
             </button>
           </div>
         )}
+      </header>
 
-        {/* Note Title (Centralizado horizontalmente em relação à área principal) */}
+      {/* 2. SISTEMA DE ABAS (Logo abaixo da barra superior e acima do título da nota) */}
+      {tabs && onSelectTab && onCloseTab && onNewTab && (
+        <NoteTabs
+          tabs={tabs}
+          activeTabId={activeTabId || null}
+          notes={notes || []}
+          onSelectTab={onSelectTab}
+          onCloseTab={onCloseTab}
+          onNewTab={onNewTab}
+        />
+      )}
+
+      {/* 3. Título da Nota (Logo abaixo das abas) */}
+      <div
+        id="note-header-bar"
+        className="w-full px-4 sm:px-8 pt-3 sm:pt-4 pb-3 relative flex items-center justify-center border-b border-[#eae8e3]/80 dark:border-[#1a1a1a] shrink-0 select-none bg-[#fbf9f4]/90 dark:bg-[#000000]/90 backdrop-blur-xs z-10"
+      >
         <div className="w-full max-w-[850px] mx-auto text-center px-10 min-w-0">
           {activeNote.workspace_type === 'diary' && (
             <div className="flex items-center justify-center mb-1.5">
@@ -461,27 +537,7 @@ export function NoteCanvas({
             </h1>
           )}
         </div>
-
-        {/* Botão de Retorno de Referência no topo direito (quando aberto via link interno) */}
-        {shouldShowReturnButton && (
-          <div className="absolute right-4 sm:right-6 top-3 sm:top-3.5 flex items-center gap-2">
-            <button
-              id="return-to-source-note-btn"
-              type="button"
-              onClick={handleReturnToSource}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#68594d] hover:bg-[#53463c] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] text-white font-sans-ui text-xs font-semibold transition-all cursor-pointer shadow-xs active:scale-95 animate-in fade-in zoom-in-95 duration-150"
-              title={
-                navContext?.sourceNoteTitle
-                  ? `Retornar para: ${navContext.sourceNoteTitle}`
-                  : `Retornar à nota de origem`
-              }
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>{returnButtonLabel}</span>
-            </button>
-          </div>
-        )}
-      </header>
+      </div>
 
       {/* Região de Gerenciamento de Tags (Abaixo da linha divisória do título e acima do corpo da nota) */}
       <div id="note-tags-section-wrapper" className="w-full shrink-0 pt-2 pb-1 bg-[#fbf9f4] dark:bg-[#000000]">
