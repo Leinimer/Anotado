@@ -245,6 +245,20 @@ export function SidebarNavigation({
     };
   }, []);
 
+  // Atalho global de busca rápida: Ctrl/Cmd + K
+  useEffect(() => {
+    const handleGlobalSearchShortcut = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const input = document.getElementById('sidebar-search-input') as HTMLInputElement | null;
+        input?.focus();
+        input?.select();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalSearchShortcut);
+    return () => window.removeEventListener('keydown', handleGlobalSearchShortcut);
+  }, []);
+
   // Debounce para busca
   useEffect(() => {
     const handler = setTimeout(() => {
