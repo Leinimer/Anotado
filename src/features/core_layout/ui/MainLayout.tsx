@@ -930,6 +930,43 @@ export function MainLayout() {
     await handleCreateNote(null, true);
   }, [activeNoteId, handleCreateNote]);
 
+  // Atalhos de produtividade inspirados no fluxo de abas do Obsidian.
+  useEffect(() => {
+    const handleTabShortcuts = (e: KeyboardEvent) => {
+      const activeElement = document.activeElement as HTMLElement | null;
+      const isTyping =
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        activeElement?.isContentEditable;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't' && !isTyping) {
+        e.preventDefault();
+        void handleNewTab();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w' && !isTyping) {
+        if (activeTabId) {
+          e.preventDefault();
+          void handleCloseTab(activeTabId);
+        }
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key) && !isTyping) {
+        const index = Number(e.key) - 1;
+        const target = tabs[index];
+        if (target) {
+          e.preventDefault();
+          void handleSelectTab(target.id);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleTabShortcuts);
+    return () => window.removeEventListener('keydown', handleTabShortcuts);
+  }, [handleNewTab, handleCloseTab, handleSelectTab, tabs, activeTabId]);
+
   const handleUpdateTitle = useCallback(
     async (noteId: string, newTitle: string) => {
       const previousNote = notes.find((n) => n.id === noteId);
