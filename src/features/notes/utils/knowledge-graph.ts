@@ -56,7 +56,7 @@ export function folderPathFor(folderId: string | null, folders: Folder[]): strin
   const byId = new Map(folders.map((f) => [f.id, f]));
   const parts: string[] = [];
   const seen = new Set<string>();
-  let current = folderId;
+  let current: string | null = folderId;
 
   while (current && !seen.has(current)) {
     seen.add(current);
