@@ -178,3 +178,58 @@ export function getLocalGraph(
     links: data.links.filter((l) => allowed.has(l.source) && allowed.has(l.target)),
   };
 }
+
+
+export function getOutgoingLinks(
+  noteId: string,
+  notes: Note[],
+  folders: Folder[] = []
+): KnowledgeGraphNode[] {
+  const note = notes.find((item) => item.id === noteId);
+  if (!note) return [];
+
+  const activeNotes = notes.filter((item) => !item.is_archived);
+  const byId = new Map(activeNotes.map((item) => [item.id, item]));
+  const ids = Array.from(new Set(extractInternalNoteIds(note.content)));
+  const graph = buildKnowledgeGraph(activeNotes, folders);
+
+  return ids
+    .map((id) => byId.get(id))
+    .map((item) => (item ? graph.nodes.find((node) => node.id === item.id) : null))
+    .filter((item): item is KnowledgeGraphNode => Boolean(item));
+}
+
+export interface UnlinkedMention {
+  note: KnowledgeGraphNode;
+  match: string;
+}
+
+export function getUnlinkedMentions(
+  noteId: string,
+  notes: Note[],
+  folders: Folder[] = []
+): UnlinkedMention[] {
+  const target = notes.find((item) => item.id === noteId);
+  if (!target) return [];
+
+  const title = (target.title || '').trim();
+  if (title.length < 3) return [];
+
+  const linkedIds = new Set(extractInternalNoteIds(target.content));
+  const escapedTitle = title.replace(/[.*+?^\\\${}()|[\]\\\\]/g, '\\\\$&');
+  const regex = new RegExp(
+    '(^|[^\\p{L}\\p{N}_])(' + escapedTitle + ')(?=$|[^\\p{L}\\p{N}_])',
+    'iu'
+  );
+
+  const graph = buildKnowledgeGraph(notes, folders);
+
+  return notes
+    .filter((item) => item.id !== noteId && !item.is_archived && !linkedIds.has(item.id))
+    .filter((item) => regex.test(item.content || ''))
+    .map((item) => {
+      const node = graph.nodes.find((entry) => entry.id === item.id);
+      return node ? { note: node, match: title } : null;
+    })
+    .filter((item): item is UnlinkedMention => Boolean(item));
+}
