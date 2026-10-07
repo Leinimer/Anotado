@@ -364,15 +364,17 @@ export function KnowledgeMap({
 
   const restoreRevision = (revision: NoteRevision) => {
     if (typeof window === 'undefined') return;
-    window.dispatchEvent(
-      new CustomEvent('anotado:restore-note-history', {
-        detail: {
-          noteId: revision.noteId,
-          content: revision.content,
-          title: revision.title,
-        },
+    const target = notes.find((note) => note.id === revision.noteId);
+    if (!target) return;
+    sessionStorage.setItem(
+      'anotado_pending_history_restore',
+      JSON.stringify({
+        noteId: revision.noteId,
+        content: revision.content,
+        title: revision.title,
       })
     );
+    openNote(revision.noteId, workspaceOf(target));
     setHistoryNoteId(null);
   };
 
