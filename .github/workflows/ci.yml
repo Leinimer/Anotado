@@ -12,7 +12,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm install
       - run: npm run build
+      - name: Smoke test production routes
+        run: |
+          nohup npm run start -- --hostname 127.0.0.1 --port 3000 >/tmp/anotado-next.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:3000/mapa >/tmp/mapa.html; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:3000/mapa >/dev/null
+          curl -fsS http://127.0.0.1:3000/notes >/dev/null
+          curl -fsS http://127.0.0.1:3000/diary >/dev/null
