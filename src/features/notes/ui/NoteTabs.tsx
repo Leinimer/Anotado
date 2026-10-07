@@ -41,6 +41,11 @@ export function NoteTabs({
   onSwapSplitPanes,
 }: NoteTabsProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    tabId: string;
+  } | null>(null);
   const handleWheel = (e: React.WheelEvent) => {
     if (scrollContainerRef.current) {
       if (e.deltaY !== 0) {

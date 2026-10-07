@@ -199,16 +199,19 @@ export function KnowledgeMap({
 
   useEffect(() => {
     if (!selectedId || !graph.nodes.some((node) => node.id === selectedId)) {
-      setSelectedId(graph.nodes[0]?.id || null);
+      const defaultId = graph.nodes[0]?.id || null;
+      setTimeout(() => setSelectedId(defaultId), 0);
     }
   }, [graph.nodes, selectedId]);
 
   useEffect(() => {
-    setRecent(getRecentNotes());
+    const recents = getRecentNotes();
+    setTimeout(() => setRecent(recents), 0);
   }, [notes]);
 
   useEffect(() => {
-    setHistory(historyNoteId ? getNoteHistory(historyNoteId) : []);
+    const hist = historyNoteId ? getNoteHistory(historyNoteId) : [];
+    setTimeout(() => setHistory(hist), 0);
   }, [historyNoteId]);
 
   const noteSearchIndex = useMemo(() => {
@@ -311,7 +314,7 @@ export function KnowledgeMap({
     setTemplateContent('');
   };
 
-  const useTemplate = (template: TemplateItem) => {
+  const applyTemplate = (template: TemplateItem) => {
     if (onCreateTemplate) {
       onCreateTemplate(template);
       return;
@@ -844,7 +847,7 @@ export function KnowledgeMap({
                         {stripMarkdown(template.content)}
                       </div>
                       <button
-                        onClick={() => useTemplate(template)}
+                        onClick={() => applyTemplate(template)}
                         className="mt-4 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#68594d] text-white text-xs"
                       >
                         <Plus className="w-3.5 h-3.5" />

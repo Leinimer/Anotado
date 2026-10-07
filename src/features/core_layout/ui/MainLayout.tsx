@@ -298,7 +298,11 @@ export function MainLayout() {
 
       // Garante que saves pendentes da nota anterior sejam finalizados
       if (activeNoteId && activeNoteId !== noteId) {
-        await flushNoteSaves(activeNoteId);
+        try {
+          await flushNoteSaves(activeNoteId);
+        } catch (e) {
+          console.warn('[MainLayout] Aviso ao descarregar saves:', e);
+        }
       }
 
       if (isSplit) {
@@ -351,9 +355,17 @@ export function MainLayout() {
           setActiveNoteId(noteId);
         } else {
           // Clicar em uma nota na Sidebar abre a nota na aba atual
-          setTabs((prev) =>
-            prev.map((t) => (t.id === activeTabId ? { ...t, noteId } : t))
-          );
+          const targetTabId = activeTabId && tabs.some((t) => t.id === activeTabId) ? activeTabId : tabs[0]?.id;
+          if (targetTabId) {
+            setTabs((prev) =>
+              prev.map((t) => (t.id === targetTabId ? { ...t, noteId } : t))
+            );
+            setActiveTabId(targetTabId);
+          } else {
+            const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            setTabs((prev) => [...prev, { id: newTabId, noteId }]);
+            setActiveTabId(newTabId);
+          }
           setActiveNoteId(noteId);
         }
       }
@@ -361,20 +373,24 @@ export function MainLayout() {
       const targetNote = notes.find((n) => n.id === noteId);
       if (targetNote) {
         recordRecentNote(targetNote);
-        perfProfiler.mark(noteId, 'T0.5 - Buscando Markdown no Storage');
-        const { content, tags } = await fetchNoteContent(userId, targetNote);
-        perfProfiler.mark(noteId, 'T0.8 - Markdown Recebido do Storage');
-        setNotes((prev) =>
-          prev.map((n) =>
-            n.id === noteId
-              ? {
-                  ...n,
-                  content: content !== undefined ? content : n.content,
-                  tags: tags && tags.length > 0 ? tags : n.tags,
-                }
-              : n
-          )
-        );
+        try {
+          perfProfiler.mark(noteId, 'T0.5 - Buscando Markdown no Storage');
+          const { content, tags } = await fetchNoteContent(userId, targetNote);
+          perfProfiler.mark(noteId, 'T0.8 - Markdown Recebido do Storage');
+          setNotes((prev) =>
+            prev.map((n) =>
+              n.id === noteId
+                ? {
+                    ...n,
+                    content: content !== undefined ? content : n.content,
+                    tags: tags && tags.length > 0 ? tags : n.tags,
+                  }
+                : n
+            )
+          );
+        } catch (e) {
+          console.warn('[MainLayout] Aviso ao carregar conteúdo da nota:', e);
+        }
       }
     },
     [activeNoteId, isSplit, leftNoteId, rightNoteId, activeSplitPane, tabs, activeTabId, notes, userId]
@@ -1025,7 +1041,9 @@ export function MainLayout() {
       sessionStorage.removeItem('anotado_pending_template');
       try {
         const template = JSON.parse(rawTemplate) as { title?: string; content?: string };
-        void handleCreateNote(null, false, template);
+        setTimeout(() => {
+          void handleCreateNote(null, false, template);
+        }, 0);
       } catch {}
     }
 

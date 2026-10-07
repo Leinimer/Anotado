@@ -1472,12 +1472,13 @@ export function SidebarNavigation({
 
       const now = Date.now();
       const last = lastClickRef.current;
+      lastClickRef.current = { id: note.id, type: 'note', time: now };
+
       if (last && last.id === note.id && last.type === 'note' && now - last.time < 350) {
         lastClickRef.current = null;
         startRenaming(note.id, 'note', note.title || 'Sem título');
-        return;
       }
-      lastClickRef.current = { id: note.id, type: 'note', time: now };
+
       onSelectNote(note.id, false);
       if (onCloseMobile) onCloseMobile();
     };

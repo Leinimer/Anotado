@@ -326,6 +326,50 @@ export function NoteCanvas({
     };
   }, []);
 
+  const backlinksForNote = useCallback(
+    (note: NoteType | null) => {
+      if (!note || !notes) return [];
+      return getBacklinks(note.id, notes);
+    },
+    [notes]
+  );
+
+  const outgoingLinksForNote = useCallback(
+    (note: NoteType | null) => {
+      if (!note || !notes) return [];
+      return getOutgoingLinks(note.id, notes);
+    },
+    [notes]
+  );
+
+  const unlinkedMentionsForNote = useCallback(
+    (note: NoteType | null) => {
+      if (!note || !notes) return [];
+      return getUnlinkedMentions(note.id, notes);
+    },
+    [notes]
+  );
+
+  const handleOpenBacklink = useCallback(
+    (noteId: string, workspace: 'notes' | 'diary') => {
+      if (workspace === effectiveWorkspace) {
+        onSelectNote?.(noteId);
+        return;
+      }
+      router.push(workspace === 'diary' ? '/diary' : '/notes');
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent('anotado:open-note', {
+            detail: { noteId, workspace },
+          })
+        );
+      }, 250);
+    },
+    [effectiveWorkspace, onSelectNote, router]
+  );
+
+  const showZoomControls = isZoomHovered || isZoomOpen;
+
   // Estado Vazio: Nenhuma nota selecionada
   if (!activeNote) {
     return (
@@ -404,50 +448,6 @@ export function NoteCanvas({
       </main>
     );
   }
-
-  const backlinksForNote = useCallback(
-    (note: NoteType | null) => {
-      if (!note || !notes) return [];
-      return getBacklinks(note.id, notes);
-    },
-    [notes]
-  );
-
-  const outgoingLinksForNote = useCallback(
-    (note: NoteType | null) => {
-      if (!note || !notes) return [];
-      return getOutgoingLinks(note.id, notes);
-    },
-    [notes]
-  );
-
-  const unlinkedMentionsForNote = useCallback(
-    (note: NoteType | null) => {
-      if (!note || !notes) return [];
-      return getUnlinkedMentions(note.id, notes);
-    },
-    [notes]
-  );
-
-  const handleOpenBacklink = useCallback(
-    (noteId: string, workspace: 'notes' | 'diary') => {
-      if (workspace === effectiveWorkspace) {
-        onSelectNote?.(noteId);
-        return;
-      }
-      router.push(workspace === 'diary' ? '/diary' : '/notes');
-      window.setTimeout(() => {
-        window.dispatchEvent(
-          new CustomEvent('anotado:open-note', {
-            detail: { noteId, workspace },
-          })
-        );
-      }, 250);
-    },
-    [effectiveWorkspace, onSelectNote, router]
-  );
-
-  const showZoomControls = isZoomHovered || isZoomOpen;
 
   return (
     <main
