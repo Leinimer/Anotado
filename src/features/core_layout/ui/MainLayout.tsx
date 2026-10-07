@@ -784,29 +784,13 @@ export function MainLayout() {
       }
     };
 
-    const handleTemplateCreate = async (e: Event) => {
-      const detail = (e as CustomEvent<{ title?: string; content?: string }>).detail;
-      await handleCreateNote(null, false, detail || {});
-    };
-
-    const handleRestoreHistory = async (e: Event) => {
-      const detail = (e as CustomEvent<{ noteId?: string; content?: string; title?: string }>).detail;
-      if (!detail?.noteId) return;
-      if (detail.title !== undefined) await handleUpdateTitle(detail.noteId, detail.title);
-      if (detail.content !== undefined) await handleUpdateContent(detail.noteId, detail.content);
-    };
-
     window.addEventListener('anotado:open-note', handleGlobalOpenNote);
     window.addEventListener('anotado:select-active-note', handleGlobalOpenNote);
-    window.addEventListener('anotado:create-note-from-template', handleTemplateCreate);
-    window.addEventListener('anotado:restore-note-history', handleRestoreHistory);
     return () => {
       window.removeEventListener('anotado:open-note', handleGlobalOpenNote);
       window.removeEventListener('anotado:select-active-note', handleGlobalOpenNote);
-      window.removeEventListener('anotado:create-note-from-template', handleTemplateCreate);
-      window.removeEventListener('anotado:restore-note-history', handleRestoreHistory);
     };
-  }, [handleSelectNote, handleCreateNote, handleUpdateTitle, handleUpdateContent]);
+  }, [handleSelectNote]);
 
   // Nota ativa selecionada atualmente
   const activeNote = useMemo(() => {
@@ -1004,6 +988,28 @@ export function MainLayout() {
     },
     [userId, notes]
   );
+
+  useEffect(() => {
+    const handleTemplateCreate = async (e: Event) => {
+      const detail = (e as CustomEvent<{ title?: string; content?: string }>).detail;
+      await handleCreateNote(null, false, detail || {});
+    };
+
+    const handleRestoreHistory = async (e: Event) => {
+      const detail = (e as CustomEvent<{ noteId?: string; content?: string; title?: string }>).detail;
+      if (!detail?.noteId) return;
+      if (detail.title !== undefined) await handleUpdateTitle(detail.noteId, detail.title);
+      if (detail.content !== undefined) await handleUpdateContent(detail.noteId, detail.content);
+    };
+
+    window.addEventListener('anotado:create-note-from-template', handleTemplateCreate);
+    window.addEventListener('anotado:restore-note-history', handleRestoreHistory);
+
+    return () => {
+      window.removeEventListener('anotado:create-note-from-template', handleTemplateCreate);
+      window.removeEventListener('anotado:restore-note-history', handleRestoreHistory);
+    };
+  }, [handleCreateNote, handleUpdateTitle, handleUpdateContent]);
 
   const handleDeleteNote = useCallback(
     async (noteId: string) => {
