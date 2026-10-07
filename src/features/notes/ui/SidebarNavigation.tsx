@@ -73,6 +73,7 @@ interface SidebarNavigationProps {
   onDeleteNote: (noteId: string) => void;
   onArchiveNote?: (noteId: string) => void;
   onUnarchiveNote?: (noteId: string) => void;
+  onSplitNote?: (noteId: string) => void;
   onToggleFavoriteNote?: (noteId: string) => void;
   onArchiveFolderNotes?: (folderId: string) => void;
   onUpdateFolderColor?: (folderId: string, color: string | null) => void;
@@ -114,6 +115,7 @@ export function SidebarNavigation({
   onDeleteNote,
   onArchiveNote,
   onUnarchiveNote,
+  onSplitNote,
   onToggleFavoriteNote,
   onArchiveFolderNotes,
   onUpdateFolderColor,
@@ -2012,6 +2014,7 @@ export function SidebarNavigation({
           }
         }}
         onStartRenaming={startRenaming}
+        onSplitNote={onSplitNote}
         onArchiveNote={onArchiveNote}
         onUnarchiveNote={onUnarchiveNote}
         onToggleFavoriteNote={handleToggleFavorite}

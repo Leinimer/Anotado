@@ -21,6 +21,7 @@ import { formatDateReadable } from '../utils/diary-date';
 import { InternalNoteReferenceModal } from './InternalNoteReferenceModal';
 import { ExtendedNote } from '../db/indexed-db';
 import { NoteTabs, NoteTabItem } from './NoteTabs';
+import { NoteEditorPanel } from './NoteEditorPanel';
 import {
   getInternalNavigationContext,
   returnToSourceNote,
@@ -47,6 +48,16 @@ interface NoteCanvasProps {
   onSelectTab?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
   onNewTab?: () => void;
+  isSplit?: boolean;
+  splitLeftTabId?: string | null;
+  splitRightTabId?: string | null;
+  splitLeftNote?: NoteType | null;
+  splitRightNote?: NoteType | null;
+  activeSplitPane?: 'left' | 'right';
+  onFocusSplitPane?: (pane: 'left' | 'right') => void;
+  onSplitTab?: (tabId: string) => void;
+  onUnsplitTab?: (tabId?: string) => void;
+  onSwapSplitPanes?: () => void;
 }
 
 export function NoteCanvas({
@@ -67,11 +78,21 @@ export function NoteCanvas({
   onSelectTab,
   onCloseTab,
   onNewTab,
+  isSplit = false,
+  splitLeftTabId = null,
+  splitRightTabId = null,
+  splitLeftNote = null,
+  splitRightNote = null,
+  activeSplitPane = 'left',
+  onFocusSplitPane,
+  onSplitTab,
+  onUnsplitTab,
+  onSwapSplitPanes,
 }: NoteCanvasProps) {
   const router = useRouter();
-  const [isEditingTitle, setIsEditingTitle] = useState(isNewNoteJustCreated && !readOnly);
-  const [localTitle, setLocalTitle] = useState(activeNote?.title || '');
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
+  const [leftEditorInstance, setLeftEditorInstance] = useState<Editor | null>(null);
+  const [rightEditorInstance, setRightEditorInstance] = useState<Editor | null>(null);
 
   // Estados de Referência Interna e Navegação de Retorno
   const [navContext, setNavContext] = useState<InternalNavigationContext | null>(() =>
@@ -194,17 +215,9 @@ export function NoteCanvas({
   const zoomHoverTimerRef = useRef<NodeJS.Timeout | null>(null);
   const zoomContainerRef = useRef<HTMLDivElement>(null);
 
-  const titleInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastPendingContentRef = useRef<string | null>(null);
   const activeNoteIdRef = useRef<string | null>(activeNote?.id || null);
-
-  const [prevActiveNoteId, setPrevActiveNoteId] = useState(activeNote?.id);
-  if (activeNote?.id !== prevActiveNoteId) {
-    setPrevActiveNoteId(activeNote?.id);
-    setIsEditingTitle(isNewNoteJustCreated);
-    setLocalTitle(activeNote?.title || '');
-  }
 
   useEffect(() => {
     activeNoteIdRef.current = activeNote?.id || null;
@@ -257,14 +270,6 @@ export function NoteCanvas({
       window.removeEventListener('beforeunload', handleVisibilityOrPageHide);
     };
   }, [flushPendingContent]);
-
-  // Foco no input do título ao iniciar edição
-  useEffect(() => {
-    if (isEditingTitle && titleInputRef.current) {
-      titleInputRef.current.focus();
-      titleInputRef.current.select();
-    }
-  }, [isEditingTitle]);
 
   // Controles de zoom (50% até 200% em passos de 10%)
   const handleZoomIn = () => {
@@ -319,39 +324,6 @@ export function NoteCanvas({
     };
   }, []);
 
-  // Salva o título ao concluir edição
-  const handleSaveTitle = useCallback(() => {
-    if (!activeNote) return;
-    const trimmed = localTitle.trim();
-    const finalTitle = trimmed || 'Sem título';
-    setLocalTitle(finalTitle);
-    setIsEditingTitle(false);
-    if (finalTitle !== activeNote.title) {
-      onUpdateTitle(activeNote.id, finalTitle);
-    }
-  }, [activeNote, localTitle, onUpdateTitle]);
-
-  // Handler de alteração no editor Tiptap: salvamento local no IndexedDB e rastreamento de pendência
-  const handleEditorChange = useCallback(
-    (htmlContent: string) => {
-      if (readOnly || !activeNote) return;
-
-      lastPendingContentRef.current = htmlContent;
-
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-
-      // Despacha atualização para a fila local/IndexedDB rapidamente mantendo a digitação fluida
-      debounceTimerRef.current = setTimeout(() => {
-        debounceTimerRef.current = null;
-        lastPendingContentRef.current = null;
-        onUpdateContent(activeNote.id, htmlContent);
-      }, 50);
-    },
-    [activeNote, onUpdateContent, readOnly]
-  );
-
   // Estado Vazio: Nenhuma nota selecionada
   if (!activeNote) {
     return (
@@ -390,6 +362,13 @@ export function NoteCanvas({
             onSelectTab={onSelectTab}
             onCloseTab={onCloseTab}
             onNewTab={onNewTab}
+            isSplit={isSplit}
+            splitLeftTabId={splitLeftTabId}
+            splitRightTabId={splitRightTabId}
+            activeSplitPane={activeSplitPane}
+            onSplitTab={onSplitTab}
+            onUnsplitTab={onUnsplitTab}
+            onSwapSplitPanes={onSwapSplitPanes}
           />
         )}
 
@@ -482,100 +461,74 @@ export function NoteCanvas({
           onSelectTab={onSelectTab}
           onCloseTab={onCloseTab}
           onNewTab={onNewTab}
+          isSplit={isSplit}
+          splitLeftTabId={splitLeftTabId}
+          splitRightTabId={splitRightTabId}
+          activeSplitPane={activeSplitPane}
+          onSplitTab={onSplitTab}
+          onUnsplitTab={onUnsplitTab}
+          onSwapSplitPanes={onSwapSplitPanes}
         />
       )}
 
-      {/* 3. Título da Nota (Logo abaixo das abas) */}
-      <div
-        id="note-header-bar"
-        className="w-full px-4 sm:px-8 pt-3 sm:pt-4 pb-3 relative flex items-center justify-center border-b border-[#eae8e3]/80 dark:border-[#1a1a1a] shrink-0 select-none bg-[#fbf9f4]/90 dark:bg-[#000000]/90 backdrop-blur-xs z-10"
-      >
-        <div className="w-full max-w-[850px] mx-auto text-center px-10 min-w-0">
-          {activeNote.workspace_type === 'diary' && (
-            <div className="flex items-center justify-center mb-1.5">
-              <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-sans-ui font-medium bg-[#f4dfcb] dark:bg-[#26201a] text-[#68594d] dark:text-[#d7c3b0] border border-[#e8d2bd] dark:border-[#3d3229] capitalize shadow-2xs">
-                <Calendar className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0]" />
-                {activeNote.entry_date ? formatDateReadable(activeNote.entry_date) : 'Diário'}
-              </span>
-            </div>
-          )}
-
-          {!readOnly && isEditingTitle ? (
-            <input
-              ref={titleInputRef}
-              id="header-title-input"
-              type="text"
-              value={localTitle}
-              onBlur={handleSaveTitle}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSaveTitle();
-                if (e.key === 'Escape') {
-                  setLocalTitle(activeNote.title);
-                  setIsEditingTitle(false);
-                }
-              }}
-              onChange={(e) => setLocalTitle(e.target.value)}
-              className="font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] dark:text-[#ffffff] bg-transparent text-center border-b border-[#68594d] dark:border-[#3f3f46] focus:outline-none w-full max-w-lg mx-auto"
-              placeholder="Título da anotação..."
-            />
-          ) : (
-            <h1
-              id="header-note-title"
-              onClick={() => {
-                if (readOnly) return;
-                setLocalTitle(activeNote.title || '');
-                setIsEditingTitle(true);
-              }}
-              className={`font-serif-note font-bold text-xl sm:text-2xl md:text-3xl text-[#1b1c19] dark:text-[#ffffff] tracking-tight truncate inline-block max-w-full ${
-                readOnly
-                  ? 'cursor-default select-text'
-                  : 'cursor-pointer hover:opacity-80 transition-opacity'
-              }`}
-              title={readOnly ? undefined : 'Clique para editar o título'}
-            >
-              {activeNote.title || 'Sem título'}
-            </h1>
-          )}
-        </div>
-      </div>
-
-      {/* Região de Gerenciamento de Tags (Abaixo da linha divisória do título e acima do corpo da nota) */}
-      <div id="note-tags-section-wrapper" className="w-full shrink-0 pt-2 pb-1 bg-[#fbf9f4] dark:bg-[#000000]">
-        <NoteTagsBar
-          tags={activeNote.tags || []}
-          onUpdateTags={(newTags) => {
-            if (readOnly) return;
-            onUpdateTags(activeNote.id, newTags);
-          }}
-          disabled={readOnly}
-        />
-      </div>
-
-      {/* Note Canvas Sheet Area com Zoom da Folha (Papyrus & Ink) */}
-      <div
-        id="note-scroll-container"
-        className="flex-1 overflow-y-auto px-3 sm:px-6 md:px-12 py-4 sm:py-6 flex justify-center items-start"
-      >
-        <article
-          id="note-paper-sheet"
-          style={{
-            transform: `scale(${zoomLevel / 100})`,
-            transformOrigin: 'top center',
-            transition: 'transform 0.15s ease-out',
-          }}
-          className="paper-sheet rounded-2xl w-full max-w-[850px] p-6 sm:p-10 md:p-12 text-[#1b1c19] dark:text-[#ededed] font-serif-note shadow-sm relative flex flex-col min-h-[550px] h-auto mb-12"
+      {/* 3. Área de Edição: Painel Único ou Divisão Vertical em Dois Painéis */}
+      {isSplit && splitLeftNote && splitRightNote ? (
+        <div
+          id="split-editor-workspace"
+          className="flex-1 flex flex-col md:flex-row overflow-hidden relative divide-y md:divide-y-0 md:divide-x divide-[#eae8e3] dark:divide-[#1f1f1f]"
         >
-          <NoteEditor
-            key={activeNote.id}
-            noteId={activeNote.id}
-            userId={userId || activeNote.user_id}
-            content={activeNote.content}
-            onChange={handleEditorChange}
-            onEditorReady={setEditorInstance}
-            editable={!readOnly}
+          {/* Painel Esquerdo */}
+          <NoteEditorPanel
+            key={`panel-left-${splitLeftNote.id}`}
+            note={splitLeftNote}
+            userId={userId}
+            readOnly={readOnly}
+            isSplit={true}
+            paneSide="left"
+            isActivePane={activeSplitPane === 'left'}
+            onFocusPane={() => onFocusSplitPane?.('left')}
+            onUnsplit={() => onUnsplitTab?.(splitLeftTabId || undefined)}
+            onUpdateTitle={onUpdateTitle}
+            onUpdateContent={onUpdateContent}
+            onUpdateTags={onUpdateTags}
+            onEditorReady={setLeftEditorInstance}
+            zoomLevel={zoomLevel}
           />
-        </article>
-      </div>
+
+          {/* Painel Direito */}
+          <NoteEditorPanel
+            key={`panel-right-${splitRightNote.id}`}
+            note={splitRightNote}
+            userId={userId}
+            readOnly={readOnly}
+            isSplit={true}
+            paneSide="right"
+            isActivePane={activeSplitPane === 'right'}
+            onFocusPane={() => onFocusSplitPane?.('right')}
+            onUnsplit={() => onUnsplitTab?.(splitRightTabId || undefined)}
+            onUpdateTitle={onUpdateTitle}
+            onUpdateContent={onUpdateContent}
+            onUpdateTags={onUpdateTags}
+            onEditorReady={setRightEditorInstance}
+            zoomLevel={zoomLevel}
+          />
+        </div>
+      ) : (
+        /* Modo Normal: Painel Único */
+        <NoteEditorPanel
+          key={`panel-single-${activeNote.id}`}
+          note={activeNote}
+          userId={userId}
+          readOnly={readOnly}
+          isSplit={false}
+          onUpdateTitle={onUpdateTitle}
+          onUpdateContent={onUpdateContent}
+          onUpdateTags={onUpdateTags}
+          onEditorReady={setEditorInstance}
+          isNewNoteJustCreated={isNewNoteJustCreated}
+          zoomLevel={zoomLevel}
+        />
+      )}
 
       {/* Controles de Zoom Discretos com Lupa no Canto Inferior Direito */}
       <div
@@ -648,8 +601,18 @@ export function NoteCanvas({
       {/* Barra de Ferramentas Rica no Rodapé (Oculta em Modo Somente Leitura) */}
       {!readOnly && (
         <EditorToolbar
-          editor={editorInstance}
-          activeNoteId={activeNote.id}
+          editor={
+            isSplit
+              ? activeSplitPane === 'right'
+                ? rightEditorInstance
+                : leftEditorInstance
+              : editorInstance
+          }
+          activeNoteId={
+            isSplit
+              ? (activeSplitPane === 'right' ? splitRightNote?.id : splitLeftNote?.id) || activeNote.id
+              : activeNote.id
+          }
           userId={userId || activeNote.user_id}
         />
       )}

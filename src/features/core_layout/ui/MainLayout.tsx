@@ -64,6 +64,12 @@ export function MainLayout() {
     return null;
   });
 
+  // Estado de Divisão de Tela (Apenas interface/memória do cliente)
+  const [isSplit, setIsSplit] = useState(false);
+  const [leftNoteId, setLeftNoteId] = useState<string | null>(null);
+  const [rightNoteId, setRightNoteId] = useState<string | null>(null);
+  const [activeSplitPane, setActiveSplitPane] = useState<'left' | 'right'>('left');
+
   const activeNoteIdRef = useRef<string | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
 
@@ -323,26 +329,61 @@ export function MainLayout() {
         await flushNoteSaves(activeNoteId);
       }
 
-      // 1. Verifica se a nota já está aberta em alguma aba
-      const existingTabIndex = tabs.findIndex((t) => t.noteId === noteId);
-
-      if (existingTabIndex !== -1) {
-        // Se a nota já estiver aberta em outra aba, apenas ativar essa aba
-        const existingTab = tabs[existingTabIndex];
-        setActiveTabId(existingTab.id);
-        setActiveNoteId(noteId);
-      } else if (openInNewTab || tabs.length === 0) {
-        // Ctrl + clique em uma nota → abrir em nova aba, ou se não houver abas
-        const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        setTabs((prev) => [...prev, { id: newTabId, noteId }]);
-        setActiveTabId(newTabId);
-        setActiveNoteId(noteId);
+      if (isSplit) {
+        if (noteId === leftNoteId) {
+          setActiveSplitPane('left');
+          setActiveNoteId(noteId);
+          const tab = tabs.find((t) => t.noteId === noteId);
+          if (tab) setActiveTabId(tab.id);
+        } else if (noteId === rightNoteId) {
+          setActiveSplitPane('right');
+          setActiveNoteId(noteId);
+          const tab = tabs.find((t) => t.noteId === noteId);
+          if (tab) setActiveTabId(tab.id);
+        } else {
+          if (openInNewTab) {
+            const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            setTabs((prev) => [...prev, { id: newTabId, noteId }]);
+            setActiveTabId(newTabId);
+          } else {
+            const existingTab = tabs.find((t) => t.noteId === noteId);
+            if (existingTab) {
+              setActiveTabId(existingTab.id);
+            } else {
+              const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+              setTabs((prev) => [...prev, { id: newTabId, noteId }]);
+              setActiveTabId(newTabId);
+            }
+          }
+          if (activeSplitPane === 'right') {
+            setRightNoteId(noteId);
+          } else {
+            setLeftNoteId(noteId);
+          }
+          setActiveNoteId(noteId);
+        }
       } else {
-        // Clicar em uma nota na Sidebar abre a nota na aba atual
-        setTabs((prev) =>
-          prev.map((t) => (t.id === activeTabId ? { ...t, noteId } : t))
-        );
-        setActiveNoteId(noteId);
+        // 1. Verifica se a nota já está aberta em alguma aba
+        const existingTabIndex = tabs.findIndex((t) => t.noteId === noteId);
+
+        if (existingTabIndex !== -1) {
+          // Se a nota já estiver aberta em outra aba, apenas ativar essa aba
+          const existingTab = tabs[existingTabIndex];
+          setActiveTabId(existingTab.id);
+          setActiveNoteId(noteId);
+        } else if (openInNewTab || tabs.length === 0) {
+          // Ctrl + clique em uma nota → abrir em nova aba, ou se não houver abas
+          const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          setTabs((prev) => [...prev, { id: newTabId, noteId }]);
+          setActiveTabId(newTabId);
+          setActiveNoteId(noteId);
+        } else {
+          // Clicar em uma nota na Sidebar abre a nota na aba atual
+          setTabs((prev) =>
+            prev.map((t) => (t.id === activeTabId ? { ...t, noteId } : t))
+          );
+          setActiveNoteId(noteId);
+        }
       }
 
       const targetNote = notes.find((n) => n.id === noteId);
@@ -363,21 +404,47 @@ export function MainLayout() {
         );
       }
     },
-    [activeNoteId, tabs, activeTabId, notes, userId]
+    [activeNoteId, isSplit, leftNoteId, rightNoteId, activeSplitPane, tabs, activeTabId, notes, userId]
   );
 
   // Seleciona uma aba existente pelo seu ID
   const handleSelectTab = useCallback(
     async (tabId: string) => {
       const targetTab = tabs.find((t) => t.id === tabId);
-      if (!targetTab || targetTab.id === activeTabId) return;
+      if (!targetTab) return;
 
-      if (activeNoteId && activeNoteId !== targetTab.noteId) {
-        await flushNoteSaves(activeNoteId);
+      if (isSplit) {
+        if (targetTab.noteId === leftNoteId) {
+          setActiveSplitPane('left');
+          setActiveTabId(tabId);
+          setActiveNoteId(leftNoteId);
+          return;
+        }
+        if (targetTab.noteId === rightNoteId) {
+          setActiveSplitPane('right');
+          setActiveTabId(tabId);
+          setActiveNoteId(rightNoteId);
+          return;
+        }
+
+        // Abre na partição ativa
+        if (activeSplitPane === 'right') {
+          setRightNoteId(targetTab.noteId);
+        } else {
+          setLeftNoteId(targetTab.noteId);
+        }
+        setActiveTabId(tabId);
+        setActiveNoteId(targetTab.noteId);
+      } else {
+        if (targetTab.id === activeTabId) return;
+
+        if (activeNoteId && activeNoteId !== targetTab.noteId) {
+          await flushNoteSaves(activeNoteId);
+        }
+
+        setActiveTabId(tabId);
+        setActiveNoteId(targetTab.noteId);
       }
-
-      setActiveTabId(tabId);
-      setActiveNoteId(targetTab.noteId);
 
       const targetNote = notes.find((n) => n.id === targetTab.noteId);
       if (targetNote && targetNote.content === undefined) {
@@ -395,7 +462,210 @@ export function MainLayout() {
         );
       }
     },
+    [tabs, isSplit, leftNoteId, rightNoteId, activeSplitPane, activeTabId, activeNoteId, notes, userId]
+  );
+
+  // Divide a tela verticalmente entre a nota ativa e a aba selecionada
+  const handleSplitTab = useCallback(
+    async (clickedTabId: string) => {
+      if (tabs.length < 2) return;
+
+      const currentActiveTab = tabs.find((t) => t.id === activeTabId);
+      const clickedTab = tabs.find((t) => t.id === clickedTabId);
+      if (!clickedTab) return;
+
+      // A nota que estava aberta/ativa antes da ação deve ficar no PAINEL ESQUERDO.
+      // A aba sobre a qual cliquei com botão direito deve ficar no PAINEL DIREITO.
+      let leftId = currentActiveTab ? currentActiveTab.noteId : activeNoteId;
+      let rightId = clickedTab.noteId;
+
+      if (leftId === rightId) {
+        const otherTab = tabs.find((t) => t.id !== clickedTabId);
+        if (otherTab) {
+          rightId = otherTab.noteId;
+        } else {
+          return;
+        }
+      }
+
+      if (!leftId || !rightId) return;
+
+      // Garante que o conteúdo de ambas as notas esteja baixado do Storage
+      const rightNote = notes.find((n) => n.id === rightId);
+      if (rightNote && rightNote.content === undefined) {
+        const { content, tags } = await fetchNoteContent(userId, rightNote);
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === rightId
+              ? {
+                  ...n,
+                  content: content !== undefined ? content : n.content,
+                  tags: tags && tags.length > 0 ? tags : n.tags,
+                }
+              : n
+          )
+        );
+      }
+
+      const leftNote = notes.find((n) => n.id === leftId);
+      if (leftNote && leftNote.content === undefined) {
+        const { content, tags } = await fetchNoteContent(userId, leftNote);
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === leftId
+              ? {
+                  ...n,
+                  content: content !== undefined ? content : n.content,
+                  tags: tags && tags.length > 0 ? tags : n.tags,
+                }
+              : n
+          )
+        );
+      }
+
+      setLeftNoteId(leftId);
+      setRightNoteId(rightId);
+      setIsSplit(true);
+      setActiveSplitPane('left');
+    },
     [tabs, activeTabId, activeNoteId, notes, userId]
+  );
+
+  // Desagrupa a tela e retorna a painel único com a nota do painel/aba clicado
+  const handleUnsplitTab = useCallback(
+    (clickedTabId?: string) => {
+      let targetNoteId: string | null = null;
+      let targetTabId: string | null = null;
+
+      if (clickedTabId) {
+        const clickedTab = tabs.find((t) => t.id === clickedTabId);
+        if (clickedTab) {
+          targetNoteId = clickedTab.noteId;
+          targetTabId = clickedTab.id;
+        }
+      }
+
+      if (!targetNoteId) {
+        targetNoteId = activeSplitPane === 'right' ? rightNoteId : leftNoteId;
+        if (!targetNoteId) targetNoteId = leftNoteId || rightNoteId;
+        const tab = tabs.find((t) => t.noteId === targetNoteId);
+        if (tab) targetTabId = tab.id;
+      }
+
+      setIsSplit(false);
+      setLeftNoteId(null);
+      setRightNoteId(null);
+
+      if (targetNoteId) {
+        setActiveNoteId(targetNoteId);
+      }
+      if (targetTabId) {
+        setActiveTabId(targetTabId);
+      }
+    },
+    [tabs, activeSplitPane, rightNoteId, leftNoteId]
+  );
+
+  // Troca a posição das notas na tela dividida: ESQUERDA <-> DIREITA imediatamente
+  const handleSwapSplitPanes = useCallback(() => {
+    if (!isSplit || !leftNoteId || !rightNoteId) return;
+    const prevLeft = leftNoteId;
+    const prevRight = rightNoteId;
+    setLeftNoteId(prevRight);
+    setRightNoteId(prevLeft);
+    const newActiveId = activeSplitPane === 'left' ? prevRight : prevLeft;
+    setActiveNoteId(newActiveId);
+    const newTab = tabs.find((t) => t.noteId === newActiveId);
+    if (newTab) {
+      setActiveTabId(newTab.id);
+    }
+  }, [isSplit, leftNoteId, rightNoteId, activeSplitPane, tabs]);
+
+  // Divide a tela a partir do menu contextual da nota na Sidebar
+  const handleSplitFromSidebar = useCallback(
+    async (targetNoteId: string) => {
+      const targetNote = notes.find((n) => n.id === targetNoteId);
+      if (!targetNote) return;
+
+      // A nota que está atualmente aberta/ativa permanece no PAINEL ESQUERDO
+      let leftId = activeNoteId;
+      if (!leftId || leftId === targetNoteId) {
+        leftId = isSplit && leftNoteId && leftNoteId !== targetNoteId ? leftNoteId : null;
+      }
+      if (!leftId || leftId === targetNoteId) {
+        const otherTab = tabs.find((t) => t.noteId !== targetNoteId);
+        if (otherTab) {
+          leftId = otherTab.noteId;
+        } else {
+          const otherNote = notes.find((n) => n.id !== targetNoteId);
+          if (otherNote) {
+            leftId = otherNote.id;
+          } else {
+            handleSelectNote(targetNoteId);
+            return;
+          }
+        }
+      }
+
+      const rightId = targetNoteId;
+
+      // Garante que ambas as notas estejam abertas nas abas
+      setTabs((prevTabs) => {
+        const nextTabs = [...prevTabs];
+        if (!nextTabs.some((t) => t.noteId === leftId)) {
+          nextTabs.push({ id: `tab-${leftId}`, noteId: leftId });
+        }
+        if (!nextTabs.some((t) => t.noteId === rightId)) {
+          nextTabs.push({ id: `tab-${rightId}`, noteId: rightId });
+        }
+        return nextTabs;
+      });
+
+      // Baixa o conteúdo caso ainda não carregado
+      const leftNoteObj = notes.find((n) => n.id === leftId);
+      if (leftNoteObj && leftNoteObj.content === undefined) {
+        const { content, tags } = await fetchNoteContent(userId, leftNoteObj);
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === leftId
+              ? {
+                  ...n,
+                  content: content !== undefined ? content : n.content,
+                  tags: tags && tags.length > 0 ? tags : n.tags,
+                }
+              : n
+          )
+        );
+      }
+
+      if (targetNote.content === undefined) {
+        const { content, tags } = await fetchNoteContent(userId, targetNote);
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === rightId
+              ? {
+                  ...n,
+                  content: content !== undefined ? content : n.content,
+                  tags: tags && tags.length > 0 ? tags : n.tags,
+                }
+              : n
+          )
+        );
+      }
+
+      setLeftNoteId(leftId);
+      setRightNoteId(rightId);
+      setIsSplit(true);
+      setActiveSplitPane('left');
+      setActiveNoteId(leftId);
+      const leftTabObj = tabs.find((t) => t.noteId === leftId);
+      if (leftTabObj) {
+        setActiveTabId(leftTabObj.id);
+      } else {
+        setActiveTabId(`tab-${leftId}`);
+      }
+    },
+    [isSplit, leftNoteId, activeNoteId, notes, tabs, userId, handleSelectNote]
   );
 
   // Fecha uma aba pelo seu ID e ativa outra disponível automaticamente
@@ -404,15 +674,64 @@ export function MainLayout() {
       const tabIndex = tabs.findIndex((t) => t.id === tabIdToClose);
       if (tabIndex === -1) return;
 
+      const closingTab = tabs[tabIndex];
+      const closingNoteId = closingTab.noteId;
       const remainingTabs = tabs.filter((t) => t.id !== tabIdToClose);
 
-      if (activeTabId === tabIdToClose) {
-        if (activeNoteId) {
-          await flushNoteSaves(activeNoteId);
+      if (closingNoteId) {
+        await flushNoteSaves(closingNoteId);
+      }
+
+      // Ao fechar uma das notas divididas, reorganizar automaticamente o layout para não deixar um painel vazio.
+      if (isSplit) {
+        if (closingNoteId === leftNoteId) {
+          setIsSplit(false);
+          setLeftNoteId(null);
+          setRightNoteId(null);
+          setTabs(remainingTabs);
+
+          if (rightNoteId && remainingTabs.some((t) => t.noteId === rightNoteId)) {
+            setActiveNoteId(rightNoteId);
+            const rTab = remainingTabs.find((t) => t.noteId === rightNoteId);
+            if (rTab) setActiveTabId(rTab.id);
+          } else if (remainingTabs.length > 0) {
+            const nextTab = remainingTabs[0];
+            setActiveNoteId(nextTab.noteId);
+            setActiveTabId(nextTab.id);
+          } else {
+            setActiveNoteId(null);
+            setActiveTabId(null);
+          }
+          return;
         }
 
+        if (closingNoteId === rightNoteId) {
+          setIsSplit(false);
+          setLeftNoteId(null);
+          setRightNoteId(null);
+          setTabs(remainingTabs);
+
+          if (leftNoteId && remainingTabs.some((t) => t.noteId === leftNoteId)) {
+            setActiveNoteId(leftNoteId);
+            const lTab = remainingTabs.find((t) => t.noteId === leftNoteId);
+            if (lTab) setActiveTabId(lTab.id);
+          } else if (remainingTabs.length > 0) {
+            const nextTab = remainingTabs[0];
+            setActiveNoteId(nextTab.noteId);
+            setActiveTabId(nextTab.id);
+          } else {
+            setActiveNoteId(null);
+            setActiveTabId(null);
+          }
+          return;
+        }
+
+        setTabs(remainingTabs);
+        return;
+      }
+
+      if (activeTabId === tabIdToClose) {
         if (remainingTabs.length > 0) {
-          // Se fechar a aba ativa, abrir automaticamente outra aba disponível
           const nextIndex = Math.min(tabIndex, remainingTabs.length - 1);
           const nextTab = remainingTabs[nextIndex];
           setTabs(remainingTabs);
@@ -443,7 +762,7 @@ export function MainLayout() {
         setTabs(remainingTabs);
       }
     },
-    [tabs, activeTabId, activeNoteId, notes, userId]
+    [tabs, isSplit, leftNoteId, rightNoteId, activeTabId, notes, userId]
   );
 
   // Ouvinte global para abertura de notas a partir de modais e navegações internas
@@ -572,6 +891,14 @@ export function MainLayout() {
     setIsNewNoteJustCreated(true);
     setActiveNoteId(newNote.id);
 
+    if (isSplit) {
+      if (activeSplitPane === 'right') {
+        setRightNoteId(newNote.id);
+      } else {
+        setLeftNoteId(newNote.id);
+      }
+    }
+
     // Se solicitado abrir em nova aba ou se não existiam abas abertas
     if (openInNewTab || tabs.length === 0) {
       const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -584,7 +911,7 @@ export function MainLayout() {
     }
 
     return newNote.id;
-  }, [userId, notes, tabs.length, activeTabId]);
+  }, [userId, notes, tabs.length, activeTabId, isSplit, activeSplitPane]);
 
   // Cria uma nova aba via botão +
   const handleNewTab = useCallback(async () => {
@@ -942,6 +1269,11 @@ export function MainLayout() {
     [userId]
   );
 
+  const splitLeftNote = isSplit && leftNoteId ? notes.find((n) => n.id === leftNoteId) || null : null;
+  const splitRightNote = isSplit && rightNoteId ? notes.find((n) => n.id === rightNoteId) || null : null;
+  const splitLeftTab = isSplit && leftNoteId ? tabs.find((t) => t.noteId === leftNoteId) || null : null;
+  const splitRightTab = isSplit && rightNoteId ? tabs.find((t) => t.noteId === rightNoteId) || null : null;
+
   return (
     <div
       id="main-app-container"
@@ -970,6 +1302,7 @@ export function MainLayout() {
             onArchiveFolderNotes={handleArchiveFolderNotes}
             onUpdateFolderColor={handleUpdateFolderColor}
             onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
+            onSplitNote={handleSplitFromSidebar}
             onMoveItem={handleMoveItem}
             onReorderItem={handleReorderItem}
             currentWorkspace="notes"
@@ -1013,6 +1346,10 @@ export function MainLayout() {
                 onArchiveFolderNotes={handleArchiveFolderNotes}
                 onUpdateFolderColor={handleUpdateFolderColor}
                 onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
+                onSplitNote={(id) => {
+                  handleSplitFromSidebar(id);
+                  setMobileSidebarOpen(false);
+                }}
                 onMoveItem={handleMoveItem}
                 onReorderItem={handleReorderItem}
                 onCloseMobile={() => setMobileSidebarOpen(false)}
@@ -1025,7 +1362,7 @@ export function MainLayout() {
 
         {/* Main Note Canvas */}
         <NoteCanvas
-          key={activeNote?.id || 'empty'}
+          key={isSplit ? `split-${leftNoteId}-${rightNoteId}` : activeNote?.id || 'empty'}
           activeNote={activeNote}
           userId={userId}
           onUpdateTitle={(noteId, newTitle) => handleUpdateTitle(noteId, newTitle)}
@@ -1043,6 +1380,16 @@ export function MainLayout() {
           onSelectTab={handleSelectTab}
           onCloseTab={handleCloseTab}
           onNewTab={handleNewTab}
+          isSplit={isSplit}
+          splitLeftTabId={splitLeftTab?.id}
+          splitRightTabId={splitRightTab?.id}
+          splitLeftNote={splitLeftNote}
+          splitRightNote={splitRightNote}
+          activeSplitPane={activeSplitPane}
+          onFocusSplitPane={setActiveSplitPane}
+          onSplitTab={handleSplitTab}
+          onUnsplitTab={handleUnsplitTab}
+          onSwapSplitPanes={handleSwapSplitPanes}
         />
       </div>
     </div>
