@@ -47,7 +47,6 @@ export function NoteTabs({
     tabId: string;
   } | null>(null);
 
-  // Rolagem horizontal suave ao girar a roda do mouse sobre as abas
   const handleWheel = (e: React.WheelEvent) => {
     if (scrollContainerRef.current) {
       if (e.deltaY !== 0) {
@@ -56,7 +55,6 @@ export function NoteTabs({
     }
   };
 
-  // Garante que a aba ativa esteja sempre visível na barra com rolagem
   useEffect(() => {
     if (activeTabId && scrollContainerRef.current) {
       const activeEl = scrollContainerRef.current.querySelector(
@@ -72,7 +70,6 @@ export function NoteTabs({
     }
   }, [activeTabId]);
 
-  // Fecha o menu de contexto ao clicar fora ou apertar Escape
   useEffect(() => {
     const handleCloseMenu = () => setContextMenu(null);
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -94,7 +91,6 @@ export function NoteTabs({
     e.preventDefault();
     e.stopPropagation();
 
-    // Calcula coordenadas seguras dentro do viewport
     const menuWidth = 190;
     const menuHeight = 130;
     const x = Math.min(e.clientX, window.innerWidth - menuWidth - 8);
@@ -106,9 +102,8 @@ export function NoteTabs({
   return (
     <div
       id="note-tabs-bar"
-      className="w-full flex items-center bg-[#f4f1ea] dark:bg-[#0d0d0d] border-b border-[#eae8e3] dark:border-[#1e1e1e] px-2 sm:px-4 py-1 select-none shrink-0 overflow-hidden relative"
+      className="w-full -mt-9 relative z-30 flex items-center bg-[#f4f1ea] dark:bg-[#0d0d0d] border-b border-[#eae8e3] dark:border-[#1e1e1e] px-2 sm:px-4 py-1 select-none shrink-0 overflow-hidden"
     >
-      {/* Contêiner de Abas com Rolagem Horizontal */}
       <div
         ref={scrollContainerRef}
         onWheel={handleWheel}
@@ -120,7 +115,6 @@ export function NoteTabs({
           const isRightSplitTab = isSplit && tab.id === splitRightTabId;
           const isSplitTab = isLeftSplitTab || isRightSplitTab;
 
-          // Se a tela estiver dividida, o destaque visual respeita o painel ativo
           const isCurrentlyActive = isSplit
             ? (isLeftSplitTab && activeSplitPane === 'left') ||
               (isRightSplitTab && activeSplitPane === 'right') ||
@@ -137,7 +131,6 @@ export function NoteTabs({
               onClick={() => onSelectTab(tab.id)}
               onContextMenu={(e) => handleContextMenu(e, tab.id)}
               onAuxClick={(e) => {
-                // Clique com botão do meio do mouse fecha a aba
                 if (e.button === 1) {
                   e.preventDefault();
                   e.stopPropagation();
@@ -167,12 +160,10 @@ export function NoteTabs({
                 }`}
               />
 
-              {/* Título com truncamento visual */}
               <span className="truncate flex-1 min-w-0 text-[12px] leading-tight">
                 {title}
               </span>
 
-              {/* Indicador discreto em modo tela dividida: E (Esquerdo) ou D (Direito) */}
               {isLeftSplitTab && (
                 <span className="text-[11px] font-semibold text-[#8a7e72] dark:text-[#a1a1aa] shrink-0 select-none ml-1 mr-0.5">
                   E
@@ -184,7 +175,6 @@ export function NoteTabs({
                 </span>
               )}
 
-              {/* Botão Fechar Aba × */}
               <button
                 type="button"
                 id={`close-tab-${tab.id}`}
@@ -202,7 +192,6 @@ export function NoteTabs({
           );
         })}
 
-        {/* Botão + Adicionar Nova Aba */}
         <button
           id="new-note-tab-btn"
           type="button"
@@ -215,7 +204,6 @@ export function NoteTabs({
         </button>
       </div>
 
-      {/* Menu de Contexto ao Clicar com Botão Direito na Aba */}
       {contextMenu && (
         <div
           id="tab-context-menu"
