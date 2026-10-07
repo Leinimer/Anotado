@@ -565,6 +565,22 @@ export function DiaryLayout() {
     };
   }, [handleUpdateTitle, handleUpdateContent]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const rawRestore = sessionStorage.getItem('anotado_pending_history_restore');
+    if (!rawRestore) return;
+    sessionStorage.removeItem('anotado_pending_history_restore');
+    try {
+      const restore = JSON.parse(rawRestore) as { noteId?: string; title?: string; content?: string };
+      if (restore.noteId) {
+        void (async () => {
+          if (restore.title !== undefined) await handleUpdateTitle(restore.noteId!, restore.title);
+          if (restore.content !== undefined) await handleUpdateContent(restore.noteId!, restore.content);
+        })();
+      }
+    } catch {}
+  }, [handleUpdateTitle, handleUpdateContent]);
+
   // Exclusão de entrada
   const handleDeleteNote = useCallback(
     async (noteId: string) => {
