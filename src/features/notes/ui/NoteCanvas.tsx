@@ -27,7 +27,7 @@ import {
   executeInternalNoteNavigation,
   InternalNavigationContext,
 } from '../utils/internal-note-navigation';
-import { getBacklinks } from '../utils/knowledge-graph';
+import { getBacklinks, getOutgoingLinks, getUnlinkedMentions } from '../utils/knowledge-graph';
 
 interface NoteCanvasProps {
   activeNote: NoteType | null;
@@ -413,6 +413,22 @@ export function NoteCanvas({
     [notes]
   );
 
+  const outgoingLinksForNote = useCallback(
+    (note: NoteType | null) => {
+      if (!note || !notes) return [];
+      return getOutgoingLinks(note.id, notes);
+    },
+    [notes]
+  );
+
+  const unlinkedMentionsForNote = useCallback(
+    (note: NoteType | null) => {
+      if (!note || !notes) return [];
+      return getUnlinkedMentions(note.id, notes);
+    },
+    [notes]
+  );
+
   const handleOpenBacklink = useCallback(
     (noteId: string, workspace: 'notes' | 'diary') => {
       if (workspace === effectiveWorkspace) {
@@ -508,6 +524,8 @@ export function NoteCanvas({
             returnButtonLabel={returnButtonLabel}
             onReturnToSource={handleReturnToSource}
             backlinks={backlinksForNote(splitLeftNote)}
+            outgoingLinks={outgoingLinksForNote(splitLeftNote)}
+            unlinkedMentions={unlinkedMentionsForNote(splitLeftNote)}
             onOpenBacklink={handleOpenBacklink}
           />
 
@@ -532,6 +550,8 @@ export function NoteCanvas({
             returnButtonLabel={returnButtonLabel}
             onReturnToSource={handleReturnToSource}
             backlinks={backlinksForNote(splitRightNote)}
+            outgoingLinks={outgoingLinksForNote(splitRightNote)}
+            unlinkedMentions={unlinkedMentionsForNote(splitRightNote)}
             onOpenBacklink={handleOpenBacklink}
           />
         </div>
@@ -554,6 +574,8 @@ export function NoteCanvas({
           returnButtonLabel={returnButtonLabel}
           onReturnToSource={handleReturnToSource}
           backlinks={backlinksForNote(activeNote)}
+          outgoingLinks={outgoingLinksForNote(activeNote)}
+          unlinkedMentions={unlinkedMentionsForNote(activeNote)}
           onOpenBacklink={handleOpenBacklink}
         />
       )}
