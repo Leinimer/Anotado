@@ -10,7 +10,6 @@ import {
   Plus,
   Search,
   Calendar,
-  ArrowLeft,
 } from 'lucide-react';
 import { Editor } from '@tiptap/react';
 import { Note as NoteType } from '../types';
@@ -28,6 +27,7 @@ import {
   executeInternalNoteNavigation,
   InternalNavigationContext,
 } from '../utils/internal-note-navigation';
+import { getBacklinks } from '../utils/knowledge-graph';
 
 interface NoteCanvasProps {
   activeNote: NoteType | null;
@@ -58,6 +58,7 @@ interface NoteCanvasProps {
   onSplitTab?: (tabId: string) => void;
   onUnsplitTab?: (tabId?: string) => void;
   onSwapSplitPanes?: () => void;
+  notePathLabel?: string;
 }
 
 export function NoteCanvas({
@@ -88,6 +89,7 @@ export function NoteCanvas({
   onSplitTab,
   onUnsplitTab,
   onSwapSplitPanes,
+  notePathLabel = '',
 }: NoteCanvasProps) {
   const router = useRouter();
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
@@ -403,6 +405,32 @@ export function NoteCanvas({
     );
   }
 
+  const backlinksForNote = useCallback(
+    (note: NoteType | null) => {
+      if (!note || !notes) return [];
+      return getBacklinks(note.id, notes);
+    },
+    [notes]
+  );
+
+  const handleOpenBacklink = useCallback(
+    (noteId: string, workspace: 'notes' | 'diary') => {
+      if (workspace === effectiveWorkspace) {
+        onSelectNote?.(noteId);
+        return;
+      }
+      router.push(workspace === 'diary' ? '/diary' : '/notes');
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent('anotado:open-note', {
+            detail: { noteId, workspace },
+          })
+        );
+      }, 250);
+    },
+    [effectiveWorkspace, onSelectNote, router]
+  );
+
   const showZoomControls = isZoomHovered || isZoomOpen;
 
   return (
@@ -431,25 +459,7 @@ export function NoteCanvas({
           </span>
         </div>
 
-        {/* Botão de Retorno de Referência no topo direito (quando aberto via link interno) */}
-        {shouldShowReturnButton && (
-          <div className="flex items-center gap-2">
-            <button
-              id="return-to-source-note-btn"
-              type="button"
-              onClick={handleReturnToSource}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#68594d] hover:bg-[#53463c] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] text-white font-sans-ui text-xs font-semibold transition-all cursor-pointer shadow-xs active:scale-95 animate-in fade-in zoom-in-95 duration-150"
-              title={
-                navContext?.sourceNoteTitle
-                  ? `Retornar para: ${navContext.sourceNoteTitle}`
-                  : `Retornar à nota de origem`
-              }
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>{returnButtonLabel}</span>
-            </button>
-          </div>
-        )}
+
       </header>
 
       {/* 2. SISTEMA DE ABAS (Logo abaixo da barra superior e acima do título da nota) */}
@@ -493,6 +503,12 @@ export function NoteCanvas({
             onUpdateTags={onUpdateTags}
             onEditorReady={setLeftEditorInstance}
             zoomLevel={zoomLevel}
+            notePathLabel={notePathLabel ? notePathLabel : ''}
+            shouldShowReturnButton={shouldShowReturnButton && splitLeftNote.id === activeNote.id}
+            returnButtonLabel={returnButtonLabel}
+            onReturnToSource={handleReturnToSource}
+            backlinks={backlinksForNote(splitLeftNote)}
+            onOpenBacklink={handleOpenBacklink}
           />
 
           {/* Painel Direito */}
@@ -511,6 +527,12 @@ export function NoteCanvas({
             onUpdateTags={onUpdateTags}
             onEditorReady={setRightEditorInstance}
             zoomLevel={zoomLevel}
+            notePathLabel={notePathLabel ? notePathLabel : ''}
+            shouldShowReturnButton={shouldShowReturnButton && splitRightNote.id === activeNote.id}
+            returnButtonLabel={returnButtonLabel}
+            onReturnToSource={handleReturnToSource}
+            backlinks={backlinksForNote(splitRightNote)}
+            onOpenBacklink={handleOpenBacklink}
           />
         </div>
       ) : (
@@ -527,6 +549,12 @@ export function NoteCanvas({
           onEditorReady={setEditorInstance}
           isNewNoteJustCreated={isNewNoteJustCreated}
           zoomLevel={zoomLevel}
+          notePathLabel={notePathLabel}
+          shouldShowReturnButton={shouldShowReturnButton}
+          returnButtonLabel={returnButtonLabel}
+          onReturnToSource={handleReturnToSource}
+          backlinks={backlinksForNote(activeNote)}
+          onOpenBacklink={handleOpenBacklink}
         />
       )}
 
