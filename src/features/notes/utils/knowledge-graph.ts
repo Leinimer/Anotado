@@ -28,9 +28,9 @@ const UUID =
   '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
 
 const INTERNAL_ID_REGEXES = [
-  new RegExp('data-internal-note-id=["\\'](' + UUID + ')["\\']', 'gi'),
-  new RegExp('data-note-id=["\\'](' + UUID + ')["\\']', 'gi'),
-  new RegExp('href=["\\']note:(?://)?(' + UUID + ')["\\']', 'gi'),
+  new RegExp("data-internal-note-id=[\\"'](" + UUID + ")[\\"']", 'gi'),
+  new RegExp("data-note-id=[\\"'](" + UUID + ")[\\"']", 'gi'),
+  new RegExp("href=[\\"']note:(?://)?(" + UUID + ")[\\"']", 'gi'),
 ];
 
 export function extractInternalNoteIds(content?: string | null): string[] {
