@@ -18,9 +18,10 @@ import {
   Plus,
   AlertTriangle,
   Tag,
+  BrainCircuit,
+  FileText,
 } from 'lucide-react';
 import { Folder, Note } from '@/src/features/notes/types';
-import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
 import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
 import { SettingsModal } from '@/src/features/notes/ui/SettingsModal';
 import { SyncStatusIndicator } from '@/src/features/notes/ui/SyncStatusIndicator';
@@ -62,6 +63,7 @@ interface DiarySidebarNavigationProps {
     targetPosition: number
   ) => void;
   onToggleWorkspace: () => void;
+  onOpenMap?: () => void;
   onCloseMobile?: () => void;
   onOpenShareModal?: () => void;
   acceptedSharedDiaries?: DiaryShare[];
@@ -83,6 +85,7 @@ export function DiarySidebarNavigation({
   onRenameFolder,
   onMoveItem,
   onToggleWorkspace,
+  onOpenMap,
   onCloseMobile,
   onOpenShareModal,
   acceptedSharedDiaries = [],
@@ -587,11 +590,11 @@ export function DiarySidebarNavigation({
       id="diary-sidebar-container"
       className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] dark:bg-[#000000] border-r border-[#eae8e3] dark:border-[#1a1a1a] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0 relative"
     >
-      {/* Top Header: Logo + Switch Discreta + Compartilhamento */}
+      {/* Marca centralizada + navegação principal do Diário */}
       <div className="space-y-3 shrink-0">
-        <div className="flex items-center justify-between py-1 px-1">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#68594d] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] text-white flex items-center justify-center font-serif-note font-bold text-sm shadow-xs">
+        <div className="relative flex items-center justify-center py-1.5">
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-9 h-9 rounded-xl bg-[#68594d] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] text-white flex items-center justify-center font-serif-note font-bold text-base shadow-xs">
               A
             </div>
             <span className="font-serif-note font-bold text-lg text-[#1b1c19] dark:text-[#ffffff] tracking-tight">
@@ -599,15 +602,75 @@ export function DiarySidebarNavigation({
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            {/* Chavezinha / Switch Discreta e Elegante */}
-            <WorkspaceSwitch currentWorkspace="diary" onToggle={onToggleWorkspace} />
+          {onCloseMobile && (
+            <button
+              id="diary-sidebar-close-mobile-btn"
+              onClick={onCloseMobile}
+              className="absolute right-0 top-0 p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg md:hidden cursor-pointer"
+              aria-label="Fechar Menu Lateral"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
 
-            {/* Botão de Troca de Tema (Lua/Sol) ao lado de Notas / Diário */}
+        <div className="grid grid-cols-3 gap-1.5">
+          <button
+            id="diary-knowledge-map-btn"
+            type="button"
+            onClick={() => onOpenMap?.()}
+            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
+            title="Mapa completo de conexões"
+          >
+            <BrainCircuit className="w-4 h-4" />
+            <span>Mapa</span>
+          </button>
+
+          <button
+            id="diary-sidebar-notes-btn"
+            type="button"
+            onClick={onToggleWorkspace}
+            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
+            title="Ir para Notas"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Notas</span>
+          </button>
+
+          <div
+            id="diary-sidebar-theme-btn-wrapper"
+            className="flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl hover:bg-[#eae8e3] dark:hover:bg-[#141414]"
+            title="Modo escuro / claro"
+          >
             <ThemeToggle />
+            <span className="text-[9px] font-semibold text-[#7f756e] dark:text-[#a1a1aa]">
+              Tema
+            </span>
+          </div>
+        </div>
 
-            {/* Botão Circular de Compartilhamento do Diário */}
-            <div className="relative" ref={shareMenuRef}>
+        {/* Compartilhamento do Diário permanece acessível logo abaixo da navegação */}
+        <div className="relative flex justify-center" ref={shareMenuRef}>
+          <button
+            type="button"
+            id="diary-share-trigger-btn"
+            onClick={handleShareClick}
+            className={acceptedSharedDiaries && acceptedSharedDiaries.length > 0
+              ? 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#f4dfcb] text-[#68594d] border border-[#e8d2bd] hover:bg-[#ebd0b7] dark:bg-[#2e2620] dark:text-[#f4dfcb] dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] transition-colors'
+              : 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#ffffff] text-[#7f756e] border border-[#eae8e3] hover:text-[#1b1c19] hover:bg-[#f0eee9] dark:bg-[#111111] dark:border-[#222222] dark:text-[#a1a1aa] dark:hover:text-[#ffffff] dark:hover:bg-[#1a1a1a] transition-colors'
+            }
+            title={acceptedSharedDiaries && acceptedSharedDiaries.length > 0 ? 'Diários compartilhados' : 'Compartilhar Diário'}
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-semibold">
+              {acceptedSharedDiaries && acceptedSharedDiaries.length > 0 ? 'Compartilhados' : 'Compartilhar'}
+            </span>
+            {acceptedSharedDiaries && acceptedSharedDiaries.length > 0 && (
+              <span className="w-4 h-4 bg-[#68594d] dark:bg-[#3d3229] text-white text-[9px] font-bold rounded-full flex items-center justify-center shadow-xs">
+                {acceptedSharedDiaries.length}
+              </span>
+            )}
+          </button>
               <button
                 type="button"
                 id="diary-share-trigger-btn"
