@@ -48,6 +48,8 @@ import {
 } from '@/src/features/notes/utils/diary-hierarchy';
 import { ShareDiaryModal } from './ShareDiaryModal';
 import { PendingInvitationModal } from './PendingInvitationModal';
+import { recordNoteRevision, recordRecentNote } from '@/src/features/notes/utils/user-activity';
+import { folderPathFor } from '@/src/features/notes/utils/knowledge-graph';
 import {
   fetchIncomingShares,
   DiaryShare,
@@ -390,6 +392,12 @@ export function DiaryLayout() {
     return notes.find((n) => n.id === activeNoteId) || null;
   }, [notes, activeNoteId]);
 
+  const activeNotePathLabel = useMemo(() => {
+    if (!activeNote) return 'Diário';
+    const path = folderPathFor(activeNote.folder_id, folders);
+    return path === 'Raiz' ? 'Diário' : 'Diário / ' + path;
+  }, [activeNote, folders]);
+
   // Datas de entradas já existentes para validação no modal
   const existingDiaryDates = useMemo(() => {
     const set = new Set<string>();
@@ -417,6 +425,8 @@ export function DiaryLayout() {
   // Seleção de entrada
   const handleSelectNote = useCallback((noteId: string) => {
     setIsNewNoteJustCreated(false);
+    const target = notesRef.current.find((note) => note.id === noteId);
+    if (target) recordRecentNote(target);
     setActiveNoteId(noteId);
   }, []);
 
@@ -508,6 +518,8 @@ export function DiaryLayout() {
   // Atualização de título
   const handleUpdateTitle = useCallback(
     async (noteId: string, newTitle: string) => {
+      const previousNote = notesRef.current.find((n) => n.id === noteId);
+      if (previousNote) recordNoteRevision(previousNote, previousNote.content, previousNote.title, 'antes da alteração do título');
       setNotes((prev) =>
         prev.map((n) => (n.id === noteId ? { ...n, title: newTitle } : n))
       );
@@ -519,6 +531,8 @@ export function DiaryLayout() {
   // Atualização de conteúdo
   const handleUpdateContent = useCallback(
     async (noteId: string, newContent: string) => {
+      const previousNote = notesRef.current.find((n) => n.id === noteId);
+      if (previousNote) recordNoteRevision(previousNote, previousNote.content, previousNote.title, 'antes da alteração');
       setNotes((prev) =>
         prev.map((n) => (n.id === noteId ? { ...n, content: newContent } : n))
       );
@@ -537,6 +551,19 @@ export function DiaryLayout() {
     },
     [userId]
   );
+
+  useEffect(() => {
+    const handleRestoreHistory = async (e: Event) => {
+      const detail = (e as CustomEvent<{ noteId?: string; content?: string; title?: string }>).detail;
+      if (!detail?.noteId) return;
+      if (detail.title !== undefined) await handleUpdateTitle(detail.noteId, detail.title);
+      if (detail.content !== undefined) await handleUpdateContent(detail.noteId, detail.content);
+    };
+    window.addEventListener('anotado:restore-note-history', handleRestoreHistory);
+    return () => {
+      window.removeEventListener('anotado:restore-note-history', handleRestoreHistory);
+    };
+  }, [handleUpdateTitle, handleUpdateContent]);
 
   // Exclusão de entrada
   const handleDeleteNote = useCallback(
@@ -637,6 +664,7 @@ export function DiaryLayout() {
           onRenameFolder={handleRenameFolder}
           onMoveItem={handleMoveItem}
           onToggleWorkspace={handleToggleWorkspace}
+          onOpenMap={() => router.push('/mapa')}
           onOpenShareModal={() => setIsShareModalOpen(true)}
           acceptedSharedDiaries={acceptedIncomingShares}
         />
@@ -681,6 +709,7 @@ export function DiaryLayout() {
               onRenameFolder={handleRenameFolder}
               onMoveItem={handleMoveItem}
               onToggleWorkspace={handleToggleWorkspace}
+              onOpenMap={() => router.push('/mapa')}
               onCloseMobile={() => setMobileSidebarOpen(false)}
               onOpenShareModal={() => {
                 setIsShareModalOpen(true);
@@ -707,6 +736,7 @@ export function DiaryLayout() {
           isNewNoteJustCreated={isNewNoteJustCreated}
           currentWorkspace="diary"
           onSelectNote={handleSelectNote}
+          notePathLabel={activeNotePathLabel}
         />
       ) : (
         <main
