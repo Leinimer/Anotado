@@ -47,24 +47,8 @@ export function MainLayout() {
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
 
   // Estado do Sistema de Abas (Apenas interface/memória do cliente)
-  const [tabs, setTabs] = useState<NoteTabItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem('anotado_active_notes_id');
-      if (saved) {
-        return [{ id: `tab-${saved}`, noteId: saved }];
-      }
-    }
-    return [];
-  });
-  const [activeTabId, setActiveTabId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem('anotado_active_notes_id');
-      if (saved) {
-        return `tab-${saved}`;
-      }
-    }
-    return null;
-  });
+  const [tabs, setTabs] = useState<NoteTabItem[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
   // Estado de Divisão de Tela (Apenas interface/memória do cliente)
   const [isSplit, setIsSplit] = useState(false);
@@ -77,10 +61,8 @@ export function MainLayout() {
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
-    if (activeNoteId) {
-      sessionStorage.setItem('anotado_active_notes_id', activeNoteId);
-    }
   }, [activeNoteId]);
+
 
   // 1. Carregamento inicial do Supabase, ouvintes de autenticação e reatividade do SyncEngine
   useEffect(() => {
@@ -254,23 +236,11 @@ export function MainLayout() {
         setFolders(fetchedFolders);
         setNotes(fetchedNotes);
 
-        const savedActiveId = typeof window !== 'undefined' ? sessionStorage.getItem('anotado_active_notes_id') : null;
-        if (savedActiveId && fetchedNotes.some((n) => n.id === savedActiveId)) {
-          setActiveNoteId(savedActiveId);
-          const initialTabId = `tab-${savedActiveId}`;
-          setTabs([{ id: initialTabId, noteId: savedActiveId }]);
-          setActiveTabId(initialTabId);
-        } else if (fetchedNotes.length > 0) {
-          const firstId = fetchedNotes[0].id;
-          setActiveNoteId(firstId);
-          const initialTabId = `tab-${firstId}`;
-          setTabs([{ id: initialTabId, noteId: firstId }]);
-          setActiveTabId(initialTabId);
-        } else {
-          setActiveNoteId(null);
-          setTabs([]);
-          setActiveTabId(null);
-        }
+        // O aplicativo inicia sempre sem nenhuma nota aberta.
+        // A primeira nota só é aberta quando o usuário a seleciona.
+        setActiveNoteId(null);
+        setTabs([]);
+        setActiveTabId(null);
 
         // Apenas verifica se há mutações pendentes locais na fila (sem disparar PULL desnecessário)
         syncEngine.checkWatchdog(currentUserId);
