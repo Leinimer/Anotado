@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTheme } from '@/src/features/theme/theme-context';
 import dynamic from 'next/dynamic';
 import {
   ArrowLeft,
@@ -54,6 +55,7 @@ interface KnowledgeMapProps {
   userId: string;
   onOpenNote?: (noteId: string, workspace?: 'notes' | 'diary') => void;
   onBack?: () => void;
+  onCreateTemplate?: (template: TemplateItem) => void;
 }
 
 interface TemplateItem {
@@ -145,7 +147,9 @@ export function KnowledgeMap({
   userId,
   onOpenNote,
   onBack,
+  onCreateTemplate,
 }: KnowledgeMapProps) {
+  const { theme } = useTheme();
   const [tab, setTab] = useState<CenterTab>('map');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [graphMode, setGraphMode] = useState<'global' | 'local'>('global');
@@ -207,6 +211,21 @@ export function KnowledgeMap({
     setHistory(historyNoteId ? getNoteHistory(historyNoteId) : []);
   }, [historyNoteId]);
 
+  const noteSearchIndex = useMemo(() => {
+    const index = new Map<string, string>();
+    for (const note of notes) {
+      index.set(
+        note.id,
+        [
+          note.title || '',
+          note.content || '',
+          ...(note.tags || []),
+        ].join(' ').toLowerCase()
+      );
+    }
+    return index;
+  }, [notes]);
+
   const visible = useMemo(() => {
     const base =
       graphMode === 'local' && selectedId
@@ -220,7 +239,7 @@ export function KnowledgeMap({
           if (workspaceFilter !== 'all' && node.workspace !== workspaceFilter) return false;
           if (favoritesOnly && !node.isFavorite) return false;
           if (orphansOnly && node.degree !== 0) return false;
-          if (query && !node.label.toLowerCase().includes(query)) return false;
+          if (query && !(noteSearchIndex.get(node.id) || '').includes(query)) return false;
           return true;
         })
         .map((node) => node.id)
@@ -241,6 +260,7 @@ export function KnowledgeMap({
     workspaceFilter,
     favoritesOnly,
     orphansOnly,
+    noteSearchIndex,
   ]);
 
   const stats = useMemo(() => {
@@ -292,12 +312,16 @@ export function KnowledgeMap({
   };
 
   const useTemplate = (template: TemplateItem) => {
-    if (typeof window === 'undefined') return;
-    window.dispatchEvent(
-      new CustomEvent('anotado:create-note-from-template', {
-        detail: { title: template.title, content: template.content },
-      })
-    );
+    if (onCreateTemplate) {
+      onCreateTemplate(template);
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(
+        'anotado_pending_template',
+        JSON.stringify({ title: template.title, content: template.content })
+      );
+    }
   };
 
   const askAi = async () => {
@@ -602,7 +626,7 @@ export function KnowledgeMap({
                 linkWidth={() => linkWidth}
                 linkDirectionalArrowLength={showArrows ? 4 : 0}
                 linkDirectionalArrowRelPos={0.82}
-                linkColor={() => 'rgba(104,89,77,.24)'}
+                linkColor={() => (theme === 'dark' ? 'rgba(255,255,255,.22)' : 'rgba(104,89,77,.24)')}
                 d3AlphaDecay={0.03}
                 d3VelocityDecay={0.35}
                 onNodeClick={(node: KnowledgeGraphNode) => {
@@ -636,8 +660,8 @@ export function KnowledgeMap({
                       : '#68594d';
 
                   ctx.beginPath();
-                  ctx.fillStyle = selected ? '#2d2620' : color;
-                  ctx.strokeStyle = selected ? '#f4dfcb' : '#ffffff';
+                  ctx.fillStyle = selected ? (theme === 'dark' ? '#ffffff' : '#2d2620') : color;
+                  ctx.strokeStyle = selected ? (theme === 'dark' ? '#000000' : '#f4dfcb') : (theme === 'dark' ? '#444444' : '#ffffff');
                   ctx.lineWidth = selected ? 2 : 1;
                   ctx.arc(node.x || 0, node.y || 0, radius, 0, 2 * Math.PI);
                   ctx.fill();
@@ -648,7 +672,7 @@ export function KnowledgeMap({
                       (selected ? '600 ' : '500 ') +
                       Math.max(9, 11 / globalScale * 0.75) +
                       'px Manrope, sans-serif';
-                    ctx.fillStyle = '#3b332d';
+                    ctx.fillStyle = theme === 'dark' ? '#f2f2f2' : '#3b332d';
                     ctx.textAlign = 'left';
                     ctx.textBaseline = 'middle';
                     ctx.fillText(
