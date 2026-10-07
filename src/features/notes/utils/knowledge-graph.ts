@@ -48,7 +48,7 @@ export function extractInternalNoteIds(content?: string | null): string[] {
   return Array.from(ids);
 }
 
-function folderPathFor(folderId: string | null, folders: Folder[]): string {
+export function folderPathFor(folderId: string | null, folders: Folder[]): string {
   if (!folderId) return 'Raiz';
 
   const byId = new Map(folders.map((f) => [f.id, f]));
