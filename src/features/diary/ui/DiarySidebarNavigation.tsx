@@ -614,41 +614,6 @@ export function DiarySidebarNavigation({
           )}
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5">
-          <button
-            id="diary-knowledge-map-btn"
-            type="button"
-            onClick={() => onOpenMap?.()}
-            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
-            title="Mapa completo de conexões"
-          >
-            <BrainCircuit className="w-4 h-4" />
-            <span>Mapa</span>
-          </button>
-
-          <button
-            id="diary-sidebar-notes-btn"
-            type="button"
-            onClick={onToggleWorkspace}
-            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
-            title="Ir para Notas"
-          >
-            <FileText className="w-4 h-4" />
-            <span>Notas</span>
-          </button>
-
-          <div
-            id="diary-sidebar-theme-btn-wrapper"
-            className="flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl hover:bg-[#eae8e3] dark:hover:bg-[#141414]"
-            title="Modo escuro / claro"
-          >
-            <ThemeToggle />
-            <span className="text-[9px] font-semibold text-[#7f756e] dark:text-[#a1a1aa]">
-              Tema
-            </span>
-          </div>
-        </div>
-
         {/* Compartilhamento do Diário permanece acessível logo abaixo da navegação */}
         <div className="relative flex justify-center" ref={shareMenuRef}>
           <button
@@ -1122,8 +1087,41 @@ export function DiarySidebarNavigation({
         </div>
       )}
 
-      {/* Bottom Actions: Indicador de Sincronização, + Ano, + Entrada, Usuário */}
+      {/* Bottom Actions */}
       <div className="pt-2 border-t border-[#eae8e3] dark:border-[#1a1a1a] space-y-2 shrink-0">
+        <div className="grid grid-cols-3 gap-1.5">
+          <button
+            id="diary-knowledge-map-btn"
+            type="button"
+            onClick={() => onOpenMap?.()}
+            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
+            title="Mapa completo de conexões"
+          >
+            <BrainCircuit className="w-4 h-4" />
+            <span>Mapa</span>
+          </button>
+          <button
+            id="diary-sidebar-notes-btn"
+            type="button"
+            onClick={onToggleWorkspace}
+            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
+            title="Ir para Notas"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Notas</span>
+          </button>
+          <div
+            id="diary-sidebar-theme-btn-wrapper"
+            className="flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl hover:bg-[#eae8e3] dark:hover:bg-[#141414]"
+            title="Modo escuro / claro"
+          >
+            <ThemeToggle />
+            <span className="text-[9px] font-semibold text-[#7f756e] dark:text-[#a1a1aa]">
+              Tema
+            </span>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between px-0.5">
           <SyncStatusIndicator
             userId={userId || undefined}
