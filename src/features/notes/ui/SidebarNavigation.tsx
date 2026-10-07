@@ -1657,10 +1657,10 @@ export function SidebarNavigation({
           <button
             id="sidebar-diary-btn"
             type="button"
-            onClick={() =>
-              onToggleWorkspace?.() ||
-              onWorkspaceChange?.(currentWorkspace === 'diary' ? 'notes' : 'diary')
-            }
+            onClick={() => {
+              if (onToggleWorkspace) onToggleWorkspace();
+              else onWorkspaceChange?.(currentWorkspace === 'diary' ? 'notes' : 'diary');
+            }}
             className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
             title={currentWorkspace === 'diary' ? 'Ir para Notas' : 'Abrir Diário'}
           >
