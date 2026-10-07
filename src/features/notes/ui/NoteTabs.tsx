@@ -41,42 +41,6 @@ export function NoteTabs({
   onSwapSplitPanes,
 }: NoteTabsProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const startupPendingRef = useRef(true);
-  const initialTabsFromSessionRef = useRef(false);
-  const startupCloseCountRef = useRef(0);
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    tabId: string;
-  } | null>(null);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      initialTabsFromSessionRef.current = Boolean(
-        sessionStorage.getItem('anotado_active_notes_id')
-      );
-    }
-  }, []);
-
-  // Ao iniciar o aplicativo, nenhuma nota deve permanecer aberta.
-  // Isso também limpa uma aba restaurada anteriormente da sessionStorage.
-  // A segunda passagem trata o caso em que o carregamento inicial recria
-  // automaticamente a primeira nota depois de a aba persistida ser fechada.
-  useEffect(() => {
-    if (!startupPendingRef.current || !activeTabId || tabs.length === 0) return;
-
-    if (typeof window !== 'undefined') {
-      sessionStorage.removeItem('anotado_active_notes_id');
-    }
-
-    startupCloseCountRef.current += 1;
-    onCloseTab(activeTabId);
-
-    if (!initialTabsFromSessionRef.current || startupCloseCountRef.current >= 2) {
-      startupPendingRef.current = false;
-    }
-  }, [tabs.length, activeTabId, onCloseTab]);
-
   const handleWheel = (e: React.WheelEvent) => {
     if (scrollContainerRef.current) {
       if (e.deltaY !== 0) {
