@@ -1011,6 +1011,32 @@ export function MainLayout() {
     };
   }, [handleCreateNote, handleUpdateTitle, handleUpdateContent]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const rawTemplate = sessionStorage.getItem('anotado_pending_template');
+    if (rawTemplate) {
+      sessionStorage.removeItem('anotado_pending_template');
+      try {
+        const template = JSON.parse(rawTemplate) as { title?: string; content?: string };
+        void handleCreateNote(null, false, template);
+      } catch {}
+    }
+
+    const rawRestore = sessionStorage.getItem('anotado_pending_history_restore');
+    if (rawRestore) {
+      sessionStorage.removeItem('anotado_pending_history_restore');
+      try {
+        const restore = JSON.parse(rawRestore) as { noteId?: string; title?: string; content?: string };
+        if (restore.noteId) {
+          void (async () => {
+            if (restore.title !== undefined) await handleUpdateTitle(restore.noteId!, restore.title);
+            if (restore.content !== undefined) await handleUpdateContent(restore.noteId!, restore.content);
+          })();
+        }
+      } catch {}
+    }
+  }, [handleCreateNote, handleUpdateTitle, handleUpdateContent]);
+
   const handleDeleteNote = useCallback(
     async (noteId: string) => {
       // Fecha quaisquer abas associadas a esta nota excluída
