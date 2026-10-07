@@ -655,10 +655,11 @@ export function DiarySidebarNavigation({
             type="button"
             id="diary-share-trigger-btn"
             onClick={handleShareClick}
-            className={acceptedSharedDiaries && acceptedSharedDiaries.length > 0
-              ? 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#f4dfcb] text-[#68594d] border border-[#e8d2bd] hover:bg-[#ebd0b7] dark:bg-[#2e2620] dark:text-[#f4dfcb] dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] transition-colors'
-              : 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#ffffff] text-[#7f756e] border border-[#eae8e3] hover:text-[#1b1c19] hover:bg-[#f0eee9] dark:bg-[#111111] dark:border-[#222222] dark:text-[#a1a1aa] dark:hover:text-[#ffffff] dark:hover:bg-[#1a1a1a] transition-colors'
-            }
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-colors ${
+              acceptedSharedDiaries && acceptedSharedDiaries.length > 0
+                ? 'bg-[#f4dfcb] text-[#68594d] border-[#e8d2bd] hover:bg-[#ebd0b7] dark:bg-[#2e2620] dark:text-[#f4dfcb] dark:border-[#4a3b2c]'
+                : 'bg-[#ffffff] text-[#7f756e] border-[#eae8e3] hover:text-[#1b1c19] hover:bg-[#f0eee9] dark:bg-[#111111] dark:border-[#222222] dark:text-[#a1a1aa] dark:hover:text-[#ffffff] dark:hover:bg-[#1a1a1a]'
+            }`}
             title={acceptedSharedDiaries && acceptedSharedDiaries.length > 0 ? 'Diários compartilhados' : 'Compartilhar Diário'}
           >
             <CalendarDays className="w-3.5 h-3.5" />
@@ -671,30 +672,9 @@ export function DiarySidebarNavigation({
               </span>
             )}
           </button>
-              <button
-                type="button"
-                id="diary-share-trigger-btn"
-                onClick={handleShareClick}
-                className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all cursor-pointer relative ${
-                  acceptedSharedDiaries && acceptedSharedDiaries.length > 0
-                    ? 'bg-[#f4dfcb] text-[#68594d] border-[#e8d2bd] hover:bg-[#ebd0b7] dark:bg-[#2e2620] dark:text-[#f4dfcb] dark:border-[#4a3b2c] dark:hover:bg-[#3d3229]'
-                    : 'bg-[#ffffff] text-[#7f756e] border-[#eae8e3] hover:text-[#1b1c19] hover:bg-[#f0eee9] dark:bg-[#111111] dark:border-[#222222] dark:text-[#a1a1aa] dark:hover:text-[#ffffff] dark:hover:bg-[#1a1a1a]'
-                }`}
-                title={
-                  acceptedSharedDiaries && acceptedSharedDiaries.length > 0
-                    ? 'Diários compartilhados'
-                    : 'Compartilhar Diário'
-                }
-              >
-                <CalendarDays className="w-3.5 h-3.5" />
-                {acceptedSharedDiaries && acceptedSharedDiaries.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-[#68594d] dark:bg-[#3d3229] text-white text-[9px] font-bold rounded-full flex items-center justify-center shadow-xs">
-                    {acceptedSharedDiaries.length}
-                  </span>
-                )}
-              </button>
 
-              {/* Menu dropdown para trocar para Diário compartilhado */}
+                        {/* Menu dropdown para trocar para Diário compartilhado */}
+
               {isShareMenuOpen && (
                 <div className="absolute right-0 mt-1.5 w-60 bg-white dark:bg-[#080808] rounded-xl shadow-lg border border-[#e4e2dd] dark:border-[#1f1f1f] p-1.5 z-50 text-xs font-sans-ui animate-in fade-in zoom-in-95 duration-100">
                   <div className="px-2 py-1 text-[11px] font-semibold text-[#8a8178] dark:text-[#71717a] uppercase tracking-wider">
