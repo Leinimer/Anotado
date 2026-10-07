@@ -12,6 +12,8 @@ export interface KnowledgeGraphNode {
   outbound: number;
   degree: number;
   updatedAt: string;
+  x?: number;
+  y?: number;
 }
 
 export interface KnowledgeGraphLink {
