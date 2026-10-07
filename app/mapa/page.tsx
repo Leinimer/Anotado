@@ -72,7 +72,7 @@ export default function KnowledgeMapPage() {
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-[#fbf9f4] dark:bg-[#000]">
-      <aside className="hidden md:flex w-24 shrink-0 border-r border-[#eae8e3] dark:border-[#1a1a1a] bg-[#fbf9f4] dark:bg-[#050505] flex-col items-center py-4">
+      <aside className="hidden md:flex w-24 shrink-0 border-r border-[#eae8e3] dark:border-[#1a1a1a] bg-[#fbf9f4] dark:bg-[#050505] flex-col items-center py-4 justify-between">
         <div className="flex flex-col items-center gap-1.5">
           <div className="w-9 h-9 rounded-xl bg-[#68594d] text-white flex items-center justify-center font-serif-note font-bold">
             A
@@ -80,7 +80,7 @@ export default function KnowledgeMapPage() {
           <div className="font-serif-note font-bold text-sm">anotado!</div>
         </div>
 
-        <div className="mt-6 flex flex-col gap-2 items-center">
+        <div className="flex flex-col gap-2 items-center">
           <button
             className="w-16 h-16 rounded-2xl bg-[#eae8e3] dark:bg-[#1a1a1a] flex flex-col items-center justify-center gap-1 text-[10px] font-semibold"
             title="Mapa completo"
@@ -107,9 +107,10 @@ export default function KnowledgeMapPage() {
             Diário
           </button>
 
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center hover:bg-[#f0eee9] dark:hover:bg-[#111]">
-            <ThemeToggle />
-          </div>
+        </div>
+
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center hover:bg-[#f0eee9] dark:hover:bg-[#111]">
+          <ThemeToggle />
         </div>
       </aside>
 
