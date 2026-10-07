@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { BrainCircuit, CalendarDays, FileText, Moon, Sun } from 'lucide-react';
+import { BrainCircuit, CalendarDays, FileText } from 'lucide-react';
 import { KnowledgeMap } from '@/src/features/knowledge/ui/KnowledgeMap';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import { fetchFoldersAndNotes } from '@/src/features/notes/api/notes-api';
@@ -118,6 +118,10 @@ export default function KnowledgeMapPage() {
         folders={folders}
         userId={userId}
         onOpenNote={openNote}
+        onCreateTemplate={(template) => {
+          sessionStorage.setItem('anotado_pending_template', JSON.stringify(template));
+          router.push('/notes');
+        }}
         onBack={() => router.back()}
       />
     </div>
