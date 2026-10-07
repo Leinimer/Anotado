@@ -1656,44 +1656,6 @@ export function SidebarNavigation({
           )}
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5">
-          <button
-            id="sidebar-knowledge-map-btn"
-            type="button"
-            onClick={() => onOpenMap?.()}
-            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
-            title="Mapa completo de conexões"
-          >
-            <BrainCircuit className="w-4 h-4" />
-            <span>Mapa</span>
-          </button>
-
-          <button
-            id="sidebar-diary-btn"
-            type="button"
-            onClick={() => {
-              if (onToggleWorkspace) onToggleWorkspace();
-              else onWorkspaceChange?.(currentWorkspace === 'diary' ? 'notes' : 'diary');
-            }}
-            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
-            title={currentWorkspace === 'diary' ? 'Ir para Notas' : 'Abrir Diário'}
-          >
-            <Calendar className="w-4 h-4" />
-            <span>{currentWorkspace === 'diary' ? 'Notas' : 'Diário'}</span>
-          </button>
-
-          <div
-            id="sidebar-theme-btn-wrapper"
-            className="flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl hover:bg-[#eae8e3] dark:hover:bg-[#141414]"
-            title="Modo escuro / claro"
-          >
-            <ThemeToggle />
-            <span className="text-[9px] font-semibold text-[#7f756e] dark:text-[#a1a1aa]">
-              Tema
-            </span>
-          </div>
-        </div>
-
         {/* Search Bar with Mode Selector */}
         <div className="relative" ref={searchModeMenuRef}>
           {/* Botão Interativo da Lupa para abrir Menu de Busca */}
@@ -1965,6 +1927,42 @@ export function SidebarNavigation({
 
       {/* Bottom Action Footer */}
       <div className="pt-2 border-t border-[#eae8e3] space-y-2">
+        <div className="grid grid-cols-3 gap-1.5">
+          <button
+            id="sidebar-knowledge-map-btn"
+            type="button"
+            onClick={() => onOpenMap?.()}
+            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
+            title="Mapa completo de conexões"
+          >
+            <BrainCircuit className="w-4 h-4" />
+            <span>Mapa</span>
+          </button>
+          <button
+            id="sidebar-diary-btn"
+            type="button"
+            onClick={() => {
+              if (onToggleWorkspace) onToggleWorkspace();
+              else onWorkspaceChange?.(currentWorkspace === 'diary' ? 'notes' : 'diary');
+            }}
+            className="flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[10px] font-semibold text-[#68594d] hover:bg-[#eae8e3] dark:text-[#d7c3b0] dark:hover:bg-[#141414] transition-colors cursor-pointer"
+            title={currentWorkspace === 'diary' ? 'Ir para Notas' : 'Abrir Diário'}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>{currentWorkspace === 'diary' ? 'Notas' : 'Diário'}</span>
+          </button>
+          <div
+            id="sidebar-theme-btn-wrapper"
+            className="flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl hover:bg-[#eae8e3] dark:hover:bg-[#141414]"
+            title="Modo escuro / claro"
+          >
+            <ThemeToggle />
+            <span className="text-[9px] font-semibold text-[#7f756e] dark:text-[#a1a1aa]">
+              Tema
+            </span>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between px-0.5">
           <SyncStatusIndicator
             userId={userId || undefined}
