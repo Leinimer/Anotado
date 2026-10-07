@@ -33,6 +33,8 @@ import { saveQueue } from '@/src/features/notes/api/save-queue';
 import { perfProfiler } from '@/src/features/notes/editor/utils/media-optimizer';
 import { WorkspaceType } from '@/src/features/notes/types';
 import { NoteTabItem } from '@/src/features/notes/ui/NoteTabs';
+import { recordNoteRevision, recordRecentNote } from '@/src/features/notes/utils/user-activity';
+import { buildKnowledgeGraph, folderPathFor } from '@/src/features/notes/utils/knowledge-graph';
 
 export function MainLayout() {
   const router = useRouter();
@@ -388,6 +390,7 @@ export function MainLayout() {
 
       const targetNote = notes.find((n) => n.id === noteId);
       if (targetNote) {
+        recordRecentNote(targetNote);
         perfProfiler.mark(noteId, 'T0.5 - Buscando Markdown no Storage');
         const { content, tags } = await fetchNoteContent(userId, targetNote);
         perfProfiler.mark(noteId, 'T0.8 - Markdown Recebido do Storage');
@@ -781,18 +784,40 @@ export function MainLayout() {
       }
     };
 
+    const handleTemplateCreate = async (e: Event) => {
+      const detail = (e as CustomEvent<{ title?: string; content?: string }>).detail;
+      await handleCreateNote(null, false, detail || {});
+    };
+
+    const handleRestoreHistory = async (e: Event) => {
+      const detail = (e as CustomEvent<{ noteId?: string; content?: string; title?: string }>).detail;
+      if (!detail?.noteId) return;
+      if (detail.title !== undefined) await handleUpdateTitle(detail.noteId, detail.title);
+      if (detail.content !== undefined) await handleUpdateContent(detail.noteId, detail.content);
+    };
+
     window.addEventListener('anotado:open-note', handleGlobalOpenNote);
     window.addEventListener('anotado:select-active-note', handleGlobalOpenNote);
+    window.addEventListener('anotado:create-note-from-template', handleTemplateCreate);
+    window.addEventListener('anotado:restore-note-history', handleRestoreHistory);
     return () => {
       window.removeEventListener('anotado:open-note', handleGlobalOpenNote);
       window.removeEventListener('anotado:select-active-note', handleGlobalOpenNote);
+      window.removeEventListener('anotado:create-note-from-template', handleTemplateCreate);
+      window.removeEventListener('anotado:restore-note-history', handleRestoreHistory);
     };
-  }, [handleSelectNote]);
+  }, [handleSelectNote, handleCreateNote, handleUpdateTitle, handleUpdateContent]);
 
   // Nota ativa selecionada atualmente
   const activeNote = useMemo(() => {
     return notes.find((n) => n.id === activeNoteId) || null;
   }, [notes, activeNoteId]);
+
+  const activeNotePathLabel = useMemo(() => {
+    if (!activeNote) return 'Notas';
+    const path = folderPathFor(activeNote.folder_id, folders);
+    return path === 'Raiz' ? 'Notas' : 'Notas / ' + path;
+  }, [activeNote, folders]);
 
   // Filtros de isolamento por espaço (Notas vs Diário)
   const handleToggleWorkspace = useCallback(() => {
@@ -874,16 +899,16 @@ export function MainLayout() {
   );
 
   // Handlers de Notas (com persistência em Markdown no Supabase Storage)
-  const handleCreateNote = useCallback(async (folderId: string | null = null, openInNewTab: boolean = false) => {
+  const handleCreateNote = useCallback(async (folderId: string | null = null, openInNewTab: boolean = false, template?: { title?: string; content?: string }) => {
     // Se folderId for especificado, calcula a posição dentro daquela pasta; caso contrário, na raiz
     const targetFolderId = folderId || null;
     const position = notes.filter((n) => n.folder_id === targetFolderId).length;
 
     const newNote = await createNote(userId, {
-      title: 'Nova nota',
+      title: template?.title || 'Nova nota',
       folderId: targetFolderId,
       position,
-      content: '',
+      content: template?.content || '',
       workspaceType: 'notes',
     });
 
@@ -923,16 +948,20 @@ export function MainLayout() {
 
   const handleUpdateTitle = useCallback(
     async (noteId: string, newTitle: string) => {
+      const previousNote = notes.find((n) => n.id === noteId);
+      if (previousNote) recordNoteRevision(previousNote, previousNote.content, previousNote.title, 'antes da alteração do título');
       setNotes((prev) =>
         prev.map((n) => (n.id === noteId ? { ...n, title: newTitle, updated_at: new Date().toISOString() } : n))
       );
       await updateNoteTitle(userId, noteId, newTitle);
     },
-    [userId]
+    [userId, notes]
   );
 
   const handleUpdateContent = useCallback(
     async (noteId: string, newContent: string) => {
+      const currentNote = notes.find((n) => n.id === noteId);
+      if (currentNote) recordNoteRevision(currentNote, currentNote.content, currentNote.title, 'antes da alteração');
       // 1. Atualização Otimista Imediata na Memória da UI
       setNotes((prev) =>
         prev.map((n) =>
@@ -947,8 +976,8 @@ export function MainLayout() {
       );
 
       // 2. Persistência Serializada em Background (IndexedDB + Supabase)
-      const currentNote = notes.find((n) => n.id === noteId);
-      const res = await updateNoteContent(userId, noteId, newContent, currentNote?.tags);
+      const updatedSource = notes.find((n) => n.id === noteId);
+      const res = await updateNoteContent(userId, noteId, newContent, updatedSource?.tags);
       if (res && res.tags) {
         setNotes((prev) =>
           prev.map((n) => (n.id === noteId ? { ...n, tags: res.tags } : n))
@@ -1307,6 +1336,7 @@ export function MainLayout() {
             onReorderItem={handleReorderItem}
             currentWorkspace="notes"
             onToggleWorkspace={handleToggleWorkspace}
+            onOpenMap={() => router.push('/mapa')}
           />
         </div>
 
@@ -1355,6 +1385,7 @@ export function MainLayout() {
                 onCloseMobile={() => setMobileSidebarOpen(false)}
                 currentWorkspace="notes"
                 onToggleWorkspace={handleToggleWorkspace}
+                onOpenMap={() => router.push('/mapa')}
               />
             </div>
           </div>
@@ -1373,6 +1404,7 @@ export function MainLayout() {
           onOpenMobileMenu={() => setMobileSidebarOpen(true)}
           isNewNoteJustCreated={isNewNoteJustCreated}
           currentWorkspace="notes"
+          notePathLabel={activeNotePathLabel}
           onSelectNote={handleSelectNote}
           tabs={tabs}
           activeTabId={activeTabId}
