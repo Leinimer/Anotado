@@ -7,7 +7,7 @@ import { NoteEditor } from './NoteEditor';
 import { NoteTagsBar } from './NoteTagsBar';
 import { formatDateReadable } from '../utils/diary-date';
 import { Editor } from '@tiptap/react';
-import { KnowledgeGraphNode } from '../utils/knowledge-graph';
+import { KnowledgeGraphNode, UnlinkedMention } from '../utils/knowledge-graph';
 
 interface NoteEditorPanelProps {
   note: NoteType;
@@ -29,6 +29,8 @@ interface NoteEditorPanelProps {
   returnButtonLabel?: string;
   onReturnToSource?: () => void;
   backlinks?: KnowledgeGraphNode[];
+  outgoingLinks?: KnowledgeGraphNode[];
+  unlinkedMentions?: UnlinkedMention[];
   onOpenBacklink?: (noteId: string, workspace: 'notes' | 'diary') => void;
 }
 
@@ -52,6 +54,8 @@ export function NoteEditorPanel({
   returnButtonLabel = 'Voltar',
   onReturnToSource,
   backlinks = [],
+  outgoingLinks = [],
+  unlinkedMentions = [],
   onOpenBacklink,
 }: NoteEditorPanelProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(isNewNoteJustCreated && !readOnly);
@@ -192,6 +196,59 @@ export function NoteEditorPanel({
                   +{backlinks.length - 5}
                 </span>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(outgoingLinks.length > 0 || unlinkedMentions.length > 0) && (
+        <div
+          id={`note-link-relations-section-${note.id}`}
+          className="w-full shrink-0 px-4 sm:px-6 pb-1.5 bg-[#fbf9f4] dark:bg-[#000000]"
+        >
+          <div className="max-w-[850px] mx-auto rounded-xl border border-[#eae8e3] dark:border-[#1d1d1d] bg-white/55 dark:bg-[#080808] px-3 py-2 grid gap-2 sm:grid-cols-2">
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold text-[#7f756e] mb-1.5">
+                Links de saída
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {outgoingLinks.slice(0, 5).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onOpenBacklink?.(item.id, item.workspace)}
+                    className="max-w-full truncate px-2 py-1 rounded-lg text-[10px] font-medium text-[#68594d] dark:text-[#d7c3b0] hover:bg-[#f0eee9] dark:hover:bg-[#151515]"
+                    title={item.label}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+                {!outgoingLinks.length && (
+                  <span className="text-[10px] text-[#8c7e72]">Nenhum link de saída.</span>
+                )}
+              </div>
+            </div>
+
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold text-[#7f756e] mb-1.5">
+                Menções sem link
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {unlinkedMentions.slice(0, 5).map((item) => (
+                  <button
+                    key={item.note.id}
+                    type="button"
+                    onClick={() => onOpenBacklink?.(item.note.id, item.note.workspace)}
+                    className="max-w-full truncate px-2 py-1 rounded-lg text-[10px] font-medium text-[#68594d] dark:text-[#d7c3b0] hover:bg-[#f0eee9] dark:hover:bg-[#151515]"
+                    title={item.note.label}
+                  >
+                    {item.note.label}
+                  </button>
+                ))}
+                {!unlinkedMentions.length && (
+                  <span className="text-[10px] text-[#8c7e72]">Nenhuma menção encontrada.</span>
+                )}
+              </div>
             </div>
           </div>
         </div>
