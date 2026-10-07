@@ -721,7 +721,6 @@ export function DiarySidebarNavigation({
               )}
             </div>
           </div>
-        </div>
 
         {/* Barra de Busca de Entradas */}
         <div className="relative">
