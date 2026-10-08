@@ -331,27 +331,6 @@ export function NoteCanvas({
         id="main-note-workspace"
         className="flex-1 flex flex-col h-full bg-[#fbf9f4] dark:bg-[#000000] select-none relative overflow-hidden"
       >
-        {/* Barra Superior da Área de Edição */}
-        <header
-          id="editor-top-bar"
-          className="w-full px-4 sm:px-6 h-9 flex items-center justify-between border-b border-[#eae8e3]/80 dark:border-[#1a1a1a] bg-[#fbf9f4] dark:bg-[#000000] shrink-0 select-none z-20"
-        >
-          <div className="flex items-center gap-2">
-            {onOpenMobileMenu && (
-              <button
-                id="empty-state-mobile-menu-btn"
-                onClick={onOpenMobileMenu}
-                className="p-1.5 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer md:hidden"
-                aria-label="Abrir Menu Lateral"
-              >
-                <Menu className="w-4 h-4" />
-              </button>
-            )}
-            <span className="text-[11px] font-sans-ui font-semibold text-[#8c7e72] dark:text-[#737373] tracking-wider uppercase">
-              {effectiveWorkspace === 'diary' ? 'Diário' : 'Notas'}
-            </span>
-          </div>
-        </header>
 
         {/* Sistema de Abas (Visível mesmo no estado vazio se houver abas ou para criar nova via +) */}
         {tabs && onSelectTab && onCloseTab && onNewTab && (
@@ -410,49 +389,8 @@ export function NoteCanvas({
       id="main-note-workspace"
       className="flex-1 flex flex-col h-full overflow-hidden bg-[#fbf9f4] dark:bg-[#000000] relative"
     >
-      {/* 1. Barra Superior da Área de Edição */}
-      <header
-        id="editor-top-bar"
-        className="w-full px-4 sm:px-6 h-9 flex items-center justify-between border-b border-[#eae8e3]/80 dark:border-[#1a1a1a] bg-[#fbf9f4] dark:bg-[#000000] shrink-0 select-none z-20"
-      >
-        <div className="flex items-center gap-2">
-          {onOpenMobileMenu && (
-            <button
-              id="header-mobile-menu-btn"
-              onClick={onOpenMobileMenu}
-              className="p-1.5 text-[#4e453f] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer md:hidden"
-              aria-label="Abrir Menu Lateral"
-            >
-              <Menu className="w-4 h-4" />
-            </button>
-          )}
-          <span className="text-[11px] font-sans-ui font-semibold text-[#8c7e72] dark:text-[#737373] tracking-wider uppercase">
-            {effectiveWorkspace === 'diary' ? 'Diário' : 'Notas'}
-          </span>
-        </div>
 
-        {/* Botão de Retorno de Referência no topo direito (quando aberto via link interno) */}
-        {shouldShowReturnButton && (
-          <div className="flex items-center gap-2">
-            <button
-              id="return-to-source-note-btn"
-              type="button"
-              onClick={handleReturnToSource}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#68594d] hover:bg-[#53463c] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] text-white font-sans-ui text-xs font-semibold transition-all cursor-pointer shadow-xs active:scale-95 animate-in fade-in zoom-in-95 duration-150"
-              title={
-                navContext?.sourceNoteTitle
-                  ? `Retornar para: ${navContext.sourceNoteTitle}`
-                  : `Retornar à nota de origem`
-              }
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>{returnButtonLabel}</span>
-            </button>
-          </div>
-        )}
-      </header>
-
-      {/* 2. SISTEMA DE ABAS (Logo abaixo da barra superior e acima do título da nota) */}
+      {/* Sistema de Abas (Logo abaixo da barra superior e acima do título da nota) */}
       {tabs && onSelectTab && onCloseTab && onNewTab && (
         <NoteTabs
           tabs={tabs}
