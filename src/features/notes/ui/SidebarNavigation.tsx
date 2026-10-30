@@ -1456,14 +1456,9 @@ export function SidebarNavigation({
       }
       lastSelectedIdRef.current = { id: note.id, type: 'note' };
 
-      const now = Date.now();
-      const last = lastClickRef.current;
-      if (last && last.id === note.id && last.type === 'note' && now - last.time < 350) {
-        lastClickRef.current = null;
-        startRenaming(note.id, 'note', note.title || 'Sem título');
-        return;
-      }
-      lastClickRef.current = { id: note.id, type: 'note', time: now };
+      // Um clique seleciona/abre a nota. A renomeação inline acontece
+      // exclusivamente pelo duplo clique, evitando a corrida entre os eventos.
+      lastClickRef.current = { id: note.id, type: 'note', time: Date.now() };
       onSelectNote(note.id, false);
       if (onCloseMobile) onCloseMobile();
     };
