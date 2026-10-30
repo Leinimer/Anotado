@@ -74,6 +74,7 @@ interface SidebarNavigationProps {
   onArchiveNote?: (noteId: string) => void;
   onUnarchiveNote?: (noteId: string) => void;
   onSplitNote?: (noteId: string) => void;
+  onOpenNoteInNewTab?: (noteId: string) => void;
   onToggleFavoriteNote?: (noteId: string) => void;
   onArchiveFolderNotes?: (folderId: string) => void;
   onUpdateFolderColor?: (folderId: string, color: string | null) => void;
@@ -116,6 +117,7 @@ export function SidebarNavigation({
   onArchiveNote,
   onUnarchiveNote,
   onSplitNote,
+  onOpenNoteInNewTab,
   onToggleFavoriteNote,
   onArchiveFolderNotes,
   onUpdateFolderColor,
@@ -490,7 +492,7 @@ export function SidebarNavigation({
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const menuWidth = 175;
-    const menuHeight = type === 'folder' ? 220 : 130;
+    const menuHeight = type === 'folder' ? 220 : 172;
     const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
     const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
 
@@ -2015,6 +2017,7 @@ export function SidebarNavigation({
         }}
         onStartRenaming={startRenaming}
         onSplitNote={onSplitNote}
+        onOpenNoteInNewTab={onOpenNoteInNewTab}
         onArchiveNote={onArchiveNote}
         onUnarchiveNote={onUnarchiveNote}
         onToggleFavoriteNote={handleToggleFavorite}
