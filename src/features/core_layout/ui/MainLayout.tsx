@@ -75,8 +75,15 @@ export function MainLayout() {
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
+    if (typeof window === 'undefined') return;
+
+    // A chave só representa a última nota realmente selecionada.
+    // Quando o workspace está vazio, remove o valor antigo para não reabrir
+    // uma nota anterior em uma próxima sessão.
     if (activeNoteId) {
       sessionStorage.setItem('anotado_active_notes_id', activeNoteId);
+    } else {
+      sessionStorage.removeItem('anotado_active_notes_id');
     }
   }, [activeNoteId]);
 
@@ -252,19 +259,22 @@ export function MainLayout() {
         setFolders(fetchedFolders);
         setNotes(fetchedNotes);
 
-        const savedActiveId = typeof window !== 'undefined' ? sessionStorage.getItem('anotado_active_notes_id') : null;
+        const savedActiveId =
+          typeof window !== 'undefined'
+            ? sessionStorage.getItem('anotado_active_notes_id')
+            : null;
+
+        // O workspace inicia vazio quando não existe uma seleção válida salva.
+        // A nota só é aberta após clique explícito na árvore ou em um link.
         if (savedActiveId && fetchedNotes.some((n) => n.id === savedActiveId)) {
           setActiveNoteId(savedActiveId);
           const initialTabId = `tab-${savedActiveId}`;
           setTabs([{ id: initialTabId, noteId: savedActiveId }]);
           setActiveTabId(initialTabId);
-        } else if (fetchedNotes.length > 0) {
-          const firstId = fetchedNotes[0].id;
-          setActiveNoteId(firstId);
-          const initialTabId = `tab-${firstId}`;
-          setTabs([{ id: initialTabId, noteId: firstId }]);
-          setActiveTabId(initialTabId);
         } else {
+          if (typeof window !== 'undefined') {
+            sessionStorage.removeItem('anotado_active_notes_id');
+          }
           setActiveNoteId(null);
           setTabs([]);
           setActiveTabId(null);
