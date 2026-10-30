@@ -424,6 +424,52 @@ export function MainLayout() {
     ]
   );
 
+  // Abre a nota selecionada no botão direito em uma nova aba sem reutilizar a aba ativa.
+  const handleOpenNoteInNewTab = useCallback(
+    async (noteId: string) => {
+      const target = notes.find((note) => note.id === noteId);
+      if (!target || target.is_archived) return;
+
+      if (activeNoteId && activeNoteId !== noteId) {
+        try {
+          await flushNoteSaves(activeNoteId);
+        } catch (error) {
+          console.warn('[MainLayout] Falha ao finalizar o salvamento antes de abrir nova aba:', error);
+        }
+      }
+
+      const existingTab = tabs.find((tab) => tab.noteId === noteId);
+      let newTabId = existingTab?.id || null;
+
+      if (!newTabId) {
+        newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        setTabs((previous) => [...previous, { id: newTabId!, noteId }]);
+      }
+
+      setActiveTabId(newTabId);
+      setActiveNoteId(noteId);
+      setIsNewNoteJustCreated(false);
+
+      try {
+        const { content, tags } = await fetchNoteContent(userId, target);
+        setNotes((previous) =>
+          previous.map((note) =>
+            note.id === noteId
+              ? {
+                  ...note,
+                  content: content !== undefined ? content : note.content,
+                  tags: tags && tags.length > 0 ? tags : note.tags,
+                }
+              : note
+          )
+        );
+      } catch (error) {
+        console.error('[MainLayout] Erro ao carregar nota aberta em nova aba:', noteId, error);
+      }
+    },
+    [notes, activeNoteId, tabs, userId]
+  );
+
   // Seleciona uma aba existente pelo seu ID
   const handleSelectTab = useCallback(
     async (tabId: string) => {
