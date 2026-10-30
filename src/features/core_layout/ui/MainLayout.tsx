@@ -329,100 +329,99 @@ export function MainLayout() {
   }, []);
 
   // Carrega o conteúdo do arquivo Markdown no Storage ao selecionar uma nota
+    // Abre/seleciona uma nota na aba ativa ou em uma aba nova.
+  // Atualiza o estado da interface antes do fetch para a nota aparecer
+  // imediatamente; erros de Storage não devem desfazer a seleção visual.
   const handleSelectNote = useCallback(
     async (noteId: string, openInNewTab: boolean = false) => {
+      const targetNote = notes.find((note) => note.id === noteId);
+      if (!targetNote || targetNote.is_archived) return;
+
       perfProfiler.start(noteId);
       setIsNewNoteJustCreated(false);
 
-      // Garante que saves pendentes da nota anterior sejam finalizados
       if (activeNoteId && activeNoteId !== noteId) {
-        await flushNoteSaves(activeNoteId);
+        try {
+          await flushNoteSaves(activeNoteId);
+        } catch (error) {
+          console.warn('[MainLayout] Não foi possível finalizar o save anterior antes de trocar de nota:', error);
+        }
       }
+
+      let selectedTabId: string | null = null;
 
       if (isSplit) {
         if (noteId === leftNoteId) {
           setActiveSplitPane('left');
-          setActiveNoteId(noteId);
-          const tab = tabs.find((t) => t.noteId === noteId);
-          if (tab) setActiveTabId(tab.id);
+          selectedTabId = tabs.find((tab) => tab.noteId === noteId)?.id || null;
         } else if (noteId === rightNoteId) {
           setActiveSplitPane('right');
-          setActiveNoteId(noteId);
-          const tab = tabs.find((t) => t.noteId === noteId);
-          if (tab) setActiveTabId(tab.id);
+          selectedTabId = tabs.find((tab) => tab.noteId === noteId)?.id || null;
         } else {
-          if (openInNewTab) {
-            const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            setTabs((prev) => [...prev, { id: newTabId, noteId }]);
-            setActiveTabId(newTabId);
-          } else {
-            const existingTab = tabs.find((t) => t.noteId === noteId);
-            if (existingTab) {
-              setActiveTabId(existingTab.id);
-            } else {
-              const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-              setTabs((prev) => [...prev, { id: newTabId, noteId }]);
-              setActiveTabId(newTabId);
-            }
+          const existingTab = tabs.find((tab) => tab.noteId === noteId);
+          selectedTabId = existingTab?.id || `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+          if (!existingTab) {
+            setTabs((previous) => [...previous, { id: selectedTabId!, noteId }]);
           }
+
           if (activeSplitPane === 'right') {
             setRightNoteId(noteId);
           } else {
             setLeftNoteId(noteId);
           }
-          setActiveNoteId(noteId);
         }
       } else {
-        // 1. Verifica se a nota já está aberta em alguma aba
-        const existingTabIndex = tabs.findIndex((t) => t.noteId === noteId);
+        const existingTab = tabs.find((tab) => tab.noteId === noteId);
 
-        if (existingTabIndex !== -1) {
-          // Se a nota já estiver aberta em outra aba, apenas ativar essa aba
-          const existingTab = tabs[existingTabIndex];
-          setActiveTabId(existingTab.id);
-          setActiveNoteId(noteId);
-        } else if (openInNewTab || tabs.length === 0) {
-          // Ctrl + clique em uma nota → abrir em nova aba, ou se não houver abas
-          const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-          setTabs((prev) => [...prev, { id: newTabId, noteId }]);
-          setActiveTabId(newTabId);
-          setActiveNoteId(noteId);
+        if (existingTab) {
+          selectedTabId = existingTab.id;
+        } else if (openInNewTab || tabs.length === 0 || !activeTabId) {
+          selectedTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          setTabs((previous) => [...previous, { id: selectedTabId!, noteId }]);
         } else {
-          // Clicar em uma nota na Sidebar abre a nota na aba atual
-          setTabs((prev) =>
-            prev.map((t) => (t.id === activeTabId ? { ...t, noteId } : t))
+          selectedTabId = activeTabId;
+          setTabs((previous) =>
+            previous.map((tab) =>
+              tab.id === activeTabId ? { ...tab, noteId } : tab
+            )
           );
-          setActiveNoteId(noteId);
         }
       }
 
-      const targetNote = notes.find((n) => n.id === noteId);
-      if (targetNote) {
-        perfProfiler.mark(noteId, 'T0.5 - Buscando Markdown no Storage');
+      if (selectedTabId) setActiveTabId(selectedTabId);
+      setActiveNoteId(noteId);
+
+      try {
         const { content, tags } = await fetchNoteContent(userId, targetNote);
-        perfProfiler.mark(noteId, 'T0.8 - Markdown Recebido do Storage');
-        setNotes((prev) =>
-          prev.map((n) =>
-            n.id === noteId
+        setNotes((previous) =>
+          previous.map((note) =>
+            note.id === noteId
               ? {
-                  ...n,
-                  content: content !== undefined ? content : n.content,
-                  tags: tags && tags.length > 0 ? tags : n.tags,
+                  ...note,
+                  content: content !== undefined ? content : note.content,
+                  tags: tags && tags.length > 0 ? tags : note.tags,
                 }
-              : n
+              : note
           )
         );
+        perfProfiler.mark(noteId, 'Markdown carregado');
+      } catch (error) {
+        console.error('[MainLayout] Erro ao carregar conteúdo da nota:', noteId, error);
+        // A seleção/aba permanece aberta; a cópia local não é descartada.
       }
     },
-    [activeNoteId, isSplit, leftNoteId, rightNoteId, activeSplitPane, tabs, activeTabId, notes, userId]
-  );
-
-  // Abre uma nota em uma nova aba sem substituir a nota atualmente aberta.
-  const handleOpenNoteInNewTab = useCallback(
-    async (noteId: string) => {
-      await handleSelectNote(noteId, true);
-    },
-    [handleSelectNote]
+    [
+      activeNoteId,
+      activeTabId,
+      isSplit,
+      leftNoteId,
+      rightNoteId,
+      activeSplitPane,
+      tabs,
+      notes,
+      userId,
+    ]
   );
 
   // Seleciona uma aba existente pelo seu ID
