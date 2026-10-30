@@ -417,6 +417,14 @@ export function MainLayout() {
     [activeNoteId, isSplit, leftNoteId, rightNoteId, activeSplitPane, tabs, activeTabId, notes, userId]
   );
 
+  // Abre uma nota em uma nova aba sem substituir a nota atualmente aberta.
+  const handleOpenNoteInNewTab = useCallback(
+    async (noteId: string) => {
+      await handleSelectNote(noteId, true);
+    },
+    [handleSelectNote]
+  );
+
   // Seleciona uma aba existente pelo seu ID
   const handleSelectTab = useCallback(
     async (tabId: string) => {
@@ -1313,6 +1321,7 @@ export function MainLayout() {
             onUpdateFolderColor={handleUpdateFolderColor}
             onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
             onSplitNote={handleSplitFromSidebar}
+            onOpenNoteInNewTab={handleOpenNoteInNewTab}
             onMoveItem={handleMoveItem}
             onReorderItem={handleReorderItem}
             currentWorkspace="notes"
@@ -1362,6 +1371,7 @@ export function MainLayout() {
                 }}
                 onMoveItem={handleMoveItem}
                 onReorderItem={handleReorderItem}
+                onOpenNoteInNewTab={handleOpenNoteInNewTab}
                 onCloseMobile={() => setMobileSidebarOpen(false)}
                 currentWorkspace="notes"
                 onToggleWorkspace={handleToggleWorkspace}
