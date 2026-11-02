@@ -1,0 +1,141 @@
+/* Ajustes de usabilidade do editor e contraste dos pop-ups. */
+
+/* Hierarquia das listas numeradas:
+   nível 0 = 1, 2, 3...
+   nível 1 = A, B, C...
+   nível 2 = I, II, III...
+   níveis seguintes retomam a sequência cíclica. */
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+
+.ProseMirror ol ol {
+  list-style-type: upper-alpha;
+}
+
+.ProseMirror ol ol ol {
+  list-style-type: upper-roman;
+}
+
+.ProseMirror ol ol ol ol {
+  list-style-type: decimal;
+}
+
+.ProseMirror ol ol ol ol ol {
+  list-style-type: upper-alpha;
+}
+
+.ProseMirror ol ol ol ol ol ol {
+  list-style-type: upper-roman;
+}
+
+/* A legenda é texto editável/selecionável e não deve iniciar o drag da imagem. */
+.image-node-view-wrapper figcaption {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-user-drag: none !important;
+  cursor: text !important;
+}
+
+.image-node-view-wrapper figcaption * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-user-drag: none !important;
+}
+
+/* Contraste consistente para caixas de diálogo, popovers, menus e formulários no modo escuro.
+   Evita texto marrom/cinza escuro sobre fundos pretos. */
+.dark [role="dialog"],
+.dark [role="alertdialog"],
+.dark [data-radix-dialog-content],
+.dark [data-radix-popover-content],
+.dark [data-radix-dropdown-menu-content],
+.dark [data-radix-select-content],
+.dark [data-radix-context-menu-content],
+.dark [data-radix-menubar-content],
+.dark [data-radix-command-dialog],
+.dark [data-radix-tooltip-content],
+.dark .popover,
+.dark .modal,
+.dark .dialog,
+.dark .dropdown-menu {
+  background-color: #2a2826 !important;
+  color: #e8e4df !important;
+  border-color: #5a524c !important;
+}
+
+.dark [role="dialog"] *,
+.dark [role="alertdialog"] *,
+.dark [data-radix-dialog-content] *,
+.dark [data-radix-popover-content] *,
+.dark [data-radix-dropdown-menu-content] *,
+.dark [data-radix-select-content] *,
+.dark [data-radix-context-menu-content] *,
+.dark [data-radix-menubar-content] *,
+.dark [data-radix-command-dialog] *,
+.dark [data-radix-tooltip-content] *,
+.dark .popover *,
+.dark .modal *,
+.dark .dialog *,
+.dark .dropdown-menu * {
+  border-color: #5a524c;
+}
+
+.dark [role="dialog"] input,
+.dark [role="dialog"] textarea,
+.dark [role="dialog"] select,
+.dark [role="dialog"] button,
+.dark [role="alertdialog"] input,
+.dark [role="alertdialog"] textarea,
+.dark [role="alertdialog"] select,
+.dark [role="alertdialog"] button,
+.dark [data-radix-dialog-content] input,
+.dark [data-radix-dialog-content] textarea,
+.dark [data-radix-dialog-content] select,
+.dark [data-radix-dialog-content] button,
+.dark [data-radix-popover-content] input,
+.dark [data-radix-popover-content] textarea,
+.dark [data-radix-popover-content] select,
+.dark [data-radix-popover-content] button {
+  color: #e8e4df !important;
+}
+
+.dark [role="dialog"] input,
+.dark [role="dialog"] textarea,
+.dark [role="dialog"] select,
+.dark [data-radix-dialog-content] input,
+.dark [data-radix-dialog-content] textarea,
+.dark [data-radix-dialog-content] select,
+.dark [data-radix-popover-content] input,
+.dark [data-radix-popover-content] textarea,
+.dark [data-radix-popover-content] select {
+  background-color: #35312e !important;
+  border: 1px solid #6b6159 !important;
+}
+
+.dark [role="dialog"] input::placeholder,
+.dark [role="dialog"] textarea::placeholder,
+.dark [data-radix-dialog-content] input::placeholder,
+.dark [data-radix-dialog-content] textarea::placeholder,
+.dark [data-radix-popover-content] input::placeholder,
+.dark [data-radix-popover-content] textarea::placeholder {
+  color: #bdb4ac !important;
+  opacity: 1 !important;
+}
+
+.dark [role="dialog"] button:hover,
+.dark [role="alertdialog"] button:hover,
+.dark [data-radix-dialog-content] button:hover,
+.dark [data-radix-popover-content] button:hover,
+.dark [data-radix-dropdown-menu-content] button:hover,
+.dark [data-radix-context-menu-content] button:hover {
+  background-color: #4a433e !important;
+  color: #f2eee9 !important;
+}
+
+/* Controles nativos de inserção que podem não usar Radix. */
+.dark input,
+.dark textarea,
+.dark select {
+  color-scheme: dark;
+}
