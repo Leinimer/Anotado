@@ -10,11 +10,11 @@
 }
 
 .ProseMirror ol ol {
-  list-style-type: upper-alpha;
+  list-style-type: lower-alpha;
 }
 
 .ProseMirror ol ol ol {
-  list-style-type: upper-roman;
+  list-style-type: lower-roman;
 }
 
 .ProseMirror ol ol ol ol {
@@ -22,22 +22,31 @@
 }
 
 .ProseMirror ol ol ol ol ol {
-  list-style-type: upper-alpha;
+  list-style-type: lower-alpha;
 }
 
 .ProseMirror ol ol ol ol ol ol {
-  list-style-type: upper-roman;
+  list-style-type: lower-roman;
 }
 
-/* A legenda é texto editável/selecionável e não deve iniciar o drag da imagem. */
-.image-node-view-wrapper figcaption {
+/* A legenda e sua área de edição são texto, nunca uma origem de arraste da imagem. */
+.image-node-view-wrapper figcaption,
+.image-node-view-wrapper [data-image-caption-editor],
+.image-node-view-wrapper [data-image-caption-editor] textarea {
   user-select: text !important;
   -webkit-user-select: text !important;
   -webkit-user-drag: none !important;
   cursor: text !important;
 }
 
-.image-node-view-wrapper figcaption * {
+.image-node-view-wrapper:has([data-image-caption-editor="true"]) {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-user-drag: none !important;
+}
+
+.image-node-view-wrapper figcaption *,
+.image-node-view-wrapper [data-image-caption-editor] * {
   user-select: text !important;
   -webkit-user-select: text !important;
   -webkit-user-drag: none !important;
