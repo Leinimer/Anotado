@@ -75,7 +75,7 @@ export const CustomImage = Node.create<CustomImageOptions>({
         }),
       },
       width: {
-        default: '50%',
+        default: '100%',
         parseHTML: (element) =>
           element.getAttribute('data-width') ||
           element.getAttribute('width') ||
@@ -236,7 +236,7 @@ export const CustomImage = Node.create<CustomImageOptions>({
           if (!type) return false;
 
           const nodeAttrs = {
-            width: '50%',
+            width: '100%',
             alignment: 'center',
             ...options,
           };
