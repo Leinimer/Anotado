@@ -751,6 +751,60 @@ html.dark {
   color: #f87171 !important;
 }
 
+/* Contraste semântico do conteúdo do editor: cores estruturais acompanham o tema.
+   Não sobrescreve cores personalizadas intencionais, exceto os valores escuros padrão
+   que anteriormente ficavam invisíveis no fundo preto. */
+.ProseMirror {
+  color: #1b1c19;
+  -webkit-text-fill-color: currentColor;
+  transition: color 150ms ease;
+}
+
+.ProseMirror :is(p, h1, h2, h3, li, blockquote, summary, .tiptap-details-summary) {
+  color: inherit;
+}
+
+.dark .ProseMirror {
+  color: #ffffff;
+  -webkit-text-fill-color: currentColor;
+}
+
+.dark .ProseMirror :is(p, h1, h2, h3, li, blockquote, summary, .tiptap-details-summary) {
+  color: inherit;
+}
+
+/* Corrige cores escuras padrão serializadas como estilos inline pelo TextStyle.
+   Cores customizadas não neutras continuam preservadas nos dois temas. */
+.ProseMirror span[style*="color: rgb(255, 255, 255)"],
+.ProseMirror span[style*="color: #ffffff"],
+.ProseMirror span[style*="color: white"] {
+  color: #1b1c19;
+  -webkit-text-fill-color: currentColor;
+}
+
+.dark .ProseMirror span[style*="color: rgb(0, 0, 0)"],
+.dark .ProseMirror span[style*="color: rgb(27, 28, 25)"],
+.dark .ProseMirror span[style*="color: #000000"],
+.dark .ProseMirror span[style*="color: #1b1c19"],
+.dark .ProseMirror span[style*="color: black"] {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Mantém títulos, subtítulos e citações legíveis ao alternar temas. */
+.ProseMirror :is(h1, h2, h3) {
+  color: #1b1c19;
+}
+.dark .ProseMirror :is(h1, h2, h3) {
+  color: #ffffff;
+}
+.ProseMirror blockquote {
+  color: #4e453f;
+}
+.dark .ProseMirror blockquote {
+  color: #d4d4d8;
+}
+
 /* ==========================================================================
    Área do Editor Tiptap / ProseMirror no Modo Dark
    ========================================================================== */
