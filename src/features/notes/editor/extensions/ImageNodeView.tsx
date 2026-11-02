@@ -630,7 +630,8 @@ export function ImageNodeView(props: NodeViewProps) {
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     // Duplo clique na legenda é reservado à edição/seleção do texto.
-    if (isCaptionInteractionTarget(e.target) || isEditingCaption) {
+    // O duplo clique na própria imagem continua abrindo o visualizador.
+    if (isCaptionInteractionTarget(e.target)) {
       e.stopPropagation();
       return;
     }
