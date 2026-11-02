@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import './editor-fixes.css';
 import { PwaProvider } from '@/src/features/pwa/PwaProvider';
 import { ThemeProvider } from '@/src/features/theme/theme-context';
 
@@ -57,5 +58,3 @@ export default function RootLayout({
     </html>
   );
 }
-
-
