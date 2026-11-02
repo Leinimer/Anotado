@@ -296,6 +296,24 @@ Alterar atributos, nome de nó ou URI pode afetar HTML, Markdown, conteúdo já 
 
 **src/features/notes/utils/internal-note-navigation.ts** guarda contexto de ida/volta em sessionStorage, não no Supabase. O contexto inclui workspace, nota de origem, pasta/data e nota de destino. A extensão cria a referência no documento e NoteCanvas recebe o evento, determina se o destino está em Notas ou Diário e oferece retorno. Não confunda o contexto de navegação com uma relação persistida no banco.
 
+### Pastas e criação de notas
+- **Pasta "Notas Rápidas"**: provisionada de forma determinística por usuário (`ensureQuickNotesFolder` em `notes-api.ts`), verificando IndexedDB local e Supabase remoto para evitar duplicatas entre dispositivos. O botão principal da sidebar ("Criar nota") cria notas automaticamente dentro de "Notas Rápidas", auto-expandindo a pasta. O menu contextual de pastas mantém a criação na pasta de destino clicada com o botão direito.
+- **Criar subpasta**: opção exclusiva no menu contextual de pastas da sidebar (`SidebarContextMenu.tsx`). Cria pasta com `parent_id` da pasta selecionada, expande o nó pai e aciona imediatamente o modo de renomeação inline.
+
+### Indentação de listas e hierarquia de marcadores
+- **Indentação por Tab / Shift+Tab**: `ParagraphTabIndentExtension` em `editor-config.ts` detecta se a seleção atual está em um `listItem` ou `taskItem`. Caso positivo, repassa o comando para `sinkListItem` / `liftListItem`, permitindo aninhamento hierárquico correto de listas sem interferir no recuo de parágrafos padrão.
+- **Hierarquia visual de marcadores**: configurada em `app/globals.css` para `ul:not([data-type="taskList"])` com sequência cíclica: Nível 0 (`disc`), Nível 1 (`circle`), Nível 2 (`square`) e repetição nos níveis subsequentes, com recuo visual padronizado de 1.25rem por nível. Listas ordenadas mantêm numeração e recuo consistente em todos os níveis.
+
+### Cópia para área de transferência em texto limpo
+- Configuração `transformCopiedText: false` na extensão `Markdown` (`editor-config.ts`) combinada com `clipboardTextSerializer` no `NoteEditor.tsx`.
+- Ao copiar trechos do editor (Ctrl+C / Cmd+C), `text/plain` exporta texto limpo e legível sem marcadores Markdown crus (`**`, `*`, `~~`, `[]()`, `#`, `-`), enquanto `text/html` preserva a formatação rica para destinos compatíveis (Google Docs, Word).
+- O armazenamento interno do documento, JSON e Markdown persistidos no IndexedDB e Supabase permanecem 100% inalterados.
+
+### Visualizador de imagens (Lightbox) e navegação por teclado
+- **Navegação com setas**: dentro do Lightbox em `ImageNodeView.tsx`, teclas `ArrowRight` (próxima imagem) e `ArrowLeft` (imagem anterior) percorrem as imagens da nota ativa na ordem vertical em que surgem no documento.
+- Ao navegar entre imagens, o estado de zoom e pan é restaurado para 100% e centralizado, e a legenda ativa (`caption`) é atualizada de forma sincronizada.
+- A interface exibe botões discretos de navegação lateral (`ChevronLeft`, `ChevronRight`) e indicador numérico `index + 1 / total` quando a nota possui mais de uma imagem. O fechamento por `Escape`, clique externo, arraste (pan) e zoom suave por scroll permanecem preservados.
+
 ### Abas
 
 Abas e divisão são estado de interface, não duplicação de notas. Fechar aba não exclui nota; excluir nota precisa limpar as abas associadas; trocar de lado não deve mudar folder_id. Salve/flush conteúdo pendente antes das trocas quando o fluxo atual exigir. Respeite workspace e seleção ao navegar por links internos.

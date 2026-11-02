@@ -13,6 +13,7 @@ import {
   Star,
   Columns2,
   ExternalLink,
+  FolderPlus,
 } from 'lucide-react';
 import { Folder as FolderType, Note as NoteType } from '../types';
 import { FOLDER_PRESET_COLORS } from './sidebar-constants';
@@ -29,6 +30,7 @@ interface SidebarContextMenuProps {
   onClose: () => void;
   onStartRenaming: (id: string, type: 'folder' | 'note', name: string) => void;
   onCreateNoteInFolder?: (folderId: string) => void;
+  onCreateSubfolder?: (parentFolderId: string) => void;
   onSplitNote?: (noteId: string) => void;
   onOpenNoteInNewTab?: (noteId: string) => void;
   onArchiveNote?: (id: string) => void;
@@ -58,6 +60,7 @@ export function SidebarContextMenu({
   onClose,
   onStartRenaming,
   onCreateNoteInFolder,
+  onCreateSubfolder,
   onSplitNote,
   onOpenNoteInNewTab,
   onArchiveNote,
@@ -215,6 +218,23 @@ export function SidebarContextMenu({
           >
             <Plus className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
             <span>Criar nota</span>
+          </button>
+
+          {/* Opção: Criar subpasta */}
+          <button
+            id="context-menu-create-subfolder-btn"
+            type="button"
+            onClick={() => {
+              if (onCreateSubfolder && menuOpenId) {
+                onCreateSubfolder(menuOpenId);
+              }
+              onClose();
+            }}
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
+            title="Criar subpasta"
+          >
+            <FolderPlus className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
+            <span>Criar subpasta</span>
           </button>
 
           {/* Opção: Cor da pasta > (com Submenu Lateral) */}

@@ -27,6 +27,8 @@ import {
   reorderNotesBatch,
   flushNoteSaves,
   flushAllPendingSaves,
+  ensureQuickNotesFolder,
+  isQuickNotesFolder,
 } from '@/src/features/notes/api/notes-api';
 import { syncEngine } from '@/src/features/notes/api/sync-engine';
 import { saveQueue } from '@/src/features/notes/api/save-queue';
@@ -256,7 +258,17 @@ export function MainLayout() {
         const { folders: fetchedFolders, notes: fetchedNotes } = await fetchFoldersAndNotes(currentUserId, 'notes');
         if (!isMounted) return;
 
-        setFolders(fetchedFolders);
+        let allFolders = fetchedFolders;
+        try {
+          const quickFolder = await ensureQuickNotesFolder(currentUserId);
+          if (!allFolders.some((f) => f.id === quickFolder.id)) {
+            allFolders = [quickFolder, ...allFolders];
+          }
+        } catch (qErr) {
+          console.warn('[MainLayout] Aviso ao provisionar Notas Rápidas na inicialização:', qErr);
+        }
+
+        setFolders(allFolders);
         setNotes(fetchedNotes);
 
         const savedActiveId =
@@ -864,12 +876,11 @@ export function MainLayout() {
   }, [router]);
 
   // Handlers de Pastas
-  const handleCreateFolder = useCallback(async () => {
-    // Toda nova pasta nasce SEMPRE na raiz (parent_id: null)
-    const position = folders.filter((f) => f.parent_id === null).length;
+  const handleCreateFolder = useCallback(async (parentId: string | null = null) => {
+    const position = folders.filter((f) => f.parent_id === (parentId || null)).length;
     const newFolder = await createFolder(userId, {
       name: 'Nova pasta',
-      parentId: null,
+      parentId: parentId || null,
       position,
       workspaceType: 'notes',
     });
@@ -938,8 +949,23 @@ export function MainLayout() {
 
   // Handlers de Notas (com persistência em Markdown no Supabase Storage)
   const handleCreateNote = useCallback(async (folderId: string | null = null, openInNewTab: boolean = false) => {
-    // Se folderId for especificado, calcula a posição dentro daquela pasta; caso contrário, na raiz
-    const targetFolderId = folderId || null;
+    // Se folderId não for especificado, utiliza obrigatoriamente a pasta "Notas Rápidas"
+    let targetFolderId = folderId;
+    if (!targetFolderId) {
+      const quickNotesFolder = folders.find(isQuickNotesFolder);
+      if (quickNotesFolder) {
+        targetFolderId = quickNotesFolder.id;
+      } else {
+        try {
+          const createdQuickFolder = await ensureQuickNotesFolder(userId);
+          targetFolderId = createdQuickFolder.id;
+          setFolders((prev) => (prev.some((f) => f.id === createdQuickFolder.id) ? prev : [createdQuickFolder, ...prev]));
+        } catch {
+          targetFolderId = null;
+        }
+      }
+    }
+
     const position = notes.filter((n) => n.folder_id === targetFolderId).length;
 
     const newNote = await createNote(userId, {
@@ -974,7 +1000,7 @@ export function MainLayout() {
     }
 
     return newNote.id;
-  }, [userId, notes, tabs.length, activeTabId, isSplit, activeSplitPane]);
+  }, [userId, notes, folders, tabs.length, activeTabId, isSplit, activeSplitPane]);
 
   // Cria uma nova aba via botão +
   const handleNewTab = useCallback(async () => {

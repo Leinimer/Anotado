@@ -12,6 +12,8 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   moveNodeBlock,
@@ -22,7 +24,11 @@ import {
   isMediaInCache,
   perfProfiler,
 } from '../utils/media-optimizer';
-import { getMediaAlignmentClass, getCachedAttachmentUrl } from '../utils/media-common';
+import {
+  getMediaAlignmentClass,
+  getCachedAttachmentUrl,
+  resolveAttachmentSource,
+} from '../utils/media-common';
 import { useAttachmentSource } from '../hooks/use-attachment-source';
 import { useMediaResize } from '../hooks/use-media-resize';
 import { MediaResizeHandles } from '../ui/MediaResizeHandles';
@@ -92,14 +98,57 @@ export function ImageNodeView(props: NodeViewProps) {
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const didDragRef = useRef(false);
 
+  // Lista de imagens do documento para navegação por teclado no Lightbox
+  interface DocImageItem {
+    pos: number;
+    rawSrc: string;
+    alt: string;
+    caption: string;
+    title: string;
+  }
+
+  const [lightboxImages, setLightboxImages] = useState<DocImageItem[]>([]);
+  const [activeLightboxIndex, setActiveLightboxIndex] = useState<number>(0);
+  const [resolvedLightboxUrls, setResolvedLightboxUrls] = useState<Record<string, string>>({});
+
+  const getDocImages = useCallback((): DocImageItem[] => {
+    if (!editor || !editor.state || !editor.state.doc) return [];
+    const list: DocImageItem[] = [];
+    editor.state.doc.descendants((pmNode, pos) => {
+      if (pmNode.type.name === 'image') {
+        list.push({
+          pos,
+          rawSrc: pmNode.attrs.src || '',
+          alt: pmNode.attrs.alt || '',
+          caption: (pmNode.attrs.caption as string) || '',
+          title: pmNode.attrs.title || '',
+        });
+      }
+    });
+    return list;
+  }, [editor]);
+
   // Abertura e fechamento com reset limpo e atômico do zoom e pan
   const openLightbox = useCallback(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setIsPanning(false);
     didDragRef.current = false;
+
+    const images = getDocImages();
+    setLightboxImages(images);
+
+    const myPos = typeof getPos === 'function' ? getPos() : -1;
+    let idx = images.findIndex((img) => img.pos === myPos);
+    if (idx === -1) {
+      idx = images.findIndex((img) => img.rawSrc === rawSrc);
+    }
+    if (idx === -1) {
+      idx = 0;
+    }
+    setActiveLightboxIndex(idx);
     setIsLightboxOpen(true);
-  }, []);
+  }, [getDocImages, getPos, rawSrc]);
 
   const closeLightbox = useCallback(() => {
     setIsLightboxOpen(false);
@@ -108,6 +157,28 @@ export function ImageNodeView(props: NodeViewProps) {
     setIsPanning(false);
     didDragRef.current = false;
   }, []);
+
+  const goToPrevImage = useCallback(() => {
+    setActiveLightboxIndex((prev) => {
+      if (prev <= 0) return prev;
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      setIsPanning(false);
+      didDragRef.current = false;
+      return prev - 1;
+    });
+  }, []);
+
+  const goToNextImage = useCallback(() => {
+    setActiveLightboxIndex((prev) => {
+      if (prev >= lightboxImages.length - 1) return prev;
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      setIsPanning(false);
+      didDragRef.current = false;
+      return prev + 1;
+    });
+  }, [lightboxImages.length]);
 
   // Touch tracking para Mobile
   const touchStartDistRef = useRef<number | null>(null);
@@ -392,13 +463,55 @@ export function ImageNodeView(props: NodeViewProps) {
     };
   }, []);
 
-  // Fecha o Lightbox ao pressionar Escape e bloqueia scroll de fundo
+  const activeImage = lightboxImages[activeLightboxIndex] || {
+    pos: typeof getPos === 'function' ? getPos() : 0,
+    rawSrc,
+    alt,
+    caption,
+    title,
+  };
+
+  const activeLightboxUrl =
+    activeImage.rawSrc === rawSrc
+      ? displayedSrc || currentSrc || rawSrc
+      : resolvedLightboxUrls[activeImage.rawSrc] ||
+        getCachedAttachmentUrl(activeImage.rawSrc) ||
+        activeImage.rawSrc;
+
+  const activeLightboxCaption = activeImage.caption;
+  const activeLightboxAlt = activeImage.alt || activeLightboxCaption || 'Visualização ampliada da imagem';
+
+  // Pré-carrega/resolve fontes de anexos para imagens navegadas no Lightbox
+  useEffect(() => {
+    if (!isLightboxOpen) return;
+    const targetSrc = activeImage.rawSrc;
+    if (!targetSrc || targetSrc === rawSrc || resolvedLightboxUrls[targetSrc]) return;
+    if (getCachedAttachmentUrl(targetSrc)) return;
+
+    if (targetSrc.startsWith('attachment://') || targetSrc.startsWith('local-attachment://')) {
+      resolveAttachmentSource(targetSrc, currentUserId).then((res) => {
+        const resolved = res.resolvedUrl;
+        if (resolved) {
+          setResolvedLightboxUrls((prev) => ({ ...prev, [targetSrc]: resolved }));
+        }
+      });
+    }
+  }, [isLightboxOpen, activeImage.rawSrc, rawSrc, currentUserId, resolvedLightboxUrls]);
+
+  // Teclado no Lightbox: Escape para fechar, ArrowRight para próxima, ArrowLeft para anterior
   useEffect(() => {
     if (!isLightboxOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
         closeLightbox();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goToNextImage();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToPrevImage();
       }
     };
 
@@ -410,7 +523,7 @@ export function ImageNodeView(props: NodeViewProps) {
       document.body.style.overflow = originalOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isLightboxOpen, closeLightbox]);
+  }, [isLightboxOpen, closeLightbox, goToNextImage, goToPrevImage]);
 
   // Handler de Long Press para Mobile / Tablet e Clique para Desktop
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -743,7 +856,7 @@ export function ImageNodeView(props: NodeViewProps) {
             aria-modal="true"
             aria-label="Visualização ampliada da imagem"
           >
-            {/* Header com Controles de Zoom e Botão Fechar */}
+            {/* Header com Controles de Zoom, Indicador de Imagens e Botão Fechar */}
             <div
               className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex items-center justify-between z-30 pointer-events-auto"
               onClick={(e) => e.stopPropagation()}
@@ -795,6 +908,15 @@ export function ImageNodeView(props: NodeViewProps) {
                 )}
               </div>
 
+              {/* Indicador de Imagem Atual / Total */}
+              {lightboxImages.length > 1 && (
+                <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md border border-white/10 px-3 py-1 rounded-full text-white text-xs font-sans-ui shadow-lg">
+                  <span className="font-mono text-[11px] text-white/90">
+                    {activeLightboxIndex + 1} / {lightboxImages.length}
+                  </span>
+                </div>
+              )}
+
               {/* Botão Fechar */}
               <button
                 id="image-lightbox-close-btn"
@@ -810,6 +932,48 @@ export function ImageNodeView(props: NodeViewProps) {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Botão Anterior (Seta Esquerda) */}
+            {lightboxImages.length > 1 && (
+              <button
+                type="button"
+                disabled={activeLightboxIndex <= 0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goToPrevImage();
+                }}
+                className={`absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 z-30 p-2 sm:p-3 rounded-full transition-all cursor-pointer pointer-events-auto ${
+                  activeLightboxIndex <= 0
+                    ? 'opacity-20 cursor-not-allowed bg-black/20 text-white/40'
+                    : 'bg-black/60 hover:bg-black/80 text-white hover:scale-105 border border-white/10 shadow-lg'
+                }`}
+                title="Imagem anterior (Seta para a esquerda)"
+                aria-label="Imagem anterior"
+              >
+                <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+              </button>
+            )}
+
+            {/* Botão Próxima (Seta Direita) */}
+            {lightboxImages.length > 1 && (
+              <button
+                type="button"
+                disabled={activeLightboxIndex >= lightboxImages.length - 1}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goToNextImage();
+                }}
+                className={`absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 z-30 p-2 sm:p-3 rounded-full transition-all cursor-pointer pointer-events-auto ${
+                  activeLightboxIndex >= lightboxImages.length - 1
+                    ? 'opacity-20 cursor-not-allowed bg-black/20 text-white/40'
+                    : 'bg-black/60 hover:bg-black/80 text-white hover:scale-105 border border-white/10 shadow-lg'
+                }`}
+                title="Próxima imagem (Seta para a direita)"
+                aria-label="Próxima imagem"
+              >
+                <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+              </button>
+            )}
 
             {/* Container Interativo de Imagem com Zoom via Wheel e Pan via Mouse Drag */}
             <div
@@ -830,8 +994,8 @@ export function ImageNodeView(props: NodeViewProps) {
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={displayedSrc || currentSrc || rawSrc}
-                alt={alt || caption || 'Visualização ampliada da imagem'}
+                src={activeLightboxUrl}
+                alt={activeLightboxAlt}
                 draggable={false}
                 style={{
                   transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
@@ -845,9 +1009,9 @@ export function ImageNodeView(props: NodeViewProps) {
             </div>
 
             {/* Legenda Discreta no Visualizador se Existente */}
-            {caption && (
+            {activeLightboxCaption && (
               <div className="absolute bottom-5 left-1/2 -translate-x-1/2 max-w-[85vw] px-4 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-white/90 text-xs sm:text-sm font-sans-ui text-center pointer-events-none z-20 shadow-md border border-white/10">
-                {caption}
+                {activeLightboxCaption}
               </div>
             )}
           </div>,

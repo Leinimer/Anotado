@@ -92,6 +92,9 @@ export function NoteEditor({
         class:
           'tiptap-note-content-editable focus:outline-none min-h-[420px] text-[#1b1c19] dark:text-[#ededed] font-serif-note text-base sm:text-lg leading-[1.6] selection:bg-[#f4dfcb] selection:text-[#1b1c19] dark:selection:bg-[#333333] dark:selection:text-[#ffffff]',
       },
+      clipboardTextSerializer: (slice) => {
+        return slice.content.textBetween(0, slice.content.size, '\n\n', '\n');
+      },
       handlePaste: (view, event, slice) => {
         // 1. Verifica se há arquivo de imagem ou anexo no clipboardData (files ou items)
         let file: File | null = null;

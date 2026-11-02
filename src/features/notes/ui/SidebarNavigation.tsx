@@ -445,11 +445,29 @@ export function SidebarNavigation({
     }
   };
 
-  // Criação de Nova Nota SEMPRE na raiz (folder_id = null)
+  // Criação de Nova Nota: sempre na pasta Notas Rápidas
   const handleTriggerCreateNote = async () => {
-    await onCreateNote(null);
+    let targetFolderId: string | null = null;
+    const quickFolder = folders.find((f) => {
+      if ((f.workspace_type || 'notes') !== 'notes') return false;
+      const n = (f.name || '').trim().toLowerCase();
+      return n === 'notas rápidas' || n === 'notas rapidas';
+    });
+    if (quickFolder) {
+      targetFolderId = quickFolder.id;
+      setOpenFolderIds((prev) => new Set([...prev, quickFolder.id]));
+    }
+    await onCreateNote(targetFolderId);
     if (onCloseMobile) {
       onCloseMobile();
+    }
+  };
+
+  const handleCreateSubfolder = async (parentFolderId: string) => {
+    setOpenFolderIds((prev) => new Set([...prev, parentFolderId]));
+    const createdId = await onCreateFolder(parentFolderId);
+    if (createdId && typeof createdId === 'string') {
+      startRenaming(createdId, 'folder', 'Nova pasta');
     }
   };
 
@@ -492,7 +510,7 @@ export function SidebarNavigation({
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const menuWidth = 175;
-    const menuHeight = type === 'folder' ? 220 : 172;
+    const menuHeight = type === 'folder' ? 260 : 172;
     const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
     const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
 
@@ -518,7 +536,7 @@ export function SidebarNavigation({
     e.stopPropagation();
 
     const menuWidth = 175;
-    const menuHeight = type === 'folder' ? 220 : 172;
+    const menuHeight = type === 'folder' ? 260 : 172;
     const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
     const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
 
@@ -2038,6 +2056,7 @@ export function SidebarNavigation({
           setOpenFolderIds((prev) => new Set([...prev, folderId]));
           await onCreateNote(folderId);
         }}
+        onCreateSubfolder={handleCreateSubfolder}
         onOpenCustomColor={(folderId) => {
           setCustomColorFolderId(folderId);
           setMenuOpenId(null);

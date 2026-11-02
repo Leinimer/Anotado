@@ -108,19 +108,67 @@ export const CustomLink = Link.extend({
 export const ParagraphTabIndentExtension = Extension.create({
   name: 'paragraphTabIndent',
   addProseMirrorPlugins() {
+    const editor = this.editor;
     return [
       new Plugin({
         key: new PluginKey('paragraphTabIndent'),
         props: {
           handleKeyDown(view, event) {
-            if (event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+            if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) {
               return false;
             }
 
             const { state } = view;
             const { selection } = state;
+            const { $from } = selection;
 
-            // A ação é destinada ao corpo do texto (parágrafos), não a headings/listas.
+            // 1. Verifica se o cursor está dentro de uma lista de marcadores, numerada ou checklist
+            let listType: 'listItem' | 'taskItem' | null = null;
+            for (let d = $from.depth; d > 0; d--) {
+              const nodeName = $from.node(d).type.name;
+              if (nodeName === 'listItem') {
+                listType = 'listItem';
+                break;
+              }
+              if (nodeName === 'taskItem') {
+                listType = 'taskItem';
+                break;
+              }
+            }
+
+            // Tratamento em listas com marcadores e numeradas (listItem)
+            if (listType === 'listItem') {
+              event.preventDefault();
+              event.stopPropagation();
+              if (event.shiftKey) {
+                // Shift + Tab: volta um nível na hierarquia (lift)
+                editor.commands.liftListItem('listItem');
+              } else {
+                // Tab: transforma em subtópico subordinado ao item anterior (sink)
+                editor.commands.sinkListItem('listItem');
+              }
+              return true;
+            }
+
+            // Tratamento em listas de tarefas (taskItem)
+            if (listType === 'taskItem') {
+              event.preventDefault();
+              event.stopPropagation();
+              if (event.shiftKey) {
+                editor.commands.liftListItem('taskItem');
+              } else {
+                editor.commands.sinkListItem('taskItem');
+              }
+              return true;
+            }
+
+            // 2. Fora de listas: se for Shift + Tab, apenas previne a perda de foco
+            if (event.shiftKey) {
+              event.preventDefault();
+              return true;
+            }
+
+            // 3. Tab em parágrafo comum: insere os 4 espaços não separáveis persistentes
             if (!selection.empty || selection.$from.parent.type.name !== 'paragraph') {
               return false;
             }
@@ -128,8 +176,6 @@ export const ParagraphTabIndentExtension = Extension.create({
             event.preventDefault();
             event.stopPropagation();
 
-            // Espaços não separáveis são usados para que a indentação seja preservada
-            // pelo HTML/ProseMirror e continue visível após salvar/recarregar a nota.
             const indentation = '\u00A0\u00A0\u00A0\u00A0';
             const tr = state.tr.insertText(indentation, selection.from, selection.to);
             tr.setSelection(TextSelection.create(tr.doc, selection.from + indentation.length));
@@ -294,6 +340,6 @@ export const defaultEditorExtensions = [
     linkify: true,
     breaks: false,
     transformPastedText: true,
-    transformCopiedText: true,
+    transformCopiedText: false,
   }),
 ];

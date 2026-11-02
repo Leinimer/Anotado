@@ -561,6 +561,81 @@ export async function createFolder(
   return newFolder;
 }
 
+export const QUICK_NOTES_FOLDER_NAME = 'Notas Rápidas';
+
+/**
+ * Verifica se uma pasta corresponde à pasta "Notas Rápidas" de forma resiliente a caixa e espaços.
+ */
+export function isQuickNotesFolder(folder: { name?: string | null; workspace_type?: string | null }): boolean {
+  if ((folder.workspace_type || 'notes') !== 'notes') return false;
+  const normalized = (folder.name || '').trim().toLowerCase();
+  return normalized === 'notas rápidas' || normalized === 'notas rapidas';
+}
+
+/**
+ * Garante a existência da pasta canônica "Notas Rápidas" para o usuário atual:
+ * 1. Procura primeiro no IndexedDB local do usuário.
+ * 2. Se online e não encontrada localmente, verifica no Supabase para evitar duplicatas entre dispositivos.
+ * 3. Se não existir em nenhum local, cria a pasta de forma resiliente persistindo no IndexedDB e SyncQueue.
+ */
+export async function ensureQuickNotesFolder(userId: string): Promise<Folder> {
+  if (!userId) {
+    throw new Error('userId é obrigatório para provisionar Notas Rápidas');
+  }
+
+  // 1. Procura no IndexedDB local
+  try {
+    const localFolders = await indexedDBStorage.getAllFolders(userId, 'notes');
+    const existingLocal = localFolders.find(isQuickNotesFolder);
+    if (existingLocal) {
+      return existingLocal;
+    }
+  } catch (err) {
+    console.warn('[NotesAPI] Erro ao consultar IndexedDB para Notas Rápidas:', err);
+  }
+
+  // 2. Se online e Supabase configurado, verifica remotamente antes de criar (evita duplicação multi-dispositivo)
+  if (
+    isSupabaseConfigured() &&
+    networkMonitor.getState().isBackendReachable &&
+    !networkMonitor.getIsQuotaExceeded()
+  ) {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('folders')
+        .select('id, user_id, name, parent_id, position, color, is_smart, smart_tags, revision, workspace_type, diary_year, diary_month, created_at, updated_at')
+        .eq('user_id', userId)
+        .eq('workspace_type', 'notes');
+
+      if (!error && data && data.length > 0) {
+        const existingRemote = data.find(isQuickNotesFolder);
+        if (existingRemote) {
+          const syncedFolder: ExtendedFolder = {
+            ...existingRemote,
+            syncRequired: false,
+            syncStatus: 'synced',
+            sync_status: 'synced',
+            needs_sync: false,
+          };
+          await indexedDBStorage.putFolder(userId, syncedFolder);
+          return syncedFolder;
+        }
+      }
+    } catch (remoteErr) {
+      console.warn('[NotesAPI] Erro ao verificar pasta Notas Rápidas no Supabase:', remoteErr);
+    }
+  }
+
+  // 3. Não encontrada em nenhum local: cria a pasta no IndexedDB e enfileira na SyncQueue
+  return await createFolder(userId, {
+    name: QUICK_NOTES_FOLDER_NAME,
+    parentId: null,
+    position: 0,
+    workspaceType: 'notes',
+  });
+}
+
 /**
  * Renomeia uma pasta no IndexedDB e enfileira para sincronização.
  */
