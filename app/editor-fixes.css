@@ -52,6 +52,39 @@
   -webkit-user-drag: none !important;
 }
 
+/* Contraste explícito da caixa de legenda em ambos os temas.
+   O ProseMirror define -webkit-text-fill-color no editor; sem esta regra,
+   esse valor herdado pode fazer o textarea aparecer branco sobre fundo claro. */
+.image-node-view-wrapper .image-caption-editor {
+  overflow: visible !important;
+}
+
+.image-node-view-wrapper textarea.image-caption-textarea {
+  color: #5e534b !important;
+  -webkit-text-fill-color: #5e534b !important;
+  caret-color: #5e534b !important;
+  background-color: #fbf9f4 !important;
+  resize: both !important;
+  overflow: auto !important;
+  min-width: 180px;
+  max-width: min(90vw, 900px) !important;
+  box-sizing: border-box !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-appearance: none;
+}
+
+.image-node-view-wrapper textarea.image-caption-textarea::selection {
+  color: #251e19 !important;
+  -webkit-text-fill-color: #251e19 !important;
+  background: #d7b99c !important;
+}
+
+.image-node-view-wrapper textarea.image-caption-textarea::-moz-selection {
+  color: #251e19 !important;
+  background: #d7b99c !important;
+}
+
 /* Contraste consistente para caixas de diálogo, popovers, menus e formulários no modo escuro.
    Cores de referência:
    - Fundo principal dos pop-ups/modais/menus: #2a2826 ou #302d2a
