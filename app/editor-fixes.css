@@ -44,9 +44,34 @@
 }
 
 /* Contraste consistente para caixas de diálogo, popovers, menus e formulários no modo escuro.
-   Evita texto marrom/cinza escuro sobre fundos pretos. */
+   Cores de referência:
+   - Fundo principal dos pop-ups/modais/menus: #2a2826 ou #302d2a
+   - Texto principal: #e8e4df
+   - Texto secundário / labels sutis: #c8c1ba ou #a9a19a
+   - Bordas: #5a514a
+   - Fundo de inputs / textareas: #3a3531
+   - Placeholder de inputs: #a9a19a
+   - Hover de itens / botões secundários: #3e3834 com texto #f5f3ee */
 .dark [role="dialog"],
 .dark [role="alertdialog"],
+.dark [aria-modal="true"],
+.dark #item-context-menu,
+.dark #folder-color-lateral-submenu,
+.dark #link-insert-modal,
+.dark #internal-note-reference-modal,
+.dark #share-diary-modal-card,
+.dark #confirm-delete-modal-card,
+.dark #batch-delete-modal-card,
+.dark #tags-modal-container,
+.dark #batch-move-modal-card,
+.dark #settings-modal-card,
+.dark #folder-custom-color-modal-card,
+.dark #smart-folder-modal-card,
+.dark #sync-pending-modal-card,
+.dark #create-diary-entry-modal-card,
+.dark #create-diary-year-modal-card,
+.dark #pwa-install-modal-card,
+.dark #pending-invitation-modal-card,
 .dark [data-radix-dialog-content],
 .dark [data-radix-popover-content],
 .dark [data-radix-dropdown-menu-content],
@@ -61,11 +86,19 @@
 .dark .dropdown-menu {
   background-color: #2a2826 !important;
   color: #e8e4df !important;
-  border-color: #5a524c !important;
+  border-color: #5a514a !important;
 }
 
 .dark [role="dialog"] *,
 .dark [role="alertdialog"] *,
+.dark #item-context-menu *,
+.dark #folder-color-lateral-submenu *,
+.dark #link-insert-modal *,
+.dark #internal-note-reference-modal *,
+.dark #share-diary-modal-card *,
+.dark #confirm-delete-modal-card *,
+.dark #batch-delete-modal-card *,
+.dark #tags-modal-container *,
 .dark [data-radix-dialog-content] *,
 .dark [data-radix-popover-content] *,
 .dark [data-radix-dropdown-menu-content] *,
@@ -78,62 +111,77 @@
 .dark .modal *,
 .dark .dialog *,
 .dark .dropdown-menu * {
-  border-color: #5a524c;
+  border-color: #5a514a;
 }
 
+/* Fundo e borda de inputs, textareas e selects em modais e popups */
 .dark [role="dialog"] input,
 .dark [role="dialog"] textarea,
 .dark [role="dialog"] select,
-.dark [role="dialog"] button,
 .dark [role="alertdialog"] input,
 .dark [role="alertdialog"] textarea,
 .dark [role="alertdialog"] select,
-.dark [role="alertdialog"] button,
-.dark [data-radix-dialog-content] input,
-.dark [data-radix-dialog-content] textarea,
-.dark [data-radix-dialog-content] select,
-.dark [data-radix-dialog-content] button,
-.dark [data-radix-popover-content] input,
-.dark [data-radix-popover-content] textarea,
-.dark [data-radix-popover-content] select,
-.dark [data-radix-popover-content] button {
-  color: #e8e4df !important;
-}
-
-.dark [role="dialog"] input,
-.dark [role="dialog"] textarea,
-.dark [role="dialog"] select,
+.dark #link-insert-modal input,
+.dark #internal-note-reference-modal input,
+.dark #share-diary-modal-card input,
+.dark #tags-modal-container input,
 .dark [data-radix-dialog-content] input,
 .dark [data-radix-dialog-content] textarea,
 .dark [data-radix-dialog-content] select,
 .dark [data-radix-popover-content] input,
 .dark [data-radix-popover-content] textarea,
 .dark [data-radix-popover-content] select {
-  background-color: #35312e !important;
-  border: 1px solid #6b6159 !important;
+  background-color: #3a3531 !important;
+  border-color: #5a514a !important;
+  color: #e8e4df !important;
 }
 
+/* Placeholders de inputs no modo escuro */
 .dark [role="dialog"] input::placeholder,
 .dark [role="dialog"] textarea::placeholder,
+.dark [role="alertdialog"] input::placeholder,
+.dark [role="alertdialog"] textarea::placeholder,
+.dark #link-insert-modal input::placeholder,
+.dark #internal-note-reference-modal input::placeholder,
+.dark #share-diary-modal-card input::placeholder,
+.dark #tags-modal-container input::placeholder,
 .dark [data-radix-dialog-content] input::placeholder,
 .dark [data-radix-dialog-content] textarea::placeholder,
 .dark [data-radix-popover-content] input::placeholder,
 .dark [data-radix-popover-content] textarea::placeholder {
-  color: #bdb4ac !important;
+  color: #a9a19a !important;
   opacity: 1 !important;
 }
 
+/* Hover de itens e botões em modais, menus e popovers */
 .dark [role="dialog"] button:hover,
 .dark [role="alertdialog"] button:hover,
+.dark #item-context-menu button:hover,
+.dark #folder-color-lateral-submenu button:hover,
+.dark #link-insert-modal button:hover,
+.dark #internal-note-reference-modal button:hover,
+.dark #internal-note-reference-modal [data-note-item]:hover,
+.dark #share-diary-modal-card button:hover,
+.dark #tags-modal-container button:hover,
 .dark [data-radix-dialog-content] button:hover,
 .dark [data-radix-popover-content] button:hover,
 .dark [data-radix-dropdown-menu-content] button:hover,
 .dark [data-radix-context-menu-content] button:hover {
-  background-color: #4a433e !important;
-  color: #f2eee9 !important;
+  background-color: #3e3834 !important;
+  color: #f5f3ee !important;
 }
 
-/* Controles nativos de inserção que podem não usar Radix. */
+/* Textos secundários sutis */
+.dark [role="dialog"] label,
+.dark [role="dialog"] .text-xs,
+.dark [role="dialog"] p.text-xs,
+.dark #internal-note-reference-modal p.text-xs,
+.dark #share-diary-modal-card p.text-xs,
+.dark #tags-modal-container p.text-xs {
+  color: #c8c1ba;
+}
+
+/* Controles nativos de inserção */
 .dark input,
 .dark textarea,
 .dark select {

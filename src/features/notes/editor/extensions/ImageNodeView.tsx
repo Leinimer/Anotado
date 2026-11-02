@@ -39,7 +39,7 @@ export function ImageNodeView(props: NodeViewProps) {
   const rawSrc = node.attrs.src || '';
   const alt = node.attrs.alt || '';
   const title = node.attrs.title || '';
-  const initialWidthAttr = node.attrs.width || '50%';
+  const initialWidthAttr = node.attrs.width || '100%';
   const alignment = (node.attrs.alignment as 'left' | 'center' | 'right') || 'center';
   const caption = (node.attrs.caption as string) || '';
 
@@ -49,6 +49,8 @@ export function ImageNodeView(props: NodeViewProps) {
 
   const [isLocalSelected, setIsLocalSelected] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [isCaptionInteracting, setIsCaptionInteracting] = useState(false);
+  const captionClickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [aspectRatio, setAspectRatio] = useState<number>(() => {
     // Se tiver dimensões no atributo
     if (node.attrs.height && node.attrs.width && Number(node.attrs.height) > 0) {
@@ -74,6 +76,14 @@ export function ImageNodeView(props: NodeViewProps) {
       captionInputRef.current.select();
     }
   }, [isEditingCaption]);
+
+  useEffect(() => {
+    return () => {
+      if (captionClickTimeoutRef.current) {
+        clearTimeout(captionClickTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleSaveCaption = useCallback(
     (text: string) => {
@@ -389,7 +399,7 @@ export function ImageNodeView(props: NodeViewProps) {
       ? typeof initialWidthAttr === 'number'
         ? `${initialWidthAttr}px`
         : initialWidthAttr
-      : '50%';
+      : '100%';
 
   // IntersectionObserver para Lazy Loading progressivo e não-bloqueante
   useEffect(() => {
@@ -649,7 +659,7 @@ export function ImageNodeView(props: NodeViewProps) {
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
-      draggable={editor?.isEditable ?? false}
+      draggable={isCaptionInteracting ? false : (editor?.isEditable ?? false)}
     >
       <div
         className={`relative inline-block max-w-full transition-shadow duration-150 ${
@@ -789,6 +799,12 @@ export function ImageNodeView(props: NodeViewProps) {
           <div
             className="mt-1.5 w-full flex items-center gap-1.5 px-0.5"
             onClick={(e) => e.stopPropagation()}
+            onMouseEnter={() => setIsCaptionInteracting(true)}
+            onMouseLeave={() => setIsCaptionInteracting(false)}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              setIsCaptionInteracting(true);
+            }}
           >
             <input
               ref={captionInputRef}
@@ -823,16 +839,57 @@ export function ImageNodeView(props: NodeViewProps) {
           </div>
         ) : caption ? (
           <figcaption
-            className={`mt-1.5 text-xs text-[#7f756e] font-sans-ui leading-relaxed break-words px-1 select-text ${
-              alignment === 'left' ? 'text-left' : alignment === 'right' ? 'text-right' : 'text-center'
-            } ${editor?.isEditable ? 'cursor-pointer hover:text-[#5e534b]' : ''}`}
-            onClick={(e) => {
-              if (editor?.isEditable) {
-                e.stopPropagation();
-                setIsEditingCaption(true);
+            draggable={false}
+            onMouseEnter={() => setIsCaptionInteracting(true)}
+            onMouseLeave={() => setIsCaptionInteracting(false)}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              setIsCaptionInteracting(true);
+            }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              setIsCaptionInteracting(true);
+            }}
+            onDragStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (captionClickTimeoutRef.current) {
+                clearTimeout(captionClickTimeoutRef.current);
+                captionClickTimeoutRef.current = null;
               }
             }}
-            title={editor?.isEditable ? 'Clique para editar a legenda' : undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+              if (sel && sel.toString().trim().length > 0) {
+                // Seleção de texto ativa (por arraste do mouse ou duplo clique); preserva a seleção sem abrir o input
+                return;
+              }
+              if (editor?.isEditable) {
+                if (e.detail === 1) {
+                  if (captionClickTimeoutRef.current) clearTimeout(captionClickTimeoutRef.current);
+                  captionClickTimeoutRef.current = setTimeout(() => {
+                    const currentSel = typeof window !== 'undefined' ? window.getSelection() : null;
+                    if (!currentSel || !currentSel.toString().trim()) {
+                      setIsEditingCaption(true);
+                    }
+                  }, 250);
+                } else if (e.detail > 1) {
+                  if (captionClickTimeoutRef.current) {
+                    clearTimeout(captionClickTimeoutRef.current);
+                    captionClickTimeoutRef.current = null;
+                  }
+                }
+              }
+            }}
+            style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
+            className={`mt-1.5 text-xs text-[#7f756e] font-sans-ui leading-relaxed break-words px-1 select-text cursor-text ${
+              alignment === 'left' ? 'text-left' : alignment === 'right' ? 'text-right' : 'text-center'
+            } ${editor?.isEditable ? 'hover:text-[#5e534b]' : ''}`}
+            title={editor?.isEditable ? 'Clique para editar a legenda ou selecione o texto' : undefined}
           >
             {caption}
           </figcaption>

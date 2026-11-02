@@ -25,17 +25,19 @@ export function ConfirmDeleteModal({
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
       <div
         id="confirm-delete-modal-card"
+        role="dialog"
+        aria-modal="true"
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#fbf9f4] dark:bg-[#080808] border border-[#e4e2dd] dark:border-[#1f1f1f] rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95"
+        className="bg-[#fbf9f4] dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95 text-[#1b1c19] dark:text-[#e8e4df]"
       >
         <div className="flex items-center gap-3 text-[#ba1a1a]">
           <AlertTriangle className="w-6 h-6 shrink-0" />
-          <h3 className="font-serif-note font-bold text-lg text-[#1b1c19] dark:text-[#ffffff]">
+          <h3 className="font-serif-note font-bold text-lg text-[#1b1c19] dark:text-[#e8e4df]">
             Confirmar Exclusão
           </h3>
         </div>
 
-        <p className="font-sans-ui text-sm text-[#4e453f] dark:text-[#a1a1aa] leading-relaxed">
+        <p className="font-sans-ui text-sm text-[#4e453f] dark:text-[#c8c1ba] leading-relaxed">
           Deseja realmente excluir <strong>&quot;{confirmDelete.name}&quot;</strong>?
           {confirmDelete.hasChildren && (
             <span className="block mt-2 text-xs text-[#ba1a1a] font-medium">
@@ -48,7 +50,7 @@ export function ConfirmDeleteModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-sans-ui font-medium text-[#4e453f] dark:text-[#a1a1aa] hover:bg-[#e4e2dd] dark:hover:bg-[#1a1a1a] dark:hover:text-[#ffffff] transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-xl text-xs font-sans-ui font-medium text-[#4e453f] dark:text-[#c8c1ba] hover:bg-[#e4e2dd] dark:hover:bg-[#3e3834] dark:hover:text-[#f5f3ee] transition-colors cursor-pointer"
           >
             Cancelar
           </button>
@@ -85,17 +87,19 @@ export function BatchDeleteConfirmModal({
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
       <div
         id="batch-delete-modal-card"
+        role="dialog"
+        aria-modal="true"
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#fbf9f4] dark:bg-[#080808] border border-[#e4e2dd] dark:border-[#1f1f1f] rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95"
+        className="bg-[#fbf9f4] dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95 text-[#1b1c19] dark:text-[#e8e4df]"
       >
         <div className="flex items-center gap-3 text-[#ba1a1a]">
           <AlertTriangle className="w-6 h-6 shrink-0" />
-          <h3 className="font-serif-note font-bold text-lg text-[#1b1c19] dark:text-[#ffffff]">
+          <h3 className="font-serif-note font-bold text-lg text-[#1b1c19] dark:text-[#e8e4df]">
             Excluir {selectedCount} {selectedCount > 1 ? 'itens' : 'item'}?
           </h3>
         </div>
 
-        <p className="font-sans-ui text-sm text-[#4e453f] dark:text-[#a1a1aa] leading-relaxed">
+        <p className="font-sans-ui text-sm text-[#4e453f] dark:text-[#c8c1ba] leading-relaxed">
           Deseja realmente excluir os <strong>{selectedCount}</strong> itens selecionados?
           <span className="block mt-2 text-xs text-[#ba1a1a] font-medium">
             Esta ação removerá todas as notas e pastas selecionadas.
@@ -106,7 +110,7 @@ export function BatchDeleteConfirmModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-sans-ui font-medium text-[#4e453f] dark:text-[#a1a1aa] hover:bg-[#e4e2dd] dark:hover:bg-[#1a1a1a] dark:hover:text-[#ffffff] transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-xl text-xs font-sans-ui font-medium text-[#4e453f] dark:text-[#c8c1ba] hover:bg-[#e4e2dd] dark:hover:bg-[#3e3834] dark:hover:text-[#f5f3ee] transition-colors cursor-pointer"
           >
             Cancelar
           </button>

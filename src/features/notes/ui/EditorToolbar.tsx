@@ -1314,20 +1314,22 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
         >
           <div
             id="link-insert-modal"
-            className="bg-white border border-[#e4e2dd] p-5 rounded-2xl shadow-2xl max-w-md w-full font-sans-ui space-y-4"
+            role="dialog"
+            aria-modal="true"
+            className="bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] p-5 rounded-2xl shadow-2xl max-w-md w-full font-sans-ui space-y-4 text-[#1b1c19] dark:text-[#e8e4df]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <LinkIcon className="w-5 h-5 text-[#68594d]" />
-                <h3 className="font-semibold text-sm sm:text-base text-[#1b1c19]">
+                <LinkIcon className="w-5 h-5 text-[#68594d] dark:text-[#c8c1ba]" />
+                <h3 className="font-semibold text-sm sm:text-base text-[#1b1c19] dark:text-[#e8e4df]">
                   Inserir Link
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowLinkModal(false)}
-                className="p-1 text-[#7f756e] hover:text-[#1b1c19] rounded-lg hover:bg-[#eae8e3] cursor-pointer"
+                className="p-1 text-[#7f756e] dark:text-[#a9a19a] hover:text-[#1b1c19] dark:hover:text-[#f5f3ee] rounded-lg hover:bg-[#eae8e3] dark:hover:bg-[#3e3834] cursor-pointer transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1335,7 +1337,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
 
             <form onSubmit={handleLinkSubmit} className="space-y-3">
               <div>
-                <label className="block text-xs text-[#7f756e] mb-1 font-medium">
+                <label className="block text-xs text-[#7f756e] dark:text-[#c8c1ba] mb-1 font-medium">
                   URL / Endereço do Link *
                 </label>
                 <input
@@ -1345,12 +1347,12 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
                   onChange={(e) => setLinkModalUrl(e.target.value)}
                   autoFocus
                   required
-                  className="w-full bg-[#fbf9f4] border border-[#e4e2dd] focus:border-[#68594d] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#1b1c19] focus:outline-none font-mono"
+                  className="w-full bg-[#fbf9f4] dark:bg-[#3a3531] border border-[#e4e2dd] dark:border-[#5a514a] focus:border-[#68594d] dark:focus:border-[#827165] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#1b1c19] dark:text-[#e8e4df] placeholder-[#7f756e] dark:placeholder-[#a9a19a] focus:outline-none font-mono"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-[#7f756e] mb-1 font-medium">
+                <label className="block text-xs text-[#7f756e] dark:text-[#c8c1ba] mb-1 font-medium">
                   Texto de Exibição (opcional)
                 </label>
                 <input
@@ -1358,7 +1360,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
                   placeholder="Ex: Abrir Site"
                   value={linkModalText}
                   onChange={(e) => setLinkModalText(e.target.value)}
-                  className="w-full bg-[#fbf9f4] border border-[#e4e2dd] focus:border-[#68594d] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#1b1c19] focus:outline-none"
+                  className="w-full bg-[#fbf9f4] dark:bg-[#3a3531] border border-[#e4e2dd] dark:border-[#5a514a] focus:border-[#68594d] dark:focus:border-[#827165] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#1b1c19] dark:text-[#e8e4df] placeholder-[#7f756e] dark:placeholder-[#a9a19a] focus:outline-none"
                 />
               </div>
 
@@ -1366,7 +1368,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
                 <button
                   type="button"
                   onClick={() => setShowLinkModal(false)}
-                  className="px-3.5 py-1.5 text-xs text-[#7f756e] hover:text-[#1b1c19] rounded-xl hover:bg-[#f0eee9] font-medium cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs text-[#7f756e] dark:text-[#c8c1ba] hover:text-[#1b1c19] dark:hover:text-[#f5f3ee] rounded-xl hover:bg-[#f0eee9] dark:hover:bg-[#3e3834] font-medium cursor-pointer transition-colors"
                 >
                   Cancelar
                 </button>

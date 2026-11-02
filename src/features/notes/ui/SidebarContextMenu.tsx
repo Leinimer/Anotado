@@ -86,7 +86,7 @@ export function SidebarContextMenu({
         top: `${menuPosition.top}px`,
         left: `${menuPosition.left}px`,
       }}
-      className="bg-white dark:bg-[#0a0a0a] border border-[#e4e2dd] dark:border-[#1f1f1f] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[170px] font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
+      className="bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[170px] font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
       onClick={(e) => e.stopPropagation()}
     >
       {/* Opção 1: Renomear */}
@@ -267,7 +267,7 @@ export function SidebarContextMenu({
                 onMouseEnter={onMouseEnterColorOption}
                 onMouseLeave={onMouseLeaveColorOption}
                 onClick={(e) => e.stopPropagation()}
-                className={`absolute top-0 z-60 min-w-[140px] bg-white dark:bg-[#0a0a0a] border border-[#e4e2dd] dark:border-[#1f1f1f] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 ${
+                className={`absolute top-0 z-60 min-w-[140px] bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 ${
                   menuPosition &&
                   menuPosition.left + 175 + 145 > (typeof window !== 'undefined' ? window.innerWidth : 1000)
                     ? 'right-full mr-1.5 before:absolute before:-right-3 before:top-0 before:bottom-0 before:w-4 before:content-[""]'
@@ -288,7 +288,7 @@ export function SidebarContextMenu({
                         colorSubmenuTimerRef.current = null;
                       }
                     }}
-                    className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] dark:hover:bg-[#161616] text-[#4e453f] dark:text-[#d1c4bc] hover:text-[#1b1c19] dark:hover:text-white text-xs transition-colors cursor-pointer text-left"
+                    className="w-full px-2 py-1 rounded-lg flex items-center gap-2 hover:bg-[#f0eee9] dark:hover:bg-[#3e3834] text-[#4e453f] dark:text-[#e8e4df] hover:text-[#1b1c19] dark:hover:text-[#f5f3ee] text-xs transition-colors cursor-pointer text-left"
                   >
                     <span
                       className="w-3 h-3 rounded-full border border-black/10 shrink-0 block"
@@ -299,7 +299,7 @@ export function SidebarContextMenu({
                 ))}
 
                 {/* Opção 🌈 Seletor de Cor Personalizado */}
-                <div className="pt-1 mt-0.5 border-t border-[#e4e2dd] dark:border-[#1f1f1f]">
+                <div className="pt-1 mt-0.5 border-t border-[#e4e2dd] dark:border-[#5a514a]">
                   <button
                     type="button"
                     id="folder-custom-color-btn"

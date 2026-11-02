@@ -213,7 +213,7 @@
   margin-top: 0.05rem;
 }
 
-/* Listas numeradas (Ordered) */
+/* Listas numeradas (Ordered) - Hierarquia automática por níveis (1. -> A. -> I. -> 1.) */
 .ProseMirror ol {
   list-style-type: decimal;
   padding-left: 1.25rem;
@@ -222,7 +222,31 @@
 }
 
 .ProseMirror ol ol {
+  list-style-type: upper-alpha;
+  padding-left: 1.25rem;
+  margin-top: 0.05rem;
+}
+
+.ProseMirror ol ol ol {
+  list-style-type: upper-roman;
+  padding-left: 1.25rem;
+  margin-top: 0.05rem;
+}
+
+.ProseMirror ol ol ol ol {
   list-style-type: decimal;
+  padding-left: 1.25rem;
+  margin-top: 0.05rem;
+}
+
+.ProseMirror ol ol ol ol ol {
+  list-style-type: upper-alpha;
+  padding-left: 1.25rem;
+  margin-top: 0.05rem;
+}
+
+.ProseMirror ol ol ol ol ol ol {
+  list-style-type: upper-roman;
   padding-left: 1.25rem;
   margin-top: 0.05rem;
 }

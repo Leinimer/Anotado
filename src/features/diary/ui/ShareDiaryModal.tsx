@@ -163,19 +163,21 @@ export function ShareDiaryModal({
     >
       <div
         id="share-diary-modal-card"
-        className="w-full max-w-lg bg-[#fbfaf8] border border-[#e4e2dd] rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]"
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-lg bg-[#fbfaf8] dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] text-[#1b1c19] dark:text-[#e8e4df] rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]"
       >
         {/* Cabeçalho */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#f0eee9] bg-white">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#f0eee9] dark:border-[#5a514a] bg-white dark:bg-[#302d2a]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#f4dfcb] text-[#68594d] flex items-center justify-center shadow-2xs">
+            <div className="w-9 h-9 rounded-xl bg-[#f4dfcb] dark:bg-[#4a3f35] text-[#68594d] dark:text-[#f4dfcb] flex items-center justify-center shadow-2xs">
               <Users className="w-5 h-5 stroke-[2]" />
             </div>
             <div>
-              <h2 className="font-serif-note font-bold text-base text-[#1b1c19]">
+              <h2 className="font-serif-note font-bold text-base text-[#1b1c19] dark:text-[#e8e4df]">
                 Compartilhar Diário
               </h2>
-              <p className="font-sans-ui text-xs text-[#7f756e]">
+              <p className="font-sans-ui text-xs text-[#7f756e] dark:text-[#c8c1ba]">
                 Acesso de leitura para usuários cadastrados
               </p>
             </div>
@@ -185,7 +187,7 @@ export function ShareDiaryModal({
             type="button"
             id="share-diary-close-btn"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#f0eee9] transition-colors cursor-pointer"
+            className="p-1.5 rounded-xl text-[#7f756e] dark:text-[#a9a19a] hover:text-[#1b1c19] dark:hover:text-[#f5f3ee] hover:bg-[#f0eee9] dark:hover:bg-[#3e3834] transition-colors cursor-pointer"
             aria-label="Fechar modal"
           >
             <X className="w-4 h-4" />
@@ -196,15 +198,15 @@ export function ShareDiaryModal({
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-left">
           {/* Mensagens de Sucesso ou Erro */}
           {successMessage && (
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-sans-ui flex items-start gap-2.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-sans-ui flex items-start gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
               <span>{successMessage}</span>
             </div>
           )}
 
           {errorMessage && (
-            <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-sans-ui flex items-start gap-2.5">
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+            <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 text-xs font-sans-ui flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
               <span>{errorMessage}</span>
             </div>
           )}
@@ -214,7 +216,7 @@ export function ShareDiaryModal({
             <div>
               <label
                 htmlFor="share-target-email-input"
-                className="block text-xs font-semibold text-[#1b1c19] uppercase tracking-wider mb-1.5 font-sans-ui"
+                className="block text-xs font-semibold text-[#1b1c19] dark:text-[#e8e4df] uppercase tracking-wider mb-1.5 font-sans-ui"
               >
                 Digite o e-mail da pessoa
               </label>
@@ -226,12 +228,12 @@ export function ShareDiaryModal({
                   onChange={(e) => setTargetEmail(e.target.value)}
                   placeholder="exemplo@email.com"
                   disabled={isLoading}
-                  className="w-full pl-9 pr-4 py-2.5 bg-white border border-[#d8d1c7] rounded-xl text-xs font-sans-ui text-[#1b1c19] placeholder-[#a1968e] focus:outline-none focus:border-[#68594d] focus:ring-1 focus:ring-[#68594d]/20 transition-all shadow-2xs"
+                  className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-[#3a3531] border border-[#d8d1c7] dark:border-[#5a514a] rounded-xl text-xs font-sans-ui text-[#1b1c19] dark:text-[#e8e4df] placeholder-[#a1968e] dark:placeholder-[#a9a19a] focus:outline-none focus:border-[#68594d] dark:focus:border-[#827165] focus:ring-1 focus:ring-[#68594d]/20 transition-all shadow-2xs"
                   required
                 />
-                <Mail className="w-4 h-4 text-[#7f756e] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Mail className="w-4 h-4 text-[#7f756e] dark:text-[#a9a19a] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
-              <p className="mt-1 text-[11px] text-[#7f756e] font-sans-ui">
+              <p className="mt-1 text-[11px] text-[#7f756e] dark:text-[#c8c1ba] font-sans-ui">
                 A pessoa convidada terá acesso em tempo real e somente de leitura a todo o Diário.
               </p>
             </div>
@@ -259,13 +261,13 @@ export function ShareDiaryModal({
           </form>
 
           {/* Divisor */}
-          <div className="border-t border-[#eae8e3]" />
+          <div className="border-t border-[#eae8e3] dark:border-[#5a514a]" />
 
           {/* Pessoas com Acesso */}
           <div className="space-y-3">
-            <h3 className="text-xs font-semibold text-[#1b1c19] uppercase tracking-wider font-sans-ui flex items-center justify-between">
+            <h3 className="text-xs font-semibold text-[#1b1c19] dark:text-[#e8e4df] uppercase tracking-wider font-sans-ui flex items-center justify-between">
               <span>Pessoas com acesso</span>
-              <span className="text-[10px] text-[#7f756e] font-normal lowercase">
+              <span className="text-[10px] text-[#7f756e] dark:text-[#c8c1ba] font-normal lowercase">
                 {activeShares.length} ativa{activeShares.length === 1 ? '' : 's'}
               </span>
             </h3>
@@ -275,7 +277,7 @@ export function ShareDiaryModal({
                 <Loader2 className="w-5 h-5 text-[#68594d] animate-spin mx-auto" />
               </div>
             ) : activeShares.length === 0 ? (
-              <p className="text-xs text-[#7f756e] italic font-sans-ui">
+              <p className="text-xs text-[#7f756e] dark:text-[#c8c1ba] italic font-sans-ui">
                 Nenhuma pessoa com acesso ativo no momento.
               </p>
             ) : (
@@ -283,14 +285,14 @@ export function ShareDiaryModal({
                 {activeShares.map((share) => (
                   <div
                     key={share.id}
-                    className="p-3 bg-white border border-[#eae8e3] rounded-xl flex items-center justify-between gap-3 shadow-2xs font-sans-ui text-xs"
+                    className="p-3 bg-white dark:bg-[#302d2a] border border-[#eae8e3] dark:border-[#5a514a] rounded-xl flex items-center justify-between gap-3 shadow-2xs font-sans-ui text-xs"
                   >
                     <div className="min-w-0">
-                      <p className="font-semibold text-[#1b1c19] truncate">
+                      <p className="font-semibold text-[#1b1c19] dark:text-[#e8e4df] truncate">
                         {share.viewer_name || share.viewer_email}
                       </p>
-                      <div className="flex items-center gap-2 text-[11px] text-[#7f756e]">
-                        <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
+                      <div className="flex items-center gap-2 text-[11px] text-[#7f756e] dark:text-[#c8c1ba]">
+                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                           Ativo
                         </span>

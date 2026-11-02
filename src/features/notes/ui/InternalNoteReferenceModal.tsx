@@ -166,26 +166,28 @@ export function InternalNoteReferenceModal({
     >
       <div
         id="internal-note-reference-modal"
-        className="bg-[#ffffff] border border-[#e4e2dd] rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
+        role="dialog"
+        aria-modal="true"
+        className="bg-[#ffffff] dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] text-[#1b1c19] dark:text-[#e8e4df] rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
         {/* Cabeçalho do Seletor */}
-        <div className="p-4 sm:p-5 border-b border-[#eae8e3] flex items-center justify-between gap-3 bg-[#fbfaf8]">
+        <div className="p-4 sm:p-5 border-b border-[#eae8e3] dark:border-[#5a514a] flex items-center justify-between gap-3 bg-[#fbfaf8] dark:bg-[#302d2a]">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-[#68594d]/10 text-[#68594d] flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-[#68594d]/10 dark:bg-[#68594d]/30 text-[#68594d] dark:text-[#d1c4bc] flex items-center justify-center shrink-0">
               <Search className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h3 className="font-serif-note font-bold text-base text-[#1b1c19] truncate">
+              <h3 className="font-serif-note font-bold text-base text-[#1b1c19] dark:text-[#e8e4df] truncate">
                 Referenciar Nota
               </h3>
               {selectedText ? (
-                <p className="text-xs text-[#7f756e] truncate">
-                  Vincular &ldquo;<span className="font-medium text-[#4e453f]">{selectedText}</span>&rdquo; a:
+                <p className="text-xs text-[#7f756e] dark:text-[#c8c1ba] truncate">
+                  Vincular &ldquo;<span className="font-medium text-[#4e453f] dark:text-[#e8e4df]">{selectedText}</span>&rdquo; a:
                 </p>
               ) : (
-                <p className="text-xs text-[#7f756e]">Escolha a nota de destino</p>
+                <p className="text-xs text-[#7f756e] dark:text-[#c8c1ba]">Escolha a nota de destino</p>
               )}
             </div>
           </div>
@@ -194,7 +196,7 @@ export function InternalNoteReferenceModal({
             type="button"
             id="close-internal-reference-modal-btn"
             onClick={onClose}
-            className="p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#f0eee9] rounded-xl transition-colors cursor-pointer shrink-0"
+            className="p-1.5 text-[#7f756e] dark:text-[#a9a19a] hover:text-[#1b1c19] dark:hover:text-[#f5f3ee] hover:bg-[#f0eee9] dark:hover:bg-[#3e3834] rounded-xl transition-colors cursor-pointer shrink-0"
             title="Fechar (Esc)"
           >
             <X className="w-4 h-4" />
@@ -202,9 +204,9 @@ export function InternalNoteReferenceModal({
         </div>
 
         {/* Campo de Pesquisa */}
-        <div className="p-3 sm:p-4 border-b border-[#eae8e3]">
+        <div className="p-3 sm:p-4 border-b border-[#eae8e3] dark:border-[#5a514a] bg-white dark:bg-[#2a2826]">
           <div className="relative flex items-center">
-            <Search className="w-4 h-4 text-[#7f756e] absolute left-3.5 pointer-events-none" />
+            <Search className="w-4 h-4 text-[#7f756e] dark:text-[#a9a19a] absolute left-3.5 pointer-events-none" />
             <input
               ref={inputRef}
               id="internal-note-search-input"
@@ -215,7 +217,7 @@ export function InternalNoteReferenceModal({
                 setSelectedIndex(0);
               }}
               placeholder="Buscar por título, conteúdo ou tag..."
-              className="w-full pl-9 pr-4 py-2.5 bg-[#fbf9f4] border border-[#e4e2dd] rounded-xl text-sm text-[#1b1c19] placeholder-[#7f756e] focus:outline-none focus:border-[#68594d] focus:ring-1 focus:ring-[#68594d] transition-all"
+              className="w-full pl-9 pr-4 py-2.5 bg-[#fbf9f4] dark:bg-[#3a3531] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl text-sm text-[#1b1c19] dark:text-[#e8e4df] placeholder-[#7f756e] dark:placeholder-[#a9a19a] focus:outline-none focus:border-[#68594d] dark:focus:border-[#827165] focus:ring-1 focus:ring-[#68594d] transition-all"
             />
             {searchQuery && (
               <button
@@ -224,7 +226,7 @@ export function InternalNoteReferenceModal({
                   setSearchQuery('');
                   inputRef.current?.focus();
                 }}
-                className="absolute right-3 p-1 text-[#7f756e] hover:text-[#1b1c19] rounded-lg transition-colors cursor-pointer"
+                className="absolute right-3 p-1 text-[#7f756e] dark:text-[#a9a19a] hover:text-[#1b1c19] dark:hover:text-[#f5f3ee] rounded-lg transition-colors cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -306,16 +308,16 @@ export function InternalNoteReferenceModal({
                   onMouseEnter={() => setSelectedIndex(idx)}
                   className={`w-full p-2.5 sm:p-3 rounded-2xl flex items-center justify-between gap-3 text-left transition-all cursor-pointer ${
                     isSelected
-                      ? 'bg-[#f4dfcb]/60 border border-[#e8d2bd] shadow-2xs'
-                      : 'hover:bg-[#fbf9f4] border border-transparent'
+                      ? 'bg-[#f4dfcb]/60 dark:bg-[#68594d]/40 border border-[#e8d2bd] dark:border-[#827165] shadow-2xs'
+                      : 'hover:bg-[#fbf9f4] dark:hover:bg-[#3e3834] border border-transparent'
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div
                       className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                         isDiary
-                          ? 'bg-[#f4dfcb] text-[#68594d]'
-                          : 'bg-[#f0eee9] text-[#4e453f]'
+                          ? 'bg-[#f4dfcb] dark:bg-[#4a3f35] text-[#68594d] dark:text-[#f4dfcb]'
+                          : 'bg-[#f0eee9] dark:bg-[#3a3531] text-[#4e453f] dark:text-[#c8c1ba]'
                       }`}
                     >
                       {isDiary ? (
@@ -327,12 +329,12 @@ export function InternalNoteReferenceModal({
 
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-serif-note font-semibold text-sm text-[#1b1c19] truncate">
+                        <span className="font-serif-note font-semibold text-sm text-[#1b1c19] dark:text-[#e8e4df] truncate">
                           {displayTitle}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-[#7f756e] mt-0.5 truncate">
-                        <span className="font-medium text-[#68594d]">{contextLabel}</span>
+                      <div className="flex items-center gap-2 text-xs text-[#7f756e] dark:text-[#a9a19a] mt-0.5 truncate">
+                        <span className="font-medium text-[#68594d] dark:text-[#c8c1ba]">{contextLabel}</span>
                         {note.tags && note.tags.length > 0 && (
                           <>
                             <span>•</span>
@@ -345,14 +347,14 @@ export function InternalNoteReferenceModal({
                     </div>
                   </div>
 
-                  <div className="shrink-0 flex items-center gap-1.5 text-xs text-[#7f756e]">
+                  <div className="shrink-0 flex items-center gap-1.5 text-xs text-[#7f756e] dark:text-[#c8c1ba]">
                     {isSelected ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#68594d] text-white font-medium text-[11px] shadow-2xs">
                         <span>Escolher</span>
                         <CornerDownLeft className="w-3 h-3" />
                       </span>
                     ) : (
-                      <ArrowRight className="w-3.5 h-3.5 text-[#d1c4bc] opacity-0 sm:opacity-100" />
+                      <ArrowRight className="w-3.5 h-3.5 text-[#d1c4bc] dark:text-[#7f756e] opacity-0 sm:opacity-100" />
                     )}
                   </div>
                 </div>
@@ -362,27 +364,27 @@ export function InternalNoteReferenceModal({
         </div>
 
         {/* Rodapé com Dica de Teclado */}
-        <div className="p-3 bg-[#fbfaf8] border-t border-[#eae8e3] flex items-center justify-between text-[11px] text-[#7f756e] select-none">
+        <div className="p-3 bg-[#fbfaf8] dark:bg-[#302d2a] border-t border-[#eae8e3] dark:border-[#5a514a] flex items-center justify-between text-[11px] text-[#7f756e] dark:text-[#c8c1ba] select-none">
           <div className="flex items-center gap-2">
             <span>
-              <kbd className="px-1.5 py-0.5 rounded bg-white border border-[#e4e2dd] font-mono text-[10px]">
+              <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-[#3a3531] border border-[#e4e2dd] dark:border-[#5a514a] text-[#1b1c19] dark:text-[#e8e4df] font-mono text-[10px]">
                 ↑
               </kbd>{' '}
-              <kbd className="px-1.5 py-0.5 rounded bg-white border border-[#e4e2dd] font-mono text-[10px]">
+              <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-[#3a3531] border border-[#e4e2dd] dark:border-[#5a514a] text-[#1b1c19] dark:text-[#e8e4df] font-mono text-[10px]">
                 ↓
               </kbd>{' '}
               Navegar
             </span>
             <span>•</span>
             <span>
-              <kbd className="px-1.5 py-0.5 rounded bg-white border border-[#e4e2dd] font-mono text-[10px]">
+              <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-[#3a3531] border border-[#e4e2dd] dark:border-[#5a514a] text-[#1b1c19] dark:text-[#e8e4df] font-mono text-[10px]">
                 Enter
               </kbd>{' '}
               Selecionar
             </span>
           </div>
           <span>
-            <kbd className="px-1.5 py-0.5 rounded bg-white border border-[#e4e2dd] font-mono text-[10px]">
+            <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-[#3a3531] border border-[#e4e2dd] dark:border-[#5a514a] text-[#1b1c19] dark:text-[#e8e4df] font-mono text-[10px]">
               Esc
             </kbd>{' '}
             Cancelar
