@@ -222,13 +222,13 @@
 }
 
 .ProseMirror ol ol {
-  list-style-type: upper-alpha;
+  list-style-type: lower-alpha;
   padding-left: 1.25rem;
   margin-top: 0.05rem;
 }
 
 .ProseMirror ol ol ol {
-  list-style-type: upper-roman;
+  list-style-type: lower-roman;
   padding-left: 1.25rem;
   margin-top: 0.05rem;
 }
@@ -240,13 +240,13 @@
 }
 
 .ProseMirror ol ol ol ol ol {
-  list-style-type: upper-alpha;
+  list-style-type: lower-alpha;
   padding-left: 1.25rem;
   margin-top: 0.05rem;
 }
 
 .ProseMirror ol ol ol ol ol ol {
-  list-style-type: upper-roman;
+  list-style-type: lower-roman;
   padding-left: 1.25rem;
   margin-top: 0.05rem;
 }
