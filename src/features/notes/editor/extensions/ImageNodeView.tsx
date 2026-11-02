@@ -49,8 +49,6 @@ export function ImageNodeView(props: NodeViewProps) {
 
   const [isLocalSelected, setIsLocalSelected] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [isCaptionInteracting, setIsCaptionInteracting] = useState(false);
-  const captionClickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [aspectRatio, setAspectRatio] = useState<number>(() => {
     // Se tiver dimensões no atributo
     if (node.attrs.height && node.attrs.width && Number(node.attrs.height) > 0) {
@@ -63,27 +61,30 @@ export function ImageNodeView(props: NodeViewProps) {
   const [isEditingCaption, setIsEditingCaption] = useState(false);
   const [captionDraft, setCaptionDraft] = useState(caption);
   const [prevCaption, setPrevCaption] = useState(caption);
-  const captionInputRef = useRef<HTMLInputElement>(null);
+  const captionTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   if (caption !== prevCaption) {
     setPrevCaption(caption);
     setCaptionDraft(caption);
   }
 
+  // Ao abrir a legenda, posiciona o cursor no fim sem selecionar o texto inteiro.
+  // Assim, um duplo clique posterior dentro da área de texto seleciona apenas a palavra.
   useEffect(() => {
-    if (isEditingCaption && captionInputRef.current) {
-      captionInputRef.current.focus();
-      captionInputRef.current.select();
-    }
+    if (!isEditingCaption || !captionTextareaRef.current) return;
+    const textarea = captionTextareaRef.current;
+    textarea.focus();
+    const end = textarea.value.length;
+    textarea.setSelectionRange(end, end);
   }, [isEditingCaption]);
 
+  // Aumenta a altura da área de texto para exibir todo o conteúdo da legenda.
   useEffect(() => {
-    return () => {
-      if (captionClickTimeoutRef.current) {
-        clearTimeout(captionClickTimeoutRef.current);
-      }
-    };
-  }, []);
+    if (!isEditingCaption || !captionTextareaRef.current) return;
+    const textarea = captionTextareaRef.current;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.max(textarea.scrollHeight, 76)}px`;
+  }, [captionDraft, isEditingCaption]);
 
   const handleSaveCaption = useCallback(
     (text: string) => {
@@ -585,7 +586,17 @@ export function ImageNodeView(props: NodeViewProps) {
     }
   };
 
+  const isCaptionInteractionTarget = (target: EventTarget | null) =>
+    target instanceof Element &&
+    Boolean(target.closest('[data-image-caption-editor], figcaption'));
+
   const handleClick = (e: React.MouseEvent) => {
+    // A legenda nunca deve selecionar a imagem nem propagar cliques para o visualizador.
+    if (isCaptionInteractionTarget(e.target)) {
+      e.stopPropagation();
+      return;
+    }
+
     // Se o editor não for editável (ex: visualização), o clique simples abre o lightbox
     if (!editor?.isEditable) {
       e.stopPropagation();
@@ -617,6 +628,12 @@ export function ImageNodeView(props: NodeViewProps) {
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
+    // Duplo clique na legenda é reservado à edição/seleção do texto.
+    if (isCaptionInteractionTarget(e.target) || isEditingCaption) {
+      e.stopPropagation();
+      return;
+    }
+
     // Se acabou de redimensionar, ignora para não abrir inadvertidamente
     if (wasJustResized()) {
       e.preventDefault();
@@ -631,6 +648,13 @@ export function ImageNodeView(props: NodeViewProps) {
   };
 
   const handleDragStart = (e: React.DragEvent) => {
+    // Nunca iniciar arraste da imagem a partir da legenda.
+    if (isEditingCaption || isCaptionInteractionTarget(e.target)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
     const pos = typeof getPos === 'function' ? getPos() : undefined;
     if (typeof pos === 'number' && editor?.view) {
       try {
@@ -651,7 +675,7 @@ export function ImageNodeView(props: NodeViewProps) {
     <NodeViewWrapper
       as="div"
       ref={containerRef}
-      className={`image-node-view-wrapper my-5 relative flex ${alignClass} max-w-full select-none cursor-pointer`}
+      className={`image-node-view-wrapper my-5 relative flex ${alignClass} max-w-full ${isEditingCaption ? 'select-text cursor-text' : 'select-none cursor-pointer'}`}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onDragStart={handleDragStart}
@@ -659,7 +683,7 @@ export function ImageNodeView(props: NodeViewProps) {
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
-      draggable={isCaptionInteracting ? false : (editor?.isEditable ?? false)}
+      draggable={Boolean(editor?.isEditable) && !isEditingCaption}
     >
       <div
         className={`relative inline-block max-w-full transition-shadow duration-150 ${
@@ -797,22 +821,33 @@ export function ImageNodeView(props: NodeViewProps) {
         {/* Legenda abaixo da Imagem */}
         {isEditingCaption ? (
           <div
-            className="mt-1.5 w-full flex items-center gap-1.5 px-0.5"
+            data-image-caption-editor="true"
+            className="image-caption-editor mt-2 w-full flex items-start gap-2 px-0.5"
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            onMouseEnter={() => setIsCaptionInteracting(true)}
-            onMouseLeave={() => setIsCaptionInteracting(false)}
-            onMouseDown={(e) => {
+            onDoubleClick={(e) => e.stopPropagation()}
+            onDragStart={(e) => {
+              e.preventDefault();
               e.stopPropagation();
-              setIsCaptionInteracting(true);
             }}
           >
-            <input
-              ref={captionInputRef}
-              type="text"
+            <textarea
+              ref={captionTextareaRef}
+              rows={2}
               value={captionDraft}
               onChange={(e) => setCaptionDraft(e.target.value)}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onDragStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                // Enter cria uma nova linha; Ctrl/Command + Enter salva.
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
                   handleSaveCaption(captionDraft);
                 } else if (e.key === 'Escape') {
@@ -823,12 +858,16 @@ export function ImageNodeView(props: NodeViewProps) {
               }}
               onBlur={() => handleSaveCaption(captionDraft)}
               placeholder="Adicionar legenda..."
-              className={`w-full bg-transparent border-b border-[#c4bebb] focus:border-[#68594d] focus:outline-none py-0.5 px-1 text-xs text-[#5e534b] font-sans-ui placeholder:text-[#a89f91] ${
+              spellCheck
+              className={`w-full min-h-[76px] resize-y overflow-hidden whitespace-pre-wrap break-words bg-[#fbf9f4] border border-[#c4bebb] rounded-lg focus:border-[#68594d] focus:outline-none focus:ring-1 focus:ring-[#68594d]/20 py-2 px-2 text-xs text-[#5e534b] font-sans-ui placeholder:text-[#a89f91] leading-relaxed select-text ${
                 alignment === 'left' ? 'text-left' : alignment === 'right' ? 'text-right' : 'text-center'
               }`}
+              style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
+              aria-label="Editar legenda da imagem"
             />
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={handleRemoveCaption}
               className="p-1 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-md transition-colors cursor-pointer shrink-0"
               title="Remover legenda"
@@ -840,56 +879,27 @@ export function ImageNodeView(props: NodeViewProps) {
         ) : caption ? (
           <figcaption
             draggable={false}
-            onMouseEnter={() => setIsCaptionInteracting(true)}
-            onMouseLeave={() => setIsCaptionInteracting(false)}
-            onMouseDown={(e) => {
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => {
+              // O primeiro duplo clique abre a área de edição; os próximos ocorrem
+              // dentro do textarea e selecionam a palavra nativamente.
               e.stopPropagation();
-              setIsCaptionInteracting(true);
-            }}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              setIsCaptionInteracting(true);
+              if (editor?.isEditable) {
+                setCaptionDraft(caption);
+                setIsEditingCaption(true);
+              }
             }}
             onDragStart={(e) => {
               e.preventDefault();
               e.stopPropagation();
             }}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              if (captionClickTimeoutRef.current) {
-                clearTimeout(captionClickTimeoutRef.current);
-                captionClickTimeoutRef.current = null;
-              }
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              const sel = typeof window !== 'undefined' ? window.getSelection() : null;
-              if (sel && sel.toString().trim().length > 0) {
-                // Seleção de texto ativa (por arraste do mouse ou duplo clique); preserva a seleção sem abrir o input
-                return;
-              }
-              if (editor?.isEditable) {
-                if (e.detail === 1) {
-                  if (captionClickTimeoutRef.current) clearTimeout(captionClickTimeoutRef.current);
-                  captionClickTimeoutRef.current = setTimeout(() => {
-                    const currentSel = typeof window !== 'undefined' ? window.getSelection() : null;
-                    if (!currentSel || !currentSel.toString().trim()) {
-                      setIsEditingCaption(true);
-                    }
-                  }, 250);
-                } else if (e.detail > 1) {
-                  if (captionClickTimeoutRef.current) {
-                    clearTimeout(captionClickTimeoutRef.current);
-                    captionClickTimeoutRef.current = null;
-                  }
-                }
-              }
-            }}
             style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
-            className={`mt-1.5 text-xs text-[#7f756e] font-sans-ui leading-relaxed break-words px-1 select-text cursor-text ${
+            className={`mt-1.5 w-full text-xs text-[#7f756e] font-sans-ui leading-relaxed whitespace-pre-wrap break-words px-1 select-text cursor-text ${
               alignment === 'left' ? 'text-left' : alignment === 'right' ? 'text-right' : 'text-center'
             } ${editor?.isEditable ? 'hover:text-[#5e534b]' : ''}`}
-            title={editor?.isEditable ? 'Clique para editar a legenda ou selecione o texto' : undefined}
+            title={editor?.isEditable ? 'Duplo clique para editar a legenda' : undefined}
           >
             {caption}
           </figcaption>
