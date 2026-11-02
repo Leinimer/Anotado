@@ -861,10 +861,20 @@ export function ImageNodeView(props: NodeViewProps) {
               onBlur={() => handleSaveCaption(captionDraft)}
               placeholder="Adicionar legenda..."
               spellCheck
-              className={`w-full min-h-[76px] resize-y overflow-hidden whitespace-pre-wrap break-words bg-[#fbf9f4] border border-[#c4bebb] rounded-lg focus:border-[#68594d] focus:outline-none focus:ring-1 focus:ring-[#68594d]/20 py-2 px-2 text-xs text-[#5e534b] font-sans-ui placeholder:text-[#a89f91] leading-relaxed select-text ${
+              className={`image-caption-textarea w-full min-h-[76px] resize overflow-auto whitespace-pre-wrap break-words bg-[#fbf9f4] border border-[#c4bebb] rounded-lg focus:border-[#68594d] focus:outline-none focus:ring-1 focus:ring-[#68594d]/20 py-2 px-2 text-xs text-[#5e534b] font-sans-ui placeholder:text-[#a89f91] leading-relaxed select-text flex-1 min-w-[180px] max-w-[90vw] ${
                 alignment === 'left' ? 'text-left' : alignment === 'right' ? 'text-right' : 'text-center'
               }`}
-              style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
+              style={{
+                userSelect: 'text',
+                WebkitUserSelect: 'text',
+                color: '#5e534b',
+                WebkitTextFillColor: '#5e534b',
+                caretColor: '#5e534b',
+                resize: 'both',
+                overflow: 'auto',
+                maxWidth: 'min(90vw, 900px)',
+                boxSizing: 'border-box',
+              }}
               aria-label="Editar legenda da imagem"
             />
             <button
