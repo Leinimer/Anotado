@@ -550,6 +550,7 @@ export function ImageNodeView(props: NodeViewProps) {
   }, []);
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (isEditingCaption || isCaptionInteractionTarget(e.target)) return;
     if (e.touches.length !== 1) return;
     const touch = e.touches[0];
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
