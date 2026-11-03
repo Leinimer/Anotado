@@ -3,7 +3,7 @@ import { indexedDBStorage, LocalAttachment } from '../db/indexed-db';
 import { networkMonitor } from './network-monitor';
 import { base64AttachmentMigrator } from './base64-attachment-migrator';
 import { generateUUID } from '../utils/uuid';
-import { registerResolvedAttachmentUrl } from '../editor/utils/media-common';
+import { registerResolvedAttachmentUrl, invalidateAttachmentCache } from '../editor/utils/media-common';
 import { ATTACHMENTS_BUCKET_NAME } from './storage-constants';
 
 export { ATTACHMENTS_BUCKET_NAME };
@@ -613,6 +613,116 @@ export async function deleteNoteAttachment(userId: string, attachmentId: string)
     console.error('[StorageAPI] Erro ao deletar anexo:', err);
     return false;
   }
+}
+
+/**
+ * Substitui o arquivo binário de um anexo existente (ex: PDF editado)
+ * MANTENDO rigorosamente o mesmo attachmentId, mesmo fileName e mesmo storage_path.
+ * 1. Persiste imediatamente no IndexedDB local.
+ * 2. Invalida o cache em memória do anexo.
+ * 3. Enfileira na SyncQueue a ação REPLACE_ATTACHMENT.
+ * 4. Dispara a sincronização em segundo plano via SyncEngine.
+ */
+export async function replaceNoteAttachment(
+  userId: string | null,
+  attachmentId: string,
+  updatedBlob: Blob
+): Promise<{ success: boolean; attachment: LocalAttachment }> {
+  if (!userId || userId === 'anonymous') {
+    throw new Error('Usuário não autenticado');
+  }
+  if (!attachmentId) {
+    throw new Error('ID do anexo inválido');
+  }
+
+  // 1. Localiza anexo existente no IndexedDB
+  let attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
+  if (!attachment) {
+    attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
+  }
+
+  if (!attachment) {
+    // Tenta recuperar os metadados do Supabase se o usuário estiver online
+    if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+      const supabase = createClient();
+      const { data: remoteAtt } = await supabase
+        .from('note_attachments')
+        .select('*')
+        .eq('id', attachmentId)
+        .maybeSingle();
+
+      if (remoteAtt) {
+        attachment = {
+          id: remoteAtt.id,
+          user_id: userId,
+          note_id: remoteAtt.note_id,
+          file_name: remoteAtt.file_name,
+          file_type: remoteAtt.mime_type,
+          mime_type: remoteAtt.mime_type,
+          file_size: remoteAtt.file_size,
+          storage_path: remoteAtt.storage_path,
+          remote_url: null,
+          syncRequired: false,
+          syncStatus: 'synced',
+          created_at: remoteAtt.created_at,
+          updated_at: remoteAtt.updated_at,
+        };
+      }
+    }
+  }
+
+  if (!attachment) {
+    throw new Error(`Anexo com ID ${attachmentId} não encontrado para substituição`);
+  }
+
+  // 2. Cria cópia estável do Blob atualizado
+  const arrayBuffer = await updatedBlob.arrayBuffer();
+  const detachedBlob = new Blob([arrayBuffer], { type: attachment.mime_type || attachment.file_type || 'application/pdf' });
+  const newSize = arrayBuffer.byteLength;
+
+  const storagePath = attachment.storage_path || getAttachmentStoragePath(userId, attachmentId, attachment.file_name || 'document.pdf');
+
+  // 3. Atualiza anexo local no IndexedDB
+  attachment.blob = detachedBlob;
+  attachment.file_size = newSize;
+  attachment.storage_path = storagePath;
+  attachment.updated_at = new Date().toISOString();
+  attachment.syncRequired = true;
+  attachment.syncStatus = 'pending';
+  attachment.sync_status = 'pending';
+
+  await indexedDBStorage.putAttachment(userId, attachment);
+
+  // 4. Invalida cache em memória para que o editor e visualizadores usem os novos bytes
+  invalidateAttachmentCache(attachmentId);
+
+  // 5. Enfileira ação REPLACE_ATTACHMENT na SyncQueue
+  const syncQueueId = `sync_att_replace_${attachmentId}`;
+  await indexedDBStorage.enqueueSyncItem(userId, {
+    id: syncQueueId,
+    action: 'REPLACE_ATTACHMENT',
+    entity_type: 'attachment',
+    entity_id: attachmentId,
+    payload: {
+      attachmentId,
+      storagePath,
+      fileSize: newSize,
+      mimeType: attachment.mime_type || attachment.file_type || 'application/pdf',
+      fileName: attachment.file_name,
+      noteId: attachment.note_id,
+    },
+    revision: 1,
+  });
+
+  const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
+  networkMonitor.updatePendingCount(pendingCount);
+
+  // 6. Agenda sincronização em segundo plano no SyncEngine
+  import('./sync-engine').then(({ syncEngine }) => {
+    syncEngine.scheduleSync(50);
+  }).catch(() => {});
+
+  return { success: true, attachment };
 }
 
 /**

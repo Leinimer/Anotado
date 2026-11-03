@@ -157,6 +157,21 @@ export function registerResolvedAttachmentUrl(attachmentId: string, remoteUrl: s
   attachmentRemoteUrlCache.set(attachmentId, remoteUrl);
 }
 
+/**
+ * Invalida o cache em memória de um anexo (revoga Blob URL e remove entradas).
+ */
+export function invalidateAttachmentCache(attachmentId: string): void {
+  if (!attachmentId) return;
+  const existingBlobUrl = attachmentBlobUrlCache.get(attachmentId);
+  if (existingBlobUrl && existingBlobUrl.startsWith('blob:')) {
+    try {
+      URL.revokeObjectURL(existingBlobUrl);
+    } catch {}
+  }
+  attachmentBlobUrlCache.delete(attachmentId);
+  attachmentRemoteUrlCache.delete(attachmentId);
+}
+
 const inFlightAttachmentResolutions = new Map<string, Promise<ResolvedAttachmentResult>>();
 
 /**

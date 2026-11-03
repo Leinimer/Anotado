@@ -18,6 +18,7 @@ declare module '@tiptap/core' {
         type?: string;
         width?: string;
         alignment?: 'left' | 'center' | 'right';
+        attachmentId?: string | null;
       }) => ReturnType;
     };
   }
@@ -104,6 +105,19 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
           };
         },
       },
+      attachmentId: {
+        default: null,
+        parseHTML: (element) =>
+          element.getAttribute('data-attachment-id') ||
+          element.getAttribute('data-id') ||
+          null,
+        renderHTML: (attributes) => {
+          if (!attributes.attachmentId) return {};
+          return {
+            'data-attachment-id': attributes.attachmentId,
+          };
+        },
+      },
     };
   },
 
@@ -131,6 +145,10 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
               element.getAttribute('width') ||
               element.style?.width ||
               null,
+            attachmentId:
+              element.getAttribute('data-attachment-id') ||
+              element.getAttribute('data-id') ||
+              null,
           };
         },
       },
@@ -145,6 +163,10 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
             type: element.getAttribute('data-type') || 'application/pdf',
             alignment: element.getAttribute('data-alignment') || 'left',
             width: element.getAttribute('data-width') || null,
+            attachmentId:
+              element.getAttribute('data-attachment-id') ||
+              element.getAttribute('data-id') ||
+              null,
           };
         },
       },
@@ -162,6 +184,7 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
           if (node.attrs.size) attrs.push(`data-size="${node.attrs.size}"`);
           if (node.attrs.type) attrs.push(`data-type-mime="${node.attrs.type}"`);
           if (node.attrs.alignment) attrs.push(`data-alignment="${node.attrs.alignment}"`);
+          if (node.attrs.attachmentId) attrs.push(`data-attachment-id="${node.attrs.attachmentId}"`);
           if (node.attrs.width) {
             const w = typeof node.attrs.width === 'number' ? `${node.attrs.width}px` : node.attrs.width;
             attrs.push(`data-width="${w}"`);

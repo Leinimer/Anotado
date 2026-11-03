@@ -32,7 +32,7 @@ import {
   uploadAttachmentBinary,
   ATTACHMENTS_BUCKET_NAME,
 } from './storage-api';
-import { registerResolvedAttachmentUrl } from '../editor/utils/media-common';
+import { registerResolvedAttachmentUrl, invalidateAttachmentCache } from '../editor/utils/media-common';
 import { remoteOperationGuard } from './remote-operation-guard';
 
 export type DataChangePayload = {
@@ -2510,6 +2510,77 @@ class SyncEngine {
         } finally {
           this.uploadingAttachments.delete(attachmentId);
         }
+      }
+
+      case 'REPLACE_ATTACHMENT': {
+        const attachmentId = item.entity_id;
+        const storagePath = item.payload?.storagePath;
+        const mimeType = item.payload?.mimeType || 'application/pdf';
+
+        console.log(`[ATTACHMENT] REPLACE_ATTACHMENT PROCESSING attachmentId=${attachmentId}`);
+
+        const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
+        if (!attachment || !attachment.blob) {
+          console.error(`[ATTACHMENT] REPLACE_ATTACHMENT falhou: blob ausente no IndexedDB para ${attachmentId}`);
+          return false;
+        }
+
+        const effectivePath =
+          storagePath ||
+          attachment.storage_path ||
+          `${userId}/${attachmentId}.${attachment.file_name?.includes('.') ? attachment.file_name.split('.').pop() : 'pdf'}`;
+
+        const buffer = await attachment.blob.arrayBuffer();
+        const uploadBody = new Blob([buffer], { type: mimeType });
+
+        // Overwrite direto no Supabase Storage mantendo exatamente o mesmo storage_path e bucket
+        const { error: uploadErr } = await supabase.storage
+          .from(ATTACHMENTS_BUCKET_NAME)
+          .upload(effectivePath, uploadBody, {
+            contentType: mimeType,
+            cacheControl: '0',
+            upsert: true,
+          });
+
+        if (uploadErr) {
+          console.error(`[ATTACHMENT] REPLACE_ATTACHMENT storage upload error:`, uploadErr);
+          throw uploadErr;
+        }
+
+        // Atualiza tamanho e updated_at em public.note_attachments
+        const { error: dbErr } = await supabase
+          .from('note_attachments')
+          .update({
+            file_size: buffer.byteLength,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', attachmentId)
+          .eq('user_id', userId);
+
+        if (dbErr) {
+          console.error(`[ATTACHMENT] REPLACE_ATTACHMENT db update error:`, dbErr);
+          throw dbErr;
+        }
+
+        // Marca como sincronizado no IndexedDB
+        attachment.syncRequired = false;
+        attachment.syncStatus = 'synced';
+        attachment.sync_status = 'synced';
+        attachment.updated_at = new Date().toISOString();
+        await indexedDBStorage.putAttachment(userId, attachment);
+
+        invalidateAttachmentCache(attachmentId);
+
+        console.log(`[ATTACHMENT] REPLACE_ATTACHMENT SYNC_CONFIRMED attachmentId=${attachmentId}`);
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('attachment:replace-complete', {
+              detail: { attachmentId, storagePath: effectivePath },
+            })
+          );
+        }
+        return true;
       }
 
       default:

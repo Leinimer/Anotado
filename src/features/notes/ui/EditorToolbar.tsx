@@ -408,6 +408,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
           name: result.name,
           size: result.size,
           type: result.type,
+          attachmentId: result.attachmentId,
         })
         .run();
     } catch (err) {

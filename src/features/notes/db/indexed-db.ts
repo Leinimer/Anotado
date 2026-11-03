@@ -52,6 +52,7 @@ export type SyncAction =
   | 'MOVE_FOLDER'
   | 'UPDATE_TAGS'
   | 'UPLOAD_ATTACHMENT'
+  | 'REPLACE_ATTACHMENT'
   | 'DELETE_ATTACHMENT';
 
 export interface SyncQueueItem {

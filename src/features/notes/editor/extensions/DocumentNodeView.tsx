@@ -11,7 +11,7 @@ import {
   moveNodeBlock,
 } from '../utils/node-movement';
 import { perfProfiler } from '../utils/media-optimizer';
-import { formatBytes, getMediaAlignmentClass } from '../utils/media-common';
+import { formatBytes, getMediaAlignmentClass, extractAttachmentId } from '../utils/media-common';
 import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
 import { useAttachmentSource } from '../hooks/use-attachment-source';
 import { useMediaResize } from '../hooks/use-media-resize';
@@ -159,9 +159,46 @@ export function DocumentNodeView(props: NodeViewProps) {
     }
   };
 
+  const resolveEffectiveAttachmentId = async (): Promise<string | null> => {
+    if (node.attrs.attachmentId) return node.attrs.attachmentId;
+    const fromRaw = extractAttachmentId(rawSrc);
+    if (fromRaw) return fromRaw;
+    if (resolvedSrc) {
+      const fromResolved = extractAttachmentId(resolvedSrc);
+      if (fromResolved) return fromResolved;
+    }
+    const candidate = resolvedSrc || rawSrc;
+    if (candidate) {
+      const uuidMatch = candidate.match(/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/i);
+      if (uuidMatch && uuidMatch[1]) {
+        return uuidMatch[1];
+      }
+    }
+    try {
+      const user = currentUserId || 'anonymous';
+      const allAtts = await indexedDBStorage.getAllAttachments(user);
+      const match = allAtts.find((a) => a.file_name === name || (size > 0 && a.file_size === size));
+      if (match) {
+        updateAttributes({ attachmentId: match.id });
+        return match.id;
+      }
+    } catch {}
+    return null;
+  };
+
   const handleOpenDocument = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // Se for PDF, abre na rota interna dedicada /pdf/[attachmentId] em uma nova aba do navegador
+    if (isPdf) {
+      const pdfAttachmentId = await resolveEffectiveAttachmentId();
+      if (pdfAttachmentId) {
+        window.open(`/pdf/${pdfAttachmentId}`, '_blank');
+        return;
+      }
+    }
+
     let targetUrl = resolvedSrc || rawSrc;
 
     if (targetUrl.startsWith('attachment://') || targetUrl.startsWith('local-attachment://')) {

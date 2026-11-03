@@ -173,6 +173,7 @@ export function NoteEditor({
                         name: res.name,
                         size: res.size,
                         type: res.type,
+                        attachmentId: res.attachmentId,
                       })
                     )
                   );

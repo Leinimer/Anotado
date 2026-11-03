@@ -312,7 +312,27 @@ Alterar atributos, nome de nó ou URI pode afetar HTML, Markdown, conteúdo já 
 ### Visualizador de imagens (Lightbox) e navegação por teclado
 - **Navegação com setas**: dentro do Lightbox em `ImageNodeView.tsx`, teclas `ArrowRight` (próxima imagem) e `ArrowLeft` (imagem anterior) percorrem as imagens da nota ativa na ordem vertical em que surgem no documento.
 - Ao navegar entre imagens, o estado de zoom e pan é restaurado para 100% e centralizado, e a legenda ativa (`caption`) é atualizada de forma sincronizada.
-- A interface exibe botões discretos de navegação lateral (`ChevronLeft`, `ChevronRight`) e indicador numérico `index + 1 / total` quando a nota possui mais de uma imagem. O fechamento por `Escape`, clique externo, arraste (pan) e zoom suave por scroll permanecem preservados.
+### Visualizador e Editor de PDF integrado
+- **Abertura dedicada**: cards de documento PDF no editor (`DocumentNodeView.tsx`) abrem o visualizador em uma nova aba do navegador navegando para a rota `/pdf/[attachmentId]` (`window.open('/pdf/' + attachmentId, '_blank')`). A aba da nota de origem permanece aberta e inalterada.
+- **Atributo `attachmentId`**: o nó Tiptap `documentAttachment` persiste o atributo `attachmentId` em HTML (`data-attachment-id`) e na serialização Markdown. Ao inserir arquivos pelo `EditorToolbar.tsx` ou colagem no `NoteEditor.tsx`, o ID retornado por `uploadNoteFile` é gravado no nó, com fallback automático no `DocumentNodeView.tsx` para notas legadas (extração de `attachment://`, busca por UUID ou metadados de arquivo no IndexedDB).
+- **Interface e Ferramentas**: a interface do editor (`src/features/pdf/PdfEditor.tsx`) dispõe de cabeçalho com status de salvamento/sincronização, download e alternância de miniaturas; barra lateral retrátil com miniaturas de páginas (`PdfThumbnailSidebar.tsx`); e dock flutuante inferior (`PdfEditorToolbar.tsx`) com ferramentas de:
+  - Seleção e movimentação de anotações (`select`);
+  - Navegação e arraste de página (`hand`);
+  - Destaque com seletor de paleta de cores (`highlight`);
+  - Sublinhado (`underline`) e tachado (`strikethrough`);
+  - Caneta / desenho livre com espessura e cores configuráveis (`pen`);
+  - Borracha (`eraser`);
+  - Caixas de texto livres e editáveis (`text`);
+  - Formas geométricas: retângulos, círculos, linhas e setas (`shape`);
+  - Notas adesivas e comentários com balão popover (`sticky_note`);
+  - Histórico de desfazer/refazer (Undo/Redo) e atalhos de teclado (Ctrl+S, Ctrl+Z, Ctrl+Y, Esc, Del);
+  - Controles de zoom (in, out, ajustar à largura e página inteira).
+- **Exportação e Queima de Anotações**: `exportPdfWithAnnotations` em `pdf-exporter.ts` utiliza `pdf-lib` para embutir de forma vetorial todas as anotações diretamente nas páginas do PDF original, gerando um novo Blob PDF válido (`application/pdf`).
+- **Sobrescrita exata no Supabase Storage**:
+  - `replaceNoteAttachment` em `storage-api.ts` e o handler `REPLACE_ATTACHMENT` no `SyncEngine` (`sync-engine.ts`) executam `supabase.storage.from('note-attachments').upload(storagePath, blob, { upsert: true })` mantendo rigorosamente o mesmo `attachmentId`, mesmo `file_name` e mesmo `storage_path`.
+  - A tabela `public.note_attachments` tem seus campos `file_size` e `updated_at` atualizados sem criar registros duplicados e sem alterar o conteúdo Markdown da nota.
+  - O cache de URLs em memória (`invalidateAttachmentCache`) e o Blob no IndexedDB são atualizados imediatamente (local-first).
+- **Permissões**: diários compartilhados acessados por terceiros permanecem em modo estritamente somente leitura (`isReadOnly`), desativando ferramentas de edição e o botão de salvar.
 
 ### Abas
 
