@@ -8,7 +8,7 @@ export interface NoteTabItem {
   id: string;
   /** Abas antigas sem type continuam sendo interpretadas como notas. */
   type?: 'note' | 'pdf';
-  noteId?: string;
+  noteId: string;
   attachmentId?: string;
   title?: string;
 }
