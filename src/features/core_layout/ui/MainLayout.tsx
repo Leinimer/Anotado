@@ -506,6 +506,7 @@ export function MainLayout() {
         setLeftNoteId(null);
         setRightNoteId(null);
         setActiveTabId(tabId);
+        setActiveNoteId(null);
         setIsNewNoteJustCreated(false);
         return;
       }
@@ -875,7 +876,7 @@ export function MainLayout() {
         setTabs(remainingTabs);
       }
     },
-    [tabs, isSplit, leftNoteId, rightNoteId, activeTabId, notes, userId]
+    [tabs, isSplit, leftNoteId, rightNoteId, activeTabId, activeNoteId, notes, userId]
   );
 
   // Abre/ativa um PDF como aba interna do mesmo workspace de notas.
@@ -921,6 +922,7 @@ export function MainLayout() {
       setLeftNoteId(null);
       setRightNoteId(null);
       setActiveTabId(pdfTab.id);
+      setActiveNoteId(null);
       setIsNewNoteJustCreated(false);
       setMobileSidebarOpen(false);
     },
