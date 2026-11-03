@@ -35,11 +35,12 @@ import { networkMonitor } from '../notes/api/network-monitor';
 interface PdfEditorProps {
   attachmentId: string;
   userId: string;
+  sourceUrl?: string;
   isReadOnly?: boolean;
   onClose?: () => void;
 }
 
-export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }: PdfEditorProps) {
+export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false, onClose }: PdfEditorProps) {
   // Loading state
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -112,51 +113,142 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
         }
 
         let arrayBuffer: ArrayBuffer | null = null;
-        let documentName = 'Documento.pdf';
+        let documentName = attachment?.file_name || 'Documento.pdf';
+        let loadDetails = '';
 
-        if (attachment?.blob) {
+        // 1. Prioriza o Blob local, desde que esteja íntegro.
+        if (attachment?.blob && attachment.blob.size > 0) {
           arrayBuffer = await attachment.blob.arrayBuffer();
-          documentName = attachment.file_name || 'Documento.pdf';
-        } else if (isSupabaseConfigured() && navigator.onLine) {
-          // 2. Fallback no Supabase
-          const supabase = createClient();
-          const { data: dbAtt } = await supabase
-            .from('note_attachments')
-            .select('*')
-            .eq('id', attachmentId)
-            .maybeSingle();
+        }
 
-          if (dbAtt && dbAtt.storage_path) {
-            documentName = dbAtt.file_name || 'Documento.pdf';
-            const { data: fileData, error: downloadErr } = await supabase.storage
-              .from(ATTACHMENTS_BUCKET_NAME)
-              .download(dbAtt.storage_path);
-
-            if (downloadErr) throw downloadErr;
-            if (fileData) {
-              arrayBuffer = await fileData.arrayBuffer();
-              // Salva localmente no IndexedDB
-              await indexedDBStorage.putAttachment(userId, {
-                id: dbAtt.id,
-                user_id: userId,
-                note_id: dbAtt.note_id,
-                file_name: dbAtt.file_name,
-                file_type: dbAtt.mime_type,
-                mime_type: dbAtt.mime_type,
-                file_size: dbAtt.file_size,
-                blob: fileData,
-                storage_path: dbAtt.storage_path,
-                syncRequired: false,
-                syncStatus: 'synced',
-                created_at: dbAtt.created_at,
-                updated_at: dbAtt.updated_at,
-              });
+        // 2. Usa a mesma URL já resolvida para o card do documento. Ela pode ser
+        // uma URL assinada do Supabase, pública ou um Blob URL do IndexedDB.
+        if (!arrayBuffer && sourceUrl) {
+          try {
+            const response = await fetch(sourceUrl, { cache: 'no-store' });
+            if (!response.ok) {
+              throw new Error(`A origem do arquivo respondeu HTTP ${response.status}`);
             }
+            const sourceBytes = await response.arrayBuffer();
+            if (sourceBytes.byteLength > 0) {
+              arrayBuffer = sourceBytes;
+            } else {
+              throw new Error('A origem do arquivo retornou zero bytes.');
+            }
+          } catch (sourceError: any) {
+            loadDetails = sourceError?.message || String(sourceError);
+            console.warn('[PdfEditor] Falha ao carregar pela URL já resolvida:', sourceError);
           }
         }
 
-        if (!arrayBuffer) {
-          throw new Error('Não foi possível carregar o arquivo PDF. Verifique sua conexão.');
+        // 3. Se ainda não temos os bytes, consulta os metadados remotos e tenta
+        // os buckets conhecidos (o registro pode apontar para um bucket legado).
+        if (!arrayBuffer && isSupabaseConfigured() && navigator.onLine) {
+          try {
+            const supabase = createClient();
+            const { data: dbAtt, error: metadataError } = await supabase
+              .from('note_attachments')
+              .select('id, user_id, note_id, file_name, mime_type, file_size, storage_path, bucket_id, created_at, updated_at')
+              .eq('id', attachmentId)
+              .maybeSingle();
+
+            if (metadataError) {
+              loadDetails = metadataError.message || loadDetails;
+              console.warn('[PdfEditor] Falha ao consultar metadados do anexo:', metadataError);
+            }
+
+            if (dbAtt) {
+              documentName = dbAtt.file_name || documentName;
+              if (dbAtt.storage_path) {
+                const bucketsToTry = Array.from(new Set(
+                  [dbAtt.bucket_id, ATTACHMENTS_BUCKET_NAME, 'attachments'].filter(Boolean) as string[]
+                ));
+
+                for (const bucketName of bucketsToTry) {
+                  try {
+                    const { data: fileData, error: downloadError } = await supabase.storage
+                      .from(bucketName)
+                      .download(dbAtt.storage_path);
+
+                    if (!downloadError && fileData && fileData.size > 0) {
+                      arrayBuffer = await fileData.arrayBuffer();
+
+                      // Só grava no banco local do usuário quando ele é o proprietário.
+                      if (dbAtt.user_id === userId && userId !== 'anonymous') {
+                        await indexedDBStorage.putAttachment(userId, {
+                          id: dbAtt.id,
+                          user_id: userId,
+                          note_id: dbAtt.note_id,
+                          file_name: dbAtt.file_name,
+                          file_type: dbAtt.mime_type,
+                          mime_type: dbAtt.mime_type,
+                          file_size: dbAtt.file_size,
+                          blob: fileData,
+                          storage_path: dbAtt.storage_path,
+                          syncRequired: false,
+                          syncStatus: 'synced',
+                          created_at: dbAtt.created_at,
+                          updated_at: dbAtt.updated_at,
+                        });
+                      }
+                      break;
+                    }
+
+                    if (downloadError) {
+                      loadDetails = downloadError.message || loadDetails;
+                    }
+                  } catch (bucketError: any) {
+                    loadDetails = bucketError?.message || loadDetails;
+                    console.warn(`[PdfEditor] Falha ao baixar do bucket ${bucketName}:`, bucketError);
+                  }
+                }
+
+                // Último fallback: URL assinada, útil em buckets com permissão de leitura restrita.
+                if (!arrayBuffer) {
+                  for (const bucketName of bucketsToTry) {
+                    try {
+                      const { data: signedData, error: signedError } = await supabase.storage
+                        .from(bucketName)
+                        .createSignedUrl(dbAtt.storage_path, 300);
+                      if (signedError || !signedData?.signedUrl) {
+                        loadDetails = signedError?.message || loadDetails;
+                        continue;
+                      }
+
+                      const response = await fetch(signedData.signedUrl, { cache: 'no-store' });
+                      if (!response.ok) {
+                        loadDetails = `URL assinada respondeu HTTP ${response.status}`;
+                        continue;
+                      }
+                      const signedBytes = await response.arrayBuffer();
+                      if (signedBytes.byteLength > 0) {
+                        arrayBuffer = signedBytes;
+                        break;
+                      }
+                    } catch (signedError: any) {
+                      loadDetails = signedError?.message || loadDetails;
+                    }
+                  }
+                }
+              }
+            } else if (!metadataError) {
+              loadDetails = loadDetails || 'O registro do arquivo não foi encontrado na tabela note_attachments.';
+            }
+          } catch (remoteError: any) {
+            loadDetails = remoteError?.message || loadDetails;
+            console.warn('[PdfEditor] Falha no fallback remoto do PDF:', remoteError);
+          }
+        }
+
+        if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+          const offlineMessage = !navigator.onLine
+            ? 'O dispositivo está offline e não há uma cópia local deste PDF.'
+            : 'Não foi possível obter o conteúdo do anexo no dispositivo nem no Storage.';
+          throw new Error(
+            loadDetails
+              ? `${offlineMessage} Detalhe: ${loadDetails}`
+              : offlineMessage
+          );
         }
 
         if (isCancelled) return;
@@ -235,7 +327,7 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
     return () => {
       isCancelled = true;
     };
-  }, [attachmentId, userId]);
+  }, [attachmentId, userId, sourceUrl]);
 
   // Salva rascunhos de anotações no IndexedDB, com debounce para não gravar
   // milhares de transações durante o desenho livre.
