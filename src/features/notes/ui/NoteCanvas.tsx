@@ -22,6 +22,7 @@ import { InternalNoteReferenceModal } from './InternalNoteReferenceModal';
 import { ExtendedNote } from '../db/indexed-db';
 import { NoteTabs, NoteTabItem } from './NoteTabs';
 import { NoteEditorPanel } from './NoteEditorPanel';
+import { PdfViewerPageWrapper } from '@/src/features/pdf/PdfViewerPageWrapper';
 import {
   getInternalNavigationContext,
   returnToSourceNote,
@@ -31,6 +32,8 @@ import {
 
 interface NoteCanvasProps {
   activeNote: NoteType | null;
+  activePdfAttachmentId?: string | null;
+  activePdfTabId?: string | null;
   userId?: string;
   onUpdateTitle: (noteId: string, newTitle: string) => void;
   onUpdateContent: (noteId: string, newContent: string) => void;
@@ -62,6 +65,8 @@ interface NoteCanvasProps {
 
 export function NoteCanvas({
   activeNote,
+  activePdfAttachmentId = null,
+  activePdfTabId = null,
   userId,
   onUpdateTitle,
   onUpdateContent,
@@ -325,7 +330,7 @@ export function NoteCanvas({
   }, []);
 
   // Estado Vazio: Nenhuma nota selecionada
-  if (!activeNote) {
+  if (!activeNote && !activePdfAttachmentId) {
     return (
       <main
         id="main-note-workspace"
@@ -409,8 +414,18 @@ export function NoteCanvas({
         />
       )}
 
-      {/* 3. Área de Edição: Painel Único ou Divisão Vertical em Dois Painéis */}
-      {isSplit && splitLeftNote && splitRightNote ? (
+      {/* Conteúdo da aba ativa: PDF ou nota. O editor de PDF fica dentro do mesmo workspace e mantém a barra de abas acima. */}
+      {activePdfAttachmentId ? (
+        <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+          <PdfViewerPageWrapper
+            key={activePdfAttachmentId}
+            attachmentId={activePdfAttachmentId}
+            onClose={() => {
+              if (activePdfTabId) onCloseTab?.(activePdfTabId);
+            }}
+          />
+        </div>
+      ) : isSplit && splitLeftNote && splitRightNote ? (
         <div
           id="split-editor-workspace"
           className="flex-1 flex flex-col md:flex-row overflow-hidden relative divide-y md:divide-y-0 md:divide-x divide-[#eae8e3] dark:divide-[#1f1f1f]"
@@ -469,6 +484,7 @@ export function NoteCanvas({
       )}
 
       {/* Controles de Zoom Discretos com Lupa no Canto Inferior Direito */}
+      {!activePdfAttachmentId && (
       <div
         ref={zoomContainerRef}
         id="note-zoom-wrapper"
@@ -535,9 +551,10 @@ export function NoteCanvas({
           <Search className="w-4 h-4 stroke-[2]" />
         </button>
       </div>
+      )}
 
       {/* Barra de Ferramentas Rica no Rodapé (Oculta em Modo Somente Leitura) */}
-      {!readOnly && (
+      {!activePdfAttachmentId && !readOnly && activeNote && (
         <EditorToolbar
           editor={
             isSplit
@@ -557,11 +574,11 @@ export function NoteCanvas({
 
       {/* Modal de Referência Interna de Notas */}
       <InternalNoteReferenceModal
-        isOpen={isReferenceModalOpen}
+        isOpen={!activePdfAttachmentId && isReferenceModalOpen}
         onClose={() => setIsReferenceModalOpen(false)}
         onSelectNote={handleApplyInternalReference}
-        userId={userId || activeNote.user_id || 'demo-user'}
-        currentNoteId={activeNote.id}
+        userId={userId || activeNote?.user_id || 'demo-user'}
+        currentNoteId={activeNote?.id || ''}
         selectedText={referenceSelectedText}
       />
 
