@@ -898,7 +898,11 @@ export function MainLayout() {
         (tab) => tab.type === 'pdf' && tab.attachmentId === attachmentId
       );
       const pdfTab: NoteTabItem = existingTab
-        ? { ...existingTab, title: detail.fileName || existingTab.title || 'Documento PDF' }
+        ? {
+            ...existingTab,
+            sourceUrl: existingTab.sourceUrl || detail.sourceUrl,
+            title: detail.fileName || existingTab.title || 'Documento PDF',
+          }
         : {
             id: `pdf-tab-${attachmentId}`,
             type: 'pdf',
