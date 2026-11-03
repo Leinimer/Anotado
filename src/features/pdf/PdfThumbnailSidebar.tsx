@@ -28,6 +28,9 @@ export function PdfThumbnailSidebar({
 
   useEffect(() => {
     setScrollRoot(scrollContainerRef.current);
+  }, [isOpen]);
+
+  useEffect(() => {
     return () => {
       if (manualScrollTimerRef.current) clearTimeout(manualScrollTimerRef.current);
     };
