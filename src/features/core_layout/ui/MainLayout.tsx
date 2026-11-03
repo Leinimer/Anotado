@@ -881,7 +881,7 @@ export function MainLayout() {
 
   // Abre/ativa um PDF como aba interna do mesmo workspace de notas.
   const handleOpenPdfTab = useCallback(
-    async (detail: { attachmentId?: string; fileName?: string }) => {
+    async (detail: { attachmentId?: string; fileName?: string; sourceUrl?: string }) => {
       const attachmentId = detail.attachmentId?.trim();
       if (!attachmentId) return;
 
@@ -904,6 +904,7 @@ export function MainLayout() {
             type: 'pdf',
             noteId: '',
             attachmentId,
+            sourceUrl: detail.sourceUrl,
             title: detail.fileName || 'Documento PDF',
           };
 
@@ -931,7 +932,7 @@ export function MainLayout() {
 
   useEffect(() => {
     const handleOpenPdfEvent = (event: Event) => {
-      const customEvent = event as CustomEvent<{ attachmentId?: string; fileName?: string }>;
+      const customEvent = event as CustomEvent<{ attachmentId?: string; fileName?: string; sourceUrl?: string }>;
       void handleOpenPdfTab(customEvent.detail || {});
     };
 
@@ -1561,6 +1562,7 @@ export function MainLayout() {
           activeNote={activeNote}
           activePdfAttachmentId={activePdfAttachmentId}
           activePdfTabId={activePdfTab?.id || null}
+          activePdfSourceUrl={activePdfTab?.sourceUrl || null}
           userId={userId}
           onUpdateTitle={(noteId, newTitle) => handleUpdateTitle(noteId, newTitle)}
           onUpdateContent={(noteId, newContent) => handleUpdateContent(noteId, newContent)}
