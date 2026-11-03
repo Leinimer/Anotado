@@ -15,6 +15,17 @@ import {
 } from './types';
 import { StickyNote, X, MessageSquare } from 'lucide-react';
 
+function multiplyPdfTransforms(a: number[], b: number[]) {
+  return [
+    a[0] * b[0] + a[2] * b[1],
+    a[1] * b[0] + a[3] * b[1],
+    a[0] * b[2] + a[2] * b[3],
+    a[1] * b[2] + a[3] * b[3],
+    a[0] * b[4] + a[2] * b[5] + a[4],
+    a[1] * b[4] + a[3] * b[5] + a[5],
+  ];
+}
+
 interface PdfCanvasPageProps {
   pageIndex: number;
   pdfDoc: any;
@@ -59,7 +70,34 @@ export function PdfCanvasPage({
     height: number;
     unscaledWidth: number;
     unscaledHeight: number;
+    pdfWidth: number;
+    pdfHeight: number;
+    scaleX: number;
+    scaleY: number;
   } | null>(null);
+
+  const textLayerRef = useRef<HTMLDivElement>(null);
+  const [isNearViewport, setIsNearViewport] = useState(pageIndex === 0);
+  const [isPageRendered, setIsPageRendered] = useState(false);
+
+  // Só renderiza páginas próximas à área visível. Isso evita criar centenas de
+  // canvases de alta resolução simultaneamente em PDFs longos.
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      setIsNearViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) setIsNearViewport(entry.isIntersecting);
+      },
+      { root: null, rootMargin: '1100px 0px', threshold: 0 }
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   // Drawing state
   const [isInteracting, setIsInteracting] = useState(false);
@@ -73,69 +111,153 @@ export function PdfCanvasPage({
   // Dragging selected annotation
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
 
-  // Render the PDF page to canvas
+  // Renderiza somente as páginas próximas à viewport e cria uma camada de
+  // texto alinhada ao canvas, permitindo selecionar/copiar texto nativo do PDF.
   useEffect(() => {
     let isCancelled = false;
 
     async function renderPage() {
-      if (!pdfDoc || !canvasRef.current) return;
+      const canvas = canvasRef.current;
+      const textLayer = textLayerRef.current;
+      if (!pdfDoc || !canvas || !isNearViewport) {
+        if (canvas && !isNearViewport) {
+          if (renderTaskRef.current) {
+            try { renderTaskRef.current.cancel(); } catch {}
+            renderTaskRef.current = null;
+          }
+          canvas.width = 0;
+          canvas.height = 0;
+          if (textLayer) textLayer.replaceChildren();
+          setIsPageRendered(false);
+        }
+        return;
+      }
+
       try {
         const page = await pdfDoc.getPage(pageIndex + 1);
         if (isCancelled) return;
 
         const unscaledViewport = page.getViewport({ scale: 1 });
         const viewport = page.getViewport({ scale: zoom });
+        const pdfWidth = Math.abs(page.view[2] - page.view[0]) || unscaledViewport.width;
+        const pdfHeight = Math.abs(page.view[3] - page.view[1]) || unscaledViewport.height;
+        const scaleX = unscaledViewport.width / pdfWidth;
+        const scaleY = unscaledViewport.height / pdfHeight;
 
         setPageDimensions({
           width: viewport.width,
           height: viewport.height,
           unscaledWidth: unscaledViewport.width,
           unscaledHeight: unscaledViewport.height,
+          pdfWidth,
+          pdfHeight,
+          scaleX,
+          scaleY,
         });
 
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        canvas.width = Math.floor(viewport.width * dpr);
-        canvas.height = Math.floor(viewport.height * dpr);
+        const dprWanted = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+        const maxCanvasPixels = 16_000_000;
+        const areaAtOneDpr = viewport.width * viewport.height;
+        const dpr = Math.max(0.75, Math.min(dprWanted, 1.5, Math.sqrt(maxCanvasPixels / Math.max(1, areaAtOneDpr))));
+        canvas.width = Math.max(1, Math.floor(viewport.width * dpr));
+        canvas.height = Math.max(1, Math.floor(viewport.height * dpr));
         canvas.style.width = `${viewport.width}px`;
         canvas.style.height = `${viewport.height}px`;
 
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { alpha: false });
         if (!ctx) return;
-
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
-        ctx.scale(dpr, dpr);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         if (renderTaskRef.current) {
-          renderTaskRef.current.cancel();
+          try { renderTaskRef.current.cancel(); } catch {}
         }
-
         renderTaskRef.current = page.render({
           canvasContext: ctx,
-          viewport: viewport,
+          viewport,
+          transform: [dpr, 0, 0, dpr, 0, 0],
         });
+        const canvasPromise = renderTaskRef.current.promise;
 
-        await renderTaskRef.current.promise;
+        // Camada de texto transparente, mas com spans alinhados aos glifos do PDF.
+        const textContent = await page.getTextContent();
+        if (isCancelled || !textLayer) return;
+        textLayer.replaceChildren();
+        textLayer.style.width = `${viewport.width}px`;
+        textLayer.style.height = `${viewport.height}px`;
+
+        const measureCanvas = document.createElement('canvas');
+        const measureContext = measureCanvas.getContext('2d');
+        const outputScale = Math.hypot(viewport.transform[0], viewport.transform[1]) || (zoom * scaleX);
+
+        for (const item of textContent.items) {
+          if (isCancelled) return;
+          if (!item || typeof item.str !== 'string' || !item.str) {
+            if (item?.hasEOL) textLayer.appendChild(document.createElement('br'));
+            continue;
+          }
+
+          const style = textContent.styles?.[item.fontName] || {};
+          const tx = multiplyPdfTransforms(viewport.transform, item.transform);
+          const angle = Math.atan2(tx[1], tx[0]) + (style.vertical ? Math.PI / 2 : 0);
+          const fontHeight = Math.hypot(tx[2], tx[3]);
+          const ascentRatio = typeof style.ascent === 'number'
+            ? style.ascent
+            : typeof style.descent === 'number'
+              ? 1 + style.descent
+              : 0.8;
+          const fontAscent = fontHeight * ascentRatio;
+          const left = angle === 0 ? tx[4] : tx[4] + fontAscent * Math.sin(angle);
+          const top = angle === 0 ? tx[5] - fontAscent : tx[5] - fontAscent * Math.cos(angle);
+
+          const span = document.createElement('span');
+          span.textContent = item.str;
+          span.dir = item.dir || 'ltr';
+          span.setAttribute('role', 'presentation');
+          span.style.left = `${(left / viewport.width) * 100}%`;
+          span.style.top = `${(top / viewport.height) * 100}%`;
+          span.style.fontSize = `${fontHeight}px`;
+          span.style.fontFamily = style.fontFamily || 'sans-serif';
+          span.style.lineHeight = '1';
+          span.style.whiteSpace = 'pre';
+          span.style.color = 'transparent';
+          span.style.position = 'absolute';
+          span.style.transformOrigin = '0 0';
+
+          let transform = angle ? `rotate(${angle}rad) ` : '';
+          if (measureContext && item.str.length > 1 && item.width > 0) {
+            measureContext.font = `${fontHeight}px ${style.fontFamily || 'sans-serif'}`;
+            const measuredWidth = measureContext.measureText(item.str).width;
+            const targetWidth = item.width * outputScale;
+            if (measuredWidth > 0 && targetWidth > 0) {
+              transform += `scaleX(${targetWidth / measuredWidth})`;
+            }
+          }
+          if (transform) span.style.transform = transform;
+          textLayer.appendChild(span);
+          if (item.hasEOL) textLayer.appendChild(document.createElement('br'));
+        }
+
+        await canvasPromise;
+        if (isCancelled) return;
+        setIsPageRendered(true);
       } catch (err: any) {
-        if (err?.name !== 'RenderingCancelledException') {
-          // ignore cancelled
+        if (err?.name !== 'RenderingCancelledException' && !isCancelled) {
+          console.warn(`[PdfCanvasPage] Falha ao renderizar a página ${pageIndex + 1}:`, err);
         }
       }
     }
 
-    renderPage();
-
+    void renderPage();
     return () => {
       isCancelled = true;
       if (renderTaskRef.current) {
-        try {
-          renderTaskRef.current.cancel();
-        } catch {}
+        try { renderTaskRef.current.cancel(); } catch {}
+        renderTaskRef.current = null;
       }
     };
-  }, [pdfDoc, pageIndex, zoom]);
+  }, [pdfDoc, pageIndex, zoom, isNearViewport]);
 
   // Convert client coordinate to unscaled PDF point (scale 1.0)
   const getUnscaledCoords = useCallback(
@@ -157,16 +279,17 @@ export function PdfCanvasPage({
       const relativeY = clientY - rect.top;
 
       return {
-        x: Math.max(0, relativeX / zoom),
-        y: Math.max(0, relativeY / zoom),
+        x: Math.max(0, relativeX / (pageDimensions?.scaleX ? pageDimensions.scaleX * zoom : zoom * 1.333333)),
+        y: Math.max(0, relativeY / (pageDimensions?.scaleY ? pageDimensions.scaleY * zoom : zoom * 1.333333)),
       };
     },
-    [zoom]
+    [zoom, pageDimensions]
   );
 
   // Mouse handlers for annotations
   const handleMouseDown = (e: React.MouseEvent) => {
     if (isReadOnly || mode === 'hand') return;
+    if (mode === 'select' && (e.target as HTMLElement)?.closest?.('.pdf-text-layer')) return;
     if (e.button !== 0) return; // Only left click
 
     const pt = getUnscaledCoords(e);
@@ -318,25 +441,44 @@ export function PdfCanvasPage({
   return (
     <div
       ref={containerRef}
-      className="relative mb-6 mx-auto bg-white dark:bg-[#151515] shadow-lg rounded-sm transition-shadow border border-[#e4e2dd] dark:border-[#33312e] select-none"
+      data-pdf-page-container="true"
+      data-pdf-page-index={pageIndex}
+      data-pdf-scale-x={pageDimensions?.scaleX ? pageDimensions.scaleX * zoom : zoom * 1.333333}
+      data-pdf-scale-y={pageDimensions?.scaleY ? pageDimensions.scaleY * zoom : zoom * 1.333333}
+      className="relative mb-6 mx-auto bg-white dark:bg-[#151515] shadow-lg rounded-sm transition-shadow border border-[#e4e2dd] dark:border-[#33312e] select-text"
       style={{
-        width: pageDimensions ? `${pageDimensions.width}px` : 'auto',
-        height: pageDimensions ? `${pageDimensions.height}px` : 'auto',
-        minHeight: '400px',
+        width: pageDimensions ? `${pageDimensions.width}px` : `${595 * 1.333333 * zoom}px`,
+        height: pageDimensions ? `${pageDimensions.height}px` : `${842 * 1.333333 * zoom}px`,
+        minHeight: pageDimensions ? undefined : `${842 * 1.333333 * zoom}px`,
       }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >
       {/* Canvas da página do PDF */}
-      <canvas ref={canvasRef} className="block pointer-events-none" />
+      <canvas ref={canvasRef} className="absolute inset-0 block pointer-events-none" />
+
+      {/* Texto transparente, mas selecionável e copiável como texto nativo do PDF. */}
+      <div
+        ref={textLayerRef}
+        className="pdf-text-layer absolute inset-0 overflow-hidden"
+        style={{
+          width: pageDimensions ? `${pageDimensions.width}px` : '100%',
+          height: pageDimensions ? `${pageDimensions.height}px` : '100%',
+          zIndex: 2,
+          pointerEvents: mode === 'select' ? 'auto' : 'none',
+          userSelect: mode === 'select' ? 'text' : 'none',
+          WebkitUserSelect: mode === 'select' ? 'text' : 'none',
+        }}
+        aria-label={`Texto da página ${pageIndex + 1}`}
+      />
 
       {/* Camada interativa de SVG para anotações vetorizadas */}
       {pageDimensions && (
         <svg
           className="absolute inset-0 w-full h-full pointer-events-none overflow-visible"
-          viewBox={`0 0 ${pageDimensions.unscaledWidth} ${pageDimensions.unscaledHeight}`}
-          style={{ width: `${pageDimensions.width}px`, height: `${pageDimensions.height}px` }}
+          viewBox={`0 0 ${pageDimensions.pdfWidth} ${pageDimensions.pdfHeight}`}
+          style={{ width: `${pageDimensions.width}px`, height: `${pageDimensions.height}px`, position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none' }}
         >
           {/* Anotações existentes na página */}
           {pageAnnotations.map((ann) => {
@@ -611,10 +753,10 @@ export function PdfCanvasPage({
                   key={ann.id}
                   style={{
                     position: 'absolute',
-                    left: `${ann.x * zoom}px`,
-                    top: `${ann.y * zoom}px`,
-                    minWidth: `${(ann.width || 120) * zoom}px`,
-                    fontSize: `${(ann.fontSize || 14) * zoom}px`,
+                    left: `${ann.x * (pageDimensions?.scaleX || 1.333333) * zoom}px`,
+                    top: `${ann.y * (pageDimensions?.scaleY || 1.333333) * zoom}px`,
+                    minWidth: `${(ann.width || 120) * (pageDimensions?.scaleX || 1.333333) * zoom}px`,
+                    fontSize: `${(ann.fontSize || 14) * (pageDimensions?.scaleX || 1.333333) * zoom}px`,
                     color: ann.color,
                   }}
                   className={`pointer-events-auto group ${
@@ -646,8 +788,8 @@ export function PdfCanvasPage({
                   key={ann.id}
                   style={{
                     position: 'absolute',
-                    left: `${ann.x * zoom}px`,
-                    top: `${ann.y * zoom}px`,
+                    left: `${ann.x * (pageDimensions?.scaleX || 1.333333) * zoom}px`,
+                    top: `${ann.y * (pageDimensions?.scaleY || 1.333333) * zoom}px`,
                   }}
                   className="pointer-events-auto z-30"
                   onClick={(e) => e.stopPropagation()}
