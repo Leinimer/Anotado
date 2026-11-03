@@ -72,7 +72,6 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
   const hasUnsavedChangesRef = useRef(false);
   const isDraftHydratedRef = useRef(false);
   const isSavingRef = useRef(false);
-  const isSaving = saveStatus === 'saving_local' || saveStatus === 'syncing';
 
   // Refs atualizadas durante o render para que o cleanup da aba sempre persista
   // a última versão, mesmo quando a troca de abas desmonta este componente.
@@ -87,6 +86,7 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   hasUnsavedChangesRef.current = hasUnsavedChanges;
+  const isSaving = saveStatus === 'saving_local' || saveStatus === 'syncing';
 
   // Load PDF data on mount
   useEffect(() => {
