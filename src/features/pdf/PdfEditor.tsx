@@ -71,6 +71,8 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
   const annotationsRef = useRef<PdfAnnotation[]>([]);
   const hasUnsavedChangesRef = useRef(false);
   const isDraftHydratedRef = useRef(false);
+  const isSavingRef = useRef(false);
+  const isSaving = saveStatus === 'saving_local' || saveStatus === 'syncing';
 
   // Refs atualizadas durante o render para que o cleanup da aba sempre persista
   // a última versão, mesmo quando a troca de abas desmonta este componente.
@@ -307,16 +309,19 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
   );
 
   const handleAddAnnotation = (ann: PdfAnnotation) => {
+    if (isSavingRef.current) return;
     const next = [...annotations, ann];
     pushHistory(next);
   };
 
   const handleUpdateAnnotation = (updated: PdfAnnotation) => {
+    if (isSavingRef.current) return;
     const next = annotations.map((a) => (a.id === updated.id ? updated : a));
     pushHistory(next);
   };
 
   const handleDeleteAnnotation = (id: string) => {
+    if (isSavingRef.current) return;
     const next = annotations.filter((a) => a.id !== id);
     if (selectedAnnotationId === id) {
       setSelectedAnnotationId(null);
@@ -325,12 +330,14 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
   };
 
   const handleDeleteSelected = () => {
+    if (isSavingRef.current) return;
     if (selectedAnnotationId) {
       handleDeleteAnnotation(selectedAnnotationId);
     }
   };
 
   const handleUndo = () => {
+    if (isSavingRef.current) return;
     if (historyIndex > 0) {
       const prevIndex = historyIndex - 1;
       setHistoryIndex(prevIndex);
@@ -341,6 +348,7 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
   };
 
   const handleRedo = () => {
+    if (isSavingRef.current) return;
     if (historyIndex < history.length - 1) {
       const nextIndex = historyIndex + 1;
       setHistoryIndex(nextIndex);
@@ -403,50 +411,76 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
     return () => observer.disconnect();
   }, [numPages, isLoading]);
 
-  // Save handler: burns annotations into PDF and overwrites same object in Supabase
+  // Salva o PDF no mesmo objeto e caminho do Storage, incorporando as anotações.
   const handleSave = async () => {
-    if (!rawPdfBytes || isReadOnly) return;
+    if (!rawPdfBytes || isReadOnly || isSavingRef.current) return;
+
+    isSavingRef.current = true;
+    const wasOnline = navigator.onLine && networkMonitor.getState().isBackendReachable;
 
     try {
-      setSaveStatus('saving_local');
+      setSaveStatus(wasOnline ? 'syncing' : 'saving_local');
       setSaveErrorMsg(null);
 
-      // 1. Gera o PDF binário real com as anotações mescladas
       const annotationsSnapshot = annotations;
       const updatedBlob = await exportPdfWithAnnotations(rawPdfBytes, annotationsSnapshot);
 
-      // 2. Persiste localmente e enfileira para substituição idempotente no Supabase
+      // Atualiza o mesmo attachmentId/storage_path localmente e enfileira a substituição remota.
       const result = await replaceNoteAttachment(userId, attachmentId, updatedBlob);
-
-      if (result.success) {
-        // Só limpa o rascunho se nenhuma anotação nova tiver sido feita durante o salvamento.
-        if (annotationsRef.current === annotationsSnapshot) {
-          await indexedDBStorage.setMetadata(userId, draftKey, null);
-          if (userId !== 'anonymous') {
-            await indexedDBStorage.setMetadata('anonymous', draftKey, null).catch(() => {});
-          }
-          hasUnsavedChangesRef.current = false;
-          setHasUnsavedChanges(false);
-        } else {
-          setHasUnsavedChanges(true);
-          setSaveStatus('unsaved');
-          return;
-        }
-        const isOnline = navigator.onLine && networkMonitor.getState().isBackendReachable;
-        if (isOnline) {
-          setSaveStatus('syncing');
-          // Em breve o syncEngine confirmará e emitirá 'attachment:replace-complete'
-          setTimeout(() => {
-            setSaveStatus((current) => (current === 'syncing' ? 'synced' : current));
-          }, 1500);
-        } else {
-          setSaveStatus('saved_local');
-        }
+      if (!result.success) {
+        throw new Error('Não foi possível salvar o PDF no armazenamento local.');
       }
+
+      // O PDF exportado passa a ser a nova base. Recarrega o PDF.js para que as
+      // marcações incorporadas apareçam na página e zera somente o overlay temporário.
+      const savedBytes = await updatedBlob.arrayBuffer();
+      const pdfjsLib = await import('pdfjs-dist');
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+      }
+      const reloadedTask = pdfjsLib.getDocument({
+        data: new Uint8Array(savedBytes),
+        cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/cmaps/`,
+        cMapPacked: true,
+      });
+      const reloadedPdf = await reloadedTask.promise;
+
+      const previousPdf = pdfDoc;
+      setRawPdfBytes(savedBytes);
+      setPdfDoc(reloadedPdf);
+      setNumPages(reloadedPdf.numPages);
+      setCurrentPage((current) => Math.min(current, reloadedPdf.numPages - 1));
+      setAnnotations([]);
+      annotationsRef.current = [];
+      setSelectedAnnotationId(null);
+      setHistory([[]]);
+      setHistoryIndex(0);
+      hasUnsavedChangesRef.current = false;
+      setHasUnsavedChanges(false);
+
+      // A falha ao limpar metadados de rascunho não invalida o arquivo que já foi salvo.
+      await indexedDBStorage.setMetadata(userId, draftKey, null).catch((error) => {
+        console.warn('[PdfEditor] Não foi possível limpar o rascunho local:', error);
+      });
+      if (userId !== 'anonymous') {
+        await indexedDBStorage.setMetadata('anonymous', draftKey, null).catch(() => {});
+      }
+
+      try {
+        await previousPdf?.destroy?.();
+      } catch {
+        // O novo documento já está carregado; a liberação do anterior é best-effort.
+      }
+
+      // A sincronização em nuvem só muda para "Salvo na nuvem" quando o SyncEngine
+      // emitir attachment:replace-complete. Não usar timer para simular confirmação.
+      setSaveStatus(wasOnline ? 'syncing' : 'saved_local');
     } catch (err: any) {
       console.error('[PdfEditor] Erro ao salvar PDF:', err);
       setSaveStatus('error');
       setSaveErrorMsg(err?.message || 'Erro ao salvar alterações no documento.');
+    } finally {
+      isSavingRef.current = false;
     }
   };
 
@@ -635,7 +669,7 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
             <button
               type="button"
               onClick={handleSave}
-              disabled={saveStatus === 'saving_local'}
+              disabled={isSaving}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold font-sans-ui transition-all shadow-xs cursor-pointer ${
                 hasUnsavedChanges
                   ? 'bg-[#68594d] hover:bg-[#53463c] text-white'
@@ -703,7 +737,7 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
                 onAddAnnotation={handleAddAnnotation}
                 onUpdateAnnotation={handleUpdateAnnotation}
                 onDeleteAnnotation={handleDeleteAnnotation}
-                isReadOnly={isReadOnly}
+                isReadOnly={isReadOnly || isSaving}
               />
             </div>
           ))}
@@ -733,7 +767,7 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
         onRedo={handleRedo}
         hasSelection={Boolean(selectedAnnotationId)}
         onDeleteSelected={handleDeleteSelected}
-        isReadOnly={isReadOnly}
+        isReadOnly={isReadOnly || isSaving}
       />
     </div>
   );
