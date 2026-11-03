@@ -7,10 +7,11 @@ import { Loader2 } from 'lucide-react';
 
 interface PdfViewerPageWrapperProps {
   attachmentId: string;
+  sourceUrl?: string;
   onClose?: () => void;
 }
 
-export function PdfViewerPageWrapper({ attachmentId, onClose }: PdfViewerPageWrapperProps) {
+export function PdfViewerPageWrapper({ attachmentId, sourceUrl, onClose }: PdfViewerPageWrapperProps) {
   const [userId, setUserId] = useState<string | null>(null);
   const [isReadOnly, setIsReadOnly] = useState<boolean>(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
@@ -79,6 +80,7 @@ export function PdfViewerPageWrapper({ attachmentId, onClose }: PdfViewerPageWra
   return (
     <PdfEditor
       attachmentId={attachmentId}
+      sourceUrl={sourceUrl}
       userId={userId}
       isReadOnly={isReadOnly}
       onClose={onClose}
