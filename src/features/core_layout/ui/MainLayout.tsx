@@ -1177,7 +1177,7 @@ export function MainLayout() {
             if (remaining.length > 0) {
               const nextTab = remaining[remaining.length - 1];
               setActiveTabId(nextTab.id);
-              setActiveNoteId(nextTab.noteId);
+              setActiveNoteId(nextTab.type === 'pdf' ? null : nextTab.noteId);
             } else {
               setActiveTabId(null);
               setActiveNoteId(null);
