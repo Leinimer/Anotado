@@ -78,7 +78,6 @@ export function PdfCanvasPage({
 
   const textLayerRef = useRef<HTMLDivElement>(null);
   const [isNearViewport, setIsNearViewport] = useState(pageIndex === 0);
-  const [isPageRendered, setIsPageRendered] = useState(false);
 
   // Só renderiza páginas próximas à área visível. Isso evita criar centenas de
   // canvases de alta resolução simultaneamente em PDFs longos.
@@ -128,7 +127,6 @@ export function PdfCanvasPage({
           canvas.width = 0;
           canvas.height = 0;
           if (textLayer) textLayer.replaceChildren();
-          setIsPageRendered(false);
         }
         return;
       }
@@ -191,7 +189,7 @@ export function PdfCanvasPage({
         const measureContext = measureCanvas.getContext('2d');
         const outputScale = Math.hypot(viewport.transform[0], viewport.transform[1]) || (zoom * scaleX);
 
-        for (const item of textContent.items) {
+        for (const item of textContent.items as any[]) {
           if (isCancelled) return;
           if (!item || typeof item.str !== 'string' || !item.str) {
             if (item?.hasEOL) textLayer.appendChild(document.createElement('br'));
@@ -241,7 +239,6 @@ export function PdfCanvasPage({
 
         await canvasPromise;
         if (isCancelled) return;
-        setIsPageRendered(true);
       } catch (err: any) {
         if (err?.name !== 'RenderingCancelledException' && !isCancelled) {
           console.warn(`[PdfCanvasPage] Falha ao renderizar a página ${pageIndex + 1}:`, err);
