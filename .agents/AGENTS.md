@@ -334,6 +334,7 @@ Alterar atributos, nome de nó ou URI pode afetar HTML, Markdown, conteúdo já 
   - `replaceNoteAttachment` em `storage-api.ts` e o handler `REPLACE_ATTACHMENT` no `SyncEngine` (`sync-engine.ts`) executam `supabase.storage.from('note-attachments').upload(storagePath, blob, { upsert: true })` mantendo rigorosamente o mesmo `attachmentId`, mesmo `file_name` e mesmo `storage_path`.
   - A tabela `public.note_attachments` tem seus campos `file_size` e `updated_at` atualizados sem criar registros duplicados e sem alterar o conteúdo Markdown da nota.
   - O cache de URLs em memória (`invalidateAttachmentCache`) e o Blob no IndexedDB são atualizados imediatamente (local-first).
+- **Rascunhos e troca de abas**: como o `PdfEditor` é desmontado ao ativar outra aba interna, o array de anotações ainda não salvas é preservado no metadata do IndexedDB com chave `pdf-editor-draft:<attachmentId>`. Ao reabrir a aba, restaura anotações e estado dirty. No salvamento confirmado localmente, exporta as anotações para o PDF, atualiza a base de bytes/PDF.js, limpa o overlay temporário e remove o rascunho. A confirmação "Salvo na nuvem" depende exclusivamente do evento `attachment:replace-complete`.
 - **Permissões**: diários compartilhados acessados por terceiros permanecem em modo estritamente somente leitura (`isReadOnly`), desativando ferramentas de edição e o botão de salvar.
 
 ### Abas
