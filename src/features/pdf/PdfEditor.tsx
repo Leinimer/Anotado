@@ -474,7 +474,10 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
 
       // A sincronização em nuvem só muda para "Salvo na nuvem" quando o SyncEngine
       // emitir attachment:replace-complete. Não usar timer para simular confirmação.
-      setSaveStatus(wasOnline ? 'syncing' : 'saved_local');
+      // O SyncEngine pode confirmar antes ou depois do retorno do upload local.
+      setSaveStatus((current) =>
+        wasOnline && current === 'synced' ? 'synced' : wasOnline ? 'syncing' : 'saved_local'
+      );
     } catch (err: any) {
       console.error('[PdfEditor] Erro ao salvar PDF:', err);
       setSaveStatus('error');
