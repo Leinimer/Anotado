@@ -208,6 +208,11 @@ export function DocumentNodeView(props: NodeViewProps) {
           detail: {
             attachmentId: pdfAttachmentId,
             fileName: name,
+            // Aproveita a URL já resolvida pelo hook de anexos (assinada, pública
+            // ou blob local) como fonte reserva para recuperar os bytes do PDF.
+            sourceUrl: resolvedSrc && /^(https?:|blob:|data:)/i.test(resolvedSrc)
+              ? resolvedSrc
+              : undefined,
           },
         })
       );
