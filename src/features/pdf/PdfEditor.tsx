@@ -406,8 +406,25 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       }
     };
 
+    // Clique fora do texto e da barra de ferramentas invalida a seleção guardada.
+    // Assim, uma marcação posterior não reaplica acidentalmente um trecho antigo.
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        target?.closest('.pdf-text-layer') ||
+        target?.closest('[data-pdf-editor-toolbar]')
+      ) {
+        return;
+      }
+      selectedPdfTextRangeRef.current = null;
+    };
+
     document.addEventListener('selectionchange', handleSelectionChange);
-    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+    };
   }, []);
 
   // Listener para sincronização remota confirmada
