@@ -469,8 +469,8 @@ export function NoteCanvas({
       ) : (
         /* Modo Normal: Painel Único */
         <NoteEditorPanel
-          key={`panel-single-${activeNote.id}`}
-          note={activeNote}
+          key={`panel-single-${activeNote!.id}`}
+          note={activeNote!}
           userId={userId}
           readOnly={readOnly}
           isSplit={false}
