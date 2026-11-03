@@ -10,6 +10,7 @@ export interface NoteTabItem {
   type?: 'note' | 'pdf';
   noteId: string;
   attachmentId?: string;
+  sourceUrl?: string;
   title?: string;
 }
 
