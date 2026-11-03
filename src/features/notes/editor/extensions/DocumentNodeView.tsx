@@ -11,7 +11,7 @@ import {
   moveNodeBlock,
 } from '../utils/node-movement';
 import { perfProfiler } from '../utils/media-optimizer';
-import { formatBytes, getMediaAlignmentClass, extractAttachmentId } from '../utils/media-common';
+import { formatBytes, getMediaAlignmentClass, extractAttachmentId, resolveAttachmentSource } from '../utils/media-common';
 import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
 import { useAttachmentSource } from '../hooks/use-attachment-source';
 import { useMediaResize } from '../hooks/use-media-resize';
@@ -203,15 +203,25 @@ export function DocumentNodeView(props: NodeViewProps) {
         return;
       }
 
+      // Reutiliza a resolução oficial do anexo para obter URL assinada/remota
+      // ou Blob URL local, sem obrigar o PDFEditor a adivinhar o caminho do Storage.
+      let pdfSourceUrl = resolvedSrc;
+      if (!pdfSourceUrl || pdfSourceUrl.startsWith('attachment://') || pdfSourceUrl.startsWith('local-attachment://')) {
+        try {
+          const resolved = await resolveAttachmentSource(rawSrc, currentUserId);
+          pdfSourceUrl = resolved.resolvedUrl || '';
+        } catch (error) {
+          console.warn('[DocumentNodeView] Não foi possível pré-resolver a origem do PDF:', error);
+        }
+      }
+
       window.dispatchEvent(
         new CustomEvent('anotado:open-pdf', {
           detail: {
             attachmentId: pdfAttachmentId,
             fileName: name,
-            // Aproveita a URL já resolvida pelo hook de anexos (assinada, pública
-            // ou blob local) como fonte reserva para recuperar os bytes do PDF.
-            sourceUrl: resolvedSrc && /^(https?:|blob:|data:)/i.test(resolvedSrc)
-              ? resolvedSrc
+            sourceUrl: pdfSourceUrl && /^(https?:|blob:|data:)/i.test(pdfSourceUrl)
+              ? pdfSourceUrl
               : undefined,
           },
         })
