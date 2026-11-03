@@ -66,6 +66,15 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
 
   const [annotations, setAnnotations] = useState<PdfAnnotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  const [isDraftHydrated, setIsDraftHydrated] = useState(false);
+  const draftKey = `pdf-editor-draft:${attachmentId}`;
+  const annotationsRef = useRef<PdfAnnotation[]>([]);
+  const hasUnsavedChangesRef = useRef(false);
+  const isDraftHydratedRef = useRef(false);
+
+  // Refs atualizadas durante o render para que o cleanup da aba sempre persista
+  // a última versão, mesmo quando a troca de abas desmonta este componente.
+  annotationsRef.current = annotations;
 
   // Undo / Redo history
   const [history, setHistory] = useState<PdfAnnotation[][]>([[]]);
@@ -75,6 +84,7 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  hasUnsavedChangesRef.current = hasUnsavedChanges;
 
   // Load PDF data on mount
   useEffect(() => {
@@ -159,6 +169,43 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
         const doc = await loadingTask.promise;
         if (isCancelled) return;
 
+        // Recupera o rascunho local de anotações para que alternar entre abas
+        // internas não descarte alterações ainda não salvas no PDF.
+        const draft = await indexedDBStorage.getMetadata<{
+          version: number;
+          annotations: PdfAnnotation[];
+          updatedAt: string;
+          dirty: boolean;
+        }>(userId, `pdf-editor-draft:${attachmentId}`);
+
+        let recoveredDraft = draft;
+        if (!recoveredDraft && userId !== 'anonymous') {
+          recoveredDraft = await indexedDBStorage.getMetadata<{
+            version: number;
+            annotations: PdfAnnotation[];
+            updatedAt: string;
+            dirty: boolean;
+          }>('anonymous', `pdf-editor-draft:${attachmentId}`);
+        }
+
+        if (
+          !isCancelled &&
+          !isReadOnly &&
+          recoveredDraft?.version === 1 &&
+          recoveredDraft.dirty === true &&
+          Array.isArray(recoveredDraft.annotations)
+        ) {
+          const recovered = recoveredDraft.annotations;
+          setAnnotations(recovered);
+          setHistory([[], recovered]);
+          setHistoryIndex(1);
+          setHasUnsavedChanges(true);
+          setSaveStatus('unsaved');
+        }
+
+        if (isCancelled) return;
+        isDraftHydratedRef.current = true;
+        setIsDraftHydrated(true);
         setPdfDoc(doc);
         setNumPages(doc.numPages);
         setIsLoading(false);
@@ -177,6 +224,60 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
       isCancelled = true;
     };
   }, [attachmentId, userId]);
+
+  // Salva rascunhos de anotações no IndexedDB, com debounce para não gravar
+  // milhares de transações durante o desenho livre.
+  useEffect(() => {
+    if (
+      !isDraftHydrated ||
+      isReadOnly ||
+      !hasUnsavedChanges ||
+      !rawPdfBytes
+    ) {
+      return;
+    }
+
+    const snapshot = annotations;
+    const timer = setTimeout(() => {
+      void indexedDBStorage
+        .setMetadata(userId, draftKey, {
+          version: 1,
+          annotations: snapshot,
+          updatedAt: new Date().toISOString(),
+          dirty: true,
+        })
+        .catch((error) => {
+          console.warn('[PdfEditor] Não foi possível persistir o rascunho do PDF:', error);
+        });
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [annotations, hasUnsavedChanges, isDraftHydrated, isReadOnly, rawPdfBytes, userId, draftKey]);
+
+  // Flush imediato ao desmontar ao trocar de aba, fechar o workspace ou alternar
+  // para outra nota. A escrita local não depende de uma nova renderização.
+  useEffect(() => {
+    return () => {
+      if (
+        !isDraftHydratedRef.current ||
+        !hasUnsavedChangesRef.current ||
+        isReadOnly
+      ) {
+        return;
+      }
+
+      void indexedDBStorage
+        .setMetadata(userId, draftKey, {
+          version: 1,
+          annotations: annotationsRef.current,
+          updatedAt: new Date().toISOString(),
+          dirty: true,
+        })
+        .catch((error) => {
+          console.warn('[PdfEditor] Falha ao preservar rascunho ao trocar de aba:', error);
+        });
+    };
+  }, [userId, draftKey, isReadOnly]);
 
   // Listener para sincronização remota confirmada
   useEffect(() => {
@@ -311,13 +412,26 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
       setSaveErrorMsg(null);
 
       // 1. Gera o PDF binário real com as anotações mescladas
-      const updatedBlob = await exportPdfWithAnnotations(rawPdfBytes, annotations);
+      const annotationsSnapshot = annotations;
+      const updatedBlob = await exportPdfWithAnnotations(rawPdfBytes, annotationsSnapshot);
 
       // 2. Persiste localmente e enfileira para substituição idempotente no Supabase
       const result = await replaceNoteAttachment(userId, attachmentId, updatedBlob);
 
       if (result.success) {
-        setHasUnsavedChanges(false);
+        // Só limpa o rascunho se nenhuma anotação nova tiver sido feita durante o salvamento.
+        if (annotationsRef.current === annotationsSnapshot) {
+          await indexedDBStorage.setMetadata(userId, draftKey, null);
+          if (userId !== 'anonymous') {
+            await indexedDBStorage.setMetadata('anonymous', draftKey, null).catch(() => {});
+          }
+          hasUnsavedChangesRef.current = false;
+          setHasUnsavedChanges(false);
+        } else {
+          setHasUnsavedChanges(true);
+          setSaveStatus('unsaved');
+          return;
+        }
         const isOnline = navigator.onLine && networkMonitor.getState().isBackendReachable;
         if (isOnline) {
           setSaveStatus('syncing');
