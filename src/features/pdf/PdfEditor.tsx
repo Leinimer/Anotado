@@ -57,6 +57,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const selectedPdfTextRangeRef = useRef<Range | null>(null);
 
   // Tools & annotations state
   const [currentMode, setCurrentMode] = useState<ToolMode>('select');
@@ -383,6 +384,32 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     };
   }, [userId, draftKey, isReadOnly]);
 
+  // Guarda a última seleção não vazia feita na camada de texto do PDF.
+  // Isso permite clicar em Marca-texto/Sublinhar/Tachar sem perder a seleção pelo foco do dock.
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = document.getSelection();
+      if (!selection || selection.isCollapsed || !selection.toString().trim() || selection.rangeCount === 0) return;
+
+      const anchorElement = selection.anchorNode instanceof Element
+        ? selection.anchorNode
+        : selection.anchorNode?.parentElement;
+      const focusElement = selection.focusNode instanceof Element
+        ? selection.focusNode
+        : selection.focusNode?.parentElement;
+
+      if (
+        anchorElement?.closest('.pdf-text-layer') &&
+        focusElement?.closest('.pdf-text-layer')
+      ) {
+        selectedPdfTextRangeRef.current = selection.getRangeAt(0).cloneRange();
+      }
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+  }, []);
+
   // Listener para sincronização remota confirmada
   useEffect(() => {
     const handleReplaceComplete = (e: any) => {
@@ -438,6 +465,97 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     if (selectedAnnotationId) {
       handleDeleteAnnotation(selectedAnnotationId);
     }
+  };
+
+  // Aplica marcação exatamente sobre os retângulos reais do texto selecionado,
+  // inclusive quando a seleção atravessa duas ou mais páginas.
+  const handleSetToolMode = (nextMode: ToolMode) => {
+    if (
+      (nextMode === 'highlight' || nextMode === 'underline' || nextMode === 'strikethrough') &&
+      selectedPdfTextRangeRef.current
+    ) {
+      const range = selectedPdfTextRangeRef.current;
+      const clientRects = Array.from(range.getClientRects()).filter(
+        (rect) => rect.width > 0.5 && rect.height > 0.5
+      );
+      const groupedRects = new Map<number, Array<{ x: number; y: number; width: number; height: number }>>();
+
+      for (const [pageIndex, pageWrapper] of pageRefs.current.entries()) {
+        const pageElement = pageWrapper.querySelector('[data-pdf-page-container]') as HTMLElement | null;
+        if (!pageElement) continue;
+
+        const pageBounds = pageElement.getBoundingClientRect();
+        const scaleX = Number(pageElement.dataset.pdfScaleX || 0);
+        const scaleY = Number(pageElement.dataset.pdfScaleY || 0);
+        if (!scaleX || !scaleY) continue;
+
+        for (const selectedRect of clientRects) {
+          const left = Math.max(selectedRect.left, pageBounds.left);
+          const top = Math.max(selectedRect.top, pageBounds.top);
+          const right = Math.min(selectedRect.right, pageBounds.right);
+          const bottom = Math.min(selectedRect.bottom, pageBounds.bottom);
+          if (right <= left || bottom <= top) continue;
+
+          const converted = {
+            x: Math.max(0, (left - pageBounds.left) / scaleX),
+            y: Math.max(0, (top - pageBounds.top) / scaleY),
+            width: (right - left) / scaleX,
+            height: (bottom - top) / scaleY,
+          };
+          const existing = groupedRects.get(pageIndex) || [];
+          existing.push(converted);
+          groupedRects.set(pageIndex, existing);
+        }
+      }
+
+      const now = new Date().toISOString();
+      const created: PdfAnnotation[] = [];
+      groupedRects.forEach((rects, pageIndex) => {
+        const id = `text-mark-${Date.now()}-${pageIndex}-${Math.random().toString(36).slice(2, 7)}`;
+        if (nextMode === 'highlight') {
+          created.push({
+            id,
+            pageIndex,
+            type: 'highlight',
+            rects,
+            color: highlightColor,
+            opacity: 0.38,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } else if (nextMode === 'underline') {
+          created.push({
+            id,
+            pageIndex,
+            type: 'underline',
+            rects,
+            color: penColor,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } else {
+          created.push({
+            id,
+            pageIndex,
+            type: 'strikethrough',
+            rects,
+            color: penColor,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      });
+
+      if (created.length > 0) {
+        pushHistory([...annotations, ...created]);
+        selectedPdfTextRangeRef.current = null;
+        document.getSelection()?.removeAllRanges();
+        setCurrentMode('select');
+        return;
+      }
+    }
+
+    setCurrentMode(nextMode);
   };
 
   const handleUndo = () => {
@@ -858,7 +976,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       {/* Bottom Floating Toolbar */}
       <PdfEditorToolbar
         currentMode={currentMode}
-        onSetMode={setCurrentMode}
+        onSetMode={handleSetToolMode}
         penColor={penColor}
         onSetPenColor={setPenColor}
         penWidth={penWidth}
