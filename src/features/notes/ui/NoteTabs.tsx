@@ -232,7 +232,20 @@ export function NoteTabs({
           className="fixed z-[9999] min-w-[180px] bg-[#ffffff] dark:bg-[#1c1c1e] border border-[#e4e2dd] dark:border-[#2c2c2e] rounded-xl shadow-2xl p-1 font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100 select-none"
           onClick={(e) => e.stopPropagation()}
         >
-          {tabs.find((tab) => tab.id === contextMenu.tabId)?.type === 'pdf' ? null : isSplit ? (
+          {tabs.find((tab) => tab.id === contextMenu.tabId)?.type === 'pdf' ? (
+            <button
+              id="context-menu-close-pdf-tab-btn"
+              type="button"
+              onClick={() => {
+                onCloseTab(contextMenu.tabId);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-[#ba1a1a] dark:text-[#ffb4ab] hover:bg-[#ba1a1a]/10 dark:hover:bg-[#ba1a1a]/20 font-medium transition-colors cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5 stroke-[2]" />
+              <span>Fechar PDF</span>
+            </button>
+          ) : isSplit ? (
             <>
               <button
                 id="context-menu-unsplit-btn"
