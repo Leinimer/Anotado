@@ -67,7 +67,7 @@ export function PdfViewerPageWrapper({ attachmentId, onClose }: PdfViewerPageWra
 
   if (isCheckingAuth || !userId) {
     return (
-      <div className="flex flex-col items-center justify-center h-full min-h-0 bg-[#fbf9f4] dark:bg-[#1a1918] text-[#1b1c19] dark:text-[#ededed]">
+      <div className={`flex flex-col items-center justify-center ${onClose ? 'h-full min-h-0' : 'min-h-screen'} bg-[#fbf9f4] dark:bg-[#1a1918] text-[#1b1c19] dark:text-[#ededed]`}>
         <Loader2 className="w-7 h-7 animate-spin text-[#68594d] mb-3" />
         <p className="text-sm font-sans-ui text-[#7f756e] dark:text-[#a89f97]">
           Verificando permissões...
