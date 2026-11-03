@@ -103,6 +103,14 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
           attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
         }
 
+        if (attachment?.syncStatus === 'pending' || attachment?.syncStatus === 'syncing') {
+          setSaveStatus('saved_local');
+        } else if (attachment?.syncStatus === 'synced') {
+          setSaveStatus('synced');
+        } else if (attachment?.syncStatus === 'error') {
+          setSaveStatus('error');
+        }
+
         let arrayBuffer: ArrayBuffer | null = null;
         let documentName = 'Documento.pdf';
 
@@ -198,6 +206,8 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
           Array.isArray(recoveredDraft.annotations)
         ) {
           const recovered = recoveredDraft.annotations;
+          annotationsRef.current = recovered;
+          hasUnsavedChangesRef.current = true;
           setAnnotations(recovered);
           setHistory([[], recovered]);
           setHistoryIndex(1);
@@ -301,6 +311,8 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
       newHistory.push(newAnnotations);
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
+      annotationsRef.current = newAnnotations;
+      hasUnsavedChangesRef.current = true;
       setAnnotations(newAnnotations);
       setHasUnsavedChanges(true);
       setSaveStatus('unsaved');
@@ -341,6 +353,8 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
     if (historyIndex > 0) {
       const prevIndex = historyIndex - 1;
       setHistoryIndex(prevIndex);
+      annotationsRef.current = history[prevIndex];
+      hasUnsavedChangesRef.current = true;
       setAnnotations(history[prevIndex]);
       setHasUnsavedChanges(true);
       setSaveStatus('unsaved');
@@ -352,6 +366,8 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
     if (historyIndex < history.length - 1) {
       const nextIndex = historyIndex + 1;
       setHistoryIndex(nextIndex);
+      annotationsRef.current = history[nextIndex];
+      hasUnsavedChangesRef.current = true;
       setAnnotations(history[nextIndex]);
       setHasUnsavedChanges(true);
       setSaveStatus('unsaved');
