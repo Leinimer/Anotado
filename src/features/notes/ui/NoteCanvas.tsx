@@ -34,6 +34,7 @@ interface NoteCanvasProps {
   activeNote: NoteType | null;
   activePdfAttachmentId?: string | null;
   activePdfTabId?: string | null;
+  activePdfSourceUrl?: string | null;
   userId?: string;
   onUpdateTitle: (noteId: string, newTitle: string) => void;
   onUpdateContent: (noteId: string, newContent: string) => void;
@@ -67,6 +68,7 @@ export function NoteCanvas({
   activeNote,
   activePdfAttachmentId = null,
   activePdfTabId = null,
+  activePdfSourceUrl = null,
   userId,
   onUpdateTitle,
   onUpdateContent,
@@ -420,6 +422,7 @@ export function NoteCanvas({
           <PdfViewerPageWrapper
             key={activePdfAttachmentId}
             attachmentId={activePdfAttachmentId}
+            sourceUrl={activePdfSourceUrl || undefined}
             onClose={() => {
               if (activePdfTabId) onCloseTab?.(activePdfTabId);
             }}
