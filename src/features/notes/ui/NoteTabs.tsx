@@ -6,7 +6,11 @@ import { Note as NoteType } from '../types';
 
 export interface NoteTabItem {
   id: string;
-  noteId: string;
+  /** Abas antigas sem type continuam sendo interpretadas como notas. */
+  type?: 'note' | 'pdf';
+  noteId?: string;
+  attachmentId?: string;
+  title?: string;
 }
 
 interface NoteTabsProps {
@@ -115,9 +119,10 @@ export function NoteTabs({
         className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 min-w-0 py-0.5"
       >
         {tabs.map((tab) => {
-          const note = notes.find((n) => n.id === tab.noteId);
-          const isLeftSplitTab = isSplit && tab.id === splitLeftTabId;
-          const isRightSplitTab = isSplit && tab.id === splitRightTabId;
+          const isPdfTab = tab.type === 'pdf';
+          const note = !isPdfTab && tab.noteId ? notes.find((n) => n.id === tab.noteId) : undefined;
+          const isLeftSplitTab = !isPdfTab && isSplit && tab.id === splitLeftTabId;
+          const isRightSplitTab = !isPdfTab && isSplit && tab.id === splitRightTabId;
           const isSplitTab = isLeftSplitTab || isRightSplitTab;
 
           // Se a tela estiver dividida, o destaque visual respeita o painel ativo
@@ -127,7 +132,9 @@ export function NoteTabs({
               (!isSplitTab && tab.id === activeTabId)
             : tab.id === activeTabId;
 
-          const title = note?.title?.trim() || 'Sem título';
+          const title = isPdfTab
+            ? tab.title?.trim() || 'Documento PDF'
+            : note?.title?.trim() || 'Sem título';
 
           return (
             <div
@@ -159,7 +166,9 @@ export function NoteTabs({
             >
               <FileText
                 className={`w-3.5 h-3.5 shrink-0 ${
-                  isCurrentlyActive
+                  isPdfTab
+                    ? 'text-[#ba1a1a] dark:text-[#f28b82]'
+                    : isCurrentlyActive
                     ? 'text-[#68594d] dark:text-[#d7c3b0]'
                     : isSplitTab
                     ? 'text-[#827163] dark:text-[#9e9e9e]'
@@ -223,7 +232,7 @@ export function NoteTabs({
           className="fixed z-[9999] min-w-[180px] bg-[#ffffff] dark:bg-[#1c1c1e] border border-[#e4e2dd] dark:border-[#2c2c2e] rounded-xl shadow-2xl p-1 font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100 select-none"
           onClick={(e) => e.stopPropagation()}
         >
-          {isSplit ? (
+          {tabs.find((tab) => tab.id === contextMenu.tabId)?.type === 'pdf' ? null : isSplit ? (
             <>
               <button
                 id="context-menu-unsplit-btn"
