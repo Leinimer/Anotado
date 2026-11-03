@@ -434,7 +434,7 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-full min-h-0 bg-[#fbf9f4] dark:bg-[#1a1918] text-[#1b1c19] dark:text-[#ededed]">
+      <div className={`flex flex-col items-center justify-center ${onClose ? 'h-full min-h-0' : 'min-h-screen'} bg-[#fbf9f4] dark:bg-[#1a1918] text-[#1b1c19] dark:text-[#ededed]`}>
         <Loader2 className="w-8 h-8 animate-spin text-[#68594d] mb-3" />
         <p className="text-sm font-sans-ui text-[#7f756e] dark:text-[#a89f97]">
           Carregando documento PDF...
@@ -445,7 +445,7 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
 
   if (loadError) {
     return (
-      <div className="flex flex-col items-center justify-center h-full min-h-0 bg-[#fbf9f4] dark:bg-[#1a1918] text-[#1b1c19] dark:text-[#ededed] p-6 text-center">
+      <div className={`flex flex-col items-center justify-center ${onClose ? 'h-full min-h-0' : 'min-h-screen'} bg-[#fbf9f4] dark:bg-[#1a1918] text-[#1b1c19] dark:text-[#ededed] p-6 text-center`}>
         <AlertCircle className="w-12 h-12 text-[#ba1a1a] mb-3" />
         <h2 className="text-lg font-bold font-sans-ui mb-2">Falha ao abrir PDF</h2>
         <p className="text-sm font-sans-ui text-[#7f756e] dark:text-[#a89f97] max-w-md mb-6">
@@ -463,7 +463,7 @@ export function PdfEditor({ attachmentId, userId, isReadOnly = false, onClose }:
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 w-full min-w-0 overflow-hidden bg-[#ebe8e1] dark:bg-[#151413] text-[#1b1c19] dark:text-[#ededed]">
+    <div className={`flex flex-col ${onClose ? 'h-full min-h-0 w-full min-w-0' : 'h-screen w-screen'} overflow-hidden bg-[#ebe8e1] dark:bg-[#151413] text-[#1b1c19] dark:text-[#ededed]`}>
       {/* Top Header */}
       <header className="h-14 border-b border-[#e4e2dd] dark:border-[#383633] bg-[#fbf9f4] dark:bg-[#201f1d] px-4 flex items-center justify-between z-30 shrink-0 select-none">
         <div className="flex items-center gap-3 min-w-0">
