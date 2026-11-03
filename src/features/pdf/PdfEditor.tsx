@@ -611,30 +611,57 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     }
   };
 
-  // IntersectionObserver to update currentPage during scroll
+  // Mantém a página atual sincronizada com o centro da área de leitura.
+  // Em vez de escolher arbitrariamente a última página que disparou o observer,
+  // seleciona a página visível cujo centro está mais próximo do centro da viewport.
   useEffect(() => {
-    if (!scrollContainerRef.current || numPages === 0) return;
+    const scrollRoot = scrollContainerRef.current;
+    if (!scrollRoot || numPages === 0) return;
+
+    const visiblePages = new Map<number, boolean>();
+    const updateActivePage = () => {
+      const rootBounds = scrollRoot.getBoundingClientRect();
+      const centerY = rootBounds.top + rootBounds.height / 2;
+      let nearestIndex: number | null = null;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+
+      for (const [index, isVisible] of visiblePages.entries()) {
+        if (!isVisible) continue;
+        const element = pageRefs.current.get(index);
+        if (!element) continue;
+        const bounds = element.getBoundingClientRect();
+        const distance = Math.abs((bounds.top + bounds.bottom) / 2 - centerY);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      }
+
+      if (nearestIndex !== null) setCurrentPage((previous) => previous === nearestIndex ? previous : nearestIndex);
+    };
 
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const index = Number(entry.target.getAttribute('data-page-index') || 0);
-            setCurrentPage(index);
-          }
+          const index = Number(entry.target.getAttribute('data-page-index') || 0);
+          visiblePages.set(index, entry.isIntersecting);
         }
+        updateActivePage();
       },
       {
-        root: scrollContainerRef.current,
-        threshold: 0.3,
+        root: scrollRoot,
+        threshold: [0, 0.15, 0.3, 0.5, 0.75, 1],
       }
     );
 
-    pageRefs.current.forEach((el) => {
-      if (el) observer.observe(el);
+    pageRefs.current.forEach((element) => {
+      if (element) observer.observe(element);
     });
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      visiblePages.clear();
+    };
   }, [numPages, isLoading]);
 
   // Salva o PDF no mesmo objeto e caminho do Storage, incorporando as anotações.
