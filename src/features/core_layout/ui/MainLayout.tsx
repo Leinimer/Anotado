@@ -576,11 +576,11 @@ export function MainLayout() {
       // A aba sobre a qual cliquei com botão direito deve ficar no PAINEL DIREITO.
       let leftId = currentActiveTab && currentActiveTab.type !== 'pdf'
         ? currentActiveTab.noteId
-        : activeNoteId;
+        : activeNoteId || tabs.find((tab) => tab.type !== 'pdf' && tab.id !== clickedTabId)?.noteId || null;
       let rightId = clickedTab.noteId;
 
       if (leftId === rightId) {
-        const otherTab = tabs.find((t) => t.id !== clickedTabId);
+        const otherTab = tabs.find((t) => t.id !== clickedTabId && t.type !== 'pdf');
         if (otherTab) {
           rightId = otherTab.noteId;
         } else {
@@ -693,7 +693,7 @@ export function MainLayout() {
         leftId = isSplit && leftNoteId && leftNoteId !== targetNoteId ? leftNoteId : null;
       }
       if (!leftId || leftId === targetNoteId) {
-        const otherTab = tabs.find((t) => t.noteId !== targetNoteId);
+        const otherTab = tabs.find((t) => t.type !== 'pdf' && t.noteId !== targetNoteId);
         if (otherTab) {
           leftId = otherTab.noteId;
         } else {
