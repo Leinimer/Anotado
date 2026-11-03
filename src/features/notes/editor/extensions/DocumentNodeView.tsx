@@ -190,13 +190,28 @@ export function DocumentNodeView(props: NodeViewProps) {
     e.preventDefault();
     e.stopPropagation();
 
-    // Se for PDF, abre na rota interna dedicada /pdf/[attachmentId] em uma nova aba do navegador
+    // PDFs são abertos como abas internas do workspace do Anotado.
+    // Não utilizar window.open nem navegar para uma rota independente.
     if (isPdf) {
       const pdfAttachmentId = await resolveEffectiveAttachmentId();
-      if (pdfAttachmentId) {
-        window.open(`/pdf/${pdfAttachmentId}`, '_blank');
+      if (!pdfAttachmentId) {
+        window.dispatchEvent(
+          new CustomEvent('anotado:toast-warning', {
+            detail: { message: 'Não foi possível identificar este arquivo PDF.' },
+          })
+        );
         return;
       }
+
+      window.dispatchEvent(
+        new CustomEvent('anotado:open-pdf', {
+          detail: {
+            attachmentId: pdfAttachmentId,
+            fileName: name,
+          },
+        })
+      );
+      return;
     }
 
     let targetUrl = resolvedSrc || rawSrc;
@@ -284,8 +299,8 @@ export function DocumentNodeView(props: NodeViewProps) {
               type="button"
               onClick={handleOpenDocument}
               className="p-1 text-[#68594d] hover:bg-[#f0eee9] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-medium"
-              title="Abrir documento em nova aba"
-              aria-label="Abrir documento em nova aba"
+              title="Abrir PDF em uma aba do Anotado"
+              aria-label="Abrir PDF em uma aba do Anotado"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span>Abrir</span>
@@ -317,7 +332,7 @@ export function DocumentNodeView(props: NodeViewProps) {
             type="button"
             onClick={handleOpenDocument}
             className="text-xs text-[#68594d] font-sans-ui font-medium px-3 py-1.5 bg-white hover:bg-[#68594d] hover:text-white border border-[#d1c4bc] rounded-xl transition-colors shrink-0 cursor-pointer shadow-2xs"
-            title="Abrir em nova aba"
+            title={isPdf ? "Abrir PDF no Anotado" : "Abrir documento"}
           >
             Abrir
           </button>
