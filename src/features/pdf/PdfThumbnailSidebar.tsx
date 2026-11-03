@@ -20,6 +20,34 @@ export function PdfThumbnailSidebar({
   isOpen,
   onToggle,
 }: PdfThumbnailSidebarProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const activeItemRef = useRef<HTMLDivElement | null>(null);
+  const manualScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const manualScrollLockRef = useRef(false);
+  const [scrollRoot, setScrollRoot] = React.useState<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setScrollRoot(scrollContainerRef.current);
+    return () => {
+      if (manualScrollTimerRef.current) clearTimeout(manualScrollTimerRef.current);
+    };
+  }, []);
+
+  // A miniatura da página visível no documento fica centralizada. O auto-follow
+  // pausa enquanto o usuário navega manualmente pela barra de miniaturas.
+  useEffect(() => {
+    if (!isOpen || manualScrollLockRef.current || !activeItemRef.current) return;
+    activeItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [currentPage, isOpen]);
+
+  const pauseAutoFollow = () => {
+    manualScrollLockRef.current = true;
+    if (manualScrollTimerRef.current) clearTimeout(manualScrollTimerRef.current);
+    manualScrollTimerRef.current = setTimeout(() => {
+      manualScrollLockRef.current = false;
+    }, 1800);
+  };
+
   if (!isOpen) {
     return null;
   }
@@ -44,14 +72,32 @@ export function PdfThumbnailSidebar({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto p-3 space-y-3"
+        onWheel={pauseAutoFollow}
+        onTouchMove={pauseAutoFollow}
+        onKeyDown={(event) => {
+          if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
+            pauseAutoFollow();
+          }
+        }}
+        tabIndex={0}
+        aria-label="Lista de miniaturas; a centralização automática pausa durante a navegação manual"
+      >
         {Array.from({ length: numPages }, (_, index) => (
           <ThumbnailItem
             key={index}
             pageIndex={index}
             isActive={currentPage === index}
-            onSelect={() => onSelectPage(index)}
+            onSelect={() => {
+              manualScrollLockRef.current = false;
+              if (manualScrollTimerRef.current) clearTimeout(manualScrollTimerRef.current);
+              onSelectPage(index);
+            }}
             pdfDoc={pdfDoc}
+            scrollRoot={scrollRoot}
+            itemRef={currentPage === index ? activeItemRef : undefined}
           />
         ))}
       </div>
@@ -64,25 +110,51 @@ function ThumbnailItem({
   isActive,
   onSelect,
   pdfDoc,
+  scrollRoot,
+  itemRef,
 }: {
   pageIndex: number;
   isActive: boolean;
   onSelect: () => void;
   pdfDoc: any;
+  scrollRoot: HTMLElement | null;
+  itemRef?: React.RefObject<HTMLDivElement | null>;
 }) {
+  const itemContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null);
+  const [isNearViewport, setIsNearViewport] = React.useState(pageIndex < 2);
+
+  useEffect(() => {
+    const element = itemContainerRef.current;
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      setIsNearViewport(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => entries.forEach((entry) => setIsNearViewport(entry.isIntersecting)),
+      { root: scrollRoot, rootMargin: '240px 0px', threshold: 0 }
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [scrollRoot]);
 
   useEffect(() => {
     let isCancelled = false;
 
     async function renderThumbnail() {
-      if (!pdfDoc || !canvasRef.current) return;
+      if (!pdfDoc || !canvasRef.current || !isNearViewport) {
+        if (canvasRef.current && !isNearViewport) {
+          canvasRef.current.width = 0;
+          canvasRef.current.height = 0;
+        }
+        return;
+      }
       try {
         const page = await pdfDoc.getPage(pageIndex + 1);
         if (isCancelled) return;
 
-        const viewport = page.getViewport({ scale: 0.25 });
+        const viewport = page.getViewport({ scale: 0.22 });
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -119,10 +191,16 @@ function ThumbnailItem({
         } catch {}
       }
     };
-  }, [pdfDoc, pageIndex]);
+  }, [pdfDoc, pageIndex, isNearViewport]);
 
   return (
     <div
+      ref={(element) => {
+        itemContainerRef.current = element;
+        if (itemRef && 'current' in itemRef) {
+          (itemRef as React.MutableRefObject<HTMLDivElement | null>).current = element;
+        }
+      }}
       onClick={onSelect}
       className={`group flex flex-col items-center p-2 rounded-xl cursor-pointer transition-all ${
         isActive
