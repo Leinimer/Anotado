@@ -365,12 +365,12 @@ export function MainLayout() {
       if (isSplit) {
         if (noteId === leftNoteId) {
           setActiveSplitPane('left');
-          selectedTabId = tabs.find((tab) => tab.noteId === noteId)?.id || null;
+          selectedTabId = tabs.find((tab) => tab.type !== 'pdf' && tab.noteId === noteId)?.id || null;
         } else if (noteId === rightNoteId) {
           setActiveSplitPane('right');
-          selectedTabId = tabs.find((tab) => tab.noteId === noteId)?.id || null;
+          selectedTabId = tabs.find((tab) => tab.type !== 'pdf' && tab.noteId === noteId)?.id || null;
         } else {
-          const existingTab = tabs.find((tab) => tab.noteId === noteId);
+          const existingTab = tabs.find((tab) => tab.type !== 'pdf' && tab.noteId === noteId);
           selectedTabId = existingTab?.id || `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
           if (!existingTab) {
@@ -384,11 +384,16 @@ export function MainLayout() {
           }
         }
       } else {
-        const existingTab = tabs.find((tab) => tab.noteId === noteId);
+        const existingTab = tabs.find((tab) => tab.type !== 'pdf' && tab.noteId === noteId);
 
         if (existingTab) {
           selectedTabId = existingTab.id;
-        } else if (openInNewTab || tabs.length === 0 || !activeTabId) {
+        } else if (
+          openInNewTab ||
+          tabs.length === 0 ||
+          !activeTabId ||
+          tabs.some((tab) => tab.id === activeTabId && tab.type === 'pdf')
+        ) {
           selectedTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
           setTabs((previous) => [...previous, { id: selectedTabId!, noteId }]);
         } else {
@@ -450,7 +455,7 @@ export function MainLayout() {
         }
       }
 
-      const existingTab = tabs.find((tab) => tab.noteId === noteId);
+      const existingTab = tabs.find((tab) => tab.type !== 'pdf' && tab.noteId === noteId);
       let newTabId = existingTab?.id || null;
 
       if (!newTabId) {
@@ -487,6 +492,23 @@ export function MainLayout() {
     async (tabId: string) => {
       const targetTab = tabs.find((t) => t.id === tabId);
       if (!targetTab) return;
+
+      if (targetTab.type === 'pdf') {
+        const noteIdsToFlush = new Set([activeNoteId, leftNoteId, rightNoteId].filter(Boolean) as string[]);
+        await Promise.all(
+          Array.from(noteIdsToFlush).map((id) =>
+            flushNoteSaves(id).catch((error) =>
+              console.warn('[MainLayout] Falha ao finalizar nota antes de abrir PDF:', error)
+            )
+          )
+        );
+        setIsSplit(false);
+        setLeftNoteId(null);
+        setRightNoteId(null);
+        setActiveTabId(tabId);
+        setIsNewNoteJustCreated(false);
+        return;
+      }
 
       if (isSplit) {
         if (targetTab.noteId === leftNoteId) {
@@ -547,11 +569,13 @@ export function MainLayout() {
 
       const currentActiveTab = tabs.find((t) => t.id === activeTabId);
       const clickedTab = tabs.find((t) => t.id === clickedTabId);
-      if (!clickedTab) return;
+      if (!clickedTab || clickedTab.type === 'pdf') return;
 
       // A nota que estava aberta/ativa antes da ação deve ficar no PAINEL ESQUERDO.
       // A aba sobre a qual cliquei com botão direito deve ficar no PAINEL DIREITO.
-      let leftId = currentActiveTab ? currentActiveTab.noteId : activeNoteId;
+      let leftId = currentActiveTab && currentActiveTab.type !== 'pdf'
+        ? currentActiveTab.noteId
+        : activeNoteId;
       let rightId = clickedTab.noteId;
 
       if (leftId === rightId) {
@@ -614,7 +638,7 @@ export function MainLayout() {
 
       if (clickedTabId) {
         const clickedTab = tabs.find((t) => t.id === clickedTabId);
-        if (clickedTab) {
+        if (clickedTab && clickedTab.type !== 'pdf') {
           targetNoteId = clickedTab.noteId;
           targetTabId = clickedTab.id;
         }
@@ -750,7 +774,7 @@ export function MainLayout() {
       if (tabIndex === -1) return;
 
       const closingTab = tabs[tabIndex];
-      const closingNoteId = closingTab.noteId;
+      const closingNoteId = closingTab.type === 'pdf' ? null : closingTab.noteId;
       const remainingTabs = tabs.filter((t) => t.id !== tabIdToClose);
 
       if (closingNoteId) {
@@ -771,8 +795,12 @@ export function MainLayout() {
             if (rTab) setActiveTabId(rTab.id);
           } else if (remainingTabs.length > 0) {
             const nextTab = remainingTabs[0];
-            setActiveNoteId(nextTab.noteId);
             setActiveTabId(nextTab.id);
+            if (nextTab.type === 'pdf') {
+              if (activeNoteId === closingNoteId) setActiveNoteId(null);
+            } else {
+              setActiveNoteId(nextTab.noteId);
+            }
           } else {
             setActiveNoteId(null);
             setActiveTabId(null);
@@ -792,8 +820,12 @@ export function MainLayout() {
             if (lTab) setActiveTabId(lTab.id);
           } else if (remainingTabs.length > 0) {
             const nextTab = remainingTabs[0];
-            setActiveNoteId(nextTab.noteId);
             setActiveTabId(nextTab.id);
+            if (nextTab.type === 'pdf') {
+              if (activeNoteId === closingNoteId) setActiveNoteId(null);
+            } else {
+              setActiveNoteId(nextTab.noteId);
+            }
           } else {
             setActiveNoteId(null);
             setActiveTabId(null);
@@ -811,9 +843,15 @@ export function MainLayout() {
           const nextTab = remainingTabs[nextIndex];
           setTabs(remainingTabs);
           setActiveTabId(nextTab.id);
-          setActiveNoteId(nextTab.noteId);
+          if (nextTab.type === 'pdf') {
+            if (activeNoteId === closingNoteId) setActiveNoteId(null);
+          } else {
+            setActiveNoteId(nextTab.noteId);
+          }
 
-          const targetNote = notes.find((n) => n.id === nextTab.noteId);
+          const targetNote = nextTab.type === 'pdf'
+            ? null
+            : notes.find((n) => n.id === nextTab.noteId);
           if (targetNote && targetNote.content === undefined) {
             const { content, tags } = await fetchNoteContent(userId, targetNote);
             setNotes((prev) =>
@@ -839,6 +877,65 @@ export function MainLayout() {
     },
     [tabs, isSplit, leftNoteId, rightNoteId, activeTabId, notes, userId]
   );
+
+  // Abre/ativa um PDF como aba interna do mesmo workspace de notas.
+  const handleOpenPdfTab = useCallback(
+    async (detail: { attachmentId?: string; fileName?: string }) => {
+      const attachmentId = detail.attachmentId?.trim();
+      if (!attachmentId) return;
+
+      const noteIdsToFlush = new Set([activeNoteId, leftNoteId, rightNoteId].filter(Boolean) as string[]);
+      await Promise.all(
+        Array.from(noteIdsToFlush).map((id) =>
+          flushNoteSaves(id).catch((error) =>
+            console.warn('[MainLayout] Falha ao finalizar nota antes de abrir PDF:', error)
+          )
+        )
+      );
+
+      const existingTab = tabs.find(
+        (tab) => tab.type === 'pdf' && tab.attachmentId === attachmentId
+      );
+      const pdfTab: NoteTabItem = existingTab
+        ? { ...existingTab, title: detail.fileName || existingTab.title || 'Documento PDF' }
+        : {
+            id: `pdf-tab-${attachmentId}`,
+            type: 'pdf',
+            noteId: '',
+            attachmentId,
+            title: detail.fileName || 'Documento PDF',
+          };
+
+      setTabs((previous) => {
+        const alreadyOpen = previous.some(
+          (tab) => tab.type === 'pdf' && tab.attachmentId === attachmentId
+        );
+        return alreadyOpen
+          ? previous.map((tab) =>
+              tab.type === 'pdf' && tab.attachmentId === attachmentId ? pdfTab : tab
+            )
+          : [...previous, pdfTab];
+      });
+
+      setIsSplit(false);
+      setLeftNoteId(null);
+      setRightNoteId(null);
+      setActiveTabId(pdfTab.id);
+      setIsNewNoteJustCreated(false);
+      setMobileSidebarOpen(false);
+    },
+    [activeNoteId, leftNoteId, rightNoteId, tabs]
+  );
+
+  useEffect(() => {
+    const handleOpenPdfEvent = (event: Event) => {
+      const customEvent = event as CustomEvent<{ attachmentId?: string; fileName?: string }>;
+      void handleOpenPdfTab(customEvent.detail || {});
+    };
+
+    window.addEventListener('anotado:open-pdf', handleOpenPdfEvent);
+    return () => window.removeEventListener('anotado:open-pdf', handleOpenPdfEvent);
+  }, [handleOpenPdfTab]);
 
   // Ouvinte global para abertura de notas a partir de modais e navegações internas
   useEffect(() => {
@@ -988,8 +1085,10 @@ export function MainLayout() {
       }
     }
 
-    // Se solicitado abrir em nova aba ou se não existiam abas abertas
-    if (openInNewTab || tabs.length === 0) {
+    // Se solicitado abrir em nova aba, se não existiam abas ou se um PDF está ativo,
+    // cria uma aba de nota separada sem substituir o PDF.
+    const activeTabIsPdf = tabs.some((tab) => tab.id === activeTabId && tab.type === 'pdf');
+    if (openInNewTab || tabs.length === 0 || activeTabIsPdf) {
       const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       setTabs((prev) => [...prev, { id: newTabId, noteId: newNote.id }]);
       setActiveTabId(newTabId);
@@ -1358,6 +1457,9 @@ export function MainLayout() {
     [userId]
   );
 
+  const activePdfTab = tabs.find((tab) => tab.id === activeTabId && tab.type === 'pdf') || null;
+  const activePdfAttachmentId = activePdfTab?.attachmentId || null;
+
   const splitLeftNote = isSplit && leftNoteId ? notes.find((n) => n.id === leftNoteId) || null : null;
   const splitRightNote = isSplit && rightNoteId ? notes.find((n) => n.id === rightNoteId) || null : null;
   const splitLeftTab = isSplit && leftNoteId ? tabs.find((t) => t.noteId === leftNoteId) || null : null;
@@ -1455,6 +1557,8 @@ export function MainLayout() {
         <NoteCanvas
           key={isSplit ? `split-${leftNoteId}-${rightNoteId}` : activeNote?.id || 'empty'}
           activeNote={activeNote}
+          activePdfAttachmentId={activePdfAttachmentId}
+          activePdfTabId={activePdfTab?.id || null}
           userId={userId}
           onUpdateTitle={(noteId, newTitle) => handleUpdateTitle(noteId, newTitle)}
           onUpdateContent={(noteId, newContent) => handleUpdateContent(noteId, newContent)}
