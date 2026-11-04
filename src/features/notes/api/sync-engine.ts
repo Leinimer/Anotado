@@ -2623,6 +2623,10 @@ class SyncEngine {
 
         let updatedAttachmentRow: any = null;
         let dbErr: any = null;
+        const isMissingBucketIdColumn = (error: any) =>
+          error?.code === '42703' ||
+          error?.code === 'PGRST204' ||
+          /bucket_id.*does not exist|could not find the .*bucket_id.*column/i.test(error?.message || '');
 
         const updateWithBucket = await supabase
           .from('note_attachments')
@@ -2641,7 +2645,7 @@ class SyncEngine {
 
         // Compatibilidade com projetos que ainda não aplicaram a migration da
         // coluna bucket_id: não impede o salvamento do PDF por causa dessa coluna.
-        if (dbErr && (dbErr.code === '42703' || /bucket_id.*does not exist/i.test(dbErr.message || ''))) {
+        if (dbErr && isMissingBucketIdColumn(dbErr)) {
           const legacyUpdate = await supabase
             .from('note_attachments')
             .update({
