@@ -661,6 +661,7 @@ export async function replaceNoteAttachment(
           mime_type: remoteAtt.mime_type,
           file_size: remoteAtt.file_size,
           storage_path: remoteAtt.storage_path,
+          bucket_id: remoteAtt.bucket_id || ATTACHMENTS_BUCKET_NAME,
           remote_url: null,
           syncRequired: false,
           syncStatus: 'synced',
@@ -681,6 +682,7 @@ export async function replaceNoteAttachment(
   const newSize = arrayBuffer.byteLength;
 
   const storagePath = attachment.storage_path || getAttachmentStoragePath(userId, attachmentId, attachment.file_name || 'document.pdf');
+  const bucketId = attachment.bucket_id || ATTACHMENTS_BUCKET_NAME;
 
   // 3. Atualiza anexo local no IndexedDB
   attachment.blob = detachedBlob;
@@ -706,6 +708,7 @@ export async function replaceNoteAttachment(
     payload: {
       attachmentId,
       storagePath,
+      bucketId,
       fileSize: newSize,
       mimeType: attachment.mime_type || attachment.file_type || 'application/pdf',
       fileName: attachment.file_name,
