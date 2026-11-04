@@ -414,7 +414,6 @@ export function PdfEditorToolbar({
                     type="button"
                     onClick={() => {
                       onSetShape('rectangle');
-                      setShowShapeMenu(false);
                     }}
                     className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${
                       currentShape === 'rectangle' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''
@@ -427,7 +426,6 @@ export function PdfEditorToolbar({
                     type="button"
                     onClick={() => {
                       onSetShape('circle');
-                      setShowShapeMenu(false);
                     }}
                     className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${
                       currentShape === 'circle' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''
@@ -440,7 +438,6 @@ export function PdfEditorToolbar({
                     type="button"
                     onClick={() => {
                       onSetShape('line');
-                      setShowShapeMenu(false);
                     }}
                     className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${
                       currentShape === 'line' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''
@@ -453,7 +450,6 @@ export function PdfEditorToolbar({
                     type="button"
                     onClick={() => {
                       onSetShape('arrow');
-                      setShowShapeMenu(false);
                     }}
                     className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${
                       currentShape === 'arrow' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''
