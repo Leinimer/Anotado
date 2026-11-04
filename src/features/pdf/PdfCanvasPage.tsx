@@ -111,11 +111,20 @@ export function PdfCanvasPage({
   const [textDragStart, setTextDragStart] = useState<{ x: number; y: number } | null>(null);
   const [textDragCurrent, setTextDragCurrent] = useState<{ x: number; y: number } | null>(null);
 
-  // Active sticky note popover state
+  // Estado de notas adesivas: prévia ao passar o mouse, popover de edição e arraste.
   const [openStickyNoteId, setOpenStickyNoteId] = useState<string | null>(null);
-
-  // Dragging selected annotation
-  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredStickyNoteId, setHoveredStickyNoteId] = useState<string | null>(null);
+  const [stickyDragPreview, setStickyDragPreview] = useState<{ id: string; x: number; y: number } | null>(null);
+  const stickyDragRef = useRef<{
+    id: string;
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressStickyClickRef = useRef(false);
 
   // Renderiza somente as páginas próximas à viewport e cria uma camada de
   // texto alinhada ao canvas, permitindo selecionar/copiar texto nativo do PDF.
@@ -583,7 +592,7 @@ export function PdfCanvasPage({
                       height={r.height}
                       fill={ann.color}
                       opacity={ann.opacity}
-                      style={{ mixBlendMode: 'multiply' }}
+                      style={{ mixBlendMode: 'multiply', isolation: 'isolate' }}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
@@ -910,6 +919,10 @@ export function PdfCanvasPage({
 
             if (ann.type === 'sticky_note') {
               const isOpen = openStickyNoteId === ann.id;
+              const isHovered = hoveredStickyNoteId === ann.id;
+              const displayX = stickyDragPreview?.id === ann.id ? stickyDragPreview.x : ann.x;
+              const displayY = stickyDragPreview?.id === ann.id ? stickyDragPreview.y : ann.y;
+
               return (
                 <div
                   key={ann.id}
@@ -918,57 +931,152 @@ export function PdfCanvasPage({
                   data-pdf-annotation-type="sticky_note"
                   style={{
                     position: 'absolute',
-                    left: `${ann.x * scaleX * zoom}px`,
-                    top: `${ann.y * scaleY * zoom}px`,
+                    left: `${displayX * scaleX * zoom}px`,
+                    top: `${displayY * scaleY * zoom}px`,
                   }}
                   className="pointer-events-auto z-30"
+                  onMouseEnter={() => setHoveredStickyNoteId(ann.id)}
+                  onMouseLeave={() => setHoveredStickyNoteId((current) => current === ann.id ? null : current)}
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <button
                     type="button"
                     onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      if (isReadOnly || mode !== 'select' || e.button !== 0) return;
+
+                      e.preventDefault();
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      stickyDragRef.current = {
+                        id: ann.id,
+                        pointerId: e.pointerId,
+                        startClientX: e.clientX,
+                        startClientY: e.clientY,
+                        originX: ann.x,
+                        originY: ann.y,
+                        moved: false,
+                      };
+                      suppressStickyClickRef.current = false;
+                      onSelectAnnotation(ann.id);
+                      setOpenStickyNoteId(null);
+                    }}
+                    onPointerMove={(e) => {
+                      const drag = stickyDragRef.current;
+                      if (!drag || drag.id !== ann.id || drag.pointerId !== e.pointerId) return;
+
+                      const deltaX = e.clientX - drag.startClientX;
+                      const deltaY = e.clientY - drag.startClientY;
+                      if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) drag.moved = true;
+                      if (!drag.moved) return;
+
+                      setStickyDragPreview({
+                        id: ann.id,
+                        x: Math.max(0, drag.originX + deltaX / (scaleX * zoom)),
+                        y: Math.max(0, drag.originY + deltaY / (scaleY * zoom)),
+                      });
+                    }}
+                    onPointerUp={(e) => {
+                      const drag = stickyDragRef.current;
+                      if (!drag || drag.id !== ann.id || drag.pointerId !== e.pointerId) return;
+
+                      if (drag.moved && stickyDragPreview?.id === ann.id) {
+                        onUpdateAnnotation({
+                          ...ann,
+                          x: stickyDragPreview.x,
+                          y: stickyDragPreview.y,
+                          updatedAt: new Date().toISOString(),
+                        });
+                        suppressStickyClickRef.current = true;
+                      }
+
+                      stickyDragRef.current = null;
+                      setStickyDragPreview(null);
+                    }}
+                    onPointerCancel={() => {
+                      stickyDragRef.current = null;
+                      setStickyDragPreview(null);
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (suppressStickyClickRef.current) {
+                        suppressStickyClickRef.current = false;
+                        return;
+                      }
+
                       if (mode === 'eraser') {
                         onDeleteAnnotation(ann.id);
                       } else {
-                        setOpenStickyNoteId(isOpen ? null : ann.id);
                         onSelectAnnotation(ann.id);
+                        setOpenStickyNoteId((current) => current === ann.id ? null : ann.id);
                       }
                     }}
-                    className="w-7 h-7 rounded-lg bg-[#fef08a] hover:bg-[#fde047] text-[#854d0e] flex items-center justify-center shadow-md border border-[#eab308] cursor-pointer transition-transform hover:scale-110"
-                    title="Nota adesiva"
+                    className="w-7 h-7 rounded-lg bg-[#fef08a] hover:bg-[#fde047] text-[#854d0e] flex items-center justify-center shadow-md border border-[#eab308] cursor-grab active:cursor-grabbing transition-transform hover:scale-110"
+                    title={mode === 'select' ? 'Clique para editar; arraste para mover' : 'Nota adesiva'}
                     aria-label="Nota adesiva"
                   >
                     <MessageSquare className="w-4 h-4 fill-[#fef08a]" />
                   </button>
+
+                  {isHovered && !isOpen && (
+                    <div
+                      data-pdf-annotation="true"
+                      data-pdf-annotation-type="sticky_note_preview"
+                      className="absolute left-9 top-0 w-56 max-w-[min(56vw,240px)] px-3 py-2 rounded-lg bg-[#fff4b8] text-[#3d3214] border border-[#eab308] shadow-lg z-[60] pointer-events-none whitespace-pre-wrap break-words text-xs leading-relaxed"
+                    >
+                      <span className="block text-[10px] uppercase tracking-wide font-bold text-[#854d0e] mb-1">
+                        Comentário
+                      </span>
+                      {ann.text?.trim() || 'Comentário vazio'}
+                    </div>
+                  )}
 
                   {isOpen && (
                     <div
                       data-pdf-annotation="true"
                       data-pdf-annotation-type="sticky_note_popover"
                       onMouseDown={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute top-full left-0 mt-1 w-64 bg-[#fef08a] text-[#1b1c19] rounded-xl p-3 shadow-xl border border-[#eab308] z-50 animate-in fade-in zoom-in-95"
+                      className="absolute top-full left-0 mt-1 w-64 bg-[#fef08a] text-[#1b1c19] rounded-xl p-3 shadow-xl border border-[#eab308] z-[70] animate-in fade-in zoom-in-95"
                     >
                       <div className="flex items-center justify-between mb-1.5 border-b border-[#eab308]/40 pb-1">
                         <span className="text-xs font-bold uppercase tracking-wider text-[#854d0e] font-sans-ui">
                           Comentário
                         </span>
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenStickyNoteId(null);
-                          }}
-                          className="text-[#854d0e] hover:text-[#1b1c19] p-0.5 rounded cursor-pointer"
-                          title="Fechar comentário"
-                          aria-label="Fechar comentário"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          {!isReadOnly && (
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteAnnotation(ann.id);
+                                setOpenStickyNoteId(null);
+                                setHoveredStickyNoteId(null);
+                              }}
+                              className="text-[#ba1a1a] hover:bg-[#ba1a1a]/10 p-1 rounded cursor-pointer"
+                              title="Excluir comentário"
+                              aria-label="Excluir comentário"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenStickyNoteId(null);
+                            }}
+                            className="text-[#854d0e] hover:text-[#1b1c19] p-0.5 rounded cursor-pointer"
+                            title="Fechar comentário"
+                            aria-label="Fechar comentário"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                       <textarea
                         data-pdf-annotation="true"
@@ -976,6 +1084,7 @@ export function PdfCanvasPage({
                         readOnly={isReadOnly}
                         placeholder="Escreva uma nota..."
                         onMouseDown={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
                           onUpdateAnnotation({
