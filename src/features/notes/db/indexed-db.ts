@@ -29,6 +29,7 @@ export interface LocalAttachment {
   blob?: Blob;
   data_url?: string;
   storage_path?: string | null;
+  bucket_id?: string | null;
   remote_url?: string | null;
   syncRequired: boolean;
   syncStatus: SyncEntityStatus;
@@ -841,6 +842,7 @@ class IndexedDBStorage {
         blob: attachment.blob,
         data_url: attachment.data_url,
         storage_path: attachment.storage_path || null,
+        bucket_id: attachment.bucket_id || null,
         remote_url: attachment.remote_url || null,
         syncRequired: syncReq,
         syncStatus: status,
