@@ -676,6 +676,32 @@ export async function replaceNoteAttachment(
     throw new Error(`Anexo com ID ${attachmentId} não encontrado para substituição`);
   }
 
+  // Recupera o bucket real de anexos antigos que foram guardados antes de
+  // bucket_id ser persistido no IndexedDB. Não presume que todo PDF esteja no
+  // bucket atual: alguns anexos legados podem estar em "attachments".
+  if (!attachment.bucket_id && isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+    try {
+      const supabase = createClient();
+      const { data: remoteMetadata, error: metadataError } = await supabase
+        .from('note_attachments')
+        .select('bucket_id, storage_path')
+        .eq('id', attachmentId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (metadataError) {
+        console.warn('[replaceNoteAttachment] Não foi possível recuperar bucket_id do anexo:', metadataError);
+      } else if (remoteMetadata) {
+        attachment.bucket_id = remoteMetadata.bucket_id || ATTACHMENTS_BUCKET_NAME;
+        attachment.storage_path = remoteMetadata.storage_path || attachment.storage_path;
+      }
+    } catch (metadataError) {
+      console.warn('[replaceNoteAttachment] Falha ao consultar metadados do bucket:', metadataError);
+    }
+  }
+
+  attachment.bucket_id = attachment.bucket_id || ATTACHMENTS_BUCKET_NAME;
+
   // 2. Cria cópia estável do Blob atualizado
   const arrayBuffer = await updatedBlob.arrayBuffer();
   const detachedBlob = new Blob([arrayBuffer], { type: attachment.mime_type || attachment.file_type || 'application/pdf' });
