@@ -53,7 +53,7 @@ export async function exportPdfWithAnnotations(
           width: rct.width,
           height: rct.height,
           color: rgb(r, g, b),
-          opacity: ann.opacity !== undefined ? ann.opacity : 0.45,
+          opacity: Math.max(ann.opacity ?? 0.48, 0.48),
         });
       }
     }
