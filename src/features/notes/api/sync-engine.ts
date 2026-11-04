@@ -2608,6 +2608,7 @@ class SyncEngine {
           .from('note_attachments')
           .update({
             file_size: buffer.byteLength,
+            bucket_id: effectiveBucket,
             updated_at: new Date().toISOString(),
           })
           .eq('id', attachmentId)
