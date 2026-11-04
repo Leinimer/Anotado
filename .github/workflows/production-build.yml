@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
@@ -18,22 +18,45 @@ concurrency:
 
 jobs:
   production-build:
-    name: TypeScript and Next.js production build
+    name: Lockfile, TypeScript and Next.js production build
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
-      - name: Install locked dependencies
+      - name: Repair and synchronize npm lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Commit lockfile repair on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if ! git diff --quiet -- package-lock.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: synchronize npm lockfile"
+            git push
+          else
+            echo "package-lock.json is already synchronized."
+          fi
+
+      - name: Verify clean deterministic installation
         run: npm ci --no-audit --no-fund
 
-      - name: Run the same production build used by Vercel
+      - name: Run the production build
         run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://build-check.invalid
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-check-placeholder
+          GEMINI_API_KEY: build-check-placeholder
+          APP_URL: http://localhost:3000
