@@ -591,8 +591,8 @@ export function PdfCanvasPage({
                       width={r.width}
                       height={r.height}
                       fill={ann.color}
-                      opacity={ann.opacity}
-                      style={{ mixBlendMode: 'multiply', isolation: 'isolate' }}
+                      opacity={Math.max(ann.opacity ?? 0.48, 0.48)}
+                      style={{ mixBlendMode: 'multiply' }}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
