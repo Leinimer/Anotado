@@ -116,6 +116,23 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
           setSaveStatus('synced');
         } else if (attachment?.syncStatus === 'error') {
           setSaveStatus('error');
+
+          // Recupera a causa da última falha de sincronização para que ela
+          // continue visível mesmo depois de fechar e reabrir a aba do PDF.
+          const failedItems = await indexedDBStorage.getPendingSyncItems(userId).catch(() => []);
+          let failedReplacement = failedItems.find(
+            (item) => item.action === 'REPLACE_ATTACHMENT' && item.entity_id === attachmentId
+          );
+          if (!failedReplacement && userId !== 'anonymous') {
+            const anonymousItems = await indexedDBStorage.getPendingSyncItems('anonymous').catch(() => []);
+            failedReplacement = anonymousItems.find(
+              (item) => item.action === 'REPLACE_ATTACHMENT' && item.entity_id === attachmentId
+            );
+          }
+          if (failedReplacement) {
+            const details = failedReplacement.error_details?.message || failedReplacement.last_error;
+            setSaveErrorMsg(details || 'A substituição do PDF no Supabase falhou; o arquivo local foi preservado.');
+          }
         }
 
         let arrayBuffer: ArrayBuffer | null = null;
