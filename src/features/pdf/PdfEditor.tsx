@@ -504,16 +504,28 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     };
   }, []);
 
-  // Listener para sincronização remota confirmada
+  // Confirmação e falha da substituição remota no Supabase.
   useEffect(() => {
     const handleReplaceComplete = (e: any) => {
       if (e.detail?.attachmentId === attachmentId) {
+        setSaveErrorMsg(null);
         setSaveStatus('synced');
       }
     };
+
+    const handleReplaceFailed = (e: any) => {
+      if (e.detail?.attachmentId !== attachmentId) return;
+      const message = e.detail?.message || 'O Supabase não confirmou a substituição do PDF.';
+      const stage = e.detail?.stage ? `Etapa: ${e.detail.stage}. ` : '';
+      setSaveErrorMsg(`${stage}${message}`);
+      setSaveStatus('error');
+    };
+
     window.addEventListener('attachment:replace-complete', handleReplaceComplete);
+    window.addEventListener('attachment:replace-failed', handleReplaceFailed);
     return () => {
       window.removeEventListener('attachment:replace-complete', handleReplaceComplete);
+      window.removeEventListener('attachment:replace-failed', handleReplaceFailed);
     };
   }, [attachmentId]);
 
@@ -846,41 +858,66 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       const annotationsSnapshot = annotations;
       const updatedBlob = await exportPdfWithAnnotations(rawPdfBytes, annotationsSnapshot);
 
-      // Atualiza o mesmo attachmentId/storage_path localmente e enfileira a substituição remota.
+      // Esta etapa grava o Blob local, preserva attachmentId/storage_path e
+      // registra REPLACE_ATTACHMENT na SyncQueue. Depois dela o arquivo já está salvo
+      // localmente, mesmo que a atualização visual do PDF.js precise ser repetida.
       const result = await replaceNoteAttachment(userId, attachmentId, updatedBlob);
       if (!result.success) {
-        throw new Error('Não foi possível salvar o PDF no armazenamento local.');
+        throw new Error('O IndexedDB não confirmou a gravação local do PDF editado.');
       }
 
-      // O PDF exportado passa a ser a nova base. Recarrega o PDF.js para que as
-      // marcações incorporadas apareçam na página e zera somente o overlay temporário.
       const savedBytes = await updatedBlob.arrayBuffer();
-      const pdfjsLib = await import('pdfjs-dist');
-      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-      }
-      const reloadedTask = pdfjsLib.getDocument({
-        // Mantém savedBytes preservado como base local para os próximos salvamentos.
-        data: new Uint8Array(savedBytes.slice(0)),
-        cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/cmaps/`,
-        cMapPacked: true,
-      });
-      const reloadedPdf = await reloadedTask.promise;
+      let reloadedPdf: any = null;
 
-      const previousPdf = pdfDoc;
-      setRawPdfBytes(savedBytes);
-      setPdfDoc(reloadedPdf);
-      setNumPages(reloadedPdf.numPages);
-      setCurrentPage((current) => Math.min(current, reloadedPdf.numPages - 1));
-      setAnnotations([]);
-      annotationsRef.current = [];
-      setSelectedAnnotationId(null);
-      setHistory([[]]);
-      setHistoryIndex(0);
+      // Recarregar o PDF.js só atualiza a prévia da tela. Uma falha nesta etapa
+      // NÃO pode marcar como falha o arquivo que já foi persistido localmente.
+      try {
+        const pdfjsLib = await import('pdfjs-dist');
+        if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+        }
+        const reloadedTask = pdfjsLib.getDocument({
+          data: new Uint8Array(savedBytes.slice(0)),
+          cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/cmaps/`,
+          cMapPacked: true,
+        });
+        reloadedPdf = await reloadedTask.promise;
+      } catch (previewError) {
+        console.warn(
+          '[PdfEditor] O PDF foi salvo localmente, mas a prévia não conseguiu recarregar; as anotações continuam na tela e serão incorporadas novamente no próximo salvamento:',
+          previewError
+        );
+      }
+
+      if (reloadedPdf) {
+        const previousPdf = pdfDoc;
+        setRawPdfBytes(savedBytes);
+        setPdfDoc(reloadedPdf);
+        setNumPages(reloadedPdf.numPages);
+        setCurrentPage((current) => Math.min(current, reloadedPdf.numPages - 1));
+        setAnnotations([]);
+        annotationsRef.current = [];
+        setSelectedAnnotationId(null);
+        setHistory([[]]);
+        setHistoryIndex(0);
+
+        try {
+          await previousPdf?.destroy?.();
+        } catch {
+          // O documento novo já está carregado; liberar o anterior é best-effort.
+        }
+      } else {
+        // Mantém a base binária original junto dos overlays atuais. Isso evita
+        // reaplicar anotações sobre um PDF já anotado caso seja necessário salvar
+        // novamente antes de fechar/reabrir o documento.
+        setHistory([annotationsSnapshot]);
+        setHistoryIndex(0);
+      }
+
       hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
 
-      // A falha ao limpar metadados de rascunho não invalida o arquivo que já foi salvo.
+      // A limpeza do rascunho não invalida o arquivo já gravado.
       await indexedDBStorage.setMetadata(userId, draftKey, null).catch((error) => {
         console.warn('[PdfEditor] Não foi possível limpar o rascunho local:', error);
       });
@@ -888,18 +925,12 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         await indexedDBStorage.setMetadata('anonymous', draftKey, null).catch(() => {});
       }
 
-      try {
-        await previousPdf?.destroy?.();
-      } catch {
-        // O novo documento já está carregado; a liberação do anterior é best-effort.
-      }
-
-      // A sincronização em nuvem só muda para "Salvo na nuvem" quando o SyncEngine
-      // emitir attachment:replace-complete. Não usar timer para simular confirmação.
-      // O SyncEngine pode confirmar antes ou depois do retorno do upload local.
-      setSaveStatus((current) =>
-        wasOnline && current === 'synced' ? 'synced' : wasOnline ? 'syncing' : 'saved_local'
-      );
+      // A sincronização em nuvem só é confirmada pelo evento do SyncEngine.
+      // Preserve um erro remoto que possa ter chegado enquanto a prévia era recarregada.
+      setSaveStatus((current) => {
+        if (current === 'synced' || current === 'error') return current;
+        return wasOnline ? 'syncing' : 'saved_local';
+      });
     } catch (err: any) {
       console.error('[PdfEditor] Erro ao salvar PDF:', err);
       setSaveStatus('error');
