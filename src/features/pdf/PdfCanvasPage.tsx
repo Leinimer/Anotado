@@ -156,7 +156,7 @@ export function PdfCanvasPage({
         const dprWanted = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const maxCanvasPixels = 16_000_000;
         const areaAtOneDpr = viewport.width * viewport.height;
-        const dpr = Math.max(0.75, Math.min(dprWanted, 1.5, Math.sqrt(maxCanvasPixels / Math.max(1, areaAtOneDpr))));
+        const dpr = Math.max(0.35, Math.min(dprWanted, 1.5, Math.sqrt(maxCanvasPixels / Math.max(1, areaAtOneDpr))));
         canvas.width = Math.max(1, Math.floor(viewport.width * dpr));
         canvas.height = Math.max(1, Math.floor(viewport.height * dpr));
         canvas.style.width = `${viewport.width}px`;
@@ -189,8 +189,10 @@ export function PdfCanvasPage({
         const measureContext = measureCanvas.getContext('2d');
         const outputScale = Math.hypot(viewport.transform[0], viewport.transform[1]) || (zoom * scaleX);
 
+        let renderedTextItems = 0;
         for (const item of textContent.items as any[]) {
           if (isCancelled) return;
+          if (renderedTextItems >= 50000) break;
           if (!item || typeof item.str !== 'string' || !item.str) {
             if (item?.hasEOL) textLayer.appendChild(document.createElement('br'));
             continue;
@@ -234,6 +236,7 @@ export function PdfCanvasPage({
           }
           if (transform) span.style.transform = transform;
           textLayer.appendChild(span);
+          renderedTextItems += 1;
           if (item.hasEOL) textLayer.appendChild(document.createElement('br'));
         }
 
