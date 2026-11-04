@@ -29,6 +29,56 @@ export async function exportPdfWithAnnotations(
 
   const pages = pdfDoc.getPages();
 
+  // 1. Renderiza os marca-textos em um content stream separado e move esse
+  // stream para ANTES do conteúdo original da página. Assim, as letras originais
+  // são pintadas por cima do destaque e continuam pretas/nítidas.
+  const highlightsByPage = new Map<number, HighlightAnnotation[]>();
+  for (const ann of annotations) {
+    if (ann.type !== 'highlight' || ann.pageIndex < 0 || ann.pageIndex >= pages.length) continue;
+    const group = highlightsByPage.get(ann.pageIndex) || [];
+    group.push(ann);
+    highlightsByPage.set(ann.pageIndex, group);
+  }
+
+  for (const [pageIndex, pageHighlights] of highlightsByPage.entries()) {
+    const page = pages[pageIndex];
+    const pageHeight = page.getHeight();
+
+    for (const ann of pageHighlights) {
+      const { r, g, b } = parseHexToRgb(ann.color);
+      for (const rct of ann.rects || []) {
+        page.drawRectangle({
+          x: rct.x,
+          y: pageHeight - rct.y - rct.height,
+          width: rct.width,
+          height: rct.height,
+          color: rgb(r, g, b),
+          opacity: ann.opacity !== undefined ? ann.opacity : 0.45,
+        });
+      }
+    }
+
+    // pdf-lib cria um content stream temporário no final. Move apenas esse
+    // stream para o início e zera o cache privado para que as próximas anotações
+    // ganhem outro stream, acima do conteúdo original do PDF.
+    const contents = page.node.normalizedEntries().Contents;
+    if (contents && contents.size() > 0) {
+      const highlightStreamIndex = contents.size() - 1;
+      const highlightStreamRef = contents.get(highlightStreamIndex);
+      contents.remove(highlightStreamIndex);
+      contents.insert(0, highlightStreamRef);
+
+      const pageInternals = page as unknown as {
+        contentStream?: unknown;
+        contentStreamRef?: unknown;
+      };
+      pageInternals.contentStream = undefined;
+      pageInternals.contentStreamRef = undefined;
+    }
+  }
+
+  // 2. Todas as demais anotações são desenhadas depois do conteúdo original,
+  // para permanecerem visíveis por cima da página.
   for (const ann of annotations) {
     if (ann.pageIndex < 0 || ann.pageIndex >= pages.length) continue;
     const page = pages[ann.pageIndex];
@@ -53,18 +103,7 @@ export async function exportPdfWithAnnotations(
       }
 
       case 'highlight': {
-        const { r, g, b } = parseHexToRgb(ann.color);
-        const rects = ann.rects || [];
-        for (const rct of rects) {
-          page.drawRectangle({
-            x: rct.x,
-            y: pageHeight - rct.y - rct.height,
-            width: rct.width,
-            height: rct.height,
-            color: rgb(r, g, b),
-            opacity: ann.opacity !== undefined ? ann.opacity : 0.35,
-          });
-        }
+        // Já foi desenhado em um stream anterior ao conteúdo original da página.
         break;
       }
 
