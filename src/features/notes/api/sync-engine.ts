@@ -2444,6 +2444,7 @@ class SyncEngine {
           // Somente agora marca o attachment como sincronizado no IndexedDB
           attachment.remote_url = remoteUrl;
           attachment.storage_path = storagePath;
+          attachment.bucket_id = ATTACHMENTS_BUCKET_NAME;
           attachment.syncRequired = false;
           attachment.syncStatus = 'synced';
           attachment.sync_status = 'synced';
