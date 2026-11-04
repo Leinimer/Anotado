@@ -654,7 +654,10 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         }
       }
 
-      if (nearestIndex !== null) setCurrentPage((previous) => previous === nearestIndex ? previous : nearestIndex);
+      const nextIndex = nearestIndex;
+      if (nextIndex !== null) {
+        setCurrentPage((previous) => previous === nextIndex ? previous : nextIndex);
+      }
     };
 
     const observer = new IntersectionObserver(
