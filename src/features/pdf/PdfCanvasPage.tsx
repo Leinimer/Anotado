@@ -981,14 +981,21 @@ export function PdfCanvasPage({
                       const drag = stickyDragRef.current;
                       if (!drag || drag.id !== ann.id || drag.pointerId !== e.pointerId) return;
 
-                      if (drag.moved && stickyDragPreview?.id === ann.id) {
+                      const deltaX = e.clientX - drag.startClientX;
+                      const deltaY = e.clientY - drag.startClientY;
+                      const didMove = drag.moved || Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3;
+
+                      if (didMove) {
                         onUpdateAnnotation({
                           ...ann,
-                          x: stickyDragPreview.x,
-                          y: stickyDragPreview.y,
+                          x: Math.max(0, drag.originX + deltaX / (scaleX * zoom)),
+                          y: Math.max(0, drag.originY + deltaY / (scaleY * zoom)),
                           updatedAt: new Date().toISOString(),
                         });
                         suppressStickyClickRef.current = true;
+                        window.setTimeout(() => {
+                          suppressStickyClickRef.current = false;
+                        }, 300);
                       }
 
                       stickyDragRef.current = null;
