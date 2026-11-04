@@ -634,7 +634,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
             type: 'highlight',
             rects,
             color: highlightColor,
-            opacity: 0.38,
+            opacity: 0.48,
             createdAt: now,
             updatedAt: now,
           });
