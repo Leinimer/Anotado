@@ -683,7 +683,14 @@ export async function replaceNoteAttachment(
 
   // 1. Tenta localizar os metadados por ID no IndexedDB.
   let attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
-  if (!attachment) attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
+  if (!attachment) {
+    attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
+    // Anexos que foram criados localmente antes do login passam a pertencer
+    // à conta autenticada quando o mesmo ID é usado no documento atual.
+    if (attachment?.user_id === 'anonymous') {
+      attachment = { ...attachment, user_id: userId };
+    }
+  }
 
   const supabaseReady = isSupabaseConfigured() && networkMonitor.getState().isBackendReachable;
   const supabase = supabaseReady ? createClient() : null;
@@ -761,6 +768,13 @@ export async function replaceNoteAttachment(
     });
   }
 
+  if (!attachment.bucket_id && sourceObject) {
+    attachment.bucket_id = sourceObject.bucketId;
+  }
+  if (!attachment.storage_path && sourceObject) {
+    attachment.storage_path = sourceObject.storagePath;
+  }
+
   if (attachment.user_id !== userId) {
     throw new Error('O anexo encontrado pertence a outro usuário. O salvamento foi bloqueado.');
   }
@@ -815,7 +829,7 @@ export async function replaceNoteAttachment(
     id: syncQueueId,
     action: 'REPLACE_ATTACHMENT',
     entity_type: 'attachment',
-    entity_id: attachmentId,
+    entity_id: attachment.id,
     payload: {
       attachmentId: attachment.id,
       requestedAttachmentId: attachmentId,
