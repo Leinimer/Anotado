@@ -550,6 +550,7 @@ export async function uploadAttachmentBinary(
         mime_type: mimeType,
         file_size: buffer.byteLength,
         storage_path: filePath,
+        bucket_id: ATTACHMENTS_BUCKET_NAME,
         created_at: attachment.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
@@ -700,15 +701,34 @@ export async function replaceNoteAttachment(
     }
   }
 
-  attachment.bucket_id = attachment.bucket_id || ATTACHMENTS_BUCKET_NAME;
-
   // 2. Cria cópia estável do Blob atualizado
   const arrayBuffer = await updatedBlob.arrayBuffer();
   const detachedBlob = new Blob([arrayBuffer], { type: attachment.mime_type || attachment.file_type || 'application/pdf' });
   const newSize = arrayBuffer.byteLength;
 
   const storagePath = attachment.storage_path || getAttachmentStoragePath(userId, attachmentId, attachment.file_name || 'document.pdf');
+
+  // Quando o anexo é legado e ainda não tem bucket_id, verifica qual dos buckets
+  // conhecidos contém o objeto sem baixar novamente o PDF inteiro.
+  if (!attachment.bucket_id && isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+    const supabase = createClient();
+    for (const candidateBucket of [ATTACHMENTS_BUCKET_NAME, 'attachments']) {
+      try {
+        const { data: signedData, error: signedError } = await supabase.storage
+          .from(candidateBucket)
+          .createSignedUrl(storagePath, 60);
+        if (!signedError && signedData?.signedUrl) {
+          attachment.bucket_id = candidateBucket;
+          break;
+        }
+      } catch (bucketError) {
+        console.warn(`[replaceNoteAttachment] Não foi possível verificar o bucket ${candidateBucket}:`, bucketError);
+      }
+    }
+  }
+
   const bucketId = attachment.bucket_id || ATTACHMENTS_BUCKET_NAME;
+  attachment.bucket_id = bucketId;
 
   // 3. Atualiza anexo local no IndexedDB
   attachment.blob = detachedBlob;
