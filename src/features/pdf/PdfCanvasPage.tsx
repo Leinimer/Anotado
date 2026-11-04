@@ -13,7 +13,7 @@ import {
   TextAnnotation,
   StickyNoteAnnotation,
 } from './types';
-import { StickyNote, X, MessageSquare } from 'lucide-react';
+import { StickyNote, X, MessageSquare, Trash2 } from 'lucide-react';
 
 function multiplyPdfTransforms(a: number[], b: number[]) {
   return [
@@ -31,6 +31,7 @@ interface PdfCanvasPageProps {
   pdfDoc: any;
   zoom: number;
   mode: ToolMode;
+  onSetMode?: (mode: ToolMode) => void;
   penColor: string;
   penWidth: number;
   highlightColor: string;
@@ -49,6 +50,7 @@ export function PdfCanvasPage({
   pdfDoc,
   zoom,
   mode,
+  onSetMode,
   penColor,
   penWidth,
   highlightColor,
@@ -103,6 +105,11 @@ export function PdfCanvasPage({
   const [activePoints, setActivePoints] = useState<Array<{ x: number; y: number }>>([]);
   const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null);
   const [currentPoint, setCurrentPoint] = useState<{ x: number; y: number } | null>(null);
+
+  // Text box drag-to-create state
+  const [isDraggingTextBox, setIsDraggingTextBox] = useState(false);
+  const [textDragStart, setTextDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [textDragCurrent, setTextDragCurrent] = useState<{ x: number; y: number } | null>(null);
 
   // Active sticky note popover state
   const [openStickyNoteId, setOpenStickyNoteId] = useState<string | null>(null);
@@ -209,7 +216,7 @@ export function PdfCanvasPage({
           if (isCancelled) return;
           if (renderedTextItems >= 50000) break;
           if (!item || typeof item.str !== 'string' || !item.str) {
-            if (item?.hasEOL) textLayer.appendChild(document.createElement('br'));
+            if (item?.hasEOL) textLayer?.appendChild(document.createElement('br'));
             continue;
           }
 
@@ -304,8 +311,38 @@ export function PdfCanvasPage({
   // Mouse handlers for annotations
   const handleMouseDown = (e: React.MouseEvent) => {
     if (isReadOnly || mode === 'hand') return;
-    if (mode === 'select' && (e.target as HTMLElement)?.closest?.('.pdf-text-layer')) return;
-    if (e.button !== 0) return; // Only left click
+
+    const target = e.target as HTMLElement | null;
+
+    // Se o clique veio de uma anotação existente, textarea, popover ou botão, aborte a criação
+    if (
+      target?.closest('[data-pdf-annotation]') ||
+      target?.closest('[data-pdf-text-editor]') ||
+      target?.closest('textarea, input, button')
+    ) {
+      return;
+    }
+
+    // Se clicou no fundo da página, desselecione anotação ativa
+    if (selectedAnnotationId) {
+      onSelectAnnotation(null);
+    }
+
+    if (e.button !== 0) return; // Apenas clique com botão esquerdo
+
+    // Para ferramentas de texto (seleção, marca-texto, sublinhado, tachado), a camada
+    // .pdf-text-layer conduz o arraste nativo do navegador
+    if (
+      ['select', 'highlight', 'underline', 'strikethrough'].includes(mode) &&
+      target?.closest?.('.pdf-text-layer')
+    ) {
+      return;
+    }
+
+    // Não inicia formas/retângulos quando uma ferramenta de texto estiver ativa
+    if (mode === 'highlight' || mode === 'underline' || mode === 'strikethrough') {
+      return;
+    }
 
     const pt = getUnscaledCoords(e);
     setIsInteracting(true);
@@ -315,27 +352,12 @@ export function PdfCanvasPage({
     if (mode === 'pen') {
       setActivePoints([pt]);
     } else if (mode === 'text') {
-      // Place new text box
-      const id = `text_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-      const newText: TextAnnotation = {
-        id,
-        pageIndex,
-        type: 'text',
-        x: pt.x,
-        y: pt.y,
-        width: 180,
-        height: 40,
-        text: 'Novo texto',
-        fontSize: 14,
-        color: penColor,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      onAddAnnotation(newText);
-      onSelectAnnotation(id);
-      setIsInteracting(false);
+      // Inicia o arrasto para definir a largura e altura da nova caixa de texto
+      setIsDraggingTextBox(true);
+      setTextDragStart(pt);
+      setTextDragCurrent(pt);
     } else if (mode === 'sticky_note') {
-      // Place new sticky note
+      // Posiciona nova nota adesiva, abre seu popover e retorna imediatamente para 'select'
       const id = `sticky_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const newSticky: StickyNoteAnnotation = {
         id,
@@ -349,8 +371,12 @@ export function PdfCanvasPage({
         updatedAt: new Date().toISOString(),
       };
       onAddAnnotation(newSticky);
+      onSelectAnnotation(id);
       setOpenStickyNoteId(id);
       setIsInteracting(false);
+      setStartPoint(null);
+      setCurrentPoint(null);
+      onSetMode?.('select');
     }
   };
 
@@ -361,12 +387,54 @@ export function PdfCanvasPage({
 
     if (mode === 'pen') {
       setActivePoints((prev) => [...prev, pt]);
+    } else if (isDraggingTextBox) {
+      setTextDragCurrent(pt);
     }
   };
 
   const handleMouseUp = () => {
     if (!isInteracting || isReadOnly) return;
     setIsInteracting(false);
+
+    // Finalização do arrasto de criação de caixa de texto
+    if (isDraggingTextBox && textDragStart && textDragCurrent) {
+      setIsDraggingTextBox(false);
+
+      const minX = Math.min(textDragStart.x, textDragCurrent.x);
+      const minY = Math.min(textDragStart.y, textDragCurrent.y);
+      const rawW = Math.abs(textDragCurrent.x - textDragStart.x);
+      const rawH = Math.abs(textDragCurrent.y - textDragStart.y);
+
+      // Se foi apenas um clique rápido (< 15px em ambos os eixos), utiliza dimensões padrão
+      const isClick = rawW < 15 && rawH < 15;
+      const width = isClick ? 160 : Math.max(rawW, 60);
+      const height = isClick ? 38 : Math.max(rawH, 26);
+
+      const id = `text_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const newText: TextAnnotation = {
+        id,
+        pageIndex,
+        type: 'text',
+        x: minX,
+        y: minY,
+        width,
+        height,
+        text: '',
+        fontSize: 14,
+        color: penColor,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      onAddAnnotation(newText);
+      onSelectAnnotation(id);
+      setTextDragStart(null);
+      setTextDragCurrent(null);
+      setStartPoint(null);
+      setCurrentPoint(null);
+      onSetMode?.('select');
+      return;
+    }
 
     if (!startPoint || !currentPoint) return;
 
@@ -390,43 +458,6 @@ export function PdfCanvasPage({
       };
       onAddAnnotation(drawing);
       setActivePoints([]);
-    } else if (mode === 'highlight' && width > 4 && height > 4) {
-      const id = `hl_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-      const hl: HighlightAnnotation = {
-        id,
-        pageIndex,
-        type: 'highlight',
-        rects: [{ x: minX, y: minY, width, height }],
-        color: highlightColor,
-        opacity: 0.35,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      onAddAnnotation(hl);
-    } else if (mode === 'underline' && width > 4) {
-      const id = `ul_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-      const ul: UnderlineAnnotation = {
-        id,
-        pageIndex,
-        type: 'underline',
-        rects: [{ x: minX, y: minY, width, height: Math.max(height, 12) }],
-        color: penColor,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      onAddAnnotation(ul);
-    } else if (mode === 'strikethrough' && width > 4) {
-      const id = `st_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-      const st: StrikeAnnotation = {
-        id,
-        pageIndex,
-        type: 'strikethrough',
-        rects: [{ x: minX, y: minY, width, height: Math.max(height, 12) }],
-        color: penColor,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      onAddAnnotation(st);
     } else if (mode === 'shape' && (width > 5 || height > 5)) {
       const id = `shape_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const shape: ShapeAnnotation = {
@@ -481,9 +512,10 @@ export function PdfCanvasPage({
           width: pageDimensions ? `${pageDimensions.width}px` : '100%',
           height: pageDimensions ? `${pageDimensions.height}px` : '100%',
           zIndex: 2,
-          pointerEvents: mode === 'select' ? 'auto' : 'none',
-          userSelect: mode === 'select' ? 'text' : 'none',
-          WebkitUserSelect: mode === 'select' ? 'text' : 'none',
+          pointerEvents: ['select', 'highlight', 'underline', 'strikethrough'].includes(mode) ? 'auto' : 'none',
+          userSelect: ['select', 'highlight', 'underline', 'strikethrough'].includes(mode) ? 'text' : 'none',
+          WebkitUserSelect: ['select', 'highlight', 'underline', 'strikethrough'].includes(mode) ? 'text' : 'none',
+          cursor: ['highlight', 'underline', 'strikethrough', 'select'].includes(mode) ? 'text' : 'default',
         }}
         aria-label={`Texto da página ${pageIndex + 1}`}
       />
@@ -555,7 +587,7 @@ export function PdfCanvasPage({
                       onClick={(e) => {
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
-                        else if (mode === 'select') onSelectAnnotation(ann.id);
+                        else onSelectAnnotation(ann.id);
                       }}
                       className={`cursor-pointer ${isSelected ? 'stroke-2 stroke-blue-500' : ''}`}
                     />
@@ -574,14 +606,14 @@ export function PdfCanvasPage({
                       y1={r.y + r.height}
                       x2={r.x + r.width}
                       y2={r.y + r.height}
-                      stroke={ann.color}
-                      strokeWidth={2}
+                      stroke={isSelected ? '#2563eb' : ann.color}
+                      strokeWidth={isSelected ? 3 : 2}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
-                        else if (mode === 'select') onSelectAnnotation(ann.id);
+                        else onSelectAnnotation(ann.id);
                       }}
-                      className={`cursor-pointer ${isSelected ? 'stroke-blue-500' : ''}`}
+                      className="cursor-pointer"
                     />
                   ))}
                 </g>
@@ -598,14 +630,14 @@ export function PdfCanvasPage({
                       y1={r.y + r.height / 2}
                       x2={r.x + r.width}
                       y2={r.y + r.height / 2}
-                      stroke={ann.color}
-                      strokeWidth={2}
+                      stroke={isSelected ? '#2563eb' : ann.color}
+                      strokeWidth={isSelected ? 3 : 2}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
-                        else if (mode === 'select') onSelectAnnotation(ann.id);
+                        else onSelectAnnotation(ann.id);
                       }}
-                      className={`cursor-pointer ${isSelected ? 'stroke-blue-500' : ''}`}
+                      className="cursor-pointer"
                     />
                   ))}
                 </g>
@@ -753,30 +785,100 @@ export function PdfCanvasPage({
         </svg>
       )}
 
-      {/* Camada HTML para Caixas de Texto e Notas Adesivas */}
+      {/* Camada HTML para Caixas de Texto, Notas Adesivas, Drag Preview e Ações Flutuantes */}
       {pageDimensions && (
         <div
           className="absolute inset-0 pointer-events-none"
           style={{ width: `${pageDimensions.width}px`, height: `${pageDimensions.height}px` }}
         >
+          {/* Preview da caixa de texto durante o arrasto */}
+          {isDraggingTextBox && textDragStart && textDragCurrent && (
+            <div
+              style={{
+                position: 'absolute',
+                left: `${Math.min(textDragStart.x, textDragCurrent.x) * (pageDimensions?.scaleX || 1.333333) * zoom}px`,
+                top: `${Math.min(textDragStart.y, textDragCurrent.y) * (pageDimensions?.scaleY || 1.333333) * zoom}px`,
+                width: `${Math.max(Math.abs(textDragCurrent.x - textDragStart.x), 24) * (pageDimensions?.scaleX || 1.333333) * zoom}px`,
+                height: `${Math.max(Math.abs(textDragCurrent.y - textDragStart.y), 24) * (pageDimensions?.scaleY || 1.333333) * zoom}px`,
+                borderColor: penColor,
+              }}
+              className="border-2 border-dashed rounded-md bg-[#68594d]/10 dark:bg-white/10 pointer-events-none flex items-center justify-center p-1.5 text-xs text-[#68594d] dark:text-[#d4c8bc] font-sans-ui select-none z-30"
+            >
+              <span className="opacity-75 font-medium">Texto</span>
+            </div>
+          )}
+
+          {/* Anotações HTML na página */}
           {pageAnnotations.map((ann) => {
             const isSelected = ann.id === selectedAnnotationId;
+            const scaleX = pageDimensions?.scaleX || 1.333333;
+            const scaleY = pageDimensions?.scaleY || 1.333333;
+
+            // Botão de lixeira flutuante discreto sobre a marcação de texto selecionada
+            if (isSelected && (ann.type === 'highlight' || ann.type === 'underline' || ann.type === 'strikethrough')) {
+              const rects = ann.rects || [];
+              if (rects.length > 0) {
+                const minY = Math.min(...rects.map((r) => r.y));
+                const maxX = Math.max(...rects.map((r) => r.x + r.width));
+                const buttonLeft = maxX * scaleX * zoom;
+                const buttonTop = Math.max(14, minY * scaleY * zoom - 14);
+
+                return (
+                  <div
+                    key={`trash-${ann.id}`}
+                    data-pdf-annotation="true"
+                    data-pdf-annotation-trash="true"
+                    style={{
+                      position: 'absolute',
+                      left: `${buttonLeft}px`,
+                      top: `${buttonTop}px`,
+                      transform: 'translate(-50%, -50%)',
+                      zIndex: 40,
+                    }}
+                    className="pointer-events-auto"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteAnnotation(ann.id);
+                      }}
+                      className="p-1.5 rounded-full bg-white dark:bg-[#252422] text-[#ba1a1a] shadow-lg border border-[#e4e2dd] dark:border-[#383633] hover:bg-[#ba1a1a] hover:text-white transition-all cursor-pointer flex items-center justify-center hover:scale-110 active:scale-95"
+                      title="Excluir marcação (Del)"
+                      aria-label="Excluir marcação"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              }
+            }
 
             if (ann.type === 'text') {
               return (
                 <div
                   key={ann.id}
+                  data-pdf-annotation="true"
+                  data-pdf-annotation-id={ann.id}
+                  data-pdf-annotation-type="text"
+                  data-pdf-text-editor="true"
                   style={{
                     position: 'absolute',
-                    left: `${ann.x * (pageDimensions?.scaleX || 1.333333) * zoom}px`,
-                    top: `${ann.y * (pageDimensions?.scaleY || 1.333333) * zoom}px`,
-                    minWidth: `${(ann.width || 120) * (pageDimensions?.scaleX || 1.333333) * zoom}px`,
-                    fontSize: `${(ann.fontSize || 14) * (pageDimensions?.scaleX || 1.333333) * zoom}px`,
+                    left: `${ann.x * scaleX * zoom}px`,
+                    top: `${ann.y * scaleY * zoom}px`,
+                    width: ann.width ? `${ann.width * scaleX * zoom}px` : `${160 * scaleX * zoom}px`,
+                    minHeight: ann.height ? `${ann.height * scaleY * zoom}px` : `${36 * scaleY * zoom}px`,
+                    fontSize: `${(ann.fontSize || 14) * scaleX * zoom}px`,
                     color: ann.color,
                   }}
                   className={`pointer-events-auto group ${
-                    isSelected ? 'ring-2 ring-[#2563eb] rounded-md p-1 bg-white/90 dark:bg-black/90' : 'p-1'
+                    isSelected
+                      ? 'ring-2 ring-[#2563eb] rounded-md p-1 bg-white/95 dark:bg-[#1a1918]/95 shadow-lg'
+                      : 'p-1 hover:ring-1 hover:ring-black/20 dark:hover:ring-white/20 rounded-md'
                   }`}
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (mode === 'eraser') onDeleteAnnotation(ann.id);
@@ -784,13 +886,23 @@ export function PdfCanvasPage({
                   }}
                 >
                   <textarea
+                    data-pdf-annotation="true"
+                    data-pdf-annotation-type="text"
+                    data-pdf-text-editor="true"
                     value={ann.text}
-                    readOnly={isReadOnly || mode !== 'select'}
+                    placeholder={isSelected ? 'Digite aqui...' : ''}
+                    readOnly={isReadOnly || mode === 'hand' || mode === 'eraser'}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectAnnotation(ann.id);
+                    }}
                     onChange={(e) => {
                       onUpdateAnnotation({ ...ann, text: e.target.value, updatedAt: new Date().toISOString() });
                     }}
-                    className="w-full bg-transparent resize border-none focus:outline-none font-sans-ui leading-tight p-0"
-                    rows={ann.text.split('\n').length || 1}
+                    autoFocus={isSelected && !ann.text}
+                    className="w-full h-full min-h-[28px] bg-transparent resize border-none focus:outline-none font-sans-ui leading-tight p-0.5 placeholder:text-black/40 dark:placeholder:text-white/40"
+                    rows={ann.text ? ann.text.split('\n').length : 1}
                   />
                 </div>
               );
@@ -801,17 +913,23 @@ export function PdfCanvasPage({
               return (
                 <div
                   key={ann.id}
+                  data-pdf-annotation="true"
+                  data-pdf-annotation-id={ann.id}
+                  data-pdf-annotation-type="sticky_note"
                   style={{
                     position: 'absolute',
-                    left: `${ann.x * (pageDimensions?.scaleX || 1.333333) * zoom}px`,
-                    top: `${ann.y * (pageDimensions?.scaleY || 1.333333) * zoom}px`,
+                    left: `${ann.x * scaleX * zoom}px`,
+                    top: `${ann.y * scaleY * zoom}px`,
                   }}
                   className="pointer-events-auto z-30"
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <button
                     type="button"
-                    onClick={() => {
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
                       if (mode === 'eraser') {
                         onDeleteAnnotation(ann.id);
                       } else {
@@ -821,28 +939,44 @@ export function PdfCanvasPage({
                     }}
                     className="w-7 h-7 rounded-lg bg-[#fef08a] hover:bg-[#fde047] text-[#854d0e] flex items-center justify-center shadow-md border border-[#eab308] cursor-pointer transition-transform hover:scale-110"
                     title="Nota adesiva"
+                    aria-label="Nota adesiva"
                   >
                     <MessageSquare className="w-4 h-4 fill-[#fef08a]" />
                   </button>
 
                   {isOpen && (
-                    <div className="absolute top-full left-0 mt-1 w-64 bg-[#fef08a] text-[#1b1c19] rounded-xl p-3 shadow-xl border border-[#eab308] z-50">
+                    <div
+                      data-pdf-annotation="true"
+                      data-pdf-annotation-type="sticky_note_popover"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute top-full left-0 mt-1 w-64 bg-[#fef08a] text-[#1b1c19] rounded-xl p-3 shadow-xl border border-[#eab308] z-50 animate-in fade-in zoom-in-95"
+                    >
                       <div className="flex items-center justify-between mb-1.5 border-b border-[#eab308]/40 pb-1">
                         <span className="text-xs font-bold uppercase tracking-wider text-[#854d0e] font-sans-ui">
                           Comentário
                         </span>
                         <button
                           type="button"
-                          onClick={() => setOpenStickyNoteId(null)}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenStickyNoteId(null);
+                          }}
                           className="text-[#854d0e] hover:text-[#1b1c19] p-0.5 rounded cursor-pointer"
+                          title="Fechar comentário"
+                          aria-label="Fechar comentário"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
                       <textarea
+                        data-pdf-annotation="true"
                         value={ann.text}
                         readOnly={isReadOnly}
                         placeholder="Escreva uma nota..."
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
                           onUpdateAnnotation({
                             ...ann,

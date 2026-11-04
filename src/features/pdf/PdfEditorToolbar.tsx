@@ -53,6 +53,7 @@ interface PdfEditorToolbarProps {
   // Selection
   hasSelection: boolean;
   onDeleteSelected: () => void;
+  isTextMarkSelected?: boolean;
   isReadOnly?: boolean;
 }
 
@@ -98,6 +99,7 @@ export function PdfEditorToolbar({
   onRedo,
   hasSelection,
   onDeleteSelected,
+  isTextMarkSelected = false,
   isReadOnly = false,
 }: PdfEditorToolbarProps) {
   const [showPenMenu, setShowPenMenu] = useState(false);
@@ -513,7 +515,7 @@ export function PdfEditorToolbar({
         )}
 
         {/* Excluir Anotação Selecionada */}
-        {!isReadOnly && hasSelection && (
+        {!isReadOnly && hasSelection && !isTextMarkSelected && (
           <button
             type="button"
             onClick={onDeleteSelected}

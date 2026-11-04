@@ -486,17 +486,37 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     }
   };
 
-  // Aplica marcação exatamente sobre os retângulos reais do texto selecionado,
-  // inclusive quando a seleção atravessa duas ou mais páginas.
-  const handleSetToolMode = (nextMode: ToolMode) => {
-    if (
-      (nextMode === 'highlight' || nextMode === 'underline' || nextMode === 'strikethrough') &&
-      selectedPdfTextRangeRef.current
-    ) {
-      const range = selectedPdfTextRangeRef.current;
+  // Aplica marcação sobre a seleção de texto na camada de texto do PDF.
+  const applyTextAnnotationFromSelection = useCallback(
+    (modeToApply: 'highlight' | 'underline' | 'strikethrough', explicitRange?: Range | null) => {
+      let range = explicitRange;
+      if (!range) {
+        const selection = document.getSelection();
+        if (selection && !selection.isCollapsed && selection.toString().trim() && selection.rangeCount > 0) {
+          const anchorElement = selection.anchorNode instanceof Element
+            ? selection.anchorNode
+            : selection.anchorNode?.parentElement;
+          const focusElement = selection.focusNode instanceof Element
+            ? selection.focusNode
+            : selection.focusNode?.parentElement;
+
+          if (anchorElement?.closest('.pdf-text-layer') || focusElement?.closest('.pdf-text-layer')) {
+            range = selection.getRangeAt(0);
+          }
+        }
+      }
+
+      if (!range) {
+        range = selectedPdfTextRangeRef.current;
+      }
+
+      if (!range) return false;
+
       const clientRects = Array.from(range.getClientRects()).filter(
         (rect) => rect.width > 0.5 && rect.height > 0.5
       );
+      if (clientRects.length === 0) return false;
+
       const groupedRects = new Map<number, Array<{ x: number; y: number; width: number; height: number }>>();
 
       for (const [pageIndex, pageWrapper] of pageRefs.current.entries()) {
@@ -513,7 +533,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
           const top = Math.max(selectedRect.top, pageBounds.top);
           const right = Math.min(selectedRect.right, pageBounds.right);
           const bottom = Math.min(selectedRect.bottom, pageBounds.bottom);
-          if (right <= left || bottom <= top) continue;
+          if (right <= left + 0.5 || bottom <= top + 0.5) continue;
 
           const converted = {
             x: Math.max(0, (left - pageBounds.left) / scaleX),
@@ -527,11 +547,13 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         }
       }
 
+      if (groupedRects.size === 0) return false;
+
       const now = new Date().toISOString();
       const created: PdfAnnotation[] = [];
       groupedRects.forEach((rects, pageIndex) => {
         const id = `text-mark-${Date.now()}-${pageIndex}-${Math.random().toString(36).slice(2, 7)}`;
-        if (nextMode === 'highlight') {
+        if (modeToApply === 'highlight') {
           created.push({
             id,
             pageIndex,
@@ -542,7 +564,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
             createdAt: now,
             updatedAt: now,
           });
-        } else if (nextMode === 'underline') {
+        } else if (modeToApply === 'underline') {
           created.push({
             id,
             pageIndex,
@@ -566,9 +588,52 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       });
 
       if (created.length > 0) {
-        pushHistory([...annotations, ...created]);
+        pushHistory([...annotationsRef.current, ...created]);
         selectedPdfTextRangeRef.current = null;
         document.getSelection()?.removeAllRanges();
+        return true;
+      }
+
+      return false;
+    },
+    [highlightColor, penColor, pushHistory]
+  );
+
+  // Criação contínua e imediata ao soltar o mouse com marca-texto, sublinhado ou tachado ativo
+  useEffect(() => {
+    const handleMouseUp = (e: MouseEvent) => {
+      if (isReadOnly || isSavingRef.current) return;
+      if (
+        currentMode !== 'highlight' &&
+        currentMode !== 'underline' &&
+        currentMode !== 'strikethrough'
+      ) {
+        return;
+      }
+
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-pdf-editor-toolbar]')) return;
+
+      setTimeout(() => {
+        applyTextAnnotationFromSelection(currentMode);
+      }, 10);
+    };
+
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [currentMode, isReadOnly, applyTextAnnotationFromSelection]);
+
+  // Altera o modo da ferramenta. Se havia texto previamente selecionado e o usuário
+  // escolheu marca-texto/sublinhado/tachado, aplica a marcação imediatamente.
+  const handleSetToolMode = (nextMode: ToolMode) => {
+    if (
+      (nextMode === 'highlight' || nextMode === 'underline' || nextMode === 'strikethrough') &&
+      selectedPdfTextRangeRef.current
+    ) {
+      const applied = applyTextAnnotationFromSelection(nextMode, selectedPdfTextRangeRef.current);
+      if (applied) {
         setCurrentMode('select');
         return;
       }
@@ -1006,6 +1071,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
                 pdfDoc={pdfDoc}
                 zoom={zoom}
                 mode={currentMode}
+                onSetMode={setCurrentMode}
                 penColor={penColor}
                 penWidth={penWidth}
                 highlightColor={highlightColor}
@@ -1024,30 +1090,43 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       </div>
 
       {/* Bottom Floating Toolbar */}
-      <PdfEditorToolbar
-        currentMode={currentMode}
-        onSetMode={handleSetToolMode}
-        penColor={penColor}
-        onSetPenColor={setPenColor}
-        penWidth={penWidth}
-        onSetPenWidth={setPenWidth}
-        highlightColor={highlightColor}
-        onSetHighlightColor={setHighlightColor}
-        currentShape={currentShape}
-        onSetShape={setCurrentShape}
-        zoom={zoom}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-        onFitWidth={handleFitWidth}
-        onFitPage={handleFitPage}
-        canUndo={historyIndex > 0}
-        canRedo={historyIndex < history.length - 1}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        hasSelection={Boolean(selectedAnnotationId)}
-        onDeleteSelected={handleDeleteSelected}
-        isReadOnly={isReadOnly || isSaving}
-      />
+      {(() => {
+        const selectedAnnotation = annotations.find((a) => a.id === selectedAnnotationId);
+        const isTextMarkSelected = Boolean(
+          selectedAnnotation &&
+          (selectedAnnotation.type === 'highlight' ||
+           selectedAnnotation.type === 'underline' ||
+           selectedAnnotation.type === 'strikethrough')
+        );
+
+        return (
+          <PdfEditorToolbar
+            currentMode={currentMode}
+            onSetMode={handleSetToolMode}
+            penColor={penColor}
+            onSetPenColor={setPenColor}
+            penWidth={penWidth}
+            onSetPenWidth={setPenWidth}
+            highlightColor={highlightColor}
+            onSetHighlightColor={setHighlightColor}
+            currentShape={currentShape}
+            onSetShape={setCurrentShape}
+            zoom={zoom}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onFitWidth={handleFitWidth}
+            onFitPage={handleFitPage}
+            canUndo={historyIndex > 0}
+            canRedo={historyIndex < history.length - 1}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            hasSelection={Boolean(selectedAnnotationId)}
+            onDeleteSelected={handleDeleteSelected}
+            isTextMarkSelected={isTextMarkSelected}
+            isReadOnly={isReadOnly || isSaving}
+          />
+        );
+      })()}
     </div>
   );
 }
