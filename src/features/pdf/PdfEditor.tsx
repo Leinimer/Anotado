@@ -137,6 +137,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
         let arrayBuffer: ArrayBuffer | null = null;
         let documentName = attachment?.file_name || 'Documento.pdf';
+        let resolvedBucketId: string | null = attachment?.bucket_id || null;
         let loadDetails = '';
 
         // 1. Prioriza o Blob local, desde que esteja íntegro.
@@ -195,6 +196,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
                     if (!downloadError && fileData && fileData.size > 0) {
                       arrayBuffer = await fileData.arrayBuffer();
+                      resolvedBucketId = bucketName;
 
                       // Só grava no banco local do usuário quando ele é o proprietário.
                       if (dbAtt.user_id === userId && userId !== 'anonymous') {
@@ -208,7 +210,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
                           file_size: dbAtt.file_size,
                           blob: fileData,
                           storage_path: dbAtt.storage_path,
-                          bucket_id: dbAtt.bucket_id || ATTACHMENTS_BUCKET_NAME,
+                          bucket_id: dbAtt.bucket_id || bucketName,
                           syncRequired: false,
                           syncStatus: 'synced',
                           created_at: dbAtt.created_at,
