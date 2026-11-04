@@ -264,7 +264,9 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         }
 
         const loadingTask = pdfjsLib.getDocument({
-          data: new Uint8Array(arrayBuffer),
+          // PDF.js pode transferir o buffer ao worker. Passe uma cópia para manter
+          // rawPdfBytes intacto no thread principal para exportação/salvamento.
+          data: new Uint8Array(arrayBuffer.slice(0)),
           cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/cmaps/`,
           cMapPacked: true,
         });
@@ -712,7 +714,8 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
       }
       const reloadedTask = pdfjsLib.getDocument({
-        data: new Uint8Array(savedBytes),
+        // Mantém savedBytes preservado como base local para os próximos salvamentos.
+        data: new Uint8Array(savedBytes.slice(0)),
         cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/cmaps/`,
         cMapPacked: true,
       });
