@@ -743,8 +743,13 @@ export async function replaceNoteAttachment(
     revision: 1,
   });
 
-  const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
-  networkMonitor.updatePendingCount(pendingCount);
+  const pendingCount = await indexedDBStorage.getSyncQueueCount(userId).catch((error) => {
+    console.warn('[replaceNoteAttachment] Não foi possível atualizar o contador da SyncQueue:', error);
+    return null;
+  });
+  if (pendingCount !== null) {
+    networkMonitor.updatePendingCount(pendingCount);
+  }
 
   // 6. Agenda sincronização em segundo plano no SyncEngine
   import('./sync-engine').then(({ syncEngine }) => {
