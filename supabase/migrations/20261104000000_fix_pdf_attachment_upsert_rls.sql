@@ -8,6 +8,15 @@
 
 begin;
 
+-- Persiste qual bucket contém cada anexo. Mantém NULL em registros antigos para
+-- que o cliente possa identificar o bucket real por uma URL assinada antes de
+-- sobrescrever, em vez de presumir que todo legado está no bucket atual.
+alter table public.note_attachments
+  add column if not exists bucket_id text;
+
+alter table public.note_attachments
+  alter column bucket_id set default 'note-attachments';
+
 -- A aplicação precisa ler a linha do anexo para confirmar o bucket/caminho e
 -- precisa atualizar file_size/updated_at depois de sobrescrever o PDF.
 alter table public.note_attachments enable row level security;
