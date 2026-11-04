@@ -58,12 +58,12 @@ interface PdfEditorToolbarProps {
 }
 
 const HIGHLIGHT_COLORS = [
-  { label: 'Amarelo', hex: '#fef08a' },
-  { label: 'Verde', hex: '#bbf7d0' },
-  { label: 'Rosa', hex: '#fecdd3' },
-  { label: 'Azul', hex: '#bfdbfe' },
-  { label: 'Lilás', hex: '#e9d5ff' },
-  { label: 'Laranja', hex: '#fed7aa' },
+  { label: 'Amarelo vivo', hex: '#ffeb3b' },
+  { label: 'Verde', hex: '#55d66b' },
+  { label: 'Rosa', hex: '#ff6b91' },
+  { label: 'Azul', hex: '#55a9ff' },
+  { label: 'Lilás', hex: '#b58af7' },
+  { label: 'Laranja', hex: '#ff9b38' },
 ];
 
 const PEN_COLORS = [
@@ -130,7 +130,7 @@ export function PdfEditorToolbar({
 
   return (
     <footer data-pdf-editor-toolbar="true" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[96vw]">
-      <div className="bg-[#fbf9f4]/95 dark:bg-[#252422]/95 border border-[#e4e2dd] dark:border-[#383633] backdrop-blur-md rounded-2xl shadow-xl px-2.5 py-1.5 flex items-center gap-1 overflow-x-auto text-[#1b1c19] dark:text-[#ededed] select-none">
+      <div className="bg-[#fbf9f4]/95 dark:bg-[#252422]/95 border border-[#e4e2dd] dark:border-[#383633] backdrop-blur-md rounded-2xl shadow-xl px-2.5 py-1.5 flex flex-wrap items-center justify-center gap-1 overflow-visible text-[#1b1c19] dark:text-[#ededed] select-none">
         {/* Ferramenta Selecionar */}
         <button
           type="button"
@@ -176,12 +176,10 @@ export function PdfEditorToolbar({
               <button
                 type="button"
                 onClick={() => {
-                  if (currentMode === 'highlight') {
-                    setShowHighlightMenu(!showHighlightMenu);
-                  } else {
-                    closeAllMenus();
-                    onSetMode('highlight');
-                  }
+                  const shouldOpen = !showHighlightMenu;
+                  closeAllMenus();
+                  onSetMode('highlight');
+                  setShowHighlightMenu(shouldOpen);
                 }}
                 className={`p-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-0.5 ${
                   currentMode === 'highlight'
@@ -200,7 +198,10 @@ export function PdfEditorToolbar({
               </button>
 
               {showHighlightMenu && (
-                <div className="absolute bottom-full mb-2 left-0 bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2 shadow-xl flex items-center gap-1.5 z-50">
+                <div
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="absolute bottom-full mb-2 left-0 bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2 shadow-xl flex items-center gap-1.5 z-[100] whitespace-nowrap"
+                >
                   {HIGHLIGHT_COLORS.map((c) => (
                     <button
                       key={c.hex}
@@ -265,12 +266,10 @@ export function PdfEditorToolbar({
               <button
                 type="button"
                 onClick={() => {
-                  if (currentMode === 'pen') {
-                    setShowPenMenu(!showPenMenu);
-                  } else {
-                    closeAllMenus();
-                    onSetMode('pen');
-                  }
+                  const shouldOpen = !showPenMenu;
+                  closeAllMenus();
+                  onSetMode('pen');
+                  setShowPenMenu(shouldOpen);
                 }}
                 className={`p-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-0.5 ${
                   currentMode === 'pen'
@@ -289,7 +288,10 @@ export function PdfEditorToolbar({
               </button>
 
               {showPenMenu && (
-                <div className="absolute bottom-full mb-2 left-0 bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2.5 shadow-xl space-y-2 z-50 min-w-[170px]">
+                <div
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="absolute bottom-full mb-2 left-0 bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2.5 shadow-xl space-y-2 z-[100] min-w-[170px]"
+                >
                   <div>
                     <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">
                       Cores
@@ -381,12 +383,10 @@ export function PdfEditorToolbar({
               <button
                 type="button"
                 onClick={() => {
-                  if (currentMode === 'shape') {
-                    setShowShapeMenu(!showShapeMenu);
-                  } else {
-                    closeAllMenus();
-                    onSetMode('shape');
-                  }
+                  const shouldOpen = !showShapeMenu;
+                  closeAllMenus();
+                  onSetMode('shape');
+                  setShowShapeMenu(shouldOpen);
                 }}
                 className={`p-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-0.5 ${
                   currentMode === 'shape'
@@ -401,7 +401,15 @@ export function PdfEditorToolbar({
               </button>
 
               {showShapeMenu && (
-                <div className="absolute bottom-full mb-2 left-0 bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-1.5 shadow-xl flex items-center gap-1 z-50">
+                <div
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="absolute bottom-full mb-2 left-0 bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2.5 shadow-xl z-[100] min-w-[240px] space-y-2"
+                >
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">
+                      Tipo de forma
+                    </span>
+                    <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => {
@@ -454,6 +462,51 @@ export function PdfEditorToolbar({
                   >
                     <ArrowRight className="w-4 h-4" />
                   </button>
+                    </div>
+                  </div>
+                  <div className="border-t border-[#e4e2dd] dark:border-[#383633] pt-2">
+                    <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">
+                      Cor do contorno
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {PEN_COLORS.map((c) => (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          onClick={() => onSetPenColor(c.hex)}
+                          className={`w-5 h-5 rounded-full border transition-transform cursor-pointer hover:scale-110 ${
+                            penColor === c.hex
+                              ? 'ring-2 ring-[#68594d] dark:ring-[#d4c8bc] border-transparent scale-110'
+                              : 'border-black/20'
+                          }`}
+                          style={{ backgroundColor: c.hex }}
+                          title={c.label}
+                          aria-label={`Cor ${c.label}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">
+                      Espessura
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {PEN_WIDTHS.map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => onSetPenWidth(w)}
+                          className={`px-2 py-0.5 text-xs rounded-md transition-colors cursor-pointer ${
+                            penWidth === w
+                              ? 'bg-[#68594d] text-white'
+                              : 'bg-[#eae7e0] dark:bg-[#2c2a28] text-[#1b1c19] dark:text-[#ededed]'
+                          }`}
+                        >
+                          {w}px
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
