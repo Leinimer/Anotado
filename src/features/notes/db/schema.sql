@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS public.note_attachments (
     mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
     file_size BIGINT NOT NULL DEFAULT 0,
     storage_path TEXT NOT NULL,
+    bucket_id TEXT DEFAULT 'note-attachments',
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
