@@ -31,6 +31,26 @@ create policy anotado_note_attachments_owner_update
   using (user_id::text = (select auth.uid())::text)
   with check (user_id::text = (select auth.uid())::text);
 
+-- Mantém também criação e exclusão de metadados de anexos restritas ao proprietário
+-- caso o projeto estivesse sem RLS habilitado nesta tabela.
+drop policy if exists anotado_note_attachments_owner_insert
+  on public.note_attachments;
+
+create policy anotado_note_attachments_owner_insert
+  on public.note_attachments
+  for insert
+  to authenticated
+  with check (user_id::text = (select auth.uid())::text);
+
+drop policy if exists anotado_note_attachments_owner_delete
+  on public.note_attachments;
+
+create policy anotado_note_attachments_owner_delete
+  on public.note_attachments
+  for delete
+  to authenticated
+  using (user_id::text = (select auth.uid())::text);
+
 -- SELECT: exigido pelo upsert do Storage para consultar/retornar o objeto
 -- que está sendo substituído. O vínculo ao registro impede leitura cruzada.
 drop policy if exists anotado_attachment_objects_owner_select
