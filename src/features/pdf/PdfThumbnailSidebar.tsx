@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { PanelLeftClose, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PanelLeftClose } from 'lucide-react';
 
 interface PdfThumbnailSidebarProps {
   numPages: number;
