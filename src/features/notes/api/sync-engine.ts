@@ -1268,7 +1268,7 @@ class SyncEngine {
                 details: err?.details || (err as any)?.error_description || null,
                 stage:
                   err?.stage ||
-                  (item.action === 'UPLOAD_ATTACHMENT'
+                  (item.action === 'UPLOAD_ATTACHMENT' || item.action === 'REPLACE_ATTACHMENT'
                     ? 'STORAGE_UPLOAD'
                     : item.action === 'UPDATE_NOTE_CONTENT'
                     ? (isWaitingAtt ? 'WAITING_ATTACHMENT' : 'CONTENT_UPDATE')
@@ -1278,6 +1278,31 @@ class SyncEngine {
               },
               nextRetryAt || undefined
             );
+
+            if (item.action === 'REPLACE_ATTACHMENT') {
+              const failedAttachment = await indexedDBStorage.getAttachment(userId, item.entity_id).catch(() => null);
+              if (failedAttachment) {
+                failedAttachment.syncRequired = true;
+                failedAttachment.syncStatus = 'error';
+                failedAttachment.sync_status = 'failed';
+                await indexedDBStorage.putAttachment(userId, failedAttachment).catch((persistError) => {
+                  console.warn('[ATTACHMENT] Não foi possível registrar o erro de sincronização local:', persistError);
+                });
+              }
+
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('attachment:replace-failed', {
+                  detail: {
+                    attachmentId: item.entity_id,
+                    message: err?.message || friendlyErr,
+                    code: err?.code || err?.statusCode || (err as any)?.status || null,
+                    stage: err?.stage || 'REPLACE_ATTACHMENT',
+                    retrying: !isPermanent,
+                  },
+                }));
+              }
+            }
+
             if (err?.name === 'AbortError' || err?.message?.includes('fetch') || err?.message?.includes('network')) {
               break;
             }
@@ -2521,21 +2546,41 @@ class SyncEngine {
 
         const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
         if (!attachment || !attachment.blob) {
-          console.error(`[ATTACHMENT] REPLACE_ATTACHMENT falhou: blob ausente no IndexedDB para ${attachmentId}`);
-          return false;
+          const missingBlobError = new Error(`O PDF ${attachmentId} não possui cópia local para sincronizar.`);
+          (missingBlobError as any).code = 'REPLACEMENT_BLOB_MISSING';
+          (missingBlobError as any).stage = 'LOCAL_ATTACHMENT';
+          throw missingBlobError;
         }
 
         const effectivePath =
           storagePath ||
           attachment.storage_path ||
           `${userId}/${attachmentId}.${attachment.file_name?.includes('.') ? attachment.file_name.split('.').pop() : 'pdf'}`;
+        const effectiveBucket =
+          item.payload?.bucketId ||
+          attachment.bucket_id ||
+          ATTACHMENTS_BUCKET_NAME;
+
+        if (!['note-attachments', 'attachments'].includes(effectiveBucket)) {
+          const invalidBucketError = new Error(`Bucket de anexo não permitido: ${effectiveBucket}`);
+          (invalidBucketError as any).code = 'ATTACHMENT_BUCKET_INVALID';
+          (invalidBucketError as any).stage = 'STORAGE_BUCKET';
+          throw invalidBucketError;
+        }
 
         const buffer = await attachment.blob.arrayBuffer();
+        if (buffer.byteLength === 0) {
+          const emptyPdfError = new Error('O PDF editado está vazio (0 bytes); o arquivo original foi preservado.');
+          (emptyPdfError as any).code = 'REPLACEMENT_BLOB_EMPTY';
+          (emptyPdfError as any).stage = 'LOCAL_ATTACHMENT';
+          throw emptyPdfError;
+        }
         const uploadBody = new Blob([buffer], { type: mimeType });
 
-        // Overwrite direto no Supabase Storage mantendo exatamente o mesmo storage_path e bucket
+        // Sobrescreve o objeto no bucket que realmente contém o anexo.
+        // O caminho original é preservado; não cria um novo attachmentId.
         const { error: uploadErr } = await supabase.storage
-          .from(ATTACHMENTS_BUCKET_NAME)
+          .from(effectiveBucket)
           .upload(effectivePath, uploadBody, {
             contentType: mimeType,
             cacheControl: '0',
@@ -2543,24 +2588,56 @@ class SyncEngine {
           });
 
         if (uploadErr) {
+          const normalizedUploadError = new Error(
+            `Falha ao sobrescrever ${effectiveBucket}/${effectivePath}: ${uploadErr.message || 'erro do Supabase Storage'}`
+          );
+          Object.assign(normalizedUploadError, {
+            code: (uploadErr as any).code || (uploadErr as any).statusCode || (uploadErr as any).status || 'STORAGE_UPSERT_FAILED',
+            status: (uploadErr as any).statusCode || (uploadErr as any).status,
+            stage: 'STORAGE_UPSERT',
+            cause: uploadErr,
+          });
           console.error(`[ATTACHMENT] REPLACE_ATTACHMENT storage upload error:`, uploadErr);
-          throw uploadErr;
+          throw normalizedUploadError;
         }
 
-        // Atualiza tamanho e updated_at em public.note_attachments
-        const { error: dbErr } = await supabase
+        // Exige confirmação da linha por id + proprietário. O UPDATE do PostgREST
+        // pode retornar sucesso sem erro e zero linhas quando uma policy RLS filtra
+        // o registro; .select().maybeSingle() detecta esse caso.
+        const { data: updatedAttachmentRow, error: dbErr } = await supabase
           .from('note_attachments')
           .update({
             file_size: buffer.byteLength,
             updated_at: new Date().toISOString(),
           })
           .eq('id', attachmentId)
-          .eq('user_id', userId);
+          .eq('user_id', userId)
+          .select('id')
+          .maybeSingle();
 
         if (dbErr) {
+          const normalizedDbError = new Error(
+            `O PDF foi enviado ao Storage, mas a tabela note_attachments recusou a atualização: ${dbErr.message || 'erro do Supabase Database'}`
+          );
+          Object.assign(normalizedDbError, {
+            code: (dbErr as any).code || (dbErr as any).status || 'ATTACHMENT_METADATA_UPDATE_FAILED',
+            stage: 'NOTE_ATTACHMENTS_UPDATE',
+            cause: dbErr,
+          });
           console.error(`[ATTACHMENT] REPLACE_ATTACHMENT db update error:`, dbErr);
-          throw dbErr;
+          throw normalizedDbError;
         }
+
+        if (!updatedAttachmentRow?.id) {
+          const hiddenRowError = new Error(
+            'O Storage recebeu o PDF, mas o Supabase não confirmou a atualização de note_attachments. Verifique a policy UPDATE/SELECT dessa tabela e o user_id do anexo.'
+          );
+          (hiddenRowError as any).code = 'ATTACHMENT_ROW_NOT_UPDATED';
+          (hiddenRowError as any).stage = 'NOTE_ATTACHMENTS_RLS';
+          throw hiddenRowError;
+        }
+
+        attachment.bucket_id = effectiveBucket;
 
         // Marca como sincronizado no IndexedDB
         attachment.syncRequired = false;
