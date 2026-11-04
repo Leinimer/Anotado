@@ -51,6 +51,11 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
   const [rawPdfBytes, setRawPdfBytes] = useState<ArrayBuffer | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
+  const [isViewStateHydrated, setIsViewStateHydrated] = useState(false);
+  const [restorePageIndex, setRestorePageIndex] = useState<number | null>(null);
+  const currentPageRef = useRef(0);
+  const viewStateKey = `pdf-editor-view:${attachmentId}`;
+  currentPageRef.current = currentPage;
 
   // View state
   const [zoom, setZoom] = useState(1.15);
@@ -63,7 +68,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
   const [currentMode, setCurrentMode] = useState<ToolMode>('select');
   const [penColor, setPenColor] = useState('#68594d');
   const [penWidth, setPenWidth] = useState(2);
-  const [highlightColor, setHighlightColor] = useState('#fef08a');
+  const [highlightColor, setHighlightColor] = useState('#ffeb3b');
   const [currentShape, setCurrentShape] = useState<ShapeType>('rectangle');
 
   const [annotations, setAnnotations] = useState<PdfAnnotation[]>([]);
@@ -310,9 +315,32 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
           setSaveStatus('unsaved');
         }
 
+        // Recupera a última página visualizada deste mesmo anexo.
+        const savedView = await indexedDBStorage.getMetadata<{
+          version: number;
+          pageIndex: number;
+          updatedAt?: string;
+        }>(userId, viewStateKey);
+
+        let recoveredView = savedView;
+        if (!recoveredView && userId !== 'anonymous') {
+          recoveredView = await indexedDBStorage.getMetadata<{
+            version: number;
+            pageIndex: number;
+            updatedAt?: string;
+          }>('anonymous', viewStateKey);
+        }
+
+        const safePageIndex = recoveredView?.version === 1 && Number.isFinite(recoveredView.pageIndex)
+          ? Math.max(0, Math.min(Math.trunc(recoveredView.pageIndex), doc.numPages - 1))
+          : 0;
+
         if (isCancelled) return;
+        setCurrentPage(safePageIndex);
+        setRestorePageIndex(safePageIndex);
         isDraftHydratedRef.current = true;
         setIsDraftHydrated(true);
+        setIsViewStateHydrated(true);
         setPdfDoc(doc);
         setNumPages(doc.numPages);
         setIsLoading(false);
@@ -330,7 +358,53 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     return () => {
       isCancelled = true;
     };
-  }, [attachmentId, userId, sourceUrl]);
+  }, [attachmentId, userId, sourceUrl, viewStateKey]);
+
+  // Persiste a última página lida por anexo. O estado é individual do documento
+  // e não é colocado no conteúdo binário nem nos metadados compartilhados do arquivo.
+  useEffect(() => {
+    if (!isViewStateHydrated || numPages <= 0) return;
+
+    const timer = setTimeout(() => {
+      void indexedDBStorage.setMetadata(userId, viewStateKey, {
+        version: 1,
+        pageIndex: Math.max(0, Math.min(currentPage, numPages - 1)),
+        updatedAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('[PdfEditor] Não foi possível salvar a última página lida:', error);
+      });
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [currentPage, isViewStateHydrated, numPages, userId, viewStateKey]);
+
+  useEffect(() => {
+    return () => {
+      if (!isViewStateHydrated || numPages <= 0) return;
+      void indexedDBStorage.setMetadata(userId, viewStateKey, {
+        version: 1,
+        pageIndex: Math.max(0, Math.min(currentPageRef.current, numPages - 1)),
+        updatedAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('[PdfEditor] Falha ao preservar a página atual ao fechar a aba:', error);
+      });
+    };
+  }, [isViewStateHydrated, numPages, userId, viewStateKey]);
+
+  // Depois que as páginas forem montadas, restaura a rolagem no ponto salvo.
+  useEffect(() => {
+    if (!isViewStateHydrated || numPages <= 0 || restorePageIndex === null) return;
+    const targetIndex = Math.max(0, Math.min(restorePageIndex, numPages - 1));
+
+    const frame = window.requestAnimationFrame(() => {
+      const target = pageRefs.current.get(targetIndex);
+      if (target && scrollContainerRef.current) {
+        target.scrollIntoView({ behavior: 'auto', block: 'start' });
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [isViewStateHydrated, numPages, restorePageIndex]);
 
   // Salva rascunhos de anotações no IndexedDB, com debounce para não gravar
   // milhares de transações durante o desenho livre.
@@ -761,6 +835,12 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     try {
       setSaveStatus(wasOnline ? 'syncing' : 'saving_local');
       setSaveErrorMsg(null);
+
+      await indexedDBStorage.setMetadata(userId, viewStateKey, {
+        version: 1,
+        pageIndex: Math.max(0, Math.min(currentPage, numPages - 1)),
+        updatedAt: new Date().toISOString(),
+      });
 
       const annotationsSnapshot = annotations;
       const updatedBlob = await exportPdfWithAnnotations(rawPdfBytes, annotationsSnapshot);
