@@ -1294,6 +1294,7 @@ class SyncEngine {
                 window.dispatchEvent(new CustomEvent('attachment:replace-failed', {
                   detail: {
                     attachmentId: item.entity_id,
+                    requestedAttachmentId: item.payload?.requestedAttachmentId || item.entity_id,
                     message: err?.message || friendlyErr,
                     code: err?.code || err?.statusCode || (err as any)?.status || null,
                     stage: err?.stage || 'REPLACE_ATTACHMENT',
@@ -2602,41 +2603,121 @@ class SyncEngine {
           throw normalizedUploadError;
         }
 
-        // Exige confirmação da linha por id + proprietário. O UPDATE do PostgREST
-        // pode retornar sucesso sem erro e zero linhas quando uma policy RLS filtra
-        // o registro; .select().maybeSingle() detecta esse caso.
-        const { data: updatedAttachmentRow, error: dbErr } = await supabase
+        // Atualiza a linha existente. Se o PDF for um anexo legado órfão,
+        // insere os metadados usando o MESMO attachmentId e storage_path após o
+        // upload do objeto. Isso repara cartões antigos sem criar outro anexo.
+        const metadataBase = {
+          id: attachmentId,
+          note_id: attachment.note_id || null,
+          user_id: userId,
+          file_name: attachment.file_name || item.payload?.fileName || 'Documento.pdf',
+          mime_type: mimeType,
+          file_size: buffer.byteLength,
+          storage_path: effectivePath,
+          updated_at: new Date().toISOString(),
+        };
+        const metadataWithBucket = {
+          ...metadataBase,
+          bucket_id: effectiveBucket,
+        };
+
+        let updatedAttachmentRow: any = null;
+        let dbErr: any = null;
+
+        const updateWithBucket = await supabase
           .from('note_attachments')
           .update({
             file_size: buffer.byteLength,
             bucket_id: effectiveBucket,
-            updated_at: new Date().toISOString(),
+            updated_at: metadataBase.updated_at,
           })
           .eq('id', attachmentId)
           .eq('user_id', userId)
           .select('id')
           .maybeSingle();
 
+        updatedAttachmentRow = updateWithBucket.data;
+        dbErr = updateWithBucket.error;
+
+        // Compatibilidade com projetos que ainda não aplicaram a migration da
+        // coluna bucket_id: não impede o salvamento do PDF por causa dessa coluna.
+        if (dbErr && (dbErr.code === '42703' || /bucket_id.*does not exist/i.test(dbErr.message || ''))) {
+          const legacyUpdate = await supabase
+            .from('note_attachments')
+            .update({
+              file_size: buffer.byteLength,
+              updated_at: metadataBase.updated_at,
+            })
+            .eq('id', attachmentId)
+            .eq('user_id', userId)
+            .select('id')
+            .maybeSingle();
+          updatedAttachmentRow = legacyUpdate.data;
+          dbErr = legacyUpdate.error;
+        }
+
         if (dbErr) {
           const normalizedDbError = new Error(
             `O PDF foi enviado ao Storage, mas a tabela note_attachments recusou a atualização: ${dbErr.message || 'erro do Supabase Database'}`
           );
           Object.assign(normalizedDbError, {
-            code: (dbErr as any).code || (dbErr as any).status || 'ATTACHMENT_METADATA_UPDATE_FAILED',
+            code: dbErr.code || dbErr.status || 'ATTACHMENT_METADATA_UPDATE_FAILED',
             stage: 'NOTE_ATTACHMENTS_UPDATE',
             cause: dbErr,
           });
-          console.error(`[ATTACHMENT] REPLACE_ATTACHMENT db update error:`, dbErr);
+          console.error('[ATTACHMENT] REPLACE_ATTACHMENT db update error:', dbErr);
           throw normalizedDbError;
         }
 
+        // Se o UPDATE retornou zero linhas, o registro não existia ou foi filtrado
+        // por RLS. Tenta criar os metadados somente para o usuário autenticado,
+        // preservando o id e o caminho do objeto que acabou de ser enviado.
         if (!updatedAttachmentRow?.id) {
-          const hiddenRowError = new Error(
-            'O Storage recebeu o PDF, mas o Supabase não confirmou a atualização de note_attachments. Verifique a policy UPDATE/SELECT dessa tabela e o user_id do anexo.'
-          );
-          (hiddenRowError as any).code = 'ATTACHMENT_ROW_NOT_UPDATED';
-          (hiddenRowError as any).stage = 'NOTE_ATTACHMENTS_RLS';
-          throw hiddenRowError;
+          const insertWithBucket = await supabase
+            .from('note_attachments')
+            .insert(metadataWithBucket)
+            .select('id')
+            .maybeSingle();
+
+          updatedAttachmentRow = insertWithBucket.data;
+          dbErr = insertWithBucket.error;
+
+          if (dbErr && (dbErr.code === '42703' || /bucket_id.*does not exist/i.test(dbErr.message || ''))) {
+            const legacyInsert = await supabase
+              .from('note_attachments')
+              .insert(metadataBase)
+              .select('id')
+              .maybeSingle();
+            updatedAttachmentRow = legacyInsert.data;
+            dbErr = legacyInsert.error;
+          }
+
+          // Uma execução simultânea pode ter inserido a mesma linha. Nesse caso,
+          // confirme que ela pertence ao usuário e só então considere sucesso.
+          if (dbErr?.code === '23505') {
+            const existingAfterConflict = await supabase
+              .from('note_attachments')
+              .select('id')
+              .eq('id', attachmentId)
+              .eq('user_id', userId)
+              .maybeSingle();
+            if (!existingAfterConflict.error && existingAfterConflict.data?.id) {
+              updatedAttachmentRow = existingAfterConflict.data;
+              dbErr = null;
+            }
+          }
+
+          if (dbErr || !updatedAttachmentRow?.id) {
+            const normalizedInsertError = new Error(
+              `O PDF foi enviado ao Storage, mas não foi possível registrar o mesmo anexo em note_attachments: ${dbErr?.message || 'nenhuma linha foi confirmada'}`
+            );
+            Object.assign(normalizedInsertError, {
+              code: dbErr?.code || 'ATTACHMENT_METADATA_INSERT_FAILED',
+              stage: 'NOTE_ATTACHMENTS_INSERT',
+              cause: dbErr,
+            });
+            throw normalizedInsertError;
+          }
         }
 
         attachment.bucket_id = effectiveBucket;
@@ -2655,7 +2736,11 @@ class SyncEngine {
         if (typeof window !== 'undefined') {
           window.dispatchEvent(
             new CustomEvent('attachment:replace-complete', {
-              detail: { attachmentId, storagePath: effectivePath },
+              detail: {
+                attachmentId,
+                requestedAttachmentId: item.payload?.requestedAttachmentId || attachmentId,
+                storagePath: effectivePath,
+              },
             })
           );
         }
