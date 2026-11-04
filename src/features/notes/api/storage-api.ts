@@ -616,6 +616,50 @@ export async function deleteNoteAttachment(userId: string, attachmentId: string)
   }
 }
 
+interface PdfAttachmentRecoveryOptions {
+  sourceUrl?: string;
+  fileName?: string;
+}
+
+/** Extrai bucket e caminho real de URLs públicas, assinadas ou autenticadas do Supabase Storage. */
+function parseSupabaseStorageObjectUrl(sourceUrl?: string): { bucketId: string; storagePath: string } | null {
+  if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) return null;
+  try {
+    const url = new URL(sourceUrl);
+    const segments = url.pathname.split('/').filter(Boolean).map((segment) => {
+      try { return decodeURIComponent(segment); } catch { return segment; }
+    });
+    const objectIndex = segments.findIndex((segment) => segment === 'object');
+    if (objectIndex < 0) return null;
+    const mode = segments[objectIndex + 1];
+    if (!['public', 'sign', 'authenticated'].includes(mode)) return null;
+    const bucketId = segments[objectIndex + 2];
+    const storagePath = segments.slice(objectIndex + 3).join('/');
+    return bucketId && storagePath ? { bucketId, storagePath } : null;
+  } catch {
+    return null;
+  }
+}
+
+function attachmentFromRemoteRow(remoteAtt: any, userId: string): LocalAttachment {
+  return {
+    id: remoteAtt.id,
+    user_id: userId,
+    note_id: remoteAtt.note_id || null,
+    file_name: remoteAtt.file_name || 'Documento.pdf',
+    file_type: remoteAtt.mime_type || 'application/pdf',
+    mime_type: remoteAtt.mime_type || 'application/pdf',
+    file_size: Number(remoteAtt.file_size || 0),
+    storage_path: remoteAtt.storage_path,
+    bucket_id: remoteAtt.bucket_id || null,
+    remote_url: null,
+    syncRequired: false,
+    syncStatus: 'synced',
+    created_at: remoteAtt.created_at || new Date().toISOString(),
+    updated_at: remoteAtt.updated_at || new Date().toISOString(),
+  };
+}
+
 /**
  * Substitui o arquivo binário de um anexo existente (ex: PDF editado)
  * MANTENDO rigorosamente o mesmo attachmentId, mesmo fileName e mesmo storage_path.
@@ -627,7 +671,8 @@ export async function deleteNoteAttachment(userId: string, attachmentId: string)
 export async function replaceNoteAttachment(
   userId: string | null,
   attachmentId: string,
-  updatedBlob: Blob
+  updatedBlob: Blob,
+  recoveryOptions: PdfAttachmentRecoveryOptions = {}
 ): Promise<{ success: boolean; attachment: LocalAttachment }> {
   if (!userId || userId === 'anonymous') {
     throw new Error('Usuário não autenticado');
@@ -636,69 +681,88 @@ export async function replaceNoteAttachment(
     throw new Error('ID do anexo inválido');
   }
 
-  // 1. Localiza anexo existente no IndexedDB
+  // 1. Tenta localizar os metadados por ID no IndexedDB.
   let attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
-  if (!attachment) {
-    attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
+  if (!attachment) attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
+
+  const supabaseReady = isSupabaseConfigured() && networkMonitor.getState().isBackendReachable;
+  const supabase = supabaseReady ? createClient() : null;
+  const sourceObject = parseSupabaseStorageObjectUrl(recoveryOptions.sourceUrl);
+  let remoteLookupError: any = null;
+
+  // 2. Consulta a tabela pelo ID do cartão, sempre limitada ao proprietário.
+  if (!attachment && supabase) {
+    const { data, error } = await supabase
+      .from('note_attachments')
+      .select('*')
+      .eq('id', attachmentId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    remoteLookupError = error;
+    if (data) attachment = attachmentFromRemoteRow(data, userId);
   }
 
-  if (!attachment) {
-    // Tenta recuperar os metadados do Supabase se o usuário estiver online
-    if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-      const supabase = createClient();
-      const { data: remoteAtt } = await supabase
-        .from('note_attachments')
-        .select('*')
-        .eq('id', attachmentId)
-        .maybeSingle();
+  // 3. Em PDFs legados o ID do cartão pode divergir do ID da linha. Reencontra
+  // o registro pelo caminho real contido na URL assinada/publica do Storage.
+  if (!attachment && supabase && sourceObject) {
+    const { data, error } = await supabase
+      .from('note_attachments')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('storage_path', sourceObject.storagePath)
+      .maybeSingle();
 
-      if (remoteAtt) {
-        attachment = {
-          id: remoteAtt.id,
-          user_id: userId,
-          note_id: remoteAtt.note_id,
-          file_name: remoteAtt.file_name,
-          file_type: remoteAtt.mime_type,
-          mime_type: remoteAtt.mime_type,
-          file_size: remoteAtt.file_size,
-          storage_path: remoteAtt.storage_path,
-          bucket_id: remoteAtt.bucket_id || ATTACHMENTS_BUCKET_NAME,
-          remote_url: null,
-          syncRequired: false,
-          syncStatus: 'synced',
-          created_at: remoteAtt.created_at,
-          updated_at: remoteAtt.updated_at,
-        };
-      }
+    if (error) {
+      console.warn('[replaceNoteAttachment] Falha ao localizar anexo pelo caminho do Storage:', error);
+    } else if (data) {
+      attachment = attachmentFromRemoteRow(data, userId);
     }
   }
 
+  // 4. Recupera anexos órfãos: o PDF abriu por URL, mas não existe metadado
+  // local nem linha remota. Reconstrói a identidade com o MESMO ID do cartão e
+  // o caminho da URL original; não cria um novo attachmentId nem duplica o PDF.
   if (!attachment) {
-    throw new Error(`Anexo com ID ${attachmentId} não encontrado para substituição`);
+    const fileName = recoveryOptions.fileName || 'Documento.pdf';
+    const storagePath = sourceObject?.storagePath ||
+      getAttachmentStoragePath(userId, attachmentId, fileName);
+    const bucketId = sourceObject?.bucketId || ATTACHMENTS_BUCKET_NAME;
+
+    if (sourceObject && !storagePath.startsWith(`${userId}/`)) {
+      throw new Error(
+        'O PDF está em um caminho do Storage que não pertence à conta autenticada. A substituição foi bloqueada para proteger arquivos de outros usuários.'
+      );
+    }
+
+    const now = new Date().toISOString();
+    attachment = {
+      id: attachmentId,
+      user_id: userId,
+      note_id: null,
+      file_name: fileName,
+      file_type: updatedBlob.type || 'application/pdf',
+      mime_type: updatedBlob.type || 'application/pdf',
+      file_size: updatedBlob.size,
+      storage_path: storagePath,
+      bucket_id: bucketId,
+      remote_url: recoveryOptions.sourceUrl || null,
+      syncRequired: true,
+      syncStatus: 'pending',
+      sync_status: 'pending',
+      created_at: now,
+      updated_at: now,
+    };
+
+    console.warn('[replaceNoteAttachment] Reconstruindo metadados ausentes para PDF', {
+      attachmentId,
+      storagePath,
+      bucketId,
+      remoteLookupError: remoteLookupError?.message || null,
+    });
   }
 
-  // Recupera o bucket real de anexos antigos que foram guardados antes de
-  // bucket_id ser persistido no IndexedDB. Não presume que todo PDF esteja no
-  // bucket atual: alguns anexos legados podem estar em "attachments".
-  if (!attachment.bucket_id && isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
-    try {
-      const supabase = createClient();
-      const { data: remoteMetadata, error: metadataError } = await supabase
-        .from('note_attachments')
-        .select('bucket_id, storage_path')
-        .eq('id', attachmentId)
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (metadataError) {
-        console.warn('[replaceNoteAttachment] Não foi possível recuperar bucket_id do anexo:', metadataError);
-      } else if (remoteMetadata) {
-        attachment.bucket_id = remoteMetadata.bucket_id || ATTACHMENTS_BUCKET_NAME;
-        attachment.storage_path = remoteMetadata.storage_path || attachment.storage_path;
-      }
-    } catch (metadataError) {
-      console.warn('[replaceNoteAttachment] Falha ao consultar metadados do bucket:', metadataError);
-    }
+  if (attachment.user_id !== userId) {
+    throw new Error('O anexo encontrado pertence a outro usuário. O salvamento foi bloqueado.');
   }
 
   // 2. Cria cópia estável do Blob atualizado
@@ -743,16 +807,18 @@ export async function replaceNoteAttachment(
 
   // 4. Invalida cache em memória para que o editor e visualizadores usem os novos bytes
   invalidateAttachmentCache(attachmentId);
+  if (attachment.id !== attachmentId) invalidateAttachmentCache(attachment.id);
 
   // 5. Enfileira ação REPLACE_ATTACHMENT na SyncQueue
-  const syncQueueId = `sync_att_replace_${attachmentId}`;
+  const syncQueueId = `sync_att_replace_${attachment.id}`;
   await indexedDBStorage.enqueueSyncItem(userId, {
     id: syncQueueId,
     action: 'REPLACE_ATTACHMENT',
     entity_type: 'attachment',
     entity_id: attachmentId,
     payload: {
-      attachmentId,
+      attachmentId: attachment.id,
+      requestedAttachmentId: attachmentId,
       storagePath,
       bucketId,
       fileSize: newSize,
