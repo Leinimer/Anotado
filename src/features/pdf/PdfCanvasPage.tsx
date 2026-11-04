@@ -179,12 +179,18 @@ export function PdfCanvasPage({
         const canvasPromise = renderTaskRef.current.promise;
 
         // A renderização visual do canvas não depende da extração de texto.
-        // PDFs digitalizados/sem camada textual continuam visíveis caso getTextContent falhe.
-        let textContent: any = null;
+        // PDFs digitalizados/sem camada textual continuam visíveis se a extração falhar.
+        let textItems: any[] = [];
+        let textStyles: Record<string, any> = {};
         try {
-          textContent = await page.getTextContent();
+          const extractedText = await page.getTextContent();
+          textItems = extractedText.items as any[];
+          textStyles = extractedText.styles as Record<string, any>;
         } catch (textError) {
-          console.warn(`[PdfCanvasPage] Não foi possível extrair texto da página ${pageIndex + 1}; mantendo o canvas visual:`, textError);
+          console.warn(
+            `[PdfCanvasPage] Não foi possível extrair texto da página ${pageIndex + 1}; mantendo o canvas visual:`,
+            textError
+          );
         }
         if (isCancelled) return;
 
@@ -199,7 +205,7 @@ export function PdfCanvasPage({
         const outputScale = Math.hypot(viewport.transform[0], viewport.transform[1]) || (zoom * scaleX);
 
         let renderedTextItems = 0;
-        for (const item of (textContent?.items || []) as any[]) {
+        for (const item of textItems) {
           if (isCancelled) return;
           if (renderedTextItems >= 50000) break;
           if (!item || typeof item.str !== 'string' || !item.str) {
@@ -207,7 +213,7 @@ export function PdfCanvasPage({
             continue;
           }
 
-          const style = textContent.styles?.[item.fontName] || {};
+          const style = textStyles[item.fontName] || {};
           const tx = multiplyPdfTransforms(viewport.transform, item.transform);
           const angle = Math.atan2(tx[1], tx[0]) + (style.vertical ? Math.PI / 2 : 0);
           const fontHeight = Math.hypot(tx[2], tx[3]);
