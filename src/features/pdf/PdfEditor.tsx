@@ -523,15 +523,18 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
   // Confirmação e falha da substituição remota no Supabase.
   useEffect(() => {
+    const matchesThisPdf = (detail: any) =>
+      detail?.attachmentId === attachmentId || detail?.requestedAttachmentId === attachmentId;
+
     const handleReplaceComplete = (e: any) => {
-      if (e.detail?.attachmentId === attachmentId) {
+      if (matchesThisPdf(e.detail)) {
         setSaveErrorMsg(null);
         setSaveStatus('synced');
       }
     };
 
     const handleReplaceFailed = (e: any) => {
-      if (e.detail?.attachmentId !== attachmentId) return;
+      if (!matchesThisPdf(e.detail)) return;
       const message = e.detail?.message || 'O Supabase não confirmou a substituição do PDF.';
       const stage = e.detail?.stage ? `Etapa: ${e.detail.stage}. ` : '';
       setSaveErrorMsg(`${stage}${message}`);
@@ -878,7 +881,10 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       // Esta etapa grava o Blob local, preserva attachmentId/storage_path e
       // registra REPLACE_ATTACHMENT na SyncQueue. Depois dela o arquivo já está salvo
       // localmente, mesmo que a atualização visual do PDF.js precise ser repetida.
-      const result = await replaceNoteAttachment(userId, attachmentId, updatedBlob);
+      const result = await replaceNoteAttachment(userId, attachmentId, updatedBlob, {
+        sourceUrl,
+        fileName,
+      });
       if (!result.success) {
         throw new Error('O IndexedDB não confirmou a gravação local do PDF editado.');
       }
