@@ -1,5 +1,5 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import { PdfAnnotation } from './types';
+import { HighlightAnnotation, PdfAnnotation } from './types';
 
 function parseHexToRgb(hex: string): { r: number; g: number; b: number } {
   let clean = (hex || '#68594d').replace('#', '');
