@@ -84,6 +84,9 @@ export function MainLayout() {
 
   const activeNoteIdRef = useRef<string | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
+  const summaryContentRef = useRef<Map<string, string>>(new Map());
+  const pendingPdfSummaryIdsRef = useRef<Set<string>>(new Set());
+  const pendingPdfHighlightsRef = useRef<Map<string, any[]>>(new Map());
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
@@ -1046,10 +1049,189 @@ export function MainLayout() {
           p.id === pdfId ? { ...p, folder_id: targetFolderId, position: targetPosition } : p
         )
       );
+      const linkedSummary = notes.find((note) => note.parent_pdf_id === pdfId);
+      const summaryPosition = linkedSummary
+        ? notes.filter((note) => note.id !== linkedSummary.id && note.folder_id === targetFolderId).length
+        : 0;
+      if (linkedSummary) {
+        setNotes((prev) =>
+          prev.map((note) => note.id === linkedSummary.id
+            ? { ...note, folder_id: targetFolderId, position: summaryPosition, updated_at: new Date().toISOString() }
+            : note)
+        );
+      }
+
       await moveLibraryPdf(userId, pdfId, targetFolderId, targetPosition);
+      if (linkedSummary) {
+        await moveItem(userId, 'note', linkedSummary.id, targetFolderId, summaryPosition);
+      }
     },
-    [userId]
+    [userId, notes]
   );
+
+  // Mantém o cache em memória alinhado às notas de resumo carregadas/sincronizadas.
+  useEffect(() => {
+    for (const note of notes) {
+      if (note.parent_pdf_id && !summaryContentRef.current.has(note.id)) {
+        summaryContentRef.current.set(note.id, note.content || '');
+      }
+    }
+  }, [notes]);
+
+  useEffect(() => {
+    const createCitationMarkdown = (attachmentId: string, highlight: any) => {
+      const quote = String(highlight.quoteText || '').trim();
+      const rect = Array.isArray(highlight.rects) ? highlight.rects[0] : null;
+      if (!quote || !rect) return '';
+      const safeQuote = quote
+        .replace(/\\/g, '\\\\')
+        .replace(/\\[/g, '\\\\[')
+        .replace(/\\]/g, '\\\\]')
+        .replace(/[\\r\\n]+/g, ' ');
+      const href = `#pdf-citation/${encodeURIComponent(attachmentId)}/${Number(highlight.pageIndex) || 0}/${encodeURIComponent(String(highlight.annotationId || ''))}/${Number(rect.x).toFixed(2)}/${Number(rect.y).toFixed(2)}/${Number(rect.width).toFixed(2)}/${Number(rect.height).toFixed(2)}`;
+      return `> [${safeQuote}](${href})\\n>\\n> *Página ${(Number(highlight.pageIndex) || 0) + 1}*`;
+    };
+
+    const appendHighlights = async (note: Note, attachmentId: string, highlights: any[]) => {
+      if (!highlights.length) return;
+      const current = summaryContentRef.current.get(note.id) ?? note.content ?? '';
+      let next = current;
+      let didAppend = false;
+      for (const highlight of highlights) {
+        const rect = Array.isArray(highlight.rects) ? highlight.rects[0] : null;
+        const href = rect
+          ? `#pdf-citation/${encodeURIComponent(attachmentId)}/${Number(highlight.pageIndex) || 0}/${encodeURIComponent(String(highlight.annotationId || ''))}/${Number(rect.x).toFixed(2)}/${Number(rect.y).toFixed(2)}/${Number(rect.width).toFixed(2)}/${Number(rect.height).toFixed(2)}`
+          : '';
+        if (!href || next.includes(`](${href})`)) continue;
+        const entry = createCitationMarkdown(attachmentId, highlight);
+        if (!entry) continue;
+        next = next.trim() ? `${next.trim()}\\n\\n${entry}` : `# Citações\\n\\n${entry}`;
+        didAppend = true;
+      }
+      if (!didAppend) return;
+
+      summaryContentRef.current.set(note.id, next);
+      setNotes((prev) => prev.map((item) => item.id === note.id
+        ? { ...item, content: next, updated_at: new Date().toISOString() }
+        : item));
+      await updateNoteContent(userId, note.id, next, note.tags || []);
+    };
+
+    const handleSummaryRequest = async (event: Event) => {
+      const detail = (event as CustomEvent<{
+        attachmentId?: string;
+        fileName?: string;
+        highlights?: any[];
+        openExisting?: boolean;
+      }>).detail || {};
+      const attachmentId = detail.attachmentId;
+      if (!attachmentId) return;
+
+      const existing = notes.find((note) => note.parent_pdf_id === attachmentId && !note.is_archived);
+      if (existing) {
+        await handleOpenNoteInNewTab(existing.id);
+        return;
+      }
+      if (detail.openExisting || pendingPdfSummaryIdsRef.current.has(attachmentId)) return;
+
+      const pdf = libraryPdfs.find((item) => item.id === attachmentId);
+      if (!pdf) {
+        window.dispatchEvent(new CustomEvent('anotado:toast-warning', {
+          detail: { message: 'Não foi possível localizar este PDF na biblioteca para criar o resumo.' },
+        }));
+        return;
+      }
+
+      pendingPdfSummaryIdsRef.current.add(attachmentId);
+      try {
+        const buffered = pendingPdfHighlightsRef.current.get(attachmentId) || [];
+        pendingPdfHighlightsRef.current.delete(attachmentId);
+        const unique = new Map<string, any>();
+        [...(detail.highlights || []), ...buffered].forEach((item) => {
+          const key = String(item.annotationId || `${item.pageIndex}-${item.quoteText}`);
+          if (!unique.has(key)) unique.set(key, item);
+        });
+        const citationBlocks = Array.from(unique.values())
+          .map((item) => createCitationMarkdown(attachmentId, item))
+          .filter(Boolean);
+        const initialContent = citationBlocks.length ? `# Citações\\n\\n${citationBlocks.join('\\n\\n')}` : '';
+        const folderId = pdf.folder_id || null;
+        const baseName = String(detail.fileName || pdf.file_name || 'Documento.pdf').replace(/\\.pdf$/i, '').trim();
+        const title = `${baseName || 'Documento'} - Resumo`;
+        const position = notes.filter((note) => note.folder_id === folderId && !note.is_archived).length;
+        const created = await createNote(userId, {
+          title,
+          folderId,
+          position,
+          content: initialContent,
+          workspaceType: 'notes',
+          parentPdfId: attachmentId,
+        });
+
+        summaryContentRef.current.set(created.id, initialContent);
+        setNotes((prev) => prev.some((note) => note.id === created.id) ? prev : [...prev, created]);
+        setIsSplit(false);
+        setLeftNoteId(null);
+        setRightNoteId(null);
+        setActiveFolderId(folderId);
+        setIsNewNoteJustCreated(true);
+        setActiveNoteId(created.id);
+        const tabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        setTabs((prev) => [...prev, { id: tabId, noteId: created.id }]);
+        setActiveTabId(tabId);
+      } catch (error) {
+        console.error('[MainLayout] Não foi possível criar a nota-resumo do PDF:', error);
+        window.dispatchEvent(new CustomEvent('anotado:toast-warning', {
+          detail: { message: 'Falha ao criar a nota de resumo. Tente novamente.' },
+        }));
+      } finally {
+        pendingPdfSummaryIdsRef.current.delete(attachmentId);
+      }
+    };
+
+    const handleNewPdfHighlight = async (event: Event) => {
+      const detail = (event as CustomEvent<{ attachmentId?: string; highlights?: any[] }>).detail || {};
+      const attachmentId = detail.attachmentId;
+      const highlights = detail.highlights || [];
+      if (!attachmentId || highlights.length === 0) return;
+      const summary = notes.find((note) => note.parent_pdf_id === attachmentId && !note.is_archived);
+      if (!summary) {
+        const pending = pendingPdfHighlightsRef.current.get(attachmentId) || [];
+        pendingPdfHighlightsRef.current.set(attachmentId, [...pending, ...highlights]);
+        return;
+      }
+      await appendHighlights(summary, attachmentId, highlights);
+    };
+
+    window.addEventListener('anotado:pdf-summary-request', handleSummaryRequest);
+    window.addEventListener('anotado:pdf-highlight-created', handleNewPdfHighlight);
+    return () => {
+      window.removeEventListener('anotado:pdf-summary-request', handleSummaryRequest);
+      window.removeEventListener('anotado:pdf-highlight-created', handleNewPdfHighlight);
+    };
+  }, [notes, libraryPdfs, userId, handleOpenNoteInNewTab]);
+
+  // Abre o PDF e guarda o destino da citação para ser consumido pelo PdfEditor.
+  useEffect(() => {
+    const handleOpenPdfCitation = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        attachmentId?: string;
+        pageIndex?: number;
+        annotationId?: string;
+        rect?: { x: number; y: number; width: number; height: number };
+      }>).detail || {};
+      if (!detail.attachmentId) return;
+      sessionStorage.setItem('anotado:pending-pdf-citation', JSON.stringify(detail));
+      const pdf = libraryPdfs.find((item) => item.id === detail.attachmentId);
+      void handleOpenPdfTab({
+        attachmentId: detail.attachmentId,
+        fileName: pdf?.file_name || 'Documento.pdf',
+        sourceUrl: pdf?.public_url || pdf?.remote_url || undefined,
+      });
+    };
+    window.addEventListener('anotado:open-pdf-citation', handleOpenPdfCitation);
+    return () => window.removeEventListener('anotado:open-pdf-citation', handleOpenPdfCitation);
+  }, [libraryPdfs, handleOpenPdfTab]);
 
   useEffect(() => {
     const handleOpenPdfEvent = (event: Event) => {
@@ -1426,6 +1608,13 @@ export function MainLayout() {
         await handleMovePdf(itemId, targetFolderId, targetPosition);
         return;
       }
+      if (itemType === 'note') {
+        const linkedSummary = notes.find((note) => note.id === itemId && note.parent_pdf_id);
+        if (linkedSummary?.parent_pdf_id) {
+          await handleMovePdf(linkedSummary.parent_pdf_id, targetFolderId, targetPosition);
+          return;
+        }
+      }
 
       if (itemType === 'folder') {
         setFolders((prev) =>
@@ -1447,7 +1636,7 @@ export function MainLayout() {
 
       await moveItem(userId, itemType, itemId, targetFolderId, targetPosition);
     },
-    [userId, handleMovePdf]
+    [userId, handleMovePdf, notes]
   );
 
   const handleReorderItem = useCallback(
@@ -1464,6 +1653,11 @@ export function MainLayout() {
       }
 
       if (itemType === 'note') {
+        const linkedSummary = notes.find((note) => note.id === itemId && note.parent_pdf_id);
+        if (linkedSummary?.parent_pdf_id) {
+          await handleMovePdf(linkedSummary.parent_pdf_id, targetParentId, 0);
+          return;
+        }
         setNotes((prevNotes) => {
           const draggedNote = prevNotes.find((n) => n.id === itemId);
           if (!draggedNote) return prevNotes;
@@ -1588,11 +1782,14 @@ export function MainLayout() {
         });
       }
     },
-    [userId, handleMovePdf]
+    [userId, handleMovePdf, notes]
   );
 
   const activePdfTab = tabs.find((tab) => tab.id === activeTabId && tab.type === 'pdf') || null;
   const activePdfAttachmentId = activePdfTab?.attachmentId || null;
+  const activePdfSummary = activePdfAttachmentId
+    ? notes.find((note) => note.parent_pdf_id === activePdfAttachmentId && !note.is_archived) || null
+    : null;
 
   const splitLeftNote = isSplit && leftNoteId ? notes.find((n) => n.id === leftNoteId) || null : null;
   const splitRightNote = isSplit && rightNoteId ? notes.find((n) => n.id === rightNoteId) || null : null;
@@ -1713,6 +1910,7 @@ export function MainLayout() {
           activePdfAttachmentId={activePdfAttachmentId}
           activePdfTabId={activePdfTab?.id || null}
           activePdfSourceUrl={activePdfTab?.sourceUrl || null}
+          hasPdfSummary={Boolean(activePdfSummary)}
           userId={userId}
           onUpdateTitle={(noteId, newTitle) => handleUpdateTitle(noteId, newTitle)}
           onUpdateContent={(noteId, newContent) => handleUpdateContent(noteId, newContent)}
