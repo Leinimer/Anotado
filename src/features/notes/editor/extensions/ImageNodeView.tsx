@@ -39,6 +39,8 @@ export function ImageNodeView(props: NodeViewProps) {
   const rawSrc = node.attrs.src || '';
   const alt = node.attrs.alt || '';
   const title = node.attrs.title || '';
+  const pdfCitation = title.startsWith('pdf-citation:') ? title.slice('pdf-citation:'.length) : '';
+  const imageTitle = pdfCitation ? '' : title;
   const initialWidthAttr = node.attrs.width || '100%';
   const alignment = (node.attrs.alignment as 'left' | 'center' | 'right') || 'center';
   const caption = (node.attrs.caption as string) || '';
@@ -677,6 +679,7 @@ export function ImageNodeView(props: NodeViewProps) {
     <NodeViewWrapper
       as="div"
       ref={containerRef}
+      data-pdf-citation={pdfCitation || undefined}
       className={`image-node-view-wrapper my-5 relative flex ${alignClass} max-w-full ${isEditingCaption ? 'select-text cursor-text' : 'select-none cursor-pointer'}`}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
@@ -801,7 +804,7 @@ export function ImageNodeView(props: NodeViewProps) {
             ref={imgRef}
             src={displayedSrc}
             alt={alt}
-            title={title}
+            title={imageTitle}
             decoding="async"
             onLoad={handleImageLoad}
             onError={handleImageError}
