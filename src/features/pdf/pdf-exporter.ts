@@ -111,7 +111,7 @@ function addNativeHighlightAnnotation(
     BM: PDFName.of('Multiply'),
     T: PDFHexString.fromText('ANOTADO'),
     NM: PDFHexString.fromText(`ANOTADO:${ann.id}`),
-    Contents: PDFHexString.fromText('Marca-texto'),
+    Contents: PDFHexString.fromText(ann.quoteText?.trim() || 'Marca-texto'),
     M: PDFString.fromDate(new Date()),
     F: 4,
   });
