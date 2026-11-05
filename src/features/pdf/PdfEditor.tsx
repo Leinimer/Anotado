@@ -113,12 +113,22 @@ async function verifyNativeAnotadoAnnotations(
   pdfBytes: ArrayBuffer,
   expected: PdfAnnotation[]
 ): Promise<void> {
-  const expectedHighlights = expected.filter(
-    (annotation) => annotation.type === 'highlight' && annotation.rects?.length > 0
-  ).length;
-  const expectedNotes = expected.filter(
-    (annotation) => annotation.type === 'sticky_note'
-  ).length;
+  const expectedHighlightQuads = expected
+    .filter((annotation) => annotation.type === 'highlight')
+    .reduce((total, annotation) => {
+      if (annotation.type !== 'highlight') return total;
+      return total + (annotation.rects || []).filter((rect) =>
+        Number.isFinite(rect.x) &&
+        Number.isFinite(rect.y) &&
+        Number.isFinite(rect.width) &&
+        Number.isFinite(rect.height) &&
+        rect.width > 0 &&
+        rect.height > 0
+      ).length;
+    }, 0);
+  const expectedNoteTexts = expected
+    .filter((annotation) => annotation.type === 'sticky_note')
+    .map((annotation) => annotation.type === 'sticky_note' ? (annotation.text || '') : '');
 
   // pdf-lib gerar um Blob não basta: reabre o arquivo com o mesmo motor de
   // visualização para confirmar que as anotações estão realmente no PDF.
@@ -136,8 +146,8 @@ async function verifyNativeAnotadoAnnotations(
   let verificationDoc: any = null;
   try {
     verificationDoc = await task.promise;
-    let actualHighlights = 0;
-    let actualNotes = 0;
+    let actualHighlightQuads = 0;
+    const actualNoteTexts: string[] = [];
 
     for (let pageIndex = 0; pageIndex < verificationDoc.numPages; pageIndex += 1) {
       const page = await verificationDoc.getPage(pageIndex + 1);
@@ -148,24 +158,30 @@ async function verifyNativeAnotadoAnnotations(
         if (author !== 'ANOTADO') continue;
 
         if (item.subtype === 'Highlight' && item.quadPoints?.length >= 8) {
-          actualHighlights += 1;
+          actualHighlightQuads += Math.floor(item.quadPoints.length / 8);
         } else if (item.subtype === 'Text') {
-          actualNotes += 1;
+          actualNoteTexts.push(String(item.contentsObj?.str ?? ''));
         }
       }
     }
 
-    if (actualHighlights < expectedHighlights || actualNotes < expectedNotes) {
+    const missingNoteTexts = [...expectedNoteTexts];
+    for (const savedText of actualNoteTexts) {
+      const index = missingNoteTexts.indexOf(savedText);
+      if (index >= 0) missingNoteTexts.splice(index, 1);
+    }
+
+    if (actualHighlightQuads < expectedHighlightQuads || missingNoteTexts.length > 0) {
       throw new Error(
-        `Verificação do PDF falhou: esperados ${expectedHighlights} grifos e ${expectedNotes} notas nativas; encontrados ${actualHighlights} grifos e ${actualNotes} notas. O arquivo não será enviado ao Supabase.`
+        `Verificação do PDF falhou: esperados ${expectedHighlightQuads} quadriláteros de grifo e ${expectedNoteTexts.length} comentários; encontrados ${actualHighlightQuads} quadriláteros e ${actualNoteTexts.length} comentários. ${missingNoteTexts.length ? 'Há comentários cujo conteúdo não foi gravado corretamente.' : ''} O arquivo não será enviado ao Supabase.`
       );
     }
 
     console.info('[PdfEditor] Anotações nativas verificadas no PDF exportado:', {
-      expectedHighlights,
-      actualHighlights,
-      expectedNotes,
-      actualNotes,
+      expectedHighlightQuads,
+      actualHighlightQuads,
+      expectedNotes: expectedNoteTexts.length,
+      actualNotes: actualNoteTexts.length,
       pages: verificationDoc.numPages,
     });
   } finally {
