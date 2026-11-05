@@ -95,6 +95,12 @@ export interface StickyNoteAnnotation extends BaseAnnotation {
   isOpen?: boolean;
 }
 
+/** Contorno não destrutivo que indica a região capturada para a nota-resumo. */
+export interface CropAnnotation extends BaseAnnotation {
+  type: 'crop';
+  rect: { x: number; y: number; width: number; height: number };
+}
+
 export type PdfAnnotation =
   | DrawingAnnotation
   | HighlightAnnotation
@@ -102,4 +108,5 @@ export type PdfAnnotation =
   | StrikeAnnotation
   | TextAnnotation
   | ShapeAnnotation
-  | StickyNoteAnnotation;
+  | StickyNoteAnnotation
+  | CropAnnotation;
