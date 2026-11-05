@@ -109,6 +109,74 @@ function waitForRemotePdfReplacement(
   };
 }
 
+async function verifyNativeAnotadoAnnotations(
+  pdfBytes: ArrayBuffer,
+  expected: PdfAnnotation[]
+): Promise<void> {
+  const expectedHighlights = expected.filter(
+    (annotation) => annotation.type === 'highlight' && annotation.rects?.length > 0
+  ).length;
+  const expectedNotes = expected.filter(
+    (annotation) => annotation.type === 'sticky_note'
+  ).length;
+
+  // pdf-lib gerar um Blob não basta: reabre o arquivo com o mesmo motor de
+  // visualização para confirmar que as anotações estão realmente no PDF.
+  const pdfjsLib = await import('pdfjs-dist');
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+  }
+
+  const task = pdfjsLib.getDocument({
+    data: new Uint8Array(pdfBytes.slice(0)),
+    cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/cmaps/`,
+    cMapPacked: true,
+  });
+
+  let verificationDoc: any = null;
+  try {
+    verificationDoc = await task.promise;
+    let actualHighlights = 0;
+    let actualNotes = 0;
+
+    for (let pageIndex = 0; pageIndex < verificationDoc.numPages; pageIndex += 1) {
+      const page = await verificationDoc.getPage(pageIndex + 1);
+      const pdfAnnotations = await page.getAnnotations({ intent: 'display' });
+
+      for (const item of pdfAnnotations) {
+        const author = item.titleObj?.str || '';
+        if (author !== 'ANOTADO') continue;
+
+        if (item.subtype === 'Highlight' && item.quadPoints?.length >= 8) {
+          actualHighlights += 1;
+        } else if (item.subtype === 'Text') {
+          actualNotes += 1;
+        }
+      }
+    }
+
+    if (actualHighlights < expectedHighlights || actualNotes < expectedNotes) {
+      throw new Error(
+        `Verificação do PDF falhou: esperados ${expectedHighlights} grifos e ${expectedNotes} notas nativas; encontrados ${actualHighlights} grifos e ${actualNotes} notas. O arquivo não será enviado ao Supabase.`
+      );
+    }
+
+    console.info('[PdfEditor] Anotações nativas verificadas no PDF exportado:', {
+      expectedHighlights,
+      actualHighlights,
+      expectedNotes,
+      actualNotes,
+      pages: verificationDoc.numPages,
+    });
+  } finally {
+    try {
+      await verificationDoc?.destroy?.();
+    } catch {
+      // Liberação best-effort do documento temporário de verificação.
+    }
+  }
+}
+
 function pdfAnnotationColorToHex(color: any, fallback: string): string {
   if (!color || typeof color.length !== 'number' || color.length < 3) return fallback;
   const channels = Array.from(color as ArrayLike<number>).slice(0, 3);
@@ -1237,6 +1305,11 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       if (updatedBlob.size <= 0) {
         throw new Error('A exportação gerou um PDF vazio. O arquivo anterior foi preservado.');
       }
+
+      // Não envia um PDF apenas porque pdf-lib retornou um Blob. Reabre o
+      // arquivo exportado com PDF.js e exige que todos os grifos/notas previstos
+      // existam como anotações nativas /Highlight e /Text.
+      await verifyNativeAnotadoAnnotations(await updatedBlob.arrayBuffer(), annotationsSnapshot);
 
       const result = await replaceNoteAttachment(userId, attachmentId, updatedBlob, {
         sourceUrl,
