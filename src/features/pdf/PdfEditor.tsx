@@ -1010,6 +1010,49 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     };
   }, [attachmentId, userId, sourceUrl, viewStateKey]);
 
+  // Consome a navegação recebida por Ctrl/Cmd + clique em uma citação do resumo.
+  useEffect(() => {
+    if (!isDraftHydrated || numPages <= 0 || typeof window === 'undefined') return;
+    const raw = sessionStorage.getItem('anotado:pending-pdf-citation');
+    if (!raw) return;
+
+    try {
+      const target = JSON.parse(raw) as {
+        attachmentId?: string;
+        pageIndex?: number;
+        annotationId?: string;
+        rect?: { x: number; y: number; width: number; height: number };
+      };
+      if (target.attachmentId !== attachmentId) return;
+
+      sessionStorage.removeItem('anotado:pending-pdf-citation');
+      const pageIndex = Math.max(0, Math.min(numPages - 1, Math.trunc(Number(target.pageIndex) || 0)));
+      const targetRect = target.rect;
+      const targetAnnotation = annotations.find((item) => {
+        if (item.type !== 'highlight' || item.pageIndex !== pageIndex) return false;
+        if (target.annotationId && item.id === target.annotationId) return true;
+        if (!targetRect) return false;
+        return item.rects.some((rect) => {
+          const centerX = rect.x + rect.width / 2;
+          const centerY = rect.y + rect.height / 2;
+          const targetCenterX = targetRect.x + targetRect.width / 2;
+          const targetCenterY = targetRect.y + targetRect.height / 2;
+          return Math.abs(centerX - targetCenterX) <= Math.max(rect.width, targetRect.width, 8) &&
+            Math.abs(centerY - targetCenterY) <= Math.max(rect.height, targetRect.height, 8);
+        });
+      });
+
+      setCurrentPage(pageIndex);
+      setSelectedAnnotationId(targetAnnotation?.id || null);
+      window.requestAnimationFrame(() => {
+        pageRefs.current.get(pageIndex)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    } catch (error) {
+      console.warn('[PdfEditor] Não foi possível interpretar o destino da citação:', error);
+      sessionStorage.removeItem('anotado:pending-pdf-citation');
+    }
+  }, [attachmentId, annotations, isDraftHydrated, numPages]);
+
   // Persiste a última página lida por anexo. O estado é individual do documento
   // e não é colocado no conteúdo binário nem nos metadados compartilhados do arquivo.
   useEffect(() => {
