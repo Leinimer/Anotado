@@ -1131,6 +1131,44 @@ export async function updateNoteTitle(userId: string, noteId: string, newTitle: 
 }
 
 /**
+ * Desvincula uma nota-resumo do PDF original, transformando-a em nota independente.
+ * Preserva pasta, título, conteúdo e anexos.
+ */
+export async function detachNoteFromPdf(userId: string, noteId: string): Promise<boolean> {
+  if (!userId || !noteId) return false;
+
+  const localNote = await indexedDBStorage.getNoteById(userId, noteId);
+  if (!localNote) return false;
+  if (!localNote.parent_pdf_id) return true;
+
+  const nextRevision = (localNote.revision || 0) + 1;
+  localNote.parent_pdf_id = null;
+  localNote.revision = nextRevision;
+  localNote.syncRequired = true;
+  localNote.syncStatus = 'pending';
+  localNote.needs_sync = true;
+  localNote.sync_status = 'pending_sync';
+  localNote.updated_at = new Date().toISOString();
+  await indexedDBStorage.putNote(userId, localNote);
+
+  await indexedDBStorage.enqueueSyncItem(userId, {
+    action: 'UPDATE_NOTE',
+    entity_type: 'note',
+    entity_id: noteId,
+    payload: { noteId, updates: { parent_pdf_id: null } },
+    revision: nextRevision,
+  });
+
+  const pendingCount = await indexedDBStorage.getSyncQueueCount(userId);
+  networkMonitor.updatePendingCount(pendingCount);
+  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+    syncEngine.scheduleSync(50);
+  }
+
+  return true;
+}
+
+/**
  * Atualiza o conteúdo de uma nota utilizando a Fila de Persistência Serializada por nota.
  */
 export async function updateNoteContent(
