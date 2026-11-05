@@ -46,6 +46,8 @@ export interface HighlightAnnotation extends BaseAnnotation {
   rects: Array<{ x: number; y: number; width: number; height: number }>;
   color: string;
   opacity: number;
+  /** Texto citado pelo grifo, preservado dentro da anotação PDF. */
+  quoteText?: string;
 }
 
 export interface UnderlineAnnotation extends BaseAnnotation {
