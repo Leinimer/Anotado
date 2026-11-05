@@ -134,8 +134,8 @@ export function PdfEditorToolbar({
   };
 
   return (
-    <footer data-pdf-editor-toolbar="true" className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[96vw]">
-      <div className="bg-[#fbf9f4]/95 dark:bg-[#252422]/95 border border-[#e4e2dd] dark:border-[#383633] backdrop-blur-md rounded-2xl shadow-xl px-2.5 py-1.5 flex flex-wrap items-center justify-center gap-1 overflow-visible text-[#1b1c19] dark:text-[#ededed] select-none">
+    <footer data-pdf-editor-toolbar="true" className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 w-max max-w-[96vw]">
+      <div className="bg-[#fbf9f4]/95 dark:bg-[#252422]/95 border border-[#e4e2dd] dark:border-[#383633] backdrop-blur-md rounded-2xl shadow-xl px-2.5 py-1.5 flex flex-nowrap items-center justify-center gap-1 overflow-x-auto max-w-full whitespace-nowrap text-[#1b1c19] dark:text-[#ededed] select-none">
         {/* Ferramenta Selecionar */}
         <button
           type="button"
