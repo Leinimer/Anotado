@@ -191,6 +191,10 @@ export function PdfCanvasPage({
           canvasContext: ctx,
           viewport,
           transform: [dpr, 0, 0, dpr, 0, 0],
+          // Grifos e notas do ANOTADO são projetados pelas camadas próprias
+          // (SVG/HTML). Evita que o PDF.js desenhe as anotações nativas no
+          // canvas por baixo e depois a interface as desenhe novamente.
+          annotationMode: 0,
         });
         const canvasPromise = renderTaskRef.current.promise;
 
