@@ -41,6 +41,8 @@ export interface Note {
   is_archived?: boolean;
   is_favorite?: boolean;
   previous_folder_id?: string | null;
+  /** PDF da biblioteca ao qual esta nota pertence (resumo/citações). */
+  parent_pdf_id?: string | null;
   syncRequired?: boolean;
   syncStatus?: 'synced' | 'pending' | 'syncing' | 'error' | 'cancelled';
   revision?: number;
@@ -86,6 +88,7 @@ export interface TreeNodeItem {
   diary_year?: number | null;
   diary_month?: number | null;
   diary_day?: number | null;
+  parentPdfId?: string | null;
 }
 
 export interface TreePdfItem {
@@ -103,6 +106,7 @@ export interface TreePdfItem {
   isLibraryItem?: boolean;
   createdAt: string;
   updatedAt: string;
+  summaryNote?: TreeNodeItem | null;
 }
 
 export type TreeItem = TreeFolderNode | TreeNodeItem | TreePdfItem;
