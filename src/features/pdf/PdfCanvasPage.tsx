@@ -191,10 +191,10 @@ export function PdfCanvasPage({
           canvasContext: ctx,
           viewport,
           transform: [dpr, 0, 0, dpr, 0, 0],
-          // Grifos e notas do ANOTADO são projetados pelas camadas próprias
-          // (SVG/HTML). Evita que o PDF.js desenhe as anotações nativas no
-          // canvas por baixo e depois a interface as desenhe novamente.
-          annotationMode: 0,
+          // Mantém aparências de anotações nativas (links, formulários e
+          // grifos PDF /Highlight). Grifos já persistidos recebem isNative=true
+          // e não são pintados novamente pelo SVG customizado.
+          annotationMode: 1,
         });
         const canvasPromise = renderTaskRef.current.promise;
 
@@ -548,8 +548,10 @@ export function PdfCanvasPage({
                       y={r.y}
                       width={r.width}
                       height={r.height}
-                      fill={ann.color}
-                      opacity={ann.opacity ?? 0.85}
+                      // O PDF.js já compõe grifos nativos /Highlight sobre
+                      // o canvas. O SVG mantém somente uma área clicável para seleção.
+                      fill={ann.isNative ? 'rgba(0,0,0,0.001)' : ann.color}
+                      opacity={ann.isNative ? 1 : (ann.opacity ?? 0.85)}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
