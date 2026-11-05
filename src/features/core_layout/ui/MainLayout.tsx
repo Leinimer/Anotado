@@ -1087,6 +1087,8 @@ export function MainLayout() {
         .replace(/\\/g, '\\\\')
         .replace(/\[/g, '\\[')
         .replace(/\]/g, '\\]')
+        .replace(/\(/g, '\\(')
+        .replace(/\)/g, '\\)')
         .replace(/[\r\n]+/g, ' ');
       const href = `#pdf-citation/${encodeURIComponent(attachmentId)}/${Number(highlight.pageIndex) || 0}/${encodeURIComponent(String(highlight.annotationId || ''))}/${Number(rect.x).toFixed(2)}/${Number(rect.y).toFixed(2)}/${Number(rect.width).toFixed(2)}/${Number(rect.height).toFixed(2)}`;
       return `> [${safeQuote}](${href})\n>\n> *Página ${(Number(highlight.pageIndex) || 0) + 1}*`;
@@ -1168,7 +1170,28 @@ export function MainLayout() {
           parentPdfId: attachmentId,
         });
 
-        summaryContentRef.current.set(created.id, initialContent);
+        let finalContent = initialContent;
+        const highlightsCreatedDuringSummary = pendingPdfHighlightsRef.current.get(attachmentId) || [];
+        pendingPdfHighlightsRef.current.delete(attachmentId);
+        if (highlightsCreatedDuringSummary.length > 0) {
+          const lateUnique = new Map<string, any>();
+          highlightsCreatedDuringSummary.forEach((item) => {
+            const key = String(item.annotationId || `${item.pageIndex}-${item.quoteText}`);
+            if (!lateUnique.has(key)) lateUnique.set(key, item);
+          });
+          const lateBlocks = Array.from(lateUnique.values())
+            .map((item) => createCitationMarkdown(attachmentId, item))
+            .filter(Boolean);
+          if (lateBlocks.length > 0) {
+            finalContent = finalContent.trim()
+              ? `${finalContent.trim()}\\n\\n${lateBlocks.join('\\n\\n')}`
+              : `# Citações\\n\\n${lateBlocks.join('\\n\\n')}`;
+            await updateNoteContent(userId, created.id, finalContent, created.tags || []);
+            created.content = finalContent;
+          }
+        }
+
+        summaryContentRef.current.set(created.id, finalContent);
         setNotes((prev) => prev.some((note) => note.id === created.id) ? prev : [...prev, created]);
         setIsSplit(false);
         setLeftNoteId(null);
