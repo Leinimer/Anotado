@@ -1097,7 +1097,10 @@ export function SidebarNavigation({
       if (openFolderIds.has(folder.id) || isFiltering) {
         folder.subfolders.forEach(traverseFolder);
         folder.notes.forEach((note) => items.push({ id: note.id, type: 'note' }));
-        (folder.pdfs || []).forEach((pdf) => items.push({ id: pdf.id, type: 'pdf' }));
+        (folder.pdfs || []).forEach((pdf) => {
+          items.push({ id: pdf.id, type: 'pdf' });
+          if (pdf.summaryNote) items.push({ id: pdf.summaryNote.id, type: 'note' });
+        });
       }
     };
     if (filteredFavoritesFolder) {
@@ -1105,7 +1108,10 @@ export function SidebarNavigation({
     }
     filteredFolders.forEach(traverseFolder);
     filteredNotes.forEach((note) => items.push({ id: note.id, type: 'note' }));
-    filteredPdfs.forEach((pdf) => items.push({ id: pdf.id, type: 'pdf' }));
+    filteredPdfs.forEach((pdf) => {
+      items.push({ id: pdf.id, type: 'pdf' });
+      if (pdf.summaryNote) items.push({ id: pdf.summaryNote.id, type: 'note' });
+    });
     if (filteredArchivedFolder) {
       traverseFolder(filteredArchivedFolder);
     }
