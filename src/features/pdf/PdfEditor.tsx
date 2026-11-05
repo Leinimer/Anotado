@@ -41,7 +41,7 @@ interface PdfEditorProps {
 }
 
 function getSupabasePdfObject(sourceUrl?: string): { bucketId: string; storagePath: string } | null {
-  if (!sourceUrl || !/^https?:\\/\\//i.test(sourceUrl)) return null;
+  if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) return null;
   try {
     const url = new URL(sourceUrl);
     const segments = url.pathname.split('/').filter(Boolean).map((segment) => {
