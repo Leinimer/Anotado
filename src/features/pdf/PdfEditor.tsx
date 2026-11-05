@@ -25,7 +25,7 @@ import {
 import { PdfEditorToolbar } from './PdfEditorToolbar';
 import { PdfThumbnailSidebar } from './PdfThumbnailSidebar';
 import { PdfCanvasPage } from './PdfCanvasPage';
-import { exportPdfWithAnnotations } from './pdf-exporter';
+import { createPdfPreviewWithoutAnotadoAnnotations, exportPdfWithAnnotations } from './pdf-exporter';
 import { replaceNoteAttachment } from '../notes/api/storage-api';
 import { indexedDBStorage, LocalAttachment } from '../notes/db/indexed-db';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
@@ -198,6 +198,96 @@ function pdfAnnotationColorToHex(color: any, fallback: string): string {
   const channels = Array.from(color as ArrayLike<number>).slice(0, 3);
   if (channels.some((channel) => !Number.isFinite(channel))) return fallback;
   return `#${channels.map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
+ * Range.getClientRects() frequentemente devolve um retângulo por fragmento
+ * tipográfico (por exemplo, palavras em spans diferentes). Junta fragmentos
+ * da mesma linha em segmentos contínuos, preservando linhas separadas.
+ */
+function mergeSelectionRectsByLine(
+  input: Array<{ x: number; y: number; width: number; height: number }>
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const valid = input
+    .filter((rect) =>
+      Number.isFinite(rect.x) &&
+      Number.isFinite(rect.y) &&
+      Number.isFinite(rect.width) &&
+      Number.isFinite(rect.height) &&
+      rect.width > 0 &&
+      rect.height > 0
+    )
+    .sort((a, b) => (a.y + a.height / 2) - (b.y + b.height / 2) || a.x - b.x);
+
+  const lines: Array<{
+    top: number;
+    bottom: number;
+    rects: Array<{ x: number; y: number; width: number; height: number }>;
+  }> = [];
+
+  for (const rect of valid) {
+    const rectCenter = rect.y + rect.height / 2;
+    let matchingLine: typeof lines[number] | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const line of lines) {
+      const lineHeight = line.bottom - line.top;
+      const overlap = Math.max(0, Math.min(rect.y + rect.height, line.bottom) - Math.max(rect.y, line.top));
+      const minHeight = Math.min(rect.height, lineHeight);
+      const centerDistance = Math.abs(rectCenter - (line.top + line.bottom) / 2);
+      const sameVisualLine =
+        overlap >= minHeight * 0.45 ||
+        centerDistance <= Math.max(rect.height, lineHeight) * 0.32;
+
+      if (sameVisualLine && centerDistance < bestDistance) {
+        matchingLine = line;
+        bestDistance = centerDistance;
+      }
+    }
+
+    if (matchingLine) {
+      matchingLine.rects.push(rect);
+      matchingLine.top = Math.min(matchingLine.top, rect.y);
+      matchingLine.bottom = Math.max(matchingLine.bottom, rect.y + rect.height);
+    } else {
+      lines.push({
+        top: rect.y,
+        bottom: rect.y + rect.height,
+        rects: [rect],
+      });
+    }
+  }
+
+  const merged: Array<{ x: number; y: number; width: number; height: number }> = [];
+  for (const line of lines) {
+    const ordered = [...line.rects].sort((a, b) => a.x - b.x);
+    let current = { ...ordered[0] };
+
+    for (let index = 1; index < ordered.length; index += 1) {
+      const next = ordered[index];
+      const gap = next.x - (current.x + current.width);
+      const mergeGap = Math.max(2, Math.min(current.height, next.height) * 0.35);
+
+      if (gap <= mergeGap) {
+        const right = Math.max(current.x + current.width, next.x + next.width);
+        const top = Math.min(current.y, next.y);
+        const bottom = Math.max(current.y + current.height, next.y + next.height);
+        current = {
+          x: Math.min(current.x, next.x),
+          y: top,
+          width: right - Math.min(current.x, next.x),
+          height: bottom - top,
+        };
+      } else {
+        merged.push(current);
+        current = { ...next };
+      }
+    }
+
+    merged.push(current);
+  }
+
+  return merged.sort((a, b) => a.y - b.y || a.x - b.x);
 }
 
 /**
@@ -726,6 +816,25 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         // O PDF é a fonte persistente; o IndexedDB guarda apenas o rascunho ainda não salvo.
         const persistedPdfAnnotations = await readAnotadoPdfAnnotations(doc);
 
+        // O PDF original contém grifos nativos ANOTADO e o editor também os
+        // desenha como SVG. Se o PDF.js pintar ambos, a exclusão remove apenas
+        // o SVG e deixa o grifo antigo no canvas. A visualização usa uma cópia
+        // sem os objetos ANOTADO; os bytes originais continuam intactos para salvar.
+        const previewBytes = await createPdfPreviewWithoutAnotadoAnnotations(arrayBuffer);
+        const previewLoadingTask = pdfjsLib.getDocument({
+          data: new Uint8Array(previewBytes),
+          cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/cmaps/`,
+          cMapPacked: true,
+        });
+        const previewDoc = await previewLoadingTask.promise;
+        if (isCancelled) {
+          await previewDoc.destroy();
+          await doc.destroy();
+          return;
+        }
+        await doc.destroy();
+        const displayDoc = previewDoc;
+
         // Recupera o rascunho local de anotações para que alternar entre abas
         // internas não descarte alterações ainda não salvas no PDF.
         const draft = await indexedDBStorage.getMetadata<{
@@ -782,7 +891,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         }
 
         const safePageIndex = recoveredView?.version === 1 && Number.isFinite(recoveredView.pageIndex)
-          ? Math.max(0, Math.min(Math.trunc(recoveredView.pageIndex), doc.numPages - 1))
+          ? Math.max(0, Math.min(Math.trunc(recoveredView.pageIndex), displayDoc.numPages - 1))
           : 0;
 
         if (isCancelled) return;
@@ -791,8 +900,8 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         isDraftHydratedRef.current = true;
         setIsDraftHydrated(true);
         setIsViewStateHydrated(true);
-        setPdfDoc(doc);
-        setNumPages(doc.numPages);
+        setPdfDoc(displayDoc);
+        setNumPages(displayDoc.numPages);
         setIsLoading(false);
       } catch (err: any) {
         console.error('[PdfEditor] Erro ao carregar PDF:', err);
@@ -1090,7 +1199,11 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
       const now = new Date().toISOString();
       const created: PdfAnnotation[] = [];
-      groupedRects.forEach((rects, pageIndex) => {
+      groupedRects.forEach((rawRects, pageIndex) => {
+        // Um único objeto de anotação por seleção e página. Fragmentos de spans
+        // adjacentes na mesma linha são unidos antes da gravação do PDF.
+        const rects = mergeSelectionRectsByLine(rawRects);
+        if (rects.length === 0) return;
         const id = `text-mark-${Date.now()}-${pageIndex}-${Math.random().toString(36).slice(2, 7)}`;
         if (modeToApply === 'highlight') {
           created.push({
