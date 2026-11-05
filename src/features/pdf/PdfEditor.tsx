@@ -109,6 +109,91 @@ function waitForRemotePdfReplacement(
   };
 }
 
+function pdfAnnotationColorToHex(color: any, fallback: string): string {
+  if (!color || typeof color.length !== 'number' || color.length < 3) return fallback;
+  const channels = Array.from(color as ArrayLike<number>).slice(0, 3);
+  if (channels.some((channel) => !Number.isFinite(channel))) return fallback;
+  return `#${channels.map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
+ * Recupera as anotações nativas gravadas pelo ANOTADO no próprio PDF.
+ * Só importa anotações cujo autor é "ANOTADO", preservando as demais anotações
+ * existentes no documento e evitando confundir comentários de outros leitores.
+ */
+async function readAnotadoPdfAnnotations(pdfDoc: any): Promise<PdfAnnotation[]> {
+  const restored: PdfAnnotation[] = [];
+
+  for (let pageIndex = 0; pageIndex < pdfDoc.numPages; pageIndex += 1) {
+    const page = await pdfDoc.getPage(pageIndex + 1);
+    const view = page.view as number[];
+    const viewLeft = Number(view?.[0] ?? 0);
+    const viewBottom = Number(view?.[1] ?? 0);
+    const viewTop = Number(view?.[3] ?? page.getViewport({ scale: 1 }).height);
+    const pageHeight = viewTop - viewBottom;
+    const pdfAnnotations = await page.getAnnotations({ intent: 'display' });
+
+    for (const item of pdfAnnotations) {
+      const author = item.titleObj?.str || item.titleObj?.text || '';
+      if (author !== 'ANOTADO') continue;
+
+      const now = item.modificationDate || new Date().toISOString();
+      const id = `pdf-native-${pageIndex}-${item.id || restored.length}`;
+
+      if (item.subtype === 'Highlight' && item.quadPoints && item.quadPoints.length >= 8) {
+        const values = Array.from(item.quadPoints as ArrayLike<number>);
+        const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+
+        for (let offset = 0; offset + 7 < values.length; offset += 8) {
+          const xs = [values[offset], values[offset + 2], values[offset + 4], values[offset + 6]];
+          const ys = [values[offset + 1], values[offset + 3], values[offset + 5], values[offset + 7]];
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+          if (maxX <= minX || maxY <= minY) continue;
+
+          rects.push({
+            x: minX - viewLeft,
+            y: viewTop - maxY,
+            width: maxX - minX,
+            height: maxY - minY,
+          });
+        }
+
+        if (rects.length > 0) {
+          restored.push({
+            id,
+            pageIndex,
+            type: 'highlight',
+            rects,
+            color: pdfAnnotationColorToHex(item.color, '#ffeb3b'),
+            opacity: Number.isFinite(item.opacity) ? item.opacity : 0.48,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      } else if (item.subtype === 'Text' && Array.isArray(item.rect) && item.rect.length >= 4) {
+        const rect = item.rect as number[];
+        const text = item.contentsObj?.str ?? item.contents ?? '';
+        restored.push({
+          id,
+          pageIndex,
+          type: 'sticky_note',
+          x: rect[0] - viewLeft,
+          y: viewTop - rect[3],
+          text: String(text),
+          color: pdfAnnotationColorToHex(item.color, '#fef08a'),
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+  }
+
+  return restored;
+}
+
 export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false, onClose }: PdfEditorProps) {
   // Loading state
   const [isLoading, setIsLoading] = useState(true);
@@ -551,6 +636,10 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         const doc = await loadingTask.promise;
         if (isCancelled) return;
 
+        // Recupera grifos e comentários nativos gravados dentro do próprio PDF.
+        // O PDF é a fonte persistente; o IndexedDB guarda apenas o rascunho ainda não salvo.
+        const persistedPdfAnnotations = await readAnotadoPdfAnnotations(doc);
+
         // Recupera o rascunho local de anotações para que alternar entre abas
         // internas não descarte alterações ainda não salvas no PDF.
         const draft = await indexedDBStorage.getMetadata<{
@@ -570,21 +659,24 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
           }>('anonymous', `pdf-editor-draft:${attachmentId}`);
         }
 
-        if (
-          !isCancelled &&
-          !isReadOnly &&
-          recoveredDraft?.version === 1 &&
-          recoveredDraft.dirty === true &&
-          Array.isArray(recoveredDraft.annotations)
-        ) {
-          const recovered = recoveredDraft.annotations;
-          annotationsRef.current = recovered;
-          hasUnsavedChangesRef.current = true;
-          setAnnotations(recovered);
-          setHistory([[], recovered]);
-          setHistoryIndex(1);
-          setHasUnsavedChanges(true);
-          setSaveStatus('unsaved');
+        if (!isCancelled) {
+          const hasDraft =
+            !isReadOnly &&
+            recoveredDraft?.version === 1 &&
+            recoveredDraft.dirty === true &&
+            Array.isArray(recoveredDraft.annotations);
+
+          const initialAnnotations = hasDraft
+            ? recoveredDraft!.annotations
+            : persistedPdfAnnotations;
+
+          annotationsRef.current = initialAnnotations;
+          hasUnsavedChangesRef.current = Boolean(hasDraft);
+          setAnnotations(initialAnnotations);
+          setHistory(hasDraft ? [persistedPdfAnnotations, initialAnnotations] : [initialAnnotations]);
+          setHistoryIndex(hasDraft ? 1 : 0);
+          setHasUnsavedChanges(Boolean(hasDraft));
+          setSaveStatus(hasDraft ? 'unsaved' : (persistedPdfAnnotations.length > 0 ? 'synced' : 'idle'));
         }
 
         // Recupera a última página visualizada deste mesmo anexo.
