@@ -915,7 +915,7 @@ export function PdfCanvasPage({
                     height={r.height}
                     fill="none"
                     stroke={isSelected ? '#2563eb' : '#b39b86'}
-                    strokeWidth={1 / Math.max(0.1, scaleX * zoom)}
+                    strokeWidth={1 / Math.max(0.1, (pageDimensions?.scaleX || 1.333333) * zoom)}
                     vectorEffect="non-scaling-stroke"
                     pointerEvents="stroke"
                     className="cursor-pointer"
