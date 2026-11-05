@@ -1078,7 +1078,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
     const pageIndex = Math.max(0, Math.min(numPages - 1, Math.trunc(Number(target.pageIndex) || 0)));
     const targetRect = target.rect;
-    const targetAnnotation = target.annotationId === 'crop' ? null : annotations.find((item) => {
+    const targetAnnotation = String(target.annotationId || '').startsWith('crop_') ? null : annotations.find((item) => {
       if (item.type !== 'highlight' || item.pageIndex !== pageIndex) return false;
       if (target.annotationId && item.id === target.annotationId) return true;
       if (!targetRect) return false;
