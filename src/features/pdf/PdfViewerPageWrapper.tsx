@@ -84,6 +84,7 @@ export function PdfViewerPageWrapper({ attachmentId, sourceUrl, hasSummary = fal
       sourceUrl={sourceUrl}
       userId={userId}
       isReadOnly={isReadOnly}
+      hasSummary={hasSummary}
       onClose={onClose}
     />
   );
