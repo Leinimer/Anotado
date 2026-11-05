@@ -1427,6 +1427,12 @@ export function MainLayout() {
 
   const handleUpdateContent = useCallback(
     async (noteId: string, newContent: string) => {
+      // Mantém a referência serializada do resumo sincronizada com edições manuais
+      // para que a chegada de um novo grifo nunca sobrescreva texto do usuário.
+      if (notes.some((note) => note.id === noteId && note.parent_pdf_id)) {
+        summaryContentRef.current.set(noteId, newContent);
+      }
+
       // 1. Atualização Otimista Imediata na Memória da UI
       setNotes((prev) =>
         prev.map((n) =>
