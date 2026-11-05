@@ -42,7 +42,7 @@ interface PdfCanvasPageProps {
   onAddAnnotation: (ann: PdfAnnotation) => void;
   onUpdateAnnotation: (ann: PdfAnnotation) => void;
   onDeleteAnnotation: (id: string) => void;
-  onCropComplete?: (crop: { pageIndex: number; image: Blob; rect: { x: number; y: number; width: number; height: number } }) => void;
+  onCropComplete?: (crop: { cropId: string; pageIndex: number; image: Blob; rect: { x: number; y: number; width: number; height: number } }) => void;
   isReadOnly?: boolean;
 }
 
@@ -377,7 +377,7 @@ export function PdfCanvasPage({
     event: React.PointerEvent<HTMLElement | SVGElement>,
     annotation: PdfAnnotation
   ) => {
-    if (isReadOnly || mode !== 'select' || event.button !== 0 || annotation.type === 'sticky_note') return;
+    if (isReadOnly || mode !== 'select' || event.button !== 0 || annotation.type === 'sticky_note' || annotation.type === 'crop') return;
     if (annotationDragRef.current) return;
 
     event.stopPropagation();
@@ -632,14 +632,27 @@ export function PdfCanvasPage({
           const context = croppedCanvas.getContext('2d');
           if (context) {
             context.drawImage(pageCanvas, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
+            const cropId = `crop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             croppedCanvas.toBlob((image) => {
-              if (image) {
-                onCropComplete({
-                  pageIndex,
-                  image,
-                  rect: { x: minX, y: minY, width, height },
-                });
-              }
+              if (!image) return;
+              const rect = { x: minX, y: minY, width, height };
+              const now = new Date().toISOString();
+              onAddAnnotation({
+                id: cropId,
+                type: 'crop',
+                pageIndex,
+                rect,
+                createdAt: now,
+                updatedAt: now,
+              });
+              onSelectAnnotation(cropId);
+              onCropComplete({
+                cropId,
+                pageIndex,
+                image,
+                rect,
+              });
+              onSetMode?.('select');
             }, 'image/png');
           }
         }
@@ -728,6 +741,9 @@ export function PdfCanvasPage({
     } else if (annotation.type === 'shape') {
       maxX = Math.max(annotation.x, annotation.x + annotation.width);
       minY = Math.min(annotation.y, annotation.y + annotation.height);
+    } else if (annotation.type === 'crop') {
+      maxX = annotation.rect.x + annotation.rect.width;
+      minY = annotation.rect.y;
     } else {
       return null;
     }
@@ -875,6 +891,51 @@ export function PdfCanvasPage({
               const dragTransform = dragOffset
                 ? `translate(${dragOffset.deltaX} ${dragOffset.deltaY})`
                 : undefined;
+
+            if (ann.type === 'crop') {
+              const r = ann.rect;
+              return (
+                <g
+                  key={ann.id}
+                  data-pdf-annotation="true"
+                  data-pdf-annotation-id={ann.id}
+                  data-pdf-annotation-type="crop"
+                  className="pointer-events-auto"
+                  onClick={(event) => {
+                    if (mode === 'hand') return;
+                    event.stopPropagation();
+                    if (mode === 'eraser') onDeleteAnnotation(ann.id);
+                    else onSelectAnnotation(ann.id);
+                  }}
+                >
+                  <rect
+                    x={r.x}
+                    y={r.y}
+                    width={r.width}
+                    height={r.height}
+                    fill="none"
+                    stroke={isSelected ? '#2563eb' : '#b39b86'}
+                    strokeWidth={1 / Math.max(0.1, scaleX * zoom)}
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="stroke"
+                    className="cursor-pointer"
+                  />
+                  {isSelected && (
+                    <rect
+                      x={r.x}
+                      y={r.y}
+                      width={r.width}
+                      height={r.height}
+                      fill="none"
+                      stroke="#2563eb"
+                      strokeWidth={3 / Math.max(0.1, scaleX * zoom)}
+                      strokeOpacity={0.2}
+                      pointerEvents="none"
+                    />
+                  )}
+                </g>
+              );
+            }
 
             if (ann.type === 'drawing') {
               if (!ann.points || ann.points.length < 2) return null;
