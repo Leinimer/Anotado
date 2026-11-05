@@ -1411,8 +1411,8 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       if (groupedRects.size === 0) return false;
 
       const now = new Date().toISOString();
-      const selectedQuote = modeToApply === 'highlight'
-        ? range.toString().replace(/\\s+/g, ' ').trim()
+      const selectedQuote = modeToApply === 'highlight' && groupedRects.size === 1
+        ? range.toString().replace(/\s+/g, ' ').trim()
         : '';
       let quoteAssigned = false;
       const created: PdfAnnotation[] = [];
