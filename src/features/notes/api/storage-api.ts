@@ -1240,31 +1240,38 @@ export async function attachPdfToNote(
       const currentContent = existingNote.content || '';
       const updatedContent = currentContent ? `${currentContent}\n${attachmentHtml}` : attachmentHtml;
       const now = new Date().toISOString();
+      const baseUpdatedAt = existingNote.updated_at;
+      const revision = (existingNote.revision || 0) + 1;
       const updatedNote = {
         ...existingNote,
         content: updatedContent,
+        revision,
+        syncRequired: true,
+        syncStatus: 'pending' as const,
         updated_at: now,
       };
       await indexedDBStorage.putNote(userId, updatedNote);
+
+      // Usa a ação oficial do SyncEngine para preparar e persistir o conteúdo.
+      // Ela aguarda o UPLOAD_ATTACHMENT terminar antes de gravar o Markdown,
+      // garantindo que o data-src do card seja resolvido para a URL remota.
       await indexedDBStorage.enqueueSyncItem(userId, {
-        action: 'UPDATE',
-        entity_type: 'notes',
+        action: 'UPDATE_NOTE_CONTENT',
+        entity_type: 'note',
         entity_id: noteId,
+        revision,
         payload: {
+          noteId,
           content: updatedContent,
-          updated_at: now,
+          tags: updatedNote.tags || [],
+          baseUpdatedAt,
+          revision,
         },
       });
 
-      const supabase = createClient();
-      if (isSupabaseConfigured() && supabase) {
-        supabase
-          .from('notes')
-          .update({ content: updatedContent, updated_at: now })
-          .eq('id', noteId)
-          .then(() => {})
-          .catch((err) => console.warn('[attachPdfToNote] Falha no sync direto da nota:', err));
-      }
+      import('./sync-engine')
+        .then(({ syncEngine }) => syncEngine.scheduleSync(100))
+        .catch((err) => console.warn('[attachPdfToNote] Falha ao agendar sincronização da nota:', err));
     }
   } catch (err) {
     console.error('[attachPdfToNote] Erro ao injetar nó de anexo na nota:', err);
