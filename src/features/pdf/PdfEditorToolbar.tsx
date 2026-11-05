@@ -5,6 +5,7 @@ import {
   MousePointer,
   Hand,
   Highlighter,
+  Crop,
   Underline,
   Strikethrough,
   Pencil,
@@ -133,7 +134,7 @@ export function PdfEditorToolbar({
   };
 
   return (
-    <footer data-pdf-editor-toolbar="true" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[96vw]">
+    <footer data-pdf-editor-toolbar="true" className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[96vw]">
       <div className="bg-[#fbf9f4]/95 dark:bg-[#252422]/95 border border-[#e4e2dd] dark:border-[#383633] backdrop-blur-md rounded-2xl shadow-xl px-2.5 py-1.5 flex flex-wrap items-center justify-center gap-1 overflow-visible text-[#1b1c19] dark:text-[#ededed] select-none">
         {/* Ferramenta Selecionar */}
         <button
@@ -264,6 +265,24 @@ export function PdfEditorToolbar({
             </button>
 
             <div className="h-4 w-[1px] bg-[#e4e2dd] dark:bg-[#383633] mx-0.5" />
+
+            {/* Recortar área do PDF para inserir na nota-resumo */}
+            <button
+              type="button"
+              onClick={() => {
+                closeAllMenus();
+                onSetMode('crop');
+              }}
+              className={`p-1.5 rounded-xl transition-colors cursor-pointer flex items-center justify-center ${
+                currentMode === 'crop'
+                  ? 'bg-[#e8e4db] dark:bg-[#383633] text-[#68594d] dark:text-white font-medium shadow-2xs'
+                  : 'text-[#7f756e] dark:text-[#a89f97] hover:bg-[#efebe2] dark:hover:bg-[#2c2a28]'
+              }`}
+              title="Recortar área do PDF e enviar ao Resumo"
+              aria-label="Recortar área do PDF"
+            >
+              <Crop className="w-4 h-4" />
+            </button>
 
             {/* Caneta Desenho Livre (com menu de espessura e cores) */}
             <div className="relative">
