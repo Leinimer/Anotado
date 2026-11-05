@@ -13,7 +13,7 @@ import {
   TextAnnotation,
   StickyNoteAnnotation,
 } from './types';
-import { StickyNote, X, MessageSquare, Trash2 } from 'lucide-react';
+import { StickyNote, X, MessageSquare, Trash2, Move } from 'lucide-react';
 
 function multiplyPdfTransforms(a: number[], b: number[]) {
   return [
@@ -126,6 +126,20 @@ export function PdfCanvasPage({
   } | null>(null);
   const suppressStickyClickRef = useRef(false);
 
+  const [annotationDragPreview, setAnnotationDragPreview] = useState<{
+    id: string;
+    deltaX: number;
+    deltaY: number;
+  } | null>(null);
+  const annotationDragRef = useRef<{
+    id: string;
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    deltaX: number;
+    deltaY: number;
+  } | null>(null);
+
   // A ferramenta Mão nunca abre, seleciona ou arrasta objetos; ela navega a viewport.
   useEffect(() => {
     if (mode !== 'hand') return;
@@ -133,6 +147,8 @@ export function PdfCanvasPage({
     setHoveredStickyNoteId(null);
     setStickyDragPreview(null);
     stickyDragRef.current = null;
+    setAnnotationDragPreview(null);
+    annotationDragRef.current = null;
   }, [mode]);
 
   // Renderiza somente as páginas próximas à viewport e cria uma camada de
@@ -353,6 +369,101 @@ export function PdfCanvasPage({
     },
     [zoom, pageDimensions]
   );
+
+  // Selecionar permite arrastar cada objeto sem deslocar a página.
+  const handleAnnotationPointerDown = (
+    event: React.PointerEvent<HTMLElement | SVGElement>,
+    annotation: PdfAnnotation
+  ) => {
+    if (isReadOnly || mode !== 'select' || event.button !== 0 || annotation.type === 'sticky_note') return;
+    if (annotationDragRef.current) return;
+
+    event.stopPropagation();
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    annotationDragRef.current = {
+      id: annotation.id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      deltaX: 0,
+      deltaY: 0,
+    };
+    onSelectAnnotation(annotation.id);
+  };
+
+  const handleAnnotationPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = annotationDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || mode !== 'select') return;
+
+    const scaleX = (pageDimensions?.scaleX || 1.333333) * zoom;
+    const scaleY = (pageDimensions?.scaleY || 1.333333) * zoom;
+    drag.deltaX = (event.clientX - drag.startClientX) / scaleX;
+    drag.deltaY = (event.clientY - drag.startClientY) / scaleY;
+    setAnnotationDragPreview({
+      id: drag.id,
+      deltaX: drag.deltaX,
+      deltaY: drag.deltaY,
+    });
+  };
+
+  const handleAnnotationPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = annotationDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const dx = drag.deltaX;
+    const dy = drag.deltaY;
+    const moved = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+    const annotation = pageAnnotations.find((item) => item.id === drag.id);
+
+    if (moved && annotation) {
+      let updated: PdfAnnotation = annotation;
+      if (
+        annotation.type === 'highlight' ||
+        annotation.type === 'underline' ||
+        annotation.type === 'strikethrough'
+      ) {
+        updated = {
+          ...annotation,
+          rects: annotation.rects.map((rect) => ({
+            ...rect,
+            x: rect.x + dx,
+            y: rect.y + dy,
+          })),
+          updatedAt: new Date().toISOString(),
+        };
+      } else if (annotation.type === 'drawing') {
+        updated = {
+          ...annotation,
+          points: annotation.points.map((point) => ({
+            x: point.x + dx,
+            y: point.y + dy,
+          })),
+          updatedAt: new Date().toISOString(),
+        };
+      } else if (annotation.type === 'text' || annotation.type === 'shape') {
+        updated = {
+          ...annotation,
+          x: annotation.x + dx,
+          y: annotation.y + dy,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      onUpdateAnnotation(updated);
+    }
+
+    annotationDragRef.current = null;
+    setAnnotationDragPreview(null);
+
+    const captureTarget = event.target as Element & {
+      hasPointerCapture?: (pointerId: number) => boolean;
+      releasePointerCapture?: (pointerId: number) => void;
+    };
+    if (captureTarget.hasPointerCapture?.(event.pointerId)) {
+      captureTarget.releasePointerCapture?.(event.pointerId);
+    }
+  };
 
   // Mouse handlers for annotations
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -589,6 +700,9 @@ export function PdfCanvasPage({
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
+      onPointerMove={handleAnnotationPointerMove}
+      onPointerUp={handleAnnotationPointerUp}
+      onPointerCancel={handleAnnotationPointerUp}
     >
       {/* Canvas da página do PDF */}
       <canvas ref={canvasRef} className="absolute inset-0 block pointer-events-none" />
@@ -614,8 +728,15 @@ export function PdfCanvasPage({
             .filter((a) => a.type === 'highlight')
             .map((ann) => {
               const isSelected = ann.id === selectedAnnotationId;
+              const dragOffset = annotationDragPreview?.id === ann.id ? annotationDragPreview : null;
               return (
-                <g key={ann.id} data-pdf-annotation="true" className="pointer-events-auto">
+                <g
+                  key={ann.id}
+                  data-pdf-annotation="true"
+                  className="pointer-events-auto"
+                  transform={dragOffset ? `translate(${dragOffset.deltaX} ${dragOffset.deltaY})` : undefined}
+                  onPointerDown={(event) => handleAnnotationPointerDown(event, ann)}
+                >
                   {ann.rects.map((r, i) => (
                     <rect
                       key={i}
@@ -680,6 +801,10 @@ export function PdfCanvasPage({
             .filter((a) => a.type !== 'highlight')
             .map((ann) => {
               const isSelected = ann.id === selectedAnnotationId;
+              const dragOffset = annotationDragPreview?.id === ann.id ? annotationDragPreview : null;
+              const dragTransform = dragOffset
+                ? `translate(${dragOffset.deltaX} ${dragOffset.deltaY})`
+                : undefined;
 
             if (ann.type === 'drawing') {
               if (!ann.points || ann.points.length < 2) return null;
@@ -687,7 +812,13 @@ export function PdfCanvasPage({
                 return i === 0 ? `M ${pt.x} ${pt.y}` : `${acc} L ${pt.x} ${pt.y}`;
               }, '');
               return (
-                <g key={ann.id} data-pdf-annotation="true" className="pointer-events-auto">
+                <g
+                  key={ann.id}
+                  data-pdf-annotation="true"
+                  className="pointer-events-auto"
+                  transform={dragTransform}
+                  onPointerDown={(event) => handleAnnotationPointerDown(event, ann)}
+                >
                   <path
                     d={pathData}
                     fill="none"
@@ -725,7 +856,13 @@ export function PdfCanvasPage({
 
             if (ann.type === 'underline') {
               return (
-                <g key={ann.id} data-pdf-annotation="true" className="pointer-events-auto">
+                <g
+                  key={ann.id}
+                  data-pdf-annotation="true"
+                  className="pointer-events-auto"
+                  transform={dragTransform}
+                  onPointerDown={(event) => handleAnnotationPointerDown(event, ann)}
+                >
                   {ann.rects.map((r, i) => (
                     <line
                       key={i}
@@ -750,7 +887,13 @@ export function PdfCanvasPage({
 
             if (ann.type === 'strikethrough') {
               return (
-                <g key={ann.id} data-pdf-annotation="true" className="pointer-events-auto">
+                <g
+                  key={ann.id}
+                  data-pdf-annotation="true"
+                  className="pointer-events-auto"
+                  transform={dragTransform}
+                  onPointerDown={(event) => handleAnnotationPointerDown(event, ann)}
+                >
                   {ann.rects.map((r, i) => (
                     <line
                       key={i}
@@ -776,7 +919,13 @@ export function PdfCanvasPage({
             if (ann.type === 'shape') {
               const isLineOrArrow = ann.shapeType === 'line' || ann.shapeType === 'arrow';
               return (
-                <g key={ann.id} data-pdf-annotation="true" className="pointer-events-auto">
+                <g
+                  key={ann.id}
+                  data-pdf-annotation="true"
+                  className="pointer-events-auto"
+                  transform={dragTransform}
+                  onPointerDown={(event) => handleAnnotationPointerDown(event, ann)}
+                >
                   {ann.shapeType === 'rectangle' && (
                     <rect
                       x={ann.x}
@@ -982,14 +1131,14 @@ export function PdfCanvasPage({
                   data-pdf-text-editor="true"
                   style={{
                     position: 'absolute',
-                    left: `${ann.x * scaleX * zoom}px`,
-                    top: `${ann.y * scaleY * zoom}px`,
+                    left: `${(ann.x + (annotationDragPreview?.id === ann.id ? annotationDragPreview.deltaX : 0)) * scaleX * zoom}px`,
+                    top: `${(ann.y + (annotationDragPreview?.id === ann.id ? annotationDragPreview.deltaY : 0)) * scaleY * zoom}px`,
                     width: ann.width ? `${ann.width * scaleX * zoom}px` : `${160 * scaleX * zoom}px`,
                     minHeight: ann.height ? `${ann.height * scaleY * zoom}px` : `${36 * scaleY * zoom}px`,
                     fontSize: `${(ann.fontSize || 14) * scaleX * zoom}px`,
                     color: ann.color,
                   }}
-                  className={`pointer-events-auto group ${
+                  className={`pointer-events-auto group relative ${
                     isSelected
                       ? 'ring-2 ring-[#2563eb] rounded-md p-1 bg-white/95 dark:bg-[#1a1918]/95 shadow-lg'
                       : 'p-1 hover:ring-1 hover:ring-black/20 dark:hover:ring-white/20 rounded-md'
@@ -1002,6 +1151,19 @@ export function PdfCanvasPage({
                     else onSelectAnnotation(ann.id);
                   }}
                 >
+                  {isSelected && !isReadOnly && (
+                    <button
+                      type="button"
+                      data-pdf-annotation="true"
+                      title="Arrastar caixa de texto"
+                      aria-label="Mover caixa de texto"
+                      onPointerDown={(event) => handleAnnotationPointerDown(event, ann)}
+                      onClick={(event) => event.stopPropagation()}
+                      className="absolute -top-3 -right-3 z-50 p-1 rounded-md bg-white dark:bg-[#252422] text-[#68594d] shadow-md border border-[#e4e2dd] dark:border-[#383633] cursor-grab active:cursor-grabbing hover:bg-[#efebe2]"
+                    >
+                      <Move className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <textarea
                     data-pdf-annotation="true"
                     data-pdf-annotation-type="text"
