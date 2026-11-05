@@ -38,6 +38,7 @@ interface PdfEditorProps {
   userId: string;
   sourceUrl?: string;
   isReadOnly?: boolean;
+  hasSummary?: boolean;
   onClose?: () => void;
 }
 
@@ -344,6 +345,10 @@ async function readAnotadoPdfAnnotations(pdfDoc: any): Promise<PdfAnnotation[]> 
             rects,
             color: pdfAnnotationColorToHex(item.color, '#ffe600'),
             opacity: Number.isFinite(item.opacity) ? Math.max(Number(item.opacity), 0.58) : 0.58,
+            quoteText: (() => {
+              const savedText = String(item.contentsObj?.str ?? item.contents ?? '').trim();
+              return savedText && savedText !== 'Marca-texto' ? savedText : undefined;
+            })(),
             isNative: true,
             createdAt: now,
             updatedAt: now,
@@ -371,7 +376,78 @@ async function readAnotadoPdfAnnotations(pdfDoc: any): Promise<PdfAnnotation[]> 
   return restored;
 }
 
-export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false, onClose }: PdfEditorProps) {
+function multiplyPdfTransforms(a: number[], b: number[]) {
+  return [
+    a[0] * b[0] + a[2] * b[1],
+    a[1] * b[0] + a[3] * b[1],
+    a[0] * b[2] + a[2] * b[3],
+    a[1] * b[2] + a[3] * b[3],
+    a[0] * b[4] + a[2] * b[5] + a[4],
+    a[1] * b[4] + a[3] * b[5] + a[5],
+  ];
+}
+
+/** Recupera o texto que está geometricamente coberto por uma marcação antiga. */
+async function extractQuoteTextForHighlight(pdfDoc: any, highlight: Extract<PdfAnnotation, { type: 'highlight' }>): Promise<string> {
+  try {
+    const page = await pdfDoc.getPage(highlight.pageIndex + 1);
+    const viewport = page.getViewport({ scale: 1 });
+    const view = page.view as number[];
+    const pdfWidth = Math.abs(Number(view?.[2] ?? viewport.width) - Number(view?.[0] ?? 0)) || viewport.width;
+    const pdfHeight = Math.abs(Number(view?.[3] ?? viewport.height) - Number(view?.[1] ?? 0)) || viewport.height;
+    const scaleX = viewport.width / pdfWidth || 1;
+    const scaleY = viewport.height / pdfHeight || 1;
+    const textContent = await page.getTextContent();
+    const styles = textContent.styles || {};
+
+    const matches = (textContent.items as any[])
+      .filter((item) => typeof item?.str === 'string' && item.str.trim())
+      .map((item, index) => {
+        const tx = multiplyPdfTransforms(viewport.transform, item.transform);
+        const fontHeight = Math.hypot(tx[2], tx[3]);
+        const style = styles[item.fontName] || {};
+        const ascent = typeof style.ascent === 'number' ? style.ascent : 0.8;
+        return {
+          text: item.str as string,
+          index,
+          x: tx[4] / scaleX,
+          y: (tx[5] - fontHeight * ascent) / scaleY,
+          width: Math.max(0, Number(item.width || 0) / scaleX),
+          height: Math.max(1, fontHeight / scaleY),
+        };
+      })
+      .filter((item) => highlight.rects.some((rect) => {
+        const left = Math.max(item.x, rect.x);
+        const top = Math.max(item.y, rect.y);
+        const right = Math.min(item.x + item.width, rect.x + rect.width);
+        const bottom = Math.min(item.y + item.height, rect.y + rect.height);
+        return right > left + Math.min(1, item.width * 0.12) &&
+          bottom > top + Math.min(1, item.height * 0.15);
+      }))
+      .sort((a, b) => Math.abs(a.y - b.y) > Math.max(a.height, b.height) * 0.45
+        ? a.y - b.y
+        : a.x - b.x || a.index - b.index);
+
+    if (matches.length === 0) return '';
+    let output = '';
+    let previous: (typeof matches)[number] | null = null;
+    for (const item of matches) {
+      if (previous) {
+        const sameLine = Math.abs(item.y - previous.y) <= Math.max(item.height, previous.height) * 0.55;
+        if (!sameLine) output += '\\n';
+        else if (output && !/\\s$/.test(output) && !/^\\s/.test(item.text)) output += ' ';
+      }
+      output += item.text;
+      previous = item;
+    }
+    return output.replace(/[ \\t]+/g, ' ').replace(/ *\\n */g, '\\n').trim();
+  } catch (error) {
+    console.warn('[PdfEditor] Não foi possível recuperar o texto de um grifo antigo:', error);
+    return '';
+  }
+}
+
+export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false, hasSummary = false, onClose }: PdfEditorProps) {
   // Loading state
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1149,6 +1225,51 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     }
   };
 
+  const handleCreateSummary = async () => {
+    if (hasSummary) {
+      window.dispatchEvent(new CustomEvent('anotado:pdf-summary-request', {
+        detail: { attachmentId, fileName, highlights: [], openExisting: true },
+      }));
+      return;
+    }
+
+    const currentHighlights = annotationsRef.current.filter(
+      (item): item is Extract<PdfAnnotation, { type: 'highlight' }> => item.type === 'highlight'
+    );
+    const summaryHighlights: Array<{
+      annotationId: string;
+      pageIndex: number;
+      quoteText: string;
+      rects: Array<{ x: number; y: number; width: number; height: number }>;
+    }> = [];
+    const enriched = [...annotationsRef.current];
+    let changed = false;
+
+    for (const highlight of currentHighlights) {
+      const quoteText = highlight.quoteText?.trim() ||
+        (pdfDoc ? await extractQuoteTextForHighlight(pdfDoc, highlight) : '');
+      if (!quoteText) continue;
+      summaryHighlights.push({
+        annotationId: highlight.id,
+        pageIndex: highlight.pageIndex,
+        quoteText,
+        rects: highlight.rects,
+      });
+      if (quoteText !== highlight.quoteText) {
+        const index = enriched.findIndex((item) => item.id === highlight.id);
+        if (index >= 0 && enriched[index].type === 'highlight') {
+          enriched[index] = { ...enriched[index], quoteText, updatedAt: new Date().toISOString() };
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) pushHistory(enriched);
+    window.dispatchEvent(new CustomEvent('anotado:pdf-summary-request', {
+      detail: { attachmentId, fileName, highlights: summaryHighlights, openExisting: false },
+    }));
+  };
+
   // Aplica marcação sobre a seleção de texto na camada de texto do PDF.
   const applyTextAnnotationFromSelection = useCallback(
     (modeToApply: 'highlight' | 'underline' | 'strikethrough', explicitRange?: Range | null) => {
@@ -1220,6 +1341,10 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       if (groupedRects.size === 0) return false;
 
       const now = new Date().toISOString();
+      const selectedQuote = modeToApply === 'highlight'
+        ? range.toString().replace(/\\s+/g, ' ').trim()
+        : '';
+      let quoteAssigned = false;
       const created: PdfAnnotation[] = [];
       groupedRects.forEach((rawRects, pageIndex) => {
         // Um único objeto de anotação por seleção e página. Fragmentos de spans
@@ -1235,9 +1360,11 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
             rects,
             color: highlightColor,
             opacity: 0.58,
+            quoteText: !quoteAssigned ? selectedQuote : undefined,
             createdAt: now,
             updatedAt: now,
           });
+          if (selectedQuote) quoteAssigned = true;
         } else if (modeToApply === 'underline') {
           created.push({
             id,
@@ -1263,6 +1390,20 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
       if (created.length > 0) {
         pushHistory([...annotationsRef.current, ...created]);
+        const newHighlights = created
+          .filter((item) => item.type === 'highlight' && Boolean(item.quoteText?.trim()))
+          .map((item) => item.type === 'highlight' ? ({
+            annotationId: item.id,
+            pageIndex: item.pageIndex,
+            quoteText: item.quoteText || '',
+            rects: item.rects,
+          }) : null)
+          .filter(Boolean);
+        if (newHighlights.length > 0 && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('anotado:pdf-highlight-created', {
+            detail: { attachmentId, highlights: newHighlights },
+          }));
+        }
         selectedPdfTextRangeRef.current = null;
         document.getSelection()?.removeAllRanges();
         return true;
@@ -1868,6 +2009,8 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
             hasSelection={Boolean(selectedAnnotationId)}
             onDeleteSelected={handleDeleteSelected}
             isTextMarkSelected={isTextMarkSelected}
+            hasSummary={hasSummary}
+            onCreateSummary={handleCreateSummary}
             isReadOnly={isReadOnly || isSaving}
           />
         );
