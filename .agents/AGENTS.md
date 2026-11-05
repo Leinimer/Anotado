@@ -585,3 +585,13 @@ Referências oficiais usadas para definir o padrão:
 - GitHub Copilot — Custom instructions: https://docs.github.com/en/copilot/customizing-copilot/adding-repository-custom-instructions-for-github-copilot
 
 Ao iniciar uma tarefa, a IA deve ler este arquivo canônico antes de editar. Se a ferramenta só carregar GEMINI.md ou AGENTS.md automaticamente, deve seguir o arquivo-ponte e abrir .agents/AGENTS.md. Não manter versões divergentes do contexto: a documentação completa oficial do projeto fica em .agents/AGENTS.md.
+
+## PDF — persistência nativa de grifos e comentários
+
+- Grifos do marca-texto não devem ser achatados em retângulos de foreground nem depender de reordenação privada de content streams. `pdf-exporter.ts` grava cada grifo como anotação nativa `/Subtype /Highlight` dentro de `/Annots`, usando `/QuadPoints`, `/C`, `/CA`, `/T = ANOTADO` e `/NM = ANOTADO:<id>`. PDF.js 4.10.38 reconhece esse subtipo e gera aparência padrão com blend mode Multiply, preservando a legibilidade dos glifos.
+- Notas adesivas/comentários devem ser gravadas como anotações nativas `/Subtype /Text`, com o comentário no campo `/Contents`, autor `/T = ANOTADO` e identificador `/NM = ANOTADO:<id>`. Nunca desenhar o ícone '?' nem imprimir o conteúdo do comentário ao lado do ícone no conteúdo da página.
+- Antes de exportar, remover somente entradas de `/Annots` cujo `/NM` comece com `ANOTADO:`; preservar anotações pertencentes a outros autores/leitores. Depois recriar grifos e notas a partir do estado atual, evitando duplicação em salvamentos sucessivos.
+- Ao abrir um PDF, `PdfEditor.tsx` percorre `page.getAnnotations({ intent: 'display' })`, identifica `titleObj.str === 'ANOTADO'` e reconstrói `HighlightAnnotation` a partir de `quadPoints` e `StickyNoteAnnotation` a partir de `rect/contentsObj`. Rascunhos locais não salvos continuam tendo precedência sobre as anotações persistidas no arquivo.
+- `PdfCanvasPage.tsx` usa `annotationMode: 0` ao renderizar o canvas: as anotações nativas são lidas pelo PDF.js, mas a visualização do editor é desenhada uma única vez pelas camadas SVG/HTML do ANOTADO. Não voltar a desenhar a camada nativa e a camada customizada simultaneamente.
+- Antes de chamar `replaceNoteAttachment`, `PdfEditor.tsx` reabre o Blob exportado com PDF.js e valida que o número de anotações nativas `/Highlight` e `/Text` do autor ANOTADO é pelo menos igual ao esperado no estado atual. Se a validação falhar, não gravar no IndexedDB/SyncQueue nem enviar ao Supabase.
+- As anotações ficam incorporadas no próprio binário PDF armazenado em Supabase Storage; não exigem tabela ou migration específica para coordenadas de grifos/notas. A tabela `note_attachments` continua guardando metadados do arquivo e o Storage guarda o PDF completo.
