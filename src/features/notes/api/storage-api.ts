@@ -709,54 +709,72 @@ export async function replaceNoteAttachment(
     throw new Error('ID do anexo inválido');
   }
 
-  // 1. Tenta localizar os metadados por ID no IndexedDB.
-  let attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
-  if (!attachment) {
-    attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
-    // Anexos que foram criados localmente antes do login passam a pertencer
-    // à conta autenticada quando o mesmo ID é usado no documento atual.
-    if (attachment?.user_id === 'anonymous') {
-      attachment = { ...attachment, user_id: userId };
+  // 1. Localiza primeiro a cópia local, mas não assume que o ID do card
+  // é sempre o ID canônico da linha remota (PDFs legados podem divergir).
+  let localAttachment = await indexedDBStorage.getAttachment(userId, attachmentId);
+  if (!localAttachment) {
+    localAttachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
+    if (localAttachment?.user_id === 'anonymous') {
+      localAttachment = { ...localAttachment, user_id: userId };
     }
   }
 
   const supabaseReady = isSupabaseConfigured() && networkMonitor.getState().isBackendReachable;
   const supabase = supabaseReady ? createClient() : null;
   const sourceObject = parseSupabaseStorageObjectUrl(recoveryOptions.sourceUrl);
+  const lookupStoragePath = sourceObject?.storagePath || localAttachment?.storage_path || null;
+  let remoteAttachment: any = null;
   let remoteLookupError: any = null;
 
-  // 2. Consulta a tabela pelo ID do cartão, sempre limitada ao proprietário.
-  if (!attachment && supabase) {
+  // 2. Sempre tenta resolver a linha remota pelo ID e, se necessário, pelo caminho.
+  // Isso evita criar uma segunda linha quando o card contém um ID legado diferente.
+  if (supabase) {
     const { data, error } = await supabase
       .from('note_attachments')
       .select('*')
       .eq('id', attachmentId)
       .eq('user_id', userId)
       .maybeSingle();
+
+    remoteAttachment = data;
     remoteLookupError = error;
-    if (data) attachment = attachmentFromRemoteRow(data, userId);
-  }
 
-  // 3. Em PDFs legados o ID do cartão pode divergir do ID da linha. Reencontra
-  // o registro pelo caminho real contido na URL assinada/publica do Storage.
-  if (!attachment && supabase && sourceObject) {
-    const { data, error } = await supabase
-      .from('note_attachments')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('storage_path', sourceObject.storagePath)
-      .maybeSingle();
+    if (!remoteAttachment && lookupStoragePath) {
+      const byPath = await supabase
+        .from('note_attachments')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('storage_path', lookupStoragePath)
+        .maybeSingle();
 
-    if (error) {
-      console.warn('[replaceNoteAttachment] Falha ao localizar anexo pelo caminho do Storage:', error);
-    } else if (data) {
-      attachment = attachmentFromRemoteRow(data, userId);
+      if (byPath.error) {
+        console.warn('[replaceNoteAttachment] Falha ao localizar anexo pelo caminho do Storage:', byPath.error);
+      } else {
+        remoteAttachment = byPath.data;
+      }
     }
   }
 
-  // 4. Recupera anexos órfãos: o PDF abriu por URL, mas não existe metadado
-  // local nem linha remota. Reconstrói a identidade com o MESMO ID do cartão e
-  // o caminho da URL original; não cria um novo attachmentId nem duplica o PDF.
+  // Se a linha remota possui ID canônico, usa-o e preserva o Blob local mais recente.
+  let attachment: LocalAttachment | null = null;
+  if (remoteAttachment) {
+    const remoteBase = attachmentFromRemoteRow(remoteAttachment, userId);
+    attachment = {
+      ...remoteBase,
+      ...(localAttachment || {}),
+      id: remoteBase.id,
+      user_id: userId,
+      note_id: remoteBase.note_id ?? localAttachment?.note_id ?? null,
+      storage_path: remoteBase.storage_path || localAttachment?.storage_path || sourceObject?.storagePath || null,
+      bucket_id: remoteBase.bucket_id || localAttachment?.bucket_id || sourceObject?.bucketId || null,
+      file_name: remoteBase.file_name || localAttachment?.file_name || recoveryOptions.fileName || 'Documento.pdf',
+    };
+  } else if (localAttachment) {
+    attachment = localAttachment;
+  }
+
+  // 3. Recupera anexos órfãos: se não houver linha nem cópia local, reconstrói
+  // metadados usando o ID do card e o caminho original. Não inventa outro caminho.
   if (!attachment) {
     const fileName = recoveryOptions.fileName || 'Documento.pdf';
     const storagePath = sourceObject?.storagePath ||
@@ -789,18 +807,19 @@ export async function replaceNoteAttachment(
     };
 
     console.warn('[replaceNoteAttachment] Reconstruindo metadados ausentes para PDF', {
-      attachmentId,
+      requestedAttachmentId: attachmentId,
+      canonicalAttachmentId: attachment.id,
       storagePath,
       bucketId,
       remoteLookupError: remoteLookupError?.message || null,
     });
   }
 
-  if (!attachment.bucket_id && sourceObject) {
-    attachment.bucket_id = sourceObject.bucketId;
-  }
   if (!attachment.storage_path && sourceObject) {
     attachment.storage_path = sourceObject.storagePath;
+  }
+  if (!attachment.bucket_id && sourceObject) {
+    attachment.bucket_id = sourceObject.bucketId;
   }
 
   if (attachment.user_id !== userId) {
@@ -879,10 +898,15 @@ export async function replaceNoteAttachment(
     networkMonitor.updatePendingCount(pendingCount);
   }
 
-  // 6. Agenda sincronização em segundo plano no SyncEngine
+  // 6. Garante o usuário ativo e agenda o envio remoto.
+  // scheduleSync só processa a fila quando existe activeUserId; isso também
+  // cobre a abertura direta do visualizador fora do ciclo de inicialização da sidebar.
   import('./sync-engine').then(({ syncEngine }) => {
+    syncEngine.setActiveUser(userId);
     syncEngine.scheduleSync(50);
-  }).catch(() => {});
+  }).catch((error) => {
+    console.error('[replaceNoteAttachment] Não foi possível iniciar a sincronização com o Supabase:', error);
+  });
 
   return { success: true, attachment };
 }
