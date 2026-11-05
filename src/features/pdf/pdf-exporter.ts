@@ -1,4 +1,4 @@
-import { PDFDocument, rgb, StandardFonts, BlendMode } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { HighlightAnnotation, PdfAnnotation } from './types';
 
 function parseHexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -29,12 +29,20 @@ export async function exportPdfWithAnnotations(
 
   const pages = pdfDoc.getPages();
 
-  // 1. Renderiza os marca-textos em um content stream separado com blendMode Multiply
-  // e move esse stream para ANTES do conteúdo de texto original da página (logo após o pushGraphicsState).
-  // Assim, as letras originais são pintadas fisicamente por cima do destaque e continuam 100% pretas e nítidas.
+  // 1. Grifa atrás do texto original.
+  //
+  // PDFPageLeaf.normalize() do pdf-lib (PDFDocument.load) envolve os streams
+  // originais com q/Q quando há conteúdo. drawRectangle adiciona seu próprio
+  // stream ao final; movemos SOMENTE esse stream para imediatamente depois do
+  // q inicial (índice 1), antes dos streams originais. A ordem efetiva fica:
+  // q -> grifos -> conteúdo original (texto/imagens) -> Q.
+  //
+  // Não usamos BlendMode.Multiply aqui: a ordem de pintura já preserva as letras
+  // originais sem clareá-las, e a opacidade normal evita diferenças entre leitores.
   const highlightsByPage = new Map<number, HighlightAnnotation[]>();
   for (const ann of annotations) {
     if (ann.type !== 'highlight' || ann.pageIndex < 0 || ann.pageIndex >= pages.length) continue;
+    if (!Array.isArray(ann.rects) || ann.rects.length === 0) continue;
     const group = highlightsByPage.get(ann.pageIndex) || [];
     group.push(ann);
     highlightsByPage.set(ann.pageIndex, group);
@@ -43,40 +51,63 @@ export async function exportPdfWithAnnotations(
   for (const [pageIndex, pageHighlights] of highlightsByPage.entries()) {
     const page = pages[pageIndex];
     const pageHeight = page.getHeight();
+    const pageInternals = page as unknown as {
+      contentStream?: unknown;
+      contentStreamRef?: unknown;
+    };
+
+    // Normaliza a página ANTES de desenhar e registra a quantidade de streams
+    // existentes. Isso evita supor que qualquer stream no índice final é original.
+    const beforeContents = page.node.normalizedEntries().Contents;
+    const originalStreamCount = beforeContents?.size() ?? 0;
+
+    // Força um stream exclusivo para os destaques.
+    pageInternals.contentStream = undefined;
+    pageInternals.contentStreamRef = undefined;
 
     for (const ann of pageHighlights) {
       const { r, g, b } = parseHexToRgb(ann.color);
-      for (const rct of ann.rects || []) {
+      for (const rect of ann.rects) {
+        if (
+          !Number.isFinite(rect.x) ||
+          !Number.isFinite(rect.y) ||
+          !Number.isFinite(rect.width) ||
+          !Number.isFinite(rect.height) ||
+          rect.width <= 0 ||
+          rect.height <= 0
+        ) {
+          continue;
+        }
+
         page.drawRectangle({
-          x: rct.x,
-          y: pageHeight - rct.y - rct.height,
-          width: rct.width,
-          height: rct.height,
+          x: rect.x,
+          y: pageHeight - rect.y - rect.height,
+          width: rect.width,
+          height: rect.height,
           color: rgb(r, g, b),
-          opacity: 1.0,
-          blendMode: BlendMode.Multiply,
+          opacity: Math.min(1, Math.max(0.2, ann.opacity ?? 0.48)),
         });
       }
     }
 
-    // pdf-lib cria um content stream temporário no final. Move apenas esse
-    // stream para o índice 1 (logo após o pushGraphicsState que está no índice 0,
-    // e antes dos streams de texto original da página).
-    // Zera o cache de stream para que as próximas anotações ganhem outro stream acima do texto original.
     const contents = page.node.normalizedEntries().Contents;
-    if (contents && contents.size() > 1) {
-      const highlightStreamIndex = contents.size() - 1;
-      const highlightStreamRef = contents.get(highlightStreamIndex);
-      contents.remove(highlightStreamIndex);
-      contents.insert(1, highlightStreamRef);
-
-      const pageInternals = page as unknown as {
-        contentStream?: unknown;
-        contentStreamRef?: unknown;
-      };
-      pageInternals.contentStream = undefined;
-      pageInternals.contentStreamRef = undefined;
+    const afterCount = contents?.size() ?? 0;
+    if (!contents || afterCount <= originalStreamCount) {
+      throw new Error(`Não foi possível incorporar o grifo da página ${pageIndex + 1} ao PDF.`);
     }
+
+    // drawRectangle cria o stream de grifos no fim. Retira-o de lá e o coloca
+    // depois do q de abertura, antes do primeiro stream com conteúdo original.
+    // Se a página não tinha conteúdo, o stream fica na posição 0.
+    const highlightStreamIndex = afterCount - 1;
+    const highlightStreamRef = contents.get(highlightStreamIndex);
+    contents.remove(highlightStreamIndex);
+    contents.insert(originalStreamCount > 0 ? 1 : 0, highlightStreamRef);
+
+    // Não reutilizar o stream que acabou de ser movido: as demais anotações
+    // precisam ser criadas depois do conteúdo original, em streams de foreground.
+    pageInternals.contentStream = undefined;
+    pageInternals.contentStreamRef = undefined;
   }
 
   // 2. Todas as demais anotações são desenhadas depois do conteúdo original,
