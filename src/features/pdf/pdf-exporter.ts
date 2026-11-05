@@ -43,6 +43,23 @@ function removeExistingAnotadoAnnotations(pdfDoc: any, page: any): void {
   }
 }
 
+/**
+ * Cria uma cópia apenas para visualização, removendo as anotações que pertencem
+ * ao ANOTADO. O PDF original continua intacto para exportação.
+ *
+ * O editor redesenha essas anotações na camada SVG; se PDF.js também as desenhar
+ * no canvas, apagar a camada SVG deixa a aparência nativa antiga por baixo.
+ */
+export async function createPdfPreviewWithoutAnotadoAnnotations(
+  originalPdfBytes: ArrayBuffer | Uint8Array
+): Promise<Uint8Array> {
+  const pdfDoc = await PDFDocument.load(originalPdfBytes, { ignoreEncryption: true });
+  for (const page of pdfDoc.getPages()) {
+    removeExistingAnotadoAnnotations(pdfDoc, page);
+  }
+  return pdfDoc.save();
+}
+
 function addNativeHighlightAnnotation(
   pdfDoc: any,
   page: any,
