@@ -14,6 +14,7 @@ import {
   Columns2,
   ExternalLink,
   FolderPlus,
+  Unlink,
 } from 'lucide-react';
 import { Folder as FolderType, Note as NoteType } from '../types';
 import { FOLDER_PRESET_COLORS } from './sidebar-constants';
@@ -34,6 +35,7 @@ interface SidebarContextMenuProps {
   onCreateSubfolder?: (parentFolderId: string) => void;
   onSplitNote?: (noteId: string) => void;
   onOpenNoteInNewTab?: (noteId: string) => void;
+  onDetachPdfSummary?: (noteId: string) => void;
   onArchiveNote?: (id: string) => void;
   onUnarchiveNote?: (id: string) => void;
   onToggleFavoriteNote?: (id: string) => void;
@@ -65,6 +67,7 @@ export function SidebarContextMenu({
   onCreateSubfolder,
   onSplitNote,
   onOpenNoteInNewTab,
+  onDetachPdfSummary,
   onArchiveNote,
   onUnarchiveNote,
   onToggleFavoriteNote,
@@ -192,6 +195,22 @@ export function SidebarContextMenu({
             />
             <span>{menuNoteIsFavorite ? 'Remover dos favoritos' : 'Favoritar'}</span>
           </button>
+
+          {notes.find((note) => note.id === menuOpenId)?.parent_pdf_id && (
+            <button
+              id="context-menu-detach-pdf-summary-btn"
+              type="button"
+              onClick={() => {
+                if (onDetachPdfSummary && menuOpenId) onDetachPdfSummary(menuOpenId);
+                onClose();
+              }}
+              className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
+              title="Desvincular do PDF e tornar nota independente"
+            >
+              <Unlink className="w-3.5 h-3.5 text-[#a16b45] dark:text-[#d7b99c] shrink-0" />
+              <span>Desagrupar do PDF</span>
+            </button>
+          )}
 
           {/* Arquivar / Desarquivar */}
           {menuNoteIsArchived ? (
