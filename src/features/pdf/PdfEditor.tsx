@@ -411,6 +411,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
   // Tools & annotations state
   const [currentMode, setCurrentMode] = useState<ToolMode>('select');
+  const [isHandPanning, setIsHandPanning] = useState(false);
   const [penColor, setPenColor] = useState('#68594d');
   const [penWidth, setPenWidth] = useState(2);
   const [highlightColor, setHighlightColor] = useState('#ffe600');
@@ -1369,6 +1370,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       startScrollTop: scrollElement.scrollTop,
     };
 
+    setIsHandPanning(true);
     event.preventDefault();
     scrollElement.setPointerCapture(event.pointerId);
   };
@@ -1387,6 +1389,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     if (!drag || drag.pointerId !== event.pointerId) return;
 
     handPanRef.current = null;
+    setIsHandPanning(false);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -1785,7 +1788,9 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         <main
           ref={scrollContainerRef}
           className={`flex-1 overflow-auto p-4 sm:p-8 flex flex-col items-center relative ${
-            currentMode === 'hand' ? 'cursor-grab active:cursor-grabbing select-none' : ''
+            currentMode === 'hand'
+              ? (isHandPanning ? 'cursor-grabbing select-none' : 'cursor-grab select-none')
+              : ''
           }`}
           style={{ touchAction: currentMode === 'hand' ? 'none' : 'pan-y' }}
           onPointerDown={handleViewportPointerDown}
@@ -1794,6 +1799,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
           onPointerCancel={finishViewportPan}
           onLostPointerCapture={() => {
             handPanRef.current = null;
+            setIsHandPanning(false);
           }}
         >
           {Array.from({ length: numPages }, (_, index) => (
