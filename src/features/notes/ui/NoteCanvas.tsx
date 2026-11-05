@@ -175,6 +175,13 @@ export function NoteCanvas({
       const anchor = target?.closest('a[href^="#pdf-citation/"]') as HTMLAnchorElement | null;
       if (!anchor) return;
 
+      // A citação parece texto normal; sem Ctrl/Cmd, não há navegação nem link ativo.
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       const href = anchor.getAttribute('href') || '';
       const parts = href.slice('#pdf-citation/'.length).split('/');
       if (parts.length < 7) return;
