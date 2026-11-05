@@ -39,10 +39,17 @@ export function ImageNodeView(props: NodeViewProps) {
   const rawSrc = node.attrs.src || '';
   const alt = node.attrs.alt || '';
   const title = node.attrs.title || '';
-  const pdfCitation = title.startsWith('pdf-citation:') ? title.slice('pdf-citation:'.length) : '';
-  const imageTitle = pdfCitation ? '' : title;
-  const initialWidthAttr = node.attrs.width || '100%';
-  const alignment = (node.attrs.alignment as 'left' | 'center' | 'right') || 'center';
+  const pdfCitationMeta = title.startsWith('pdf-citation:') ? title.slice('pdf-citation:'.length) : '';
+  const pdfCitation = pdfCitationMeta.split(';')[0] || '';
+  const hasPersistedPdfCropDefaults = pdfCitationMeta.includes(';defaults-applied');
+  const isPdfCropImage = Boolean(pdfCitation);
+  const imageTitle = isPdfCropImage ? '' : title;
+  const initialWidthAttr = isPdfCropImage && !hasPersistedPdfCropDefaults
+    ? '50%'
+    : node.attrs.width || '100%';
+  const alignment = (isPdfCropImage && !hasPersistedPdfCropDefaults
+    ? 'left'
+    : node.attrs.alignment || 'center') as 'left' | 'center' | 'right';
   const caption = (node.attrs.caption as string) || '';
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -58,6 +65,18 @@ export function ImageNodeView(props: NodeViewProps) {
     }
     return 16 / 10;
   });
+
+  // Recortes provenientes do PDF começam com 50% de largura e alinhamento à esquerda.
+  // O marcador de inicialização é removido depois de persistir os atributos, permitindo
+  // que o usuário redimensione ou realinhe a imagem sem que o padrão seja reaplicado.
+  useEffect(() => {
+    if (!isPdfCropImage || hasPersistedPdfCropDefaults || !editor?.isEditable) return;
+    updateAttributes({
+      width: '50%',
+      alignment: 'left',
+      title: `pdf-citation:${pdfCitation};defaults-applied`,
+    });
+  }, [isPdfCropImage, hasPersistedPdfCropDefaults, editor?.isEditable, pdfCitation, updateAttributes]);
 
   // Estado da Legenda
   const [isEditingCaption, setIsEditingCaption] = useState(false);
