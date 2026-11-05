@@ -264,12 +264,20 @@ export async function fetchFoldersAndNotes(
           remoteOperationGuard.execute(`fetch:notes:${userId}:${workspaceType || 'all'}`, async () => {
             let q = supabase
               .from('notes')
-              .select('id, user_id, folder_id, title, content, position, is_archived, is_favorite, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
+              .select('id, user_id, folder_id, title, content, position, is_archived, is_favorite, previous_folder_id, parent_pdf_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
               .eq('user_id', userId);
             if (workspaceType) {
               q = q.eq('workspace_type', workspaceType);
             }
             const res = await q.order('position', { ascending: true }).order('created_at', { ascending: true });
+            if (res.error && res.error.message?.includes('parent_pdf_id')) {
+              let legacyQ = supabase
+                .from('notes')
+                .select('id, user_id, folder_id, title, content, position, is_archived, is_favorite, previous_folder_id, revision, tags, workspace_type, entry_date, diary_year, diary_month, diary_day, created_at, updated_at')
+                .eq('user_id', userId);
+              if (workspaceType) legacyQ = legacyQ.eq('workspace_type', workspaceType);
+              return legacyQ.order('position', { ascending: true }).order('created_at', { ascending: true });
+            }
             if (res.error && res.error.message?.includes('is_favorite')) {
               // Fallback gracioso caso a migration de is_favorite ainda não tenha sido aplicada no Supabase
               let fallbackQ = supabase
@@ -822,6 +830,7 @@ export async function createNote(
     is_archived: false,
     is_favorite: false,
     previous_folder_id: null,
+    parent_pdf_id: noteData.parentPdfId || null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     syncRequired: true,
