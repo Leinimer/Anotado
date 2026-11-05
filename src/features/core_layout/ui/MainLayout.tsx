@@ -1085,11 +1085,11 @@ export function MainLayout() {
       if (!quote || !rect) return '';
       const safeQuote = quote
         .replace(/\\/g, '\\\\')
-        .replace(/\\[/g, '\\\\[')
-        .replace(/\\]/g, '\\\\]')
-        .replace(/[\\r\\n]+/g, ' ');
+        .replace(/\[/g, '\\[')
+        .replace(/\]/g, '\\]')
+        .replace(/[\r\n]+/g, ' ');
       const href = `#pdf-citation/${encodeURIComponent(attachmentId)}/${Number(highlight.pageIndex) || 0}/${encodeURIComponent(String(highlight.annotationId || ''))}/${Number(rect.x).toFixed(2)}/${Number(rect.y).toFixed(2)}/${Number(rect.width).toFixed(2)}/${Number(rect.height).toFixed(2)}`;
-      return `> [${safeQuote}](${href})\\n>\\n> *Página ${(Number(highlight.pageIndex) || 0) + 1}*`;
+      return `> [${safeQuote}](${href})\n>\n> *Página ${(Number(highlight.pageIndex) || 0) + 1}*`;
     };
 
     const appendHighlights = async (note: Note, attachmentId: string, highlights: any[]) => {
@@ -1105,7 +1105,7 @@ export function MainLayout() {
         if (!href || next.includes(`](${href})`)) continue;
         const entry = createCitationMarkdown(attachmentId, highlight);
         if (!entry) continue;
-        next = next.trim() ? `${next.trim()}\\n\\n${entry}` : `# Citações\\n\\n${entry}`;
+        next = next.trim() ? `${next.trim()}\n\n${entry}` : `# Citações\n\n${entry}`;
         didAppend = true;
       }
       if (!didAppend) return;
@@ -1154,7 +1154,7 @@ export function MainLayout() {
         const citationBlocks = Array.from(unique.values())
           .map((item) => createCitationMarkdown(attachmentId, item))
           .filter(Boolean);
-        const initialContent = citationBlocks.length ? `# Citações\\n\\n${citationBlocks.join('\\n\\n')}` : '';
+        const initialContent = citationBlocks.length ? `# Citações\n\n${citationBlocks.join('\n\n')}` : '';
         const folderId = pdf.folder_id || null;
         const baseName = String(detail.fileName || pdf.file_name || 'Documento.pdf').replace(/\\.pdf$/i, '').trim();
         const title = `${baseName || 'Documento'} - Resumo`;
