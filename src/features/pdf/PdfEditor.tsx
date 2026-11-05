@@ -1272,6 +1272,17 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     pushHistory(next);
   };
 
+  const handleCropComplete = (crop: {
+    pageIndex: number;
+    image: Blob;
+    rect: { x: number; y: number; width: number; height: number };
+  }) => {
+    if (!crop.image || crop.image.size === 0) return;
+    window.dispatchEvent(new CustomEvent('anotado:pdf-crop-created', {
+      detail: { attachmentId, ...crop },
+    }));
+  };
+
   const handleUpdateAnnotation = (updated: PdfAnnotation) => {
     if (isSavingRef.current) return;
     const next = annotations.map((a) => (a.id === updated.id ? updated : a));
@@ -2001,7 +2012,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
           className={`flex-1 overflow-auto p-4 sm:p-8 flex flex-col items-center relative ${
             currentMode === 'hand'
               ? (isHandPanning ? 'cursor-grabbing select-none' : 'cursor-grab select-none')
-              : ''
+              : currentMode === 'crop' ? 'cursor-crosshair' : ''
           }`}
           style={{ touchAction: currentMode === 'hand' ? 'none' : 'pan-y' }}
           onPointerDown={handleViewportPointerDown}
@@ -2038,6 +2049,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
                 onAddAnnotation={handleAddAnnotation}
                 onUpdateAnnotation={handleUpdateAnnotation}
                 onDeleteAnnotation={handleDeleteAnnotation}
+                onCropComplete={handleCropComplete}
                 isReadOnly={isReadOnly || isSaving}
               />
             </div>
