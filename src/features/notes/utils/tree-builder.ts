@@ -95,7 +95,7 @@ export function buildFolderTree(
     if (isSmartFolder) {
       // Pasta Inteligente: visualização dinâmica das notas ativas com qualquer uma das tags configuradas (OR)
       const matchingNotes = activeNotes
-        .filter((n) => folder.smart_tags!.some((tag) => noteHasTag(n, tag)))
+        .filter((n) => !n.parent_pdf_id && folder.smart_tags!.some((tag) => noteHasTag(n, tag)))
         .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
 
       folderNotes = matchingNotes.map((note) => ({
