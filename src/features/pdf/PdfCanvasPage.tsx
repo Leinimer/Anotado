@@ -927,7 +927,7 @@ export function PdfCanvasPage({
                       height={r.height}
                       fill="none"
                       stroke="#2563eb"
-                      strokeWidth={3 / Math.max(0.1, scaleX * zoom)}
+                      strokeWidth={3 / Math.max(0.1, (pageDimensions?.scaleX || 1.333333) * zoom)}
                       strokeOpacity={0.2}
                       pointerEvents="none"
                     />
