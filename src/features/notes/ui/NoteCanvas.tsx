@@ -35,6 +35,7 @@ interface NoteCanvasProps {
   activePdfAttachmentId?: string | null;
   activePdfTabId?: string | null;
   activePdfSourceUrl?: string | null;
+  hasPdfSummary?: boolean;
   userId?: string;
   onUpdateTitle: (noteId: string, newTitle: string) => void;
   onUpdateContent: (noteId: string, newContent: string) => void;
@@ -69,6 +70,7 @@ export function NoteCanvas({
   activePdfAttachmentId = null,
   activePdfTabId = null,
   activePdfSourceUrl = null,
+  hasPdfSummary = false,
   userId,
   onUpdateTitle,
   onUpdateContent,
@@ -164,6 +166,41 @@ export function NoteCanvas({
     window.addEventListener('anotado:navigate-internal-note', handleNavigate);
     return () => window.removeEventListener('anotado:navigate-internal-note', handleNavigate);
   }, [activeNote, effectiveWorkspace, onSelectNote, router, userId]);
+
+  // Ctrl/Cmd + clique em uma citação do resumo abre o PDF na página e região do grifo.
+  useEffect(() => {
+    const handlePdfCitationClick = (event: MouseEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest('a[href^="#pdf-citation/"]') as HTMLAnchorElement | null;
+      if (!anchor) return;
+
+      const href = anchor.getAttribute('href') || '';
+      const parts = href.slice('#pdf-citation/'.length).split('/');
+      if (parts.length < 8) return;
+
+      const [attachmentId, rawPage, annotationId, rawX, rawY, rawWidth, rawHeight] = parts;
+      const detail = {
+        attachmentId: decodeURIComponent(attachmentId),
+        pageIndex: Number(rawPage),
+        annotationId: decodeURIComponent(annotationId),
+        rect: {
+          x: Number(rawX),
+          y: Number(rawY),
+          width: Number(rawWidth),
+          height: Number(rawHeight),
+        },
+      };
+      if (!detail.attachmentId || !Number.isFinite(detail.pageIndex)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      window.dispatchEvent(new CustomEvent('anotado:open-pdf-citation', { detail }));
+    };
+
+    document.addEventListener('click', handlePdfCitationClick, true);
+    return () => document.removeEventListener('click', handlePdfCitationClick, true);
+  }, []);
 
   // Ouve avisos de toast gerais
   useEffect(() => {
@@ -423,6 +460,7 @@ export function NoteCanvas({
             key={activePdfAttachmentId}
             attachmentId={activePdfAttachmentId}
             sourceUrl={activePdfSourceUrl || undefined}
+            hasSummary={hasPdfSummary}
             onClose={() => {
               if (activePdfTabId) onCloseTab?.(activePdfTabId);
             }}
