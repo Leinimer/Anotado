@@ -237,6 +237,7 @@ async function readAnotadoPdfAnnotations(pdfDoc: any): Promise<PdfAnnotation[]> 
             rects,
             color: pdfAnnotationColorToHex(item.color, '#ffeb3b'),
             opacity: Number.isFinite(item.opacity) ? item.opacity : 0.48,
+            isNative: true,
             createdAt: now,
             updatedAt: now,
           });
@@ -252,6 +253,7 @@ async function readAnotadoPdfAnnotations(pdfDoc: any): Promise<PdfAnnotation[]> 
           y: viewTop - rect[3],
           text: String(text),
           color: pdfAnnotationColorToHex(item.color, '#fef08a'),
+          isNative: true,
           createdAt: now,
           updatedAt: now,
         });
