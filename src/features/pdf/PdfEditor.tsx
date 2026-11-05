@@ -40,6 +40,25 @@ interface PdfEditorProps {
   onClose?: () => void;
 }
 
+function getSupabasePdfObject(sourceUrl?: string): { bucketId: string; storagePath: string } | null {
+  if (!sourceUrl || !/^https?:\\/\\//i.test(sourceUrl)) return null;
+  try {
+    const url = new URL(sourceUrl);
+    const segments = url.pathname.split('/').filter(Boolean).map((segment) => {
+      try { return decodeURIComponent(segment); } catch { return segment; }
+    });
+    const objectIndex = segments.findIndex((segment) => segment === 'object');
+    if (objectIndex < 0) return null;
+    const mode = segments[objectIndex + 1];
+    if (!['public', 'sign', 'authenticated'].includes(mode)) return null;
+    const bucketId = segments[objectIndex + 2];
+    const storagePath = segments.slice(objectIndex + 3).join('/');
+    return bucketId && storagePath ? { bucketId, storagePath } : null;
+  } catch {
+    return null;
+  }
+}
+
 export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false, onClose }: PdfEditorProps) {
   // Loading state
   const [isLoading, setIsLoading] = useState(true);
@@ -111,6 +130,28 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
           attachment = await indexedDBStorage.getAttachment('anonymous', attachmentId);
         }
 
+        const sourceObject = getSupabasePdfObject(sourceUrl);
+        if (userId !== 'anonymous' && sourceObject?.storagePath) {
+          try {
+            const localAttachments = await indexedDBStorage.getAllAttachments(userId);
+            const attachmentByStoragePath = localAttachments.find(
+              (candidate) =>
+                candidate.storage_path === sourceObject.storagePath &&
+                (!candidate.bucket_id || candidate.bucket_id === sourceObject.bucketId)
+            );
+            if (attachmentByStoragePath && (!attachment || attachmentByStoragePath.id !== attachment.id)) {
+              attachment = attachmentByStoragePath;
+              console.info('[PdfEditor] PDF local resolvido pelo storage_path canônico:', {
+                requestedAttachmentId: attachmentId,
+                canonicalAttachmentId: attachment.id,
+                storagePath: sourceObject.storagePath,
+              });
+            }
+          } catch (localLookupError) {
+            console.warn('[PdfEditor] Não foi possível procurar o PDF local pelo storage_path:', localLookupError);
+          }
+        }
+
         if (attachment?.syncStatus === 'pending' || attachment?.syncStatus === 'syncing') {
           setSaveStatus('saved_local');
         } else if (attachment?.syncStatus === 'synced') {
@@ -170,11 +211,26 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         if (!arrayBuffer && isSupabaseConfigured() && navigator.onLine) {
           try {
             const supabase = createClient();
-            const { data: dbAtt, error: metadataError } = await supabase
+            let { data: dbAtt, error: metadataError } = await supabase
               .from('note_attachments')
               .select('id, user_id, note_id, file_name, mime_type, file_size, storage_path, bucket_id, created_at, updated_at')
               .eq('id', attachmentId)
+              .eq('user_id', userId)
               .maybeSingle();
+
+            if (!dbAtt && sourceObject?.storagePath) {
+              const byPath = await supabase
+                .from('note_attachments')
+                .select('id, user_id, note_id, file_name, mime_type, file_size, storage_path, bucket_id, created_at, updated_at')
+                .eq('user_id', userId)
+                .eq('storage_path', sourceObject.storagePath)
+                .maybeSingle();
+              if (byPath.error) {
+                metadataError = byPath.error;
+              } else {
+                dbAtt = byPath.data;
+              }
+            }
 
             if (metadataError) {
               loadDetails = metadataError.message || loadDetails;
