@@ -59,6 +59,56 @@ function getSupabasePdfObject(sourceUrl?: string): { bucketId: string; storagePa
   }
 }
 
+function waitForRemotePdfReplacement(
+  requestedAttachmentId: string,
+  timeoutMs = 20000
+): {
+  promise: Promise<{ status: 'synced' | 'failed' | 'timeout'; message?: string }>;
+  cancel: () => void;
+} {
+  let finish: ((result: { status: 'synced' | 'failed' | 'timeout'; message?: string }) => void) | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let settled = false;
+
+  const promise = new Promise<{ status: 'synced' | 'failed' | 'timeout'; message?: string }>((resolve) => {
+    finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      window.removeEventListener('attachment:replace-complete', handleComplete);
+      window.removeEventListener('attachment:replace-failed', handleFailed);
+      resolve(result);
+    };
+
+    const matches = (detail: any) =>
+      detail?.attachmentId === requestedAttachmentId ||
+      detail?.requestedAttachmentId === requestedAttachmentId;
+
+    const handleComplete = (event: Event) => {
+      if (matches((event as CustomEvent).detail)) finish?.({ status: 'synced' });
+    };
+
+    const handleFailed = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!matches(detail)) return;
+      const stage = detail?.stage ? `Etapa: ${detail.stage}. ` : '';
+      finish?.({
+        status: 'failed',
+        message: `${stage}${detail?.message || 'O Supabase recusou a substituição do PDF.'}`,
+      });
+    };
+
+    window.addEventListener('attachment:replace-complete', handleComplete);
+    window.addEventListener('attachment:replace-failed', handleFailed);
+    timer = setTimeout(() => finish?.({ status: 'timeout' }), timeoutMs);
+  });
+
+  return {
+    promise,
+    cancel: () => finish?.({ status: 'timeout' }),
+  };
+}
+
 export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false, onClose }: PdfEditorProps) {
   // Loading state
   const [isLoading, setIsLoading] = useState(true);
@@ -915,12 +965,13 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     };
   }, [numPages, isLoading]);
 
-  // Salva o PDF no mesmo objeto e caminho do Storage, incorporando as anotações.
+  // Salva localmente e aguarda confirmação explícita do Supabase quando há conexão.
   const handleSave = async () => {
     if (!rawPdfBytes || isReadOnly || isSavingRef.current) return;
 
     isSavingRef.current = true;
     const wasOnline = navigator.onLine && networkMonitor.getState().isBackendReachable;
+    const remoteWaiter = wasOnline ? waitForRemotePdfReplacement(attachmentId, 20000) : null;
 
     try {
       setSaveStatus(wasOnline ? 'syncing' : 'saving_local');
@@ -932,14 +983,12 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         updatedAt: new Date().toISOString(),
       });
 
-      // Usa a ref sincronizada em pushHistory para nunca exportar um estado React
-      // anterior ao último mouseup/seleção de texto.
       const annotationsSnapshot = [...annotationsRef.current];
       const highlightCount = annotationsSnapshot.filter(
         (annotation) => annotation.type === 'highlight'
       ).length;
 
-      console.info('[PdfEditor] Iniciando exportação do PDF:', {
+      console.info('[PdfEditor] Exportando PDF para salvar:', {
         attachmentId,
         annotations: annotationsSnapshot.length,
         highlights: highlightCount,
@@ -950,10 +999,6 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         throw new Error('A exportação gerou um PDF vazio. O arquivo anterior foi preservado.');
       }
 
-      // A exportação precisa preservar todas as marcações. Mantemos os overlays
-      // visíveis na sessão atual; a base rawPdfBytes continua sendo o PDF original
-      // desta abertura. Assim, salvar novamente não duplica as anotações já
-      // incorporadas: sempre exportamos a base original + o estado completo atual.
       const result = await replaceNoteAttachment(userId, attachmentId, updatedBlob, {
         sourceUrl,
         fileName,
@@ -962,9 +1007,8 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         throw new Error('O IndexedDB não confirmou a gravação local do PDF editado.');
       }
 
-      // Não substituímos o PDF.js nem limpamos annotations. A versão exportada já
-      // está salva no IndexedDB/SyncQueue; manter os overlays evita que um grifo
-      // desapareça durante a atualização visual do documento.
+      // Neste ponto o Blob e a tarefa REPLACE_ATTACHMENT já estão no IndexedDB.
+      // Isso é persistência local, ainda não é prova de que o Supabase recebeu o PDF.
       setSelectedAnnotationId(null);
       hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
@@ -976,15 +1020,30 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         await indexedDBStorage.setMetadata('anonymous', draftKey, null).catch(() => {});
       }
 
-      setSaveStatus((current) => {
-        if (current === 'synced' || current === 'error') return current;
-        return wasOnline ? 'syncing' : 'saved_local';
-      });
+      if (!wasOnline || !remoteWaiter) {
+        setSaveStatus('saved_local');
+        setSaveErrorMsg('PDF gravado neste dispositivo. O Supabase ainda não confirmou a sincronização.');
+      } else {
+        const remoteResult = await remoteWaiter.promise;
+        if (remoteResult.status === 'synced') {
+          setSaveErrorMsg(null);
+          setSaveStatus('synced');
+        } else if (remoteResult.status === 'failed') {
+          setSaveErrorMsg(remoteResult.message || 'O Supabase não confirmou a substituição do PDF.');
+          setSaveStatus('error');
+        } else {
+          // A tarefa continua na SyncQueue e poderá ser retomada pelo SyncEngine.
+          // Não exibir "Salvo na nuvem" sem o evento de confirmação remota.
+          setSaveErrorMsg('PDF gravado neste dispositivo, mas o Supabase ainda não confirmou o recebimento. A sincronização continuará em segundo plano.');
+          setSaveStatus('saved_local');
+        }
+      }
     } catch (err: any) {
       console.error('[PdfEditor] Erro ao salvar PDF:', err);
       setSaveStatus('error');
       setSaveErrorMsg(err?.message || 'Erro ao salvar alterações no documento.');
     } finally {
+      remoteWaiter?.cancel();
       isSavingRef.current = false;
     }
   };
@@ -1047,7 +1106,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         );
       case 'saved_local':
         return (
-          <span className="flex items-center gap-1.5 text-xs text-[#b45309] dark:text-[#f59e0b]" title="Salvo localmente no dispositivo. Sincronização pendente.">
+          <span className="flex items-center gap-1.5 text-xs text-[#b45309] dark:text-[#f59e0b]" title={saveErrorMsg || 'Salvo localmente no dispositivo. Sincronização pendente.'}>
             <Clock className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Salvo localmente</span>
           </span>
