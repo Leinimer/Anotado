@@ -727,3 +727,9 @@ CREATE POLICY "Viewers can read shared diary attachments"
       AND public.can_access_shared_diary_attachment_storage(name, auth.uid())
     );
 
+
+
+-- Relaciona uma nota de resumo ao PDF de origem.
+ALTER TABLE public.notes ADD COLUMN IF NOT EXISTS parent_pdf_id uuid;
+CREATE INDEX IF NOT EXISTS idx_notes_parent_pdf_id ON public.notes(user_id, parent_pdf_id) WHERE parent_pdf_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_one_pdf_summary_per_user ON public.notes(user_id, parent_pdf_id) WHERE parent_pdf_id IS NOT NULL;
