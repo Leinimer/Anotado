@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  StickyNote,
   FolderPlus,
   FilePlus,
   Tag,
@@ -1498,7 +1499,12 @@ export function SidebarNavigation({
           <div className="space-y-0.5">
             {folder.subfolders.map((sub) => renderFolderNode(sub))}
             {folder.notes.map((note) => renderNoteNode(note))}
-            {(folder.pdfs || []).map((pdf) => renderPdfNode(pdf))}
+            {(folder.pdfs || []).map((pdf) => (
+              <React.Fragment key={pdf.id}>
+                {renderPdfNode(pdf)}
+                {pdf.summaryNote && renderNoteNode(pdf.summaryNote)}
+              </React.Fragment>
+            ))}
           </div>
         )}
       </div>
@@ -1644,6 +1650,8 @@ export function SidebarNavigation({
                     isActive ? 'text-[#68594d] stroke-[2]' : 'text-[#8c6b4f] stroke-[1.5]'
                   }`}
                 />
+              ) : note.parentPdfId ? (
+                <StickyNote className={`w-4 h-4 shrink-0 text-[#ba1a1a] ${isActive ? 'stroke-[2]' : 'stroke-[1.5]'}`} />
               ) : (
                 <FileText
                   className={`w-4 h-4 shrink-0 ${
@@ -2138,7 +2146,12 @@ export function SidebarNavigation({
         {filteredNotes.map((note) => renderNoteNode(note))}
 
         {/* PDFs da Biblioteca Soltos na Raiz */}
-        {filteredPdfs.map((pdf) => renderPdfNode(pdf))}
+        {filteredPdfs.map((pdf) => (
+          <React.Fragment key={pdf.id}>
+            {renderPdfNode(pdf)}
+            {pdf.summaryNote && renderNoteNode(pdf.summaryNote)}
+          </React.Fragment>
+        ))}
 
         {/* Pasta Especial do Sistema: "Notas arquivadas" */}
         {filteredArchivedFolder && renderFolderNode(filteredArchivedFolder)}
