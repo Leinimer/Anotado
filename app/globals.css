@@ -1302,7 +1302,7 @@ html.dark {
 
 /* Citações automáticas do Resumo de PDF: texto comum; Ctrl/Cmd + clique abre a origem. */
 .ProseMirror blockquote:has(a[href^="#pdf-citation/"]) {
-  border-left: 4px solid #a48f7b;
+  border-left: 2px solid #c8bdb2;
   border-radius: 0 5px 5px 0;
   padding-left: 1rem;
   color: inherit;
