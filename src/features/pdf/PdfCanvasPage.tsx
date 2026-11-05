@@ -126,6 +126,15 @@ export function PdfCanvasPage({
   } | null>(null);
   const suppressStickyClickRef = useRef(false);
 
+  // A ferramenta Mão nunca abre, seleciona ou arrasta objetos; ela navega a viewport.
+  useEffect(() => {
+    if (mode !== 'hand') return;
+    setOpenStickyNoteId(null);
+    setHoveredStickyNoteId(null);
+    setStickyDragPreview(null);
+    stickyDragRef.current = null;
+  }, [mode]);
+
   // Renderiza somente as páginas próximas à viewport e cria uma camada de
   // texto alinhada ao canvas, permitindo selecionar/copiar texto nativo do PDF.
   useEffect(() => {
@@ -619,6 +628,7 @@ export function PdfCanvasPage({
                       fill={ann.color}
                       opacity={Math.max(ann.opacity ?? 0.58, 0.58)}
                       onClick={(e) => {
+                        if (mode === 'hand') return;
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
                         else onSelectAnnotation(ann.id);
@@ -687,6 +697,7 @@ export function PdfCanvasPage({
                     strokeLinejoin="round"
                     opacity={ann.opacity}
                     onClick={(e) => {
+                      if (mode === 'hand') return;
                       e.stopPropagation();
                       if (mode === 'eraser') {
                         onDeleteAnnotation(ann.id);
@@ -725,6 +736,7 @@ export function PdfCanvasPage({
                       stroke={isSelected ? '#2563eb' : ann.color}
                       strokeWidth={isSelected ? 3 : 2}
                       onClick={(e) => {
+                        if (mode === 'hand') return;
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
                         else onSelectAnnotation(ann.id);
@@ -749,6 +761,7 @@ export function PdfCanvasPage({
                       stroke={isSelected ? '#2563eb' : ann.color}
                       strokeWidth={isSelected ? 3 : 2}
                       onClick={(e) => {
+                        if (mode === 'hand') return;
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
                         else onSelectAnnotation(ann.id);
@@ -774,6 +787,7 @@ export function PdfCanvasPage({
                       strokeWidth={ann.strokeWidth}
                       fill={ann.fillColor || 'transparent'}
                       onClick={(e) => {
+                        if (mode === 'hand') return;
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
                         else onSelectAnnotation(ann.id);
@@ -791,6 +805,7 @@ export function PdfCanvasPage({
                       strokeWidth={ann.strokeWidth}
                       fill={ann.fillColor || 'transparent'}
                       onClick={(e) => {
+                        if (mode === 'hand') return;
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
                         else onSelectAnnotation(ann.id);
@@ -807,6 +822,7 @@ export function PdfCanvasPage({
                       stroke={ann.strokeColor}
                       strokeWidth={ann.strokeWidth}
                       onClick={(e) => {
+                        if (mode === 'hand') return;
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
                         else onSelectAnnotation(ann.id);
@@ -980,6 +996,7 @@ export function PdfCanvasPage({
                   }`}
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
+                    if (mode === 'hand') return;
                     e.stopPropagation();
                     if (mode === 'eraser') onDeleteAnnotation(ann.id);
                     else onSelectAnnotation(ann.id);
@@ -994,6 +1011,7 @@ export function PdfCanvasPage({
                     readOnly={isReadOnly || mode === 'hand' || mode === 'eraser'}
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
+                      if (mode === 'hand') return;
                       e.stopPropagation();
                       onSelectAnnotation(ann.id);
                     }}
@@ -1035,6 +1053,7 @@ export function PdfCanvasPage({
                     type="button"
                     onMouseDown={(e) => e.stopPropagation()}
                     onPointerDown={(e) => {
+                      if (mode === 'hand') return;
                       e.stopPropagation();
                       if (isReadOnly || mode !== 'select' || e.button !== 0) return;
 
@@ -1097,6 +1116,7 @@ export function PdfCanvasPage({
                       setStickyDragPreview(null);
                     }}
                     onClick={(e) => {
+                      if (mode === 'hand') return;
                       e.stopPropagation();
                       if (suppressStickyClickRef.current) {
                         suppressStickyClickRef.current = false;
