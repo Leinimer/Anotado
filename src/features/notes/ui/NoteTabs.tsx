@@ -165,17 +165,21 @@ export function NoteTabs({
                   : 'bg-[#ebe7de]/60 hover:bg-[#ebe7de] dark:bg-[#141414] dark:hover:bg-[#1c1c1c] text-[#71655b] hover:text-[#1b1c19] dark:text-[#8e8e93] dark:hover:text-[#ffffff] font-medium border-transparent'
               }`}
             >
-              <FileText
-                className={`w-3.5 h-3.5 shrink-0 ${
-                  isPdfTab
-                    ? 'text-[#ba1a1a] dark:text-[#f28b82]'
-                    : isCurrentlyActive
-                    ? 'text-[#68594d] dark:text-[#d7c3b0]'
-                    : isSplitTab
-                    ? 'text-[#827163] dark:text-[#9e9e9e]'
-                    : 'text-[#9c9186] dark:text-[#636366]'
-                }`}
-              />
+              {note?.parent_pdf_id ? (
+                <StickyNote className="w-3.5 h-3.5 shrink-0 text-[#ba1a1a] dark:text-[#f28b82]" />
+              ) : (
+                <FileText
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    isPdfTab
+                      ? 'text-[#ba1a1a] dark:text-[#f28b82]'
+                      : isCurrentlyActive
+                      ? 'text-[#68594d] dark:text-[#d7c3b0]'
+                      : isSplitTab
+                      ? 'text-[#827163] dark:text-[#9e9e9e]'
+                      : 'text-[#9c9186] dark:text-[#636366]'
+                  }`}
+                />
+              )}
 
               {/* Título com truncamento visual */}
               <span className="truncate flex-1 min-w-0 text-[12px] leading-tight">
