@@ -754,7 +754,7 @@ export function PdfCanvasPage({
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
                         else onSelectAnnotation(ann.id);
                       }}
-                      className={`cursor-pointer ${isSelected ? 'stroke-2 stroke-blue-500' : ''}`}
+                      className={`${mode === 'hand' ? 'cursor-grab' : 'cursor-pointer'} ${isSelected ? 'stroke-2 stroke-blue-500' : ''}`}
                     />
                   ))}
                 </g>
@@ -878,7 +878,7 @@ export function PdfCanvasPage({
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
                         else onSelectAnnotation(ann.id);
                       }}
-                      className="cursor-pointer"
+                      className={mode === 'hand' ? 'cursor-grab' : 'cursor-pointer'}
                     />
                   ))}
                 </g>
@@ -1138,7 +1138,7 @@ export function PdfCanvasPage({
                     fontSize: `${(ann.fontSize || 14) * scaleX * zoom}px`,
                     color: ann.color,
                   }}
-                  className={`pointer-events-auto group relative ${
+                  className={`pointer-events-auto group relative ${mode === 'hand' ? 'cursor-grab' : ''} ${
                     isSelected
                       ? 'ring-2 ring-[#2563eb] rounded-md p-1 bg-white/95 dark:bg-[#1a1918]/95 shadow-lg'
                       : 'p-1 hover:ring-1 hover:ring-black/20 dark:hover:ring-white/20 rounded-md'
@@ -1181,7 +1181,7 @@ export function PdfCanvasPage({
                       onUpdateAnnotation({ ...ann, text: e.target.value, updatedAt: new Date().toISOString() });
                     }}
                     autoFocus={isSelected && !ann.text}
-                    className="w-full h-full min-h-[28px] bg-transparent resize border-none focus:outline-none font-sans-ui leading-tight p-0.5 placeholder:text-black/40 dark:placeholder:text-white/40"
+                    className={`w-full h-full min-h-[28px] bg-transparent resize border-none focus:outline-none font-sans-ui leading-tight p-0.5 placeholder:text-black/40 dark:placeholder:text-white/40 ${mode === 'hand' ? 'cursor-grab' : ''}`}
                     rows={ann.text ? ann.text.split('\n').length : 1}
                   />
                 </div>
