@@ -242,9 +242,33 @@ export function PdfCanvasPage({
             : typeof style.descent === 'number'
               ? 1 + style.descent
               : 0.8;
-          const fontAscent = fontHeight * ascentRatio;
-          const left = angle === 0 ? tx[4] : tx[4] + fontAscent * Math.sin(angle);
-          const top = angle === 0 ? tx[5] - fontAscent : tx[5] - fontAscent * Math.cos(angle);
+          const pdfFontAscent = fontHeight * ascentRatio;
+          const fontFamily = style.fontFamily || 'sans-serif';
+
+          // Posiciona a caixa selecionável pela métrica real da fonte do navegador,
+          // usando a linha de base do PDF como referência. Usar apenas style.ascent
+          // do PDF pode deslocar a caixa DOM para baixo em relação aos glifos do canvas.
+          let browserBaselineOffset = pdfFontAscent;
+          if (measureContext && fontHeight > 0) {
+            measureContext.font = `${fontHeight}px ${fontFamily}`;
+            const metrics = measureContext.measureText(item.str || 'Hg');
+            const fontBoxAscent = metrics.fontBoundingBoxAscent;
+            const fontBoxDescent = metrics.fontBoundingBoxDescent;
+            if (
+              Number.isFinite(fontBoxAscent) &&
+              Number.isFinite(fontBoxDescent) &&
+              fontBoxAscent > 0 &&
+              fontBoxDescent >= 0
+            ) {
+              const leading = Math.max(0, fontHeight - fontBoxAscent - fontBoxDescent);
+              browserBaselineOffset = fontBoxAscent + leading / 2;
+            }
+          }
+
+          const left = angle === 0 ? tx[4] : tx[4] + browserBaselineOffset * Math.sin(angle);
+          const top = angle === 0
+            ? tx[5] - browserBaselineOffset
+            : tx[5] - browserBaselineOffset * Math.cos(angle);
 
           const span = document.createElement('span');
           span.textContent = item.str;
@@ -253,7 +277,7 @@ export function PdfCanvasPage({
           span.style.left = `${(left / viewport.width) * 100}%`;
           span.style.top = `${(top / viewport.height) * 100}%`;
           span.style.fontSize = `${fontHeight}px`;
-          span.style.fontFamily = style.fontFamily || 'sans-serif';
+          span.style.fontFamily = fontFamily;
           span.style.lineHeight = '1';
           span.style.whiteSpace = 'pre';
           span.style.color = 'transparent';
@@ -262,7 +286,7 @@ export function PdfCanvasPage({
 
           let transform = angle ? `rotate(${angle}rad) ` : '';
           if (measureContext && item.str.length > 1 && item.width > 0) {
-            measureContext.font = `${fontHeight}px ${style.fontFamily || 'sans-serif'}`;
+            measureContext.font = `${fontHeight}px ${fontFamily}`;
             const measuredWidth = measureContext.measureText(item.str).width;
             const targetWidth = item.width * outputScale;
             if (measuredWidth > 0 && targetWidth > 0) {
