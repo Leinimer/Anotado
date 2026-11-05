@@ -1185,7 +1185,7 @@ export function MainLayout() {
           if (lateBlocks.length > 0) {
             finalContent = finalContent.trim()
               ? `${finalContent.trim()}\n\n${lateBlocks.join('\n\n')}`
-              : `# Citações\n\n${lateBlocks.join('\n\n')}`;
+              : lateBlocks.join('\n\n');
             await updateNoteContent(userId, created.id, finalContent, created.tags || []);
             created.content = finalContent;
           }
