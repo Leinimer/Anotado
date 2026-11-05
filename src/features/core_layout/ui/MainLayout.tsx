@@ -17,6 +17,7 @@ import {
   createNote,
   updateNoteTitle,
   updateNoteContent,
+  detachNoteFromPdf,
   updateNoteTags,
   deleteNote,
   archiveNote,
@@ -1042,6 +1043,32 @@ export function MainLayout() {
     [userId, tabs, handleCloseTab]
   );
 
+  const handleDetachPdfSummary = useCallback(
+    async (noteId: string) => {
+      const note = notes.find((item) => item.id === noteId);
+      if (!note?.parent_pdf_id) return;
+
+      try {
+        const detached = await detachNoteFromPdf(userId, noteId);
+        if (!detached) throw new Error('Não foi possível desvincular a nota do PDF.');
+        setNotes((prev) => prev.map((item) =>
+          item.id === noteId
+            ? { ...item, parent_pdf_id: null, updated_at: new Date().toISOString() }
+            : item
+        ));
+        window.dispatchEvent(new CustomEvent('anotado:toast-warning', {
+          detail: { message: 'Nota desvinculada. Agora ela é independente do PDF.' },
+        }));
+      } catch (error) {
+        console.error('[MainLayout] Falha ao desagrupar nota-resumo:', error);
+        window.dispatchEvent(new CustomEvent('anotado:toast-warning', {
+          detail: { message: 'Não foi possível desagrupar a nota do PDF.' },
+        }));
+      }
+    },
+    [notes, userId]
+  );
+
   const handleMovePdf = useCallback(
     async (pdfId: string, targetFolderId: string | null, targetPosition: number) => {
       setLibraryPdfs((prev) =>
@@ -1864,6 +1891,7 @@ export function MainLayout() {
             onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
             onSplitNote={handleSplitFromSidebar}
             onOpenNoteInNewTab={handleOpenNoteInNewTab}
+            onDetachPdfSummary={handleDetachPdfSummary}
             onMoveItem={handleMoveItem}
             onReorderItem={handleReorderItem}
             onMovePdf={handleMovePdf}
