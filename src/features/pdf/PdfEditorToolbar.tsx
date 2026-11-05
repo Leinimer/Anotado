@@ -23,7 +23,7 @@ import {
   Trash2,
   ChevronDown,
 } from 'lucide-react';
-import { ToolMode, ShapeType } from './types';
+import { ToolMode, ShapeType, PDF_DEFAULT_ZOOM } from './types';
 
 interface PdfEditorToolbarProps {
   currentMode: ToolMode;
@@ -143,8 +143,8 @@ export function PdfEditorToolbar({
               ? 'bg-[#e8e4db] dark:bg-[#383633] text-[#68594d] dark:text-white font-medium shadow-2xs'
               : 'text-[#7f756e] dark:text-[#a89f97] hover:bg-[#efebe2] dark:hover:bg-[#2c2a28]'
           }`}
-          title="Selecionar / Mover anotação (V)"
-          aria-label="Selecionar / Mover anotação"
+          title="Selecionar, mover e excluir objetos (V)"
+          aria-label="Selecionar objetos"
         >
           <MousePointer className="w-4 h-4" />
         </button>
@@ -161,8 +161,8 @@ export function PdfEditorToolbar({
               ? 'bg-[#e8e4db] dark:bg-[#383633] text-[#68594d] dark:text-white font-medium shadow-2xs'
               : 'text-[#7f756e] dark:text-[#a89f97] hover:bg-[#efebe2] dark:hover:bg-[#2c2a28]'
           }`}
-          title="Mão / Navegar página (H)"
-          aria-label="Mão / Navegar página"
+          title="Navegar pela página: clique e arraste para mover a folha (H)"
+          aria-label="Navegar pela página"
         >
           <Hand className="w-4 h-4" />
         </button>
@@ -596,7 +596,7 @@ export function PdfEditorToolbar({
             className="text-xs font-mono font-medium px-2 py-1 rounded-lg hover:bg-[#efebe2] dark:hover:bg-[#2c2a28] text-[#68594d] dark:text-[#d4c8bc] cursor-pointer flex items-center gap-1"
             title="Ajustar zoom"
           >
-            <span>{Math.round(zoom * 100)}%</span>
+            <span>{Math.round((zoom / PDF_DEFAULT_ZOOM) * 100)}%</span>
             <ChevronDown className="w-2.5 h-2.5 opacity-60" />
           </button>
 
