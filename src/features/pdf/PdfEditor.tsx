@@ -341,8 +341,8 @@ async function readAnotadoPdfAnnotations(pdfDoc: any): Promise<PdfAnnotation[]> 
             pageIndex,
             type: 'highlight',
             rects,
-            color: pdfAnnotationColorToHex(item.color, '#ffeb3b'),
-            opacity: Number.isFinite(item.opacity) ? item.opacity : 0.48,
+            color: pdfAnnotationColorToHex(item.color, '#ffe600'),
+            opacity: Number.isFinite(item.opacity) ? Math.max(Number(item.opacity), 0.58) : 0.58,
             isNative: true,
             createdAt: now,
             updatedAt: now,
@@ -399,7 +399,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
   const [currentMode, setCurrentMode] = useState<ToolMode>('select');
   const [penColor, setPenColor] = useState('#68594d');
   const [penWidth, setPenWidth] = useState(2);
-  const [highlightColor, setHighlightColor] = useState('#ffeb3b');
+  const [highlightColor, setHighlightColor] = useState('#ffe600');
   const [currentShape, setCurrentShape] = useState<ShapeType>('rectangle');
 
   const [annotations, setAnnotations] = useState<PdfAnnotation[]>([]);
@@ -1183,11 +1183,18 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
           const bottom = Math.min(selectedRect.bottom, pageBounds.bottom);
           if (right <= left + 0.5 || bottom <= top + 0.5) continue;
 
+          // O marca-texto deve ultrapassar a caixa de seleção por uma margem
+          // pequena e igual nos dois lados, como um grifo convencional.
+          // A caixa DOM já está alinhada à linha de base real do texto no PdfCanvasPage.
+          const verticalPaddingPx = modeToApply === 'highlight' ? 1.5 : 0;
+          const paddedTop = Math.max(pageBounds.top, top - verticalPaddingPx);
+          const paddedBottom = Math.min(pageBounds.bottom, bottom + verticalPaddingPx);
+
           const converted = {
             x: Math.max(0, (left - pageBounds.left) / scaleX),
-            y: Math.max(0, (top - pageBounds.top) / scaleY),
+            y: Math.max(0, (paddedTop - pageBounds.top) / scaleY),
             width: (right - left) / scaleX,
-            height: (bottom - top) / scaleY,
+            height: Math.max(0, (paddedBottom - paddedTop) / scaleY),
           };
           const existing = groupedRects.get(pageIndex) || [];
           existing.push(converted);
@@ -1212,7 +1219,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
             type: 'highlight',
             rects,
             color: highlightColor,
-            opacity: 0.48,
+            opacity: 0.58,
             createdAt: now,
             updatedAt: now,
           });
