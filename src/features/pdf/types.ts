@@ -26,6 +26,8 @@ export interface BaseAnnotation {
   pageIndex: number; // 0-based
   createdAt: string;
   updatedAt: string;
+  /** Indica que a anotação foi recuperada do /Annots do PDF e já é renderizada pelo PDF.js. */
+  isNative?: boolean;
 }
 
 export interface DrawingAnnotation extends BaseAnnotation {
