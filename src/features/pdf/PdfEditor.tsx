@@ -59,7 +59,8 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
   // View state
   const [zoom, setZoom] = useState(1.15);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  // Miniaturas começam recolhidas em cada abertura do PDF.
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const selectedPdfTextRangeRef = useRef<Range | null>(null);
@@ -875,12 +876,28 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         updatedAt: new Date().toISOString(),
       });
 
-      const annotationsSnapshot = annotations;
-      const updatedBlob = await exportPdfWithAnnotations(rawPdfBytes, annotationsSnapshot);
+      // Usa a ref sincronizada em pushHistory para nunca exportar um estado React
+      // anterior ao último mouseup/seleção de texto.
+      const annotationsSnapshot = [...annotationsRef.current];
+      const highlightCount = annotationsSnapshot.filter(
+        (annotation) => annotation.type === 'highlight'
+      ).length;
 
-      // Esta etapa grava o Blob local, preserva attachmentId/storage_path e
-      // registra REPLACE_ATTACHMENT na SyncQueue. Depois dela o arquivo já está salvo
-      // localmente, mesmo que a atualização visual do PDF.js precise ser repetida.
+      console.info('[PdfEditor] Iniciando exportação do PDF:', {
+        attachmentId,
+        annotations: annotationsSnapshot.length,
+        highlights: highlightCount,
+      });
+
+      const updatedBlob = await exportPdfWithAnnotations(rawPdfBytes, annotationsSnapshot);
+      if (updatedBlob.size <= 0) {
+        throw new Error('A exportação gerou um PDF vazio. O arquivo anterior foi preservado.');
+      }
+
+      // A exportação precisa preservar todas as marcações. Mantemos os overlays
+      // visíveis na sessão atual; a base rawPdfBytes continua sendo o PDF original
+      // desta abertura. Assim, salvar novamente não duplica as anotações já
+      // incorporadas: sempre exportamos a base original + o estado completo atual.
       const result = await replaceNoteAttachment(userId, attachmentId, updatedBlob, {
         sourceUrl,
         fileName,
@@ -889,58 +906,13 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         throw new Error('O IndexedDB não confirmou a gravação local do PDF editado.');
       }
 
-      const savedBytes = await updatedBlob.arrayBuffer();
-      let reloadedPdf: any = null;
-
-      // Recarregar o PDF.js só atualiza a prévia da tela. Uma falha nesta etapa
-      // NÃO pode marcar como falha o arquivo que já foi persistido localmente.
-      try {
-        const pdfjsLib = await import('pdfjs-dist');
-        if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-        }
-        const reloadedTask = pdfjsLib.getDocument({
-          data: new Uint8Array(savedBytes.slice(0)),
-          cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/cmaps/`,
-          cMapPacked: true,
-        });
-        reloadedPdf = await reloadedTask.promise;
-      } catch (previewError) {
-        console.warn(
-          '[PdfEditor] O PDF foi salvo localmente, mas a prévia não conseguiu recarregar; as anotações continuam na tela e serão incorporadas novamente no próximo salvamento:',
-          previewError
-        );
-      }
-
-      if (reloadedPdf) {
-        const previousPdf = pdfDoc;
-        setRawPdfBytes(savedBytes);
-        setPdfDoc(reloadedPdf);
-        setNumPages(reloadedPdf.numPages);
-        setCurrentPage((current) => Math.min(current, reloadedPdf.numPages - 1));
-        setAnnotations([]);
-        annotationsRef.current = [];
-        setSelectedAnnotationId(null);
-        setHistory([[]]);
-        setHistoryIndex(0);
-
-        try {
-          await previousPdf?.destroy?.();
-        } catch {
-          // O documento novo já está carregado; liberar o anterior é best-effort.
-        }
-      } else {
-        // Mantém a base binária original junto dos overlays atuais. Isso evita
-        // reaplicar anotações sobre um PDF já anotado caso seja necessário salvar
-        // novamente antes de fechar/reabrir o documento.
-        setHistory([annotationsSnapshot]);
-        setHistoryIndex(0);
-      }
-
+      // Não substituímos o PDF.js nem limpamos annotations. A versão exportada já
+      // está salva no IndexedDB/SyncQueue; manter os overlays evita que um grifo
+      // desapareça durante a atualização visual do documento.
+      setSelectedAnnotationId(null);
       hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
 
-      // A limpeza do rascunho não invalida o arquivo já gravado.
       await indexedDBStorage.setMetadata(userId, draftKey, null).catch((error) => {
         console.warn('[PdfEditor] Não foi possível limpar o rascunho local:', error);
       });
@@ -948,8 +920,6 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         await indexedDBStorage.setMetadata('anonymous', draftKey, null).catch(() => {});
       }
 
-      // A sincronização em nuvem só é confirmada pelo evento do SyncEngine.
-      // Preserve um erro remoto que possa ter chegado enquanto a prévia era recarregada.
       setSaveStatus((current) => {
         if (current === 'synced' || current === 'error') return current;
         return wasOnline ? 'syncing' : 'saved_local';
