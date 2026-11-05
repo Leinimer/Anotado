@@ -44,6 +44,7 @@ import {
   deleteLibraryPdf,
   attachPdfToNote,
   uploadNoteAttachment,
+  deleteNoteAttachment,
 } from '@/src/features/notes/api/storage-api';
 import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
 
@@ -89,7 +90,7 @@ export function MainLayout() {
   const summaryContentRef = useRef<Map<string, string>>(new Map());
   const pendingPdfSummaryIdsRef = useRef<Set<string>>(new Set());
   const pendingPdfHighlightsRef = useRef<Map<string, any[]>>(new Map());
-  const pendingPdfCropsRef = useRef<Map<string, Array<{ pageIndex: number; image: Blob; rect: { x: number; y: number; width: number; height: number } }>>>(new Map());
+  const pendingPdfCropsRef = useRef<Map<string, Array<{ cropId: string; pageIndex: number; image: Blob; rect: { x: number; y: number; width: number; height: number } }>>>(new Map());
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
@@ -1151,7 +1152,7 @@ export function MainLayout() {
     const appendPdfCrop = async (
       note: Note,
       attachmentId: string,
-      crop: { pageIndex: number; image: Blob; rect: { x: number; y: number; width: number; height: number } }
+      crop: { cropId: string; pageIndex: number; image: Blob; rect: { x: number; y: number; width: number; height: number } }
     ) => {
       if (!crop.image || crop.image.size === 0) return '';
       const fileName = `Recorte-P${crop.pageIndex + 1}-${Date.now()}.png`;
@@ -1163,7 +1164,7 @@ export function MainLayout() {
       const citationPath = [
         encodeURIComponent(attachmentId),
         crop.pageIndex,
-        'crop',
+        encodeURIComponent(crop.cropId),
         crop.rect.x.toFixed(2),
         crop.rect.y.toFixed(2),
         crop.rect.width.toFixed(2),
@@ -1309,12 +1310,14 @@ export function MainLayout() {
     const handleNewPdfCrop = async (event: Event) => {
       const detail = (event as CustomEvent<{
         attachmentId?: string;
+        cropId?: string;
         pageIndex?: number;
         image?: Blob;
         rect?: { x: number; y: number; width: number; height: number };
       }>).detail || {};
-      if (!detail.attachmentId || !detail.image || !detail.rect) return;
+      if (!detail.attachmentId || !detail.cropId || !detail.image || !detail.rect) return;
       const crop = {
+        cropId: detail.cropId,
         pageIndex: Number(detail.pageIndex) || 0,
         image: detail.image,
         rect: detail.rect,
@@ -1339,13 +1342,86 @@ export function MainLayout() {
       }
     };
 
+    const handlePdfAnnotationDeleted = async (event: Event) => {
+      const detail = (event as CustomEvent<{
+        attachmentId?: string;
+        annotationId?: string;
+        annotationType?: 'highlight' | 'crop';
+      }>).detail || {};
+      if (!detail.attachmentId || !detail.annotationId || !detail.annotationType) return;
+
+      const { attachmentId, annotationId, annotationType } = detail;
+      const summary = notes.find((note) => note.parent_pdf_id === attachmentId && !note.is_archived);
+
+      // Se o Resumo ainda não existe, também remove o recorte que estava aguardando
+      // a criação da nota, evitando inserir uma imagem cujo contorno já foi apagado.
+      if (annotationType === 'crop' && !summary) {
+        const pending = pendingPdfCropsRef.current.get(attachmentId) || [];
+        pendingPdfCropsRef.current.set(
+          attachmentId,
+          pending.filter((crop) => crop.cropId !== annotationId)
+        );
+        return;
+      }
+      if (!summary) return;
+
+      let nextContent = summaryContentRef.current.get(summary.id) ?? summary.content ?? '';
+      const removedAttachmentIds = new Set<string>();
+
+      if (annotationType === 'highlight') {
+        const encodedId = encodeURIComponent(annotationId);
+        const citationToken = `/${encodedId}/`;
+        nextContent = nextContent
+          .split(/\\r?\\n/)
+          .filter((line) => !(line.includes('#pdf-citation/') && line.includes(citationToken)))
+          .join('\\n');
+      } else {
+        // Imagens ainda no formato Markdown.
+        const markdownImage = /!\\[[^\\]]*\\]\\(attachment:\\/\\/([^ )]+)\\s+"pdf-citation:([^"]+)"\\)/g;
+        nextContent = nextContent.replace(markdownImage, (full, attachmentIdInImage: string, citationPath: string) => {
+          const parts = citationPath.split('/');
+          if (decodeURIComponent(parts[2] || '') !== annotationId) return full;
+          removedAttachmentIds.add(attachmentIdInImage);
+          return '';
+        });
+
+        // Imagens que já foram serializadas pelo editor como HTML.
+        const htmlImage = /<img\\b[^>]*>/gi;
+        nextContent = nextContent.replace(htmlImage, (tag) => {
+          const src = tag.match(/\\bsrc=["']attachment:\\/\\/([^"']+)["']/i)?.[1];
+          const title = tag.match(/\\btitle=["']pdf-citation:([^"']+)["']/i)?.[1];
+          if (!src || !title) return tag;
+          const parts = title.split(';')[0].split('/');
+          if (decodeURIComponent(parts[2] || '') !== annotationId) return tag;
+          removedAttachmentIds.add(src);
+          return '';
+        });
+      }
+
+      nextContent = nextContent.replace(/\\n{3,}/g, '\\n\\n').trim();
+      const currentContent = summaryContentRef.current.get(summary.id) ?? summary.content ?? '';
+      if (nextContent !== currentContent) {
+        summaryContentRef.current.set(summary.id, nextContent);
+        setNotes((prev) => prev.map((note) => note.id === summary.id
+          ? { ...note, content: nextContent, updated_at: new Date().toISOString() }
+          : note));
+        await updateNoteContent(userId, summary.id, nextContent, summary.tags || []);
+      }
+
+      for (const removedId of removedAttachmentIds) {
+        await deleteNoteAttachment(userId, removedId);
+      }
+    };
+
     window.addEventListener('anotado:pdf-summary-request', handleSummaryRequest);
+    window.addEventListener('anotado:pdf-annotation-deleted', handlePdfAnnotationDeleted);
     window.addEventListener('anotado:pdf-highlight-created', handleNewPdfHighlight);
     window.addEventListener('anotado:pdf-crop-created', handleNewPdfCrop);
     return () => {
       window.removeEventListener('anotado:pdf-summary-request', handleSummaryRequest);
       window.removeEventListener('anotado:pdf-highlight-created', handleNewPdfHighlight);
       window.removeEventListener('anotado:pdf-crop-created', handleNewPdfCrop);
+      window.removeEventListener('anotado:pdf-annotation-deleted', handlePdfAnnotationDeleted);
     };
   }, [notes, libraryPdfs, userId, handleOpenNoteInNewTab]);
 
