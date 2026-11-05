@@ -2581,7 +2581,7 @@ class SyncEngine {
 
         // Sobrescreve o objeto no bucket que realmente contém o anexo.
         // O caminho original é preservado; não cria um novo attachmentId.
-        const { error: uploadErr } = await supabase.storage
+        const { data: uploadData, error: uploadErr } = await supabase.storage
           .from(effectiveBucket)
           .upload(effectivePath, uploadBody, {
             contentType: mimeType,
@@ -2602,6 +2602,24 @@ class SyncEngine {
           console.error(`[ATTACHMENT] REPLACE_ATTACHMENT storage upload error:`, uploadErr);
           throw normalizedUploadError;
         }
+
+        if (!uploadData?.path || uploadData.path !== effectivePath) {
+          const invalidUploadConfirmation = new Error(
+            `O Supabase Storage não confirmou o caminho enviado. Esperado: ${effectivePath}; recebido: ${uploadData?.path || 'vazio'}.`
+          );
+          Object.assign(invalidUploadConfirmation, {
+            code: 'STORAGE_PATH_CONFIRMATION_FAILED',
+            stage: 'STORAGE_UPLOAD_CONFIRMATION',
+          });
+          throw invalidUploadConfirmation;
+        }
+
+        console.info('[ATTACHMENT] REPLACE_ATTACHMENT STORAGE_CONFIRMED', {
+          attachmentId,
+          bucket: effectiveBucket,
+          storagePath: uploadData.path,
+          fileSize: buffer.byteLength,
+        });
 
         // Atualiza a linha existente. Se o PDF for um anexo legado órfão,
         // insere os metadados usando o MESMO attachmentId e storage_path após o
@@ -2637,7 +2655,7 @@ class SyncEngine {
           })
           .eq('id', attachmentId)
           .eq('user_id', userId)
-          .select('id')
+          .select('id, file_size, storage_path, bucket_id, updated_at')
           .maybeSingle();
 
         updatedAttachmentRow = updateWithBucket.data;
@@ -2654,7 +2672,7 @@ class SyncEngine {
             })
             .eq('id', attachmentId)
             .eq('user_id', userId)
-            .select('id')
+            .select('id, file_size, storage_path, updated_at')
             .maybeSingle();
           updatedAttachmentRow = legacyUpdate.data;
           dbErr = legacyUpdate.error;
@@ -2680,7 +2698,7 @@ class SyncEngine {
           const insertWithBucket = await supabase
             .from('note_attachments')
             .insert(metadataWithBucket)
-            .select('id')
+            .select('id, file_size, storage_path, bucket_id, updated_at')
             .maybeSingle();
 
           updatedAttachmentRow = insertWithBucket.data;
@@ -2690,7 +2708,7 @@ class SyncEngine {
             const legacyInsert = await supabase
               .from('note_attachments')
               .insert(metadataBase)
-              .select('id')
+              .select('id, file_size, storage_path, updated_at')
               .maybeSingle();
             updatedAttachmentRow = legacyInsert.data;
             dbErr = legacyInsert.error;
@@ -2701,7 +2719,7 @@ class SyncEngine {
           if (dbErr?.code === '23505') {
             const existingAfterConflict = await supabase
               .from('note_attachments')
-              .select('id')
+              .select('id, file_size, storage_path, updated_at')
               .eq('id', attachmentId)
               .eq('user_id', userId)
               .maybeSingle();
@@ -2724,9 +2742,42 @@ class SyncEngine {
           }
         }
 
+        if (Number(updatedAttachmentRow.file_size) !== buffer.byteLength) {
+          const sizeMismatchError = new Error(
+            `O Storage recebeu o PDF, mas note_attachments informa ${updatedAttachmentRow.file_size} bytes; esperado: ${buffer.byteLength}.`
+          );
+          Object.assign(sizeMismatchError, {
+            code: 'ATTACHMENT_REMOTE_SIZE_MISMATCH',
+            stage: 'NOTE_ATTACHMENTS_VERIFY',
+          });
+          throw sizeMismatchError;
+        }
+
+        if (updatedAttachmentRow.storage_path !== effectivePath) {
+          const pathMismatchError = new Error(
+            `note_attachments aponta para outro caminho (${updatedAttachmentRow.storage_path || 'vazio'}), diferente do arquivo enviado (${effectivePath}).`
+          );
+          Object.assign(pathMismatchError, {
+            code: 'ATTACHMENT_REMOTE_PATH_MISMATCH',
+            stage: 'NOTE_ATTACHMENTS_VERIFY',
+          });
+          throw pathMismatchError;
+        }
+
+        if (updatedAttachmentRow.bucket_id && updatedAttachmentRow.bucket_id !== effectiveBucket) {
+          const bucketMismatchError = new Error(
+            `note_attachments aponta para o bucket ${updatedAttachmentRow.bucket_id}, mas o PDF foi enviado para ${effectiveBucket}.`
+          );
+          Object.assign(bucketMismatchError, {
+            code: 'ATTACHMENT_REMOTE_BUCKET_MISMATCH',
+            stage: 'NOTE_ATTACHMENTS_VERIFY',
+          });
+          throw bucketMismatchError;
+        }
+
         attachment.bucket_id = effectiveBucket;
 
-        // Marca como sincronizado no IndexedDB
+        // Marca como sincronizado no IndexedDB somente após confirmar Storage + metadados
         attachment.syncRequired = false;
         attachment.syncStatus = 'synced';
         attachment.sync_status = 'synced';
@@ -2735,7 +2786,13 @@ class SyncEngine {
 
         invalidateAttachmentCache(attachmentId);
 
-        console.log(`[ATTACHMENT] REPLACE_ATTACHMENT SYNC_CONFIRMED attachmentId=${attachmentId}`);
+        console.log('[ATTACHMENT] REPLACE_ATTACHMENT SYNC_CONFIRMED', {
+          attachmentId,
+          bucket: effectiveBucket,
+          storagePath: effectivePath,
+          fileSize: buffer.byteLength,
+          remoteUpdatedAt: updatedAttachmentRow.updated_at || null,
+        });
 
         if (typeof window !== 'undefined') {
           window.dispatchEvent(
@@ -2744,6 +2801,9 @@ class SyncEngine {
                 attachmentId,
                 requestedAttachmentId: item.payload?.requestedAttachmentId || attachmentId,
                 storagePath: effectivePath,
+                bucketId: effectiveBucket,
+                fileSize: buffer.byteLength,
+                remoteUpdatedAt: updatedAttachmentRow.updated_at || null,
               },
             })
           );
