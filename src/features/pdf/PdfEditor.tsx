@@ -1310,6 +1310,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
   };
 
   const handleCropComplete = (crop: {
+    cropId: string;
     pageIndex: number;
     image: Blob;
     rect: { x: number; y: number; width: number; height: number };
@@ -1328,6 +1329,20 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
   const handleDeleteAnnotation = (id: string) => {
     if (isSavingRef.current) return;
+    const deleted = annotationsRef.current.find((annotation) => annotation.id === id);
+    if (!deleted) return;
+
+    if (deleted.type === 'highlight' || deleted.type === 'crop') {
+      window.dispatchEvent(new CustomEvent('anotado:pdf-annotation-deleted', {
+        detail: {
+          attachmentId,
+          annotationId: deleted.id,
+          annotationType: deleted.type,
+          pageIndex: deleted.pageIndex,
+        },
+      }));
+    }
+
     const next = annotations.filter((a) => a.id !== id);
     if (selectedAnnotationId === id) {
       setSelectedAnnotationId(null);
