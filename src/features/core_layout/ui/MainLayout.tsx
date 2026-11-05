@@ -1372,12 +1372,12 @@ export function MainLayout() {
         const encodedId = encodeURIComponent(annotationId);
         const citationToken = `/${encodedId}/`;
         nextContent = nextContent
-          .split(/\\r?\\n/)
+          .split(/\r?\n/)
           .filter((line) => !(line.includes('#pdf-citation/') && line.includes(citationToken)))
-          .join('\\n');
+          .join('\n');
       } else {
         // Imagens ainda no formato Markdown.
-        const markdownImage = /!\\[[^\\]]*\\]\\(attachment:\\/\\/([^ )]+)\\s+"pdf-citation:([^"]+)"\\)/g;
+        const markdownImage = /!\[[^\]]*\]\(attachment:\/\/([^ )]+)\s+"pdf-citation:([^"]+)"\)/g;
         nextContent = nextContent.replace(markdownImage, (full, attachmentIdInImage: string, citationPath: string) => {
           const parts = citationPath.split('/');
           if (decodeURIComponent(parts[2] || '') !== annotationId) return full;
@@ -1386,10 +1386,10 @@ export function MainLayout() {
         });
 
         // Imagens que já foram serializadas pelo editor como HTML.
-        const htmlImage = /<img\\b[^>]*>/gi;
+        const htmlImage = /<img\b[^>]*>/gi;
         nextContent = nextContent.replace(htmlImage, (tag) => {
-          const src = tag.match(/\\bsrc=["']attachment:\\/\\/([^"']+)["']/i)?.[1];
-          const title = tag.match(/\\btitle=["']pdf-citation:([^"']+)["']/i)?.[1];
+          const src = tag.match(/\bsrc=["']attachment:\/\/([^"']+)["']/i)?.[1];
+          const title = tag.match(/\btitle=["']pdf-citation:([^"']+)["']/i)?.[1];
           if (!src || !title) return tag;
           const parts = title.split(';')[0].split('/');
           if (decodeURIComponent(parts[2] || '') !== annotationId) return tag;
@@ -1398,7 +1398,7 @@ export function MainLayout() {
         });
       }
 
-      nextContent = nextContent.replace(/\\n{3,}/g, '\\n\\n').trim();
+      nextContent = nextContent.replace(/\n{3,}/g, '\n\n').trim();
       const currentContent = summaryContentRef.current.get(summary.id) ?? summary.content ?? '';
       if (nextContent !== currentContent) {
         summaryContentRef.current.set(summary.id, nextContent);
