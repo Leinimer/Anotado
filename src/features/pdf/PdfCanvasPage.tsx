@@ -42,6 +42,7 @@ interface PdfCanvasPageProps {
   onAddAnnotation: (ann: PdfAnnotation) => void;
   onUpdateAnnotation: (ann: PdfAnnotation) => void;
   onDeleteAnnotation: (id: string) => void;
+  onCropComplete?: (crop: { pageIndex: number; image: Blob; rect: { x: number; y: number; width: number; height: number } }) => void;
   isReadOnly?: boolean;
 }
 
@@ -61,6 +62,7 @@ export function PdfCanvasPage({
   onAddAnnotation,
   onUpdateAnnotation,
   onDeleteAnnotation,
+  onCropComplete,
   isReadOnly = false,
 }: PdfCanvasPageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -473,7 +475,7 @@ export function PdfCanvasPage({
 
     // Se o clique veio de uma anotação existente, textarea, popover ou botão, aborte a criação
     if (
-      target?.closest('[data-pdf-annotation]') ||
+      (mode !== 'crop' && target?.closest('[data-pdf-annotation]')) ||
       target?.closest('[data-pdf-text-editor]') ||
       target?.closest('textarea, input, button')
     ) {
@@ -486,6 +488,15 @@ export function PdfCanvasPage({
     }
 
     if (e.button !== 0) return; // Apenas clique com botão esquerdo
+
+    // Recorte: arraste uma área da página para capturar o conteúdo visível do PDF.
+    if (mode === 'crop') {
+      e.preventDefault();
+      setIsInteracting(true);
+      setStartPoint(pt);
+      setCurrentPoint(pt);
+      return;
+    }
 
     // Para ferramentas de texto (seleção, marca-texto, sublinhado, tachado), a camada
     // .pdf-text-layer conduz o arraste nativo do navegador
@@ -595,6 +606,50 @@ export function PdfCanvasPage({
 
     if (!startPoint || !currentPoint) return;
 
+    if (mode === 'crop') {
+      const minX = Math.min(startPoint.x, currentPoint.x);
+      const minY = Math.min(startPoint.y, currentPoint.y);
+      const width = Math.abs(currentPoint.x - startPoint.x);
+      const height = Math.abs(currentPoint.y - startPoint.y);
+      const pageCanvas = canvasRef.current;
+      const pageElement = containerRef.current;
+
+      if (pageCanvas && pageElement && width > 5 && height > 5 && onCropComplete) {
+        const pageBounds = pageElement.getBoundingClientRect();
+        const unitScaleX = (pageDimensions?.scaleX || 1.333333) * zoom;
+        const unitScaleY = (pageDimensions?.scaleY || 1.333333) * zoom;
+        const pixelScaleX = pageCanvas.width / Math.max(1, pageBounds.width);
+        const pixelScaleY = pageCanvas.height / Math.max(1, pageBounds.height);
+        const sourceX = Math.max(0, Math.min(pageCanvas.width, Math.round(minX * unitScaleX * pixelScaleX)));
+        const sourceY = Math.max(0, Math.min(pageCanvas.height, Math.round(minY * unitScaleY * pixelScaleY)));
+        const sourceWidth = Math.max(1, Math.min(pageCanvas.width - sourceX, Math.round(width * unitScaleX * pixelScaleX)));
+        const sourceHeight = Math.max(1, Math.min(pageCanvas.height - sourceY, Math.round(height * unitScaleY * pixelScaleY)));
+
+        if (sourceWidth > 1 && sourceHeight > 1) {
+          const croppedCanvas = document.createElement('canvas');
+          croppedCanvas.width = sourceWidth;
+          croppedCanvas.height = sourceHeight;
+          const context = croppedCanvas.getContext('2d');
+          if (context) {
+            context.drawImage(pageCanvas, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
+            croppedCanvas.toBlob((image) => {
+              if (image) {
+                onCropComplete({
+                  pageIndex,
+                  image,
+                  rect: { x: minX, y: minY, width, height },
+                });
+              }
+            }, 'image/png');
+          }
+        }
+      }
+
+      setStartPoint(null);
+      setCurrentPoint(null);
+      return;
+    }
+
     const minX = Math.min(startPoint.x, currentPoint.x);
     const minY = Math.min(startPoint.y, currentPoint.y);
     const width = Math.abs(currentPoint.x - startPoint.x);
@@ -690,7 +745,7 @@ export function PdfCanvasPage({
       data-pdf-page-index={pageIndex}
       data-pdf-scale-x={pageDimensions?.scaleX ? pageDimensions.scaleX * zoom : zoom * 1.333333}
       data-pdf-scale-y={pageDimensions?.scaleY ? pageDimensions.scaleY * zoom : zoom * 1.333333}
-      className="relative mb-6 mx-auto bg-white dark:bg-[#151515] shadow-lg rounded-sm transition-shadow border border-[#e4e2dd] dark:border-[#33312e] select-text"
+      className={`relative mb-6 mx-auto bg-white dark:bg-[#151515] shadow-lg rounded-sm transition-shadow border border-[#e4e2dd] dark:border-[#33312e] select-text ${mode === 'crop' ? 'cursor-crosshair' : ''}`} 
       style={{
         width: pageDimensions ? `${pageDimensions.width}px` : `${595 * 1.333333 * zoom}px`,
         height: pageDimensions ? `${pageDimensions.height}px` : `${842 * 1.333333 * zoom}px`,
@@ -770,6 +825,19 @@ export function PdfCanvasPage({
               height={Math.abs(currentPoint.y - startPoint.y)}
               fill={highlightColor}
               opacity={0.8}
+            />
+          )}
+          {isInteracting && startPoint && currentPoint && mode === 'crop' && (
+            <rect
+              x={Math.min(startPoint.x, currentPoint.x)}
+              y={Math.min(startPoint.y, currentPoint.y)}
+              width={Math.abs(currentPoint.x - startPoint.x)}
+              height={Math.abs(currentPoint.y - startPoint.y)}
+              fill="#5b8def"
+              fillOpacity={0.16}
+              stroke="#3975d7"
+              strokeWidth={Math.max(1, 1 / zoom)}
+              strokeDasharray={`${5 / zoom} ${3 / zoom}`}
             />
           )}
         </svg>
