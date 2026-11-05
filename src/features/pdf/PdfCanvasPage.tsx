@@ -548,8 +548,6 @@ export function PdfCanvasPage({
                       y={r.y}
                       width={r.width}
                       height={r.height}
-                      // O PDF.js já compõe grifos nativos /Highlight sobre
-                      // o canvas. O SVG mantém somente uma área clicável para seleção.
                       fill={ann.isNative ? 'rgba(0,0,0,0.001)' : ann.color}
                       opacity={ann.isNative ? 1 : (ann.opacity ?? 0.85)}
                       onClick={(e) => {
