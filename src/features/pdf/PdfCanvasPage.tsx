@@ -488,6 +488,7 @@ export function PdfCanvasPage({
     }
 
     if (e.button !== 0) return; // Apenas clique com botão esquerdo
+    const pt = getUnscaledCoords(e);
 
     // Recorte: arraste uma área da página para capturar o conteúdo visível do PDF.
     if (mode === 'crop') {
@@ -512,7 +513,6 @@ export function PdfCanvasPage({
       return;
     }
 
-    const pt = getUnscaledCoords(e);
     setIsInteracting(true);
     setStartPoint(pt);
     setCurrentPoint(pt);
