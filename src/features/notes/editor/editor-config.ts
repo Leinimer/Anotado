@@ -31,6 +31,36 @@ export const CustomLink = Link.extend({
       new Plugin({
         key: new PluginKey('linkNonPropagation'),
         props: {
+          handleClick(view, _pos, event) {
+            const target = event.target as HTMLElement | null;
+            const anchor = target?.closest('a[href^="#pdf-citation/"]') as HTMLAnchorElement | null;
+            if (!anchor) return false;
+
+            event.preventDefault();
+            event.stopPropagation();
+            if (!event.ctrlKey && !event.metaKey) return true;
+
+            const href = anchor.getAttribute('href') || '';
+            const parts = href.slice('#pdf-citation/'.length).split('/');
+            if (parts.length < 7) return true;
+            const [attachmentId, rawPage, annotationId, rawX, rawY, rawWidth, rawHeight] = parts;
+            const detail = {
+              attachmentId: decodeURIComponent(attachmentId),
+              pageIndex: Number(rawPage),
+              annotationId: decodeURIComponent(annotationId),
+              rect: {
+                x: Number(rawX),
+                y: Number(rawY),
+                width: Number(rawWidth),
+                height: Number(rawHeight),
+              },
+            };
+            if (!detail.attachmentId || !Number.isFinite(detail.pageIndex)) return true;
+
+            const browserWindow = view.dom.ownerDocument.defaultView;
+            browserWindow?.dispatchEvent(new CustomEvent('anotado:open-pdf-citation', { detail }));
+            return true;
+          },
           handleKeyDown(view, event) {
             if (event.key === ' ' || event.key === 'Spacebar') {
               const { state } = view;
