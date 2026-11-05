@@ -719,8 +719,10 @@ export function PdfCanvasPage({
             height: `${pageDimensions.height}px`,
             position: 'absolute',
             inset: 0,
-            zIndex: 1,
-            pointerEvents: 'none',
+            // No modo Selecionar, a camada de marcações fica acima da
+            // camada de texto transparente para receber o clique diretamente.
+            zIndex: mode === 'select' ? 4 : 1,
+            pointerEvents: mode === 'select' ? 'auto' : 'none',
             mixBlendMode: 'multiply',
           }}
         >
