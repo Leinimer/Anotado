@@ -336,6 +336,12 @@ export async function exportPdfWithAnnotations(
         // em /Contents e aparece no popup, sem virar texto impresso na página.
         break;
       }
+
+      case 'crop': {
+        // O contorno é um indicador de origem do recorte no editor; não é impresso
+        // no PDF exportado. A imagem correspondente permanece na nota-resumo.
+        break;
+      }
     }
   }
 
