@@ -54,6 +54,8 @@ interface PdfEditorToolbarProps {
   hasSelection: boolean;
   onDeleteSelected: () => void;
   isTextMarkSelected?: boolean;
+  hasSummary?: boolean;
+  onCreateSummary?: () => void;
   isReadOnly?: boolean;
 }
 
@@ -100,6 +102,8 @@ export function PdfEditorToolbar({
   hasSelection,
   onDeleteSelected,
   isTextMarkSelected = false,
+  hasSummary = false,
+  onCreateSummary,
   isReadOnly = false,
 }: PdfEditorToolbarProps) {
   const [showPenMenu, setShowPenMenu] = useState(false);
@@ -635,6 +639,28 @@ export function PdfEditorToolbar({
         >
           <ZoomIn className="w-4 h-4" />
         </button>
+
+        {/* Resumo do PDF: cria uma única nota ou abre a já existente. */}
+        {!isReadOnly && (
+          <button
+            type="button"
+            onClick={() => {
+              closeAllMenus();
+              onCreateSummary?.();
+            }}
+            className={`px-2 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5 text-xs font-semibold ${
+              hasSummary
+                ? 'bg-[#fee2e2] dark:bg-[#451a1a] text-[#ba1a1a] dark:text-[#f28b82] shadow-2xs'
+                : 'text-[#ba1a1a] dark:text-[#f28b82] hover:bg-[#fee2e2] dark:hover:bg-[#451a1a]'
+            }`}
+            title={hasSummary ? 'Abrir nota de resumo em nova aba' : 'Criar nota de resumo com as citações grifadas'}
+            aria-label={hasSummary ? 'Abrir resumo' : 'Criar resumo'}
+            aria-pressed={hasSummary}
+          >
+            <StickyNote className="w-4 h-4 text-[#ba1a1a] dark:text-[#f28b82]" />
+            <span>Resumo</span>
+          </button>
+        )}
       </div>
     </footer>
   );
