@@ -497,6 +497,53 @@ export function PdfCanvasPage({
 
   const pageAnnotations = annotations.filter((a) => a.pageIndex === pageIndex);
 
+  // A ação de excluir é contextual: só existe para a edição selecionada.
+  // Notas adesivas mantêm o botão de exclusão dentro do próprio comentário.
+  const selectedDeletableAnnotation = pageAnnotations.find(
+    (annotation) => annotation.id === selectedAnnotationId && annotation.type !== 'sticky_note'
+  );
+
+  const selectedDeletePosition = (() => {
+    const annotation = selectedDeletableAnnotation;
+    if (!annotation || !pageDimensions || annotation.type === 'sticky_note') return null;
+
+    let minX = 0;
+    let maxX = 0;
+    let minY = 0;
+
+    if (
+      annotation.type === 'highlight' ||
+      annotation.type === 'underline' ||
+      annotation.type === 'strikethrough'
+    ) {
+      const rects = annotation.rects || [];
+      if (rects.length === 0) return null;
+      minX = Math.min(...rects.map((rect) => rect.x));
+      maxX = Math.max(...rects.map((rect) => rect.x + rect.width));
+      minY = Math.min(...rects.map((rect) => rect.y));
+    } else if (annotation.type === 'drawing') {
+      if (!annotation.points || annotation.points.length === 0) return null;
+      minX = Math.min(...annotation.points.map((point) => point.x));
+      maxX = Math.max(...annotation.points.map((point) => point.x));
+      minY = Math.min(...annotation.points.map((point) => point.y));
+    } else if (annotation.type === 'text') {
+      minX = annotation.x;
+      maxX = annotation.x + (annotation.width || 160);
+      minY = annotation.y;
+    } else if (annotation.type === 'shape') {
+      minX = Math.min(annotation.x, annotation.x + annotation.width);
+      maxX = Math.max(annotation.x, annotation.x + annotation.width);
+      minY = Math.min(annotation.y, annotation.y + annotation.height);
+    } else {
+      return null;
+    }
+
+    return {
+      left: Math.max(14, Math.min(pageDimensions.width - 14, maxX * pageDimensions.scaleX * zoom)),
+      top: Math.max(14, minY * pageDimensions.scaleY * zoom - 18),
+    };
+  })();
+
   return (
     <div
       ref={containerRef}
@@ -845,53 +892,47 @@ export function PdfCanvasPage({
             </div>
           )}
 
+          {/* Lixeira contextual para qualquer edição selecionada, exceto nota adesiva. */}
+          {!isReadOnly && selectedDeletableAnnotation && selectedDeletePosition && (
+            <div
+              key={`delete-${selectedDeletableAnnotation.id}`}
+              data-pdf-annotation="true"
+              data-pdf-annotation-trash="true"
+              style={{
+                position: 'absolute',
+                left: `${selectedDeletePosition.left}px`,
+                top: `${selectedDeletePosition.top}px`,
+                transform: 'translate(-50%, -50%)',
+                zIndex: 80,
+              }}
+              className="pointer-events-auto"
+              onMouseDown={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onMouseDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDeleteAnnotation(selectedDeletableAnnotation.id);
+                  onSelectAnnotation(null);
+                }}
+                className="p-1.5 rounded-full bg-white dark:bg-[#252422] text-[#ba1a1a] shadow-lg border border-[#e4e2dd] dark:border-[#383633] hover:bg-[#ba1a1a] hover:text-white transition-all cursor-pointer flex items-center justify-center hover:scale-110 active:scale-95"
+                title="Excluir edição"
+                aria-label="Excluir edição selecionada"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Anotações HTML na página */}
           {pageAnnotations.map((ann) => {
             const isSelected = ann.id === selectedAnnotationId;
             const scaleX = pageDimensions?.scaleX || 1.333333;
             const scaleY = pageDimensions?.scaleY || 1.333333;
-
-            // Botão de lixeira flutuante discreto sobre a marcação de texto selecionada
-            if (isSelected && (ann.type === 'highlight' || ann.type === 'underline' || ann.type === 'strikethrough')) {
-              const rects = ann.rects || [];
-              if (rects.length > 0) {
-                const minY = Math.min(...rects.map((r) => r.y));
-                const maxX = Math.max(...rects.map((r) => r.x + r.width));
-                const buttonLeft = maxX * scaleX * zoom;
-                const buttonTop = Math.max(14, minY * scaleY * zoom - 14);
-
-                return (
-                  <div
-                    key={`trash-${ann.id}`}
-                    data-pdf-annotation="true"
-                    data-pdf-annotation-trash="true"
-                    style={{
-                      position: 'absolute',
-                      left: `${buttonLeft}px`,
-                      top: `${buttonTop}px`,
-                      transform: 'translate(-50%, -50%)',
-                      zIndex: 40,
-                    }}
-                    className="pointer-events-auto"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteAnnotation(ann.id);
-                      }}
-                      className="p-1.5 rounded-full bg-white dark:bg-[#252422] text-[#ba1a1a] shadow-lg border border-[#e4e2dd] dark:border-[#383633] hover:bg-[#ba1a1a] hover:text-white transition-all cursor-pointer flex items-center justify-center hover:scale-110 active:scale-95"
-                      title="Excluir marcação (Del)"
-                      aria-label="Excluir marcação"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                );
-              }
-            }
 
             if (ann.type === 'text') {
               return (
