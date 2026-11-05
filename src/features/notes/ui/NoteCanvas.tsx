@@ -170,7 +170,6 @@ export function NoteCanvas({
   // Ctrl/Cmd + clique em uma citação do resumo abre o PDF na página e região do grifo.
   useEffect(() => {
     const handlePdfCitationClick = (event: MouseEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
       const target = event.target as HTMLElement | null;
       const anchor = target?.closest('a[href^="#pdf-citation/"]') as HTMLAnchorElement | null;
       if (!anchor) return;
