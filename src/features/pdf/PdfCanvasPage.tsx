@@ -617,7 +617,7 @@ export function PdfCanvasPage({
                       // Todas as anotações são desenhadas uma única vez pela camada SVG.
                       // A cópia PDF.js usada na tela já remove as anotações nativas do ANOTADO.
                       fill={ann.color}
-                      opacity={ann.opacity ?? 0.48}
+                      opacity={Math.max(ann.opacity ?? 0.58, 0.58)}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
