@@ -651,7 +651,7 @@ export function PdfCanvasPage({
                 return i === 0 ? `M ${pt.x} ${pt.y}` : `${acc} L ${pt.x} ${pt.y}`;
               }, '');
               return (
-                <g key={ann.id} className="pointer-events-auto">
+                <g key={ann.id} data-pdf-annotation="true" className="pointer-events-auto">
                   <path
                     d={pathData}
                     fill="none"
@@ -688,7 +688,7 @@ export function PdfCanvasPage({
 
             if (ann.type === 'underline') {
               return (
-                <g key={ann.id} className="pointer-events-auto">
+                <g key={ann.id} data-pdf-annotation="true" className="pointer-events-auto">
                   {ann.rects.map((r, i) => (
                     <line
                       key={i}
@@ -712,7 +712,7 @@ export function PdfCanvasPage({
 
             if (ann.type === 'strikethrough') {
               return (
-                <g key={ann.id} className="pointer-events-auto">
+                <g key={ann.id} data-pdf-annotation="true" className="pointer-events-auto">
                   {ann.rects.map((r, i) => (
                     <line
                       key={i}
@@ -737,7 +737,7 @@ export function PdfCanvasPage({
             if (ann.type === 'shape') {
               const isLineOrArrow = ann.shapeType === 'line' || ann.shapeType === 'arrow';
               return (
-                <g key={ann.id} className="pointer-events-auto">
+                <g key={ann.id} data-pdf-annotation="true" className="pointer-events-auto">
                   {ann.shapeType === 'rectangle' && (
                     <rect
                       x={ann.x}
@@ -767,7 +767,7 @@ export function PdfCanvasPage({
                       onClick={(e) => {
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
-                        else if (mode === 'select') onSelectAnnotation(ann.id);
+                        else onSelectAnnotation(ann.id);
                       }}
                       className={`cursor-pointer ${isSelected ? 'stroke-blue-500' : ''}`}
                     />
@@ -783,7 +783,7 @@ export function PdfCanvasPage({
                       onClick={(e) => {
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
-                        else if (mode === 'select') onSelectAnnotation(ann.id);
+                        else onSelectAnnotation(ann.id);
                       }}
                       className={`cursor-pointer ${isSelected ? 'stroke-blue-500' : ''}`}
                     />
