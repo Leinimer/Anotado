@@ -2043,6 +2043,7 @@ export function MainLayout() {
                 onAddIndependentPdf={handleAddIndependentPdf}
                 onAttachPdfToNote={handleAttachPdfToNote}
                 onOpenNoteInNewTab={handleOpenNoteInNewTab}
+                onDetachPdfSummary={handleDetachPdfSummary}
                 onCloseMobile={() => setMobileSidebarOpen(false)}
                 currentWorkspace="notes"
                 onToggleWorkspace={handleToggleWorkspace}
