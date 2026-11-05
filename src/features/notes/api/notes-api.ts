@@ -808,6 +808,7 @@ export async function createNote(
     diaryYear?: number;
     diaryMonth?: number;
     diaryDay?: number;
+    parentPdfId?: string | null;
   }
 ): Promise<Note> {
   const noteId = generateUUID();
