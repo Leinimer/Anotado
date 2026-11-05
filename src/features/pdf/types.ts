@@ -1,3 +1,6 @@
+// Escala física usada como referência: 100% na interface equivale ao antigo zoom de 175%.
+export const PDF_DEFAULT_ZOOM = 1.75;
+
 export type ToolMode =
   | 'select'
   | 'hand'
