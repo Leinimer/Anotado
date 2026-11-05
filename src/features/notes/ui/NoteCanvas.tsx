@@ -171,17 +171,24 @@ export function NoteCanvas({
   useEffect(() => {
     const handlePdfCitationClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
+      const imageCitation = target?.closest('[data-pdf-citation]') as HTMLElement | null;
       const anchor = target?.closest('a[href^="#pdf-citation/"]') as HTMLAnchorElement | null;
-      if (!anchor) return;
+      const imagePath = imageCitation?.getAttribute('data-pdf-citation') || '';
+      const href = imagePath
+        ? `#pdf-citation/${imagePath}`
+        : anchor?.getAttribute('href') || '';
 
-      // A citação parece texto normal; sem Ctrl/Cmd, não há navegação nem link ativo.
+      if (!href.startsWith('#pdf-citation/')) return;
+
+      // Texto da citação fica inerte ao clique comum; imagens mantêm a abertura da lightbox.
       if (!event.ctrlKey && !event.metaKey) {
-        event.preventDefault();
-        event.stopPropagation();
+        if (anchor) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
         return;
       }
 
-      const href = anchor.getAttribute('href') || '';
       const parts = href.slice('#pdf-citation/'.length).split('/');
       if (parts.length < 7) return;
 
@@ -200,7 +207,7 @@ export function NoteCanvas({
       if (!detail.attachmentId || !Number.isFinite(detail.pageIndex)) return;
 
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       window.dispatchEvent(new CustomEvent('anotado:open-pdf-citation', { detail }));
     };
 
