@@ -1183,15 +1183,13 @@ export function MainLayout() {
             .map((item) => createCitationMarkdown(attachmentId, item))
             .filter(Boolean);
           if (lateBlocks.length > 0) {
-          finalContent = finalContent.trim()
-            ? `${finalContent.trim()}\n\n${lateBlocks.join('\n\n')}`
-            : `# Citações\n\n${lateBlocks.join('\n\n')}`;
-          await updateNoteContent(userId, created.id, finalContent, created.tags || []);
-          created.content = finalContent;
-        }
+            finalContent = finalContent.trim()
+              ? `${finalContent.trim()}\n\n${lateBlocks.join('\n\n')}`
+              : `# Citações\n\n${lateBlocks.join('\n\n')}`;
+            await updateNoteContent(userId, created.id, finalContent, created.tags || []);
+            created.content = finalContent;
           }
         }
-
         summaryContentRef.current.set(created.id, finalContent);
         setNotes((prev) => prev.some((note) => note.id === created.id) ? prev : [...prev, created]);
         setIsSplit(false);
