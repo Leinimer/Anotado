@@ -507,7 +507,6 @@ export function PdfCanvasPage({
     const annotation = selectedDeletableAnnotation;
     if (!annotation || !pageDimensions || annotation.type === 'sticky_note') return null;
 
-    let minX = 0;
     let maxX = 0;
     let minY = 0;
 
@@ -518,20 +517,16 @@ export function PdfCanvasPage({
     ) {
       const rects = annotation.rects || [];
       if (rects.length === 0) return null;
-      minX = Math.min(...rects.map((rect) => rect.x));
       maxX = Math.max(...rects.map((rect) => rect.x + rect.width));
       minY = Math.min(...rects.map((rect) => rect.y));
     } else if (annotation.type === 'drawing') {
       if (!annotation.points || annotation.points.length === 0) return null;
-      minX = Math.min(...annotation.points.map((point) => point.x));
       maxX = Math.max(...annotation.points.map((point) => point.x));
       minY = Math.min(...annotation.points.map((point) => point.y));
     } else if (annotation.type === 'text') {
-      minX = annotation.x;
       maxX = annotation.x + (annotation.width || 160);
       minY = annotation.y;
     } else if (annotation.type === 'shape') {
-      minX = Math.min(annotation.x, annotation.x + annotation.width);
       maxX = Math.max(annotation.x, annotation.x + annotation.width);
       minY = Math.min(annotation.y, annotation.y + annotation.height);
     } else {
@@ -587,7 +582,7 @@ export function PdfCanvasPage({
             .map((ann) => {
               const isSelected = ann.id === selectedAnnotationId;
               return (
-                <g key={ann.id} className="pointer-events-auto">
+                <g key={ann.id} data-pdf-annotation="true" className="pointer-events-auto">
                   {ann.rects.map((r, i) => (
                     <rect
                       key={i}
@@ -669,7 +664,7 @@ export function PdfCanvasPage({
                       e.stopPropagation();
                       if (mode === 'eraser') {
                         onDeleteAnnotation(ann.id);
-                      } else if (mode === 'select') {
+                      } else {
                         onSelectAnnotation(ann.id);
                       }
                     }}
@@ -680,6 +675,7 @@ export function PdfCanvasPage({
                       d={pathData}
                       fill="none"
                       stroke="#2563eb"
+                      pointerEvents="none"
                       strokeWidth={ann.strokeWidth + 3}
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -754,7 +750,7 @@ export function PdfCanvasPage({
                       onClick={(e) => {
                         e.stopPropagation();
                         if (mode === 'eraser') onDeleteAnnotation(ann.id);
-                        else if (mode === 'select') onSelectAnnotation(ann.id);
+                        else onSelectAnnotation(ann.id);
                       }}
                       className={`cursor-pointer ${isSelected ? 'stroke-blue-500' : ''}`}
                     />
