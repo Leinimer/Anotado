@@ -1298,3 +1298,32 @@ html.dark {
   color: transparent;
   background: rgba(59, 130, 246, 0.38);
 }
+
+
+/* Citações automáticas do Resumo de PDF: texto comum; Ctrl/Cmd + clique abre a origem. */
+.ProseMirror blockquote:has(a[href^="#pdf-citation/"]) {
+  border-left: 4px solid #a48f7b;
+  border-radius: 0 5px 5px 0;
+  padding-left: 1rem;
+  color: inherit;
+  font-style: normal;
+  margin: 0.75rem 0;
+}
+
+.ProseMirror blockquote:has(a[href^="#pdf-citation/"]) a[href^="#pdf-citation/"] {
+  color: inherit !important;
+  text-decoration: none !important;
+  text-decoration-line: none !important;
+  cursor: text !important;
+  font-style: normal !important;
+  font-weight: inherit !important;
+}
+
+.ProseMirror blockquote:has(a[href^="#pdf-citation/"]) p + p {
+  display: none !important;
+}
+
+/* Remove o cabeçalho antigo que era criado automaticamente nos resumos existentes. */
+.paper-sheet:has(.ProseMirror a[href^="#pdf-citation/"]) .ProseMirror > h1:first-child {
+  display: none !important;
+}
