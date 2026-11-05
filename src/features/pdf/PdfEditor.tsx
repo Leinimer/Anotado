@@ -231,8 +231,155 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         let documentName = attachment?.file_name || 'Documento.pdf';
         let loadDetails = '';
 
-        // 1. Prioriza o Blob local, desde que esteja íntegro.
-        if (attachment?.blob && attachment.blob.size > 0) {
+        // Ao reabrir online, a versão remota confirmada é a fonte de verdade.
+        // Antes o Blob local era sempre priorizado, podendo reabrir uma cópia
+        // antiga mesmo depois de o Supabase ter recebido uma versão mais nova.
+        // Nunca substitui um Blob local que ainda está pendente/deu erro de sync.
+        const hasPendingLocalReplacement = Boolean(
+          attachment &&
+          (
+            attachment.syncRequired ||
+            attachment.syncStatus === 'pending' ||
+            attachment.syncStatus === 'syncing' ||
+            attachment.syncStatus === 'error' ||
+            attachment.sync_status === 'pending' ||
+            attachment.sync_status === 'failed'
+          )
+        );
+
+        if (
+          userId !== 'anonymous' &&
+          !isReadOnly &&
+          !hasPendingLocalReplacement &&
+          isSupabaseConfigured() &&
+          navigator.onLine
+        ) {
+          try {
+            const supabase = createClient();
+            const knownStoragePath = attachment?.storage_path || sourceObject?.storagePath || null;
+
+            let { data: remoteAttachment, error: remoteMetadataError } = await supabase
+              .from('note_attachments')
+              .select('id, user_id, note_id, file_name, mime_type, file_size, storage_path, bucket_id, created_at, updated_at')
+              .eq('id', attachmentId)
+              .eq('user_id', userId)
+              .maybeSingle();
+
+            // O attachmentId de cartões antigos pode divergir do ID canônico.
+            // Se houver caminho conhecido, consulta também por user_id + storage_path,
+            // inclusive quando a origem recebida pelo editor é uma blob: URL.
+            if (!remoteAttachment && knownStoragePath) {
+              const byPath = await supabase
+                .from('note_attachments')
+                .select('id, user_id, note_id, file_name, mime_type, file_size, storage_path, bucket_id, created_at, updated_at')
+                .eq('user_id', userId)
+                .eq('storage_path', knownStoragePath)
+                .maybeSingle();
+
+              if (byPath.error) {
+                remoteMetadataError = byPath.error;
+              } else {
+                remoteAttachment = byPath.data;
+              }
+            }
+
+            if (remoteMetadataError) {
+              loadDetails = remoteMetadataError.message || loadDetails;
+              console.warn('[PdfEditor] Não foi possível verificar a versão remota do PDF:', remoteMetadataError);
+            }
+
+            if (remoteAttachment?.storage_path) {
+              documentName = remoteAttachment.file_name || documentName;
+              const bucketsToTry = Array.from(new Set(
+                [remoteAttachment.bucket_id, attachment?.bucket_id, ATTACHMENTS_BUCKET_NAME, 'attachments']
+                  .filter(Boolean) as string[]
+              ));
+
+              let latestRemoteBlob: Blob | null = null;
+              let resolvedBucket: string | null = null;
+
+              for (const bucketName of bucketsToTry) {
+                try {
+                  const { data: remoteBlob, error: downloadError } = await supabase.storage
+                    .from(bucketName)
+                    .download(remoteAttachment.storage_path);
+
+                  if (downloadError) {
+                    loadDetails = downloadError.message || loadDetails;
+                    continue;
+                  }
+
+                  if (!remoteBlob || remoteBlob.size <= 0) continue;
+
+                  if (
+                    Number(remoteAttachment.file_size) > 0 &&
+                    remoteBlob.size !== Number(remoteAttachment.file_size)
+                  ) {
+                    loadDetails = `O PDF remoto retornou ${remoteBlob.size} bytes, mas note_attachments registra ${remoteAttachment.file_size} bytes.`;
+                    console.warn('[PdfEditor] Tamanho remoto divergente; tentando outro bucket:', {
+                      bucketName,
+                      remoteBlobSize: remoteBlob.size,
+                      metadataSize: remoteAttachment.file_size,
+                    });
+                    continue;
+                  }
+
+                  latestRemoteBlob = remoteBlob;
+                  resolvedBucket = bucketName;
+                  break;
+                } catch (downloadError: any) {
+                  loadDetails = downloadError?.message || loadDetails;
+                }
+              }
+
+              if (latestRemoteBlob && resolvedBucket) {
+                arrayBuffer = await latestRemoteBlob.arrayBuffer();
+
+                // Atualiza o IndexedDB com a mesma versão que acabou de ser
+                // baixada do Storage. Isso impede que uma cópia antiga continue
+                // prevalecendo na próxima abertura.
+                const refreshedLocalAttachment: LocalAttachment = {
+                  ...(attachment || {}),
+                  id: remoteAttachment.id,
+                  user_id: userId,
+                  note_id: remoteAttachment.note_id ?? null,
+                  file_name: remoteAttachment.file_name || documentName,
+                  file_type: remoteAttachment.mime_type || 'application/pdf',
+                  mime_type: remoteAttachment.mime_type || 'application/pdf',
+                  file_size: latestRemoteBlob.size,
+                  blob: latestRemoteBlob,
+                  storage_path: remoteAttachment.storage_path,
+                  bucket_id: remoteAttachment.bucket_id || resolvedBucket,
+                  remote_url: null,
+                  syncRequired: false,
+                  syncStatus: 'synced',
+                  sync_status: 'synced',
+                  created_at: remoteAttachment.created_at || attachment?.created_at || new Date().toISOString(),
+                  updated_at: remoteAttachment.updated_at || new Date().toISOString(),
+                };
+
+                await indexedDBStorage.putAttachment(userId, refreshedLocalAttachment);
+                attachment = refreshedLocalAttachment;
+
+                console.info('[PdfEditor] PDF atualizado a partir do Supabase Storage:', {
+                  requestedAttachmentId: attachmentId,
+                  canonicalAttachmentId: remoteAttachment.id,
+                  bucket: resolvedBucket,
+                  storagePath: remoteAttachment.storage_path,
+                  fileSize: latestRemoteBlob.size,
+                  remoteUpdatedAt: remoteAttachment.updated_at,
+                });
+              }
+            }
+          } catch (remoteRefreshError: any) {
+            loadDetails = remoteRefreshError?.message || loadDetails;
+            console.warn('[PdfEditor] Falha ao atualizar a cópia local com a versão remota:', remoteRefreshError);
+          }
+        }
+
+        // Fallback local: útil offline ou quando a nuvem está indisponível.
+        // Para sincronizações pendentes, mantém o Blob local que contém as edições.
+        if (!arrayBuffer && attachment?.blob && attachment.blob.size > 0) {
           arrayBuffer = await attachment.blob.arrayBuffer();
         }
 
