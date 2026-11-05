@@ -21,6 +21,7 @@ import {
   ToolMode,
   ShapeType,
   SaveStatus,
+  PDF_DEFAULT_ZOOM,
 } from './types';
 import { PdfEditorToolbar } from './PdfEditorToolbar';
 import { PdfThumbnailSidebar } from './PdfThumbnailSidebar';
@@ -388,10 +389,23 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
   currentPageRef.current = currentPage;
 
   // View state
-  const [zoom, setZoom] = useState(1.15);
+  const [zoom, setZoom] = useState(PDF_DEFAULT_ZOOM);
+
+  // Cada PDF sempre abre no enquadramento padrão. O antigo 175% passa a ser 100%.
+  useEffect(() => {
+    setZoom(PDF_DEFAULT_ZOOM);
+  }, [attachmentId]);
+
   // Miniaturas começam recolhidas em cada abertura do PDF.
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const handPanRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+  } | null>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const selectedPdfTextRangeRef = useRef<Range | null>(null);
 
@@ -1287,6 +1301,14 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
   // Altera o modo da ferramenta. Se havia texto previamente selecionado e o usuário
   // escolheu marca-texto/sublinhado/tachado, aplica a marcação imediatamente.
   const handleSetToolMode = (nextMode: ToolMode) => {
+    if (nextMode === 'hand') {
+      // A ferramenta Mão é exclusivamente para deslocar a viewport.
+      setSelectedAnnotationId(null);
+      selectedPdfTextRangeRef.current = null;
+      document.getSelection()?.removeAllRanges();
+      handPanRef.current = null;
+    }
+
     if (
       (nextMode === 'highlight' || nextMode === 'underline' || nextMode === 'strikethrough') &&
       selectedPdfTextRangeRef.current
@@ -1327,9 +1349,48 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
     }
   };
 
-  // Zoom handlers
-  const handleZoomIn = () => setZoom((prev) => Math.min(prev + 0.15, 3.0));
-  const handleZoomOut = () => setZoom((prev) => Math.max(prev - 0.15, 0.5));
+  // Zoom handlers. O percentual da interface é relativo ao novo padrão físico de 1.75.
+  const zoomStep = PDF_DEFAULT_ZOOM * 0.1;
+  const handleZoomIn = () =>
+    setZoom((prev) => Math.min(prev + zoomStep, PDF_DEFAULT_ZOOM * 2));
+  const handleZoomOut = () =>
+    setZoom((prev) => Math.max(prev - zoomStep, PDF_DEFAULT_ZOOM * 0.5));
+
+  // Arraste da página somente quando a ferramenta Mão está ativa.
+  const handleViewportPointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    if (currentMode !== 'hand' || event.button !== 0 || handPanRef.current) return;
+
+    const scrollElement = event.currentTarget;
+    handPanRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: scrollElement.scrollLeft,
+      startScrollTop: scrollElement.scrollTop,
+    };
+
+    event.preventDefault();
+    scrollElement.setPointerCapture(event.pointerId);
+  };
+
+  const handleViewportPointerMove = (event: React.PointerEvent<HTMLElement>) => {
+    const drag = handPanRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || currentMode !== 'hand') return;
+
+    event.preventDefault();
+    event.currentTarget.scrollLeft = drag.startScrollLeft - (event.clientX - drag.startX);
+    event.currentTarget.scrollTop = drag.startScrollTop - (event.clientY - drag.startY);
+  };
+
+  const finishViewportPan = (event: React.PointerEvent<HTMLElement>) => {
+    const drag = handPanRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    handPanRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
   const handleFitWidth = () => {
     if (!scrollContainerRef.current) return;
     const containerWidth = scrollContainerRef.current.clientWidth - (isSidebarOpen ? 260 : 60);
@@ -1724,8 +1785,16 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         <main
           ref={scrollContainerRef}
           className={`flex-1 overflow-auto p-4 sm:p-8 flex flex-col items-center relative ${
-            currentMode === 'hand' ? 'cursor-grab active:cursor-grabbing' : ''
+            currentMode === 'hand' ? 'cursor-grab active:cursor-grabbing select-none' : ''
           }`}
+          style={{ touchAction: currentMode === 'hand' ? 'none' : 'pan-y' }}
+          onPointerDown={handleViewportPointerDown}
+          onPointerMove={handleViewportPointerMove}
+          onPointerUp={finishViewportPan}
+          onPointerCancel={finishViewportPan}
+          onLostPointerCapture={() => {
+            handPanRef.current = null;
+          }}
         >
           {Array.from({ length: numPages }, (_, index) => (
             <div
