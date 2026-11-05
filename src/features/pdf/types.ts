@@ -11,7 +11,8 @@ export type ToolMode =
   | 'eraser'
   | 'text'
   | 'shape'
-  | 'sticky_note';
+  | 'sticky_note'
+  | 'crop';
 
 export type ShapeType = 'rectangle' | 'circle' | 'line' | 'arrow';
 
