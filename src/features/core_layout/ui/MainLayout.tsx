@@ -1171,7 +1171,7 @@ export function MainLayout() {
       ].join('/');
       const imageMarkdown = `![Recorte](attachment://${uploaded.attachmentId} "pdf-citation:${citationPath}")`;
       const current = summaryContentRef.current.get(note.id) ?? note.content ?? '';
-      const next = current.trim() ? `${current.trim()}\\n\\n${imageMarkdown}` : imageMarkdown;
+      const next = current.trim() ? `${current.trim()}\n\n${imageMarkdown}` : imageMarkdown;
 
       summaryContentRef.current.set(note.id, next);
       setNotes((prev) => prev.map((item) => item.id === note.id
