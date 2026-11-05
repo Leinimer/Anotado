@@ -535,6 +535,14 @@ Esta seção é um mapa rápido da base. Antes de alterar um item, leia o seu c�
 - **media-common.ts**, **media-optimizer.ts**, **node-movement.ts**, **url-helper.ts**: utilitários do editor.
 - **useMobileKeyboardViewport.ts**: comportamento com teclado móvel.
 
+### Editor e Visualizador de PDF (Biblioteca e Grifo Definitivo)
+- **PdfEditor.tsx**: workspace completo do editor de PDF com miniaturas, paginação contínua, zoom e ferramentas.
+- **PdfCanvasPage.tsx**: renderização isolada de cada página com `<canvas>` da página, camada de texto `.pdf-text-layer` para seleção e camada de grifo dedicada (`<svg className="pdf-highlights-layer">`) com `mixBlendMode: 'multiply'` em `zIndex: 1`, dentro de container com `isolation: 'isolate'`. Isso impede que o grifo lave ou altere o contraste das letras pretas originais (`RGB(0,0,0) * color = RGB(0,0,0)`).
+- **PdfEditorToolbar.tsx**: barra de ferramentas do PDF (marca-texto, caneta livre, sublinhado, tachado, caixas de texto, notas adesivas, formas geométricas, seleção, zoom, desfazer/refazer, download e exclusão).
+- **pdf-exporter.ts**: exportação e salvamento de PDFs anotados via `pdf-lib`. Renderiza o marca-texto com `blendMode: BlendMode.Multiply` e reordena o content stream do grifo para o índice 1 (logo após `pushGraphicsState` e antes dos content streams originais), garantindo que os glifos de texto sejam fisicamente desenhados sobre as faixas de destaque.
+- **AddPdfModal.tsx**: modal acessado pelo botão "Adicionar PDF" no rodapé de ações da sidebar (`#sidebar-add-pdf-btn`, posicionado na mesma área visual dos botões "Pasta" e "Nota", com ícone de PDF e identificação discreta em vermelho `#e11d48`). Permite selecionar arquivos PDF locais exibindo nome e tamanho formatado (KB/MB) com duas possibilidades: Opção A (Biblioteca de PDFs como item independente na árvore lateral, com seleção de pasta de destino ou raiz) e Opção B (Anexar a uma nota existente, injetando o cartão no conteúdo da nota selecionada).
+- **20261104010000_add_pdf_library_items.sql**: migration que adiciona `is_library_item`, `folder_id` e `position` à tabela `note_attachments`, tornando `note_id` opcional para itens da biblioteca. Suportado na SyncQueue via `UPDATE_ATTACHMENT_METADATA` e `DELETE_ATTACHMENT`.
+
 ### Utilitários e testes
 - **diary-date.ts**: funções de data.
 - **diary-hierarchy.ts**: classificação da hierarquia do Diário.

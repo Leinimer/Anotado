@@ -2751,6 +2751,83 @@ class SyncEngine {
         return true;
       }
 
+      case 'UPDATE_ATTACHMENT_METADATA': {
+        const attachmentId = item.entity_id;
+        const payload = item.payload || {};
+        const updateData: Record<string, any> = {
+          updated_at: new Date().toISOString(),
+        };
+        if (payload.fileName !== undefined) updateData.file_name = payload.fileName;
+        if (payload.folderId !== undefined) updateData.folder_id = payload.folderId;
+        if (payload.position !== undefined) updateData.position = payload.position;
+        if (payload.isLibraryItem !== undefined) updateData.is_library_item = payload.isLibraryItem;
+
+        let { error } = await supabase
+          .from('note_attachments')
+          .update(updateData)
+          .eq('id', attachmentId)
+          .eq('user_id', userId);
+
+        // Fallback defensivo caso colunas novas ainda não existam no Supabase
+        if (error && error.message && (error.message.includes('column') || error.message.includes('schema cache'))) {
+          delete updateData.is_library_item;
+          delete updateData.folder_id;
+          delete updateData.position;
+          const retry = await supabase
+            .from('note_attachments')
+            .update(updateData)
+            .eq('id', attachmentId)
+            .eq('user_id', userId);
+          error = retry.error;
+        }
+
+        if (error) {
+          console.error(`[ATTACHMENT] UPDATE_ATTACHMENT_METADATA error attachmentId=${attachmentId}:`, error);
+          throw error;
+        }
+
+        const localAtt = await indexedDBStorage.getAttachment(userId, attachmentId);
+        if (localAtt) {
+          localAtt.syncRequired = false;
+          localAtt.syncStatus = 'synced';
+          localAtt.sync_status = 'synced';
+          await indexedDBStorage.putAttachment(userId, localAtt);
+        }
+
+        console.log(`[ATTACHMENT] UPDATE_ATTACHMENT_METADATA SUCCESS attachmentId=${attachmentId}`);
+        return true;
+      }
+
+      case 'DELETE_ATTACHMENT': {
+        const attachmentId = item.entity_id;
+        const storagePath = item.payload?.storagePath;
+        const bucketId = item.payload?.bucketId || ATTACHMENTS_BUCKET_NAME;
+
+        // 1. Remove da tabela note_attachments
+        const { error: dbErr } = await supabase
+          .from('note_attachments')
+          .delete()
+          .eq('id', attachmentId)
+          .eq('user_id', userId);
+
+        if (dbErr) {
+          console.error(`[ATTACHMENT] DELETE_ATTACHMENT db error attachmentId=${attachmentId}:`, dbErr);
+          throw dbErr;
+        }
+
+        // 2. Remove do storage se houver storagePath
+        if (storagePath) {
+          try {
+            await supabase.storage.from(bucketId).remove([storagePath]);
+          } catch (stErr) {
+            console.warn(`[ATTACHMENT] Falha ao remover objeto do storage:`, stErr);
+          }
+        }
+
+        console.log(`[ATTACHMENT] DELETE_ATTACHMENT SUCCESS attachmentId=${attachmentId}`);
+        return true;
+      }
+
       default:
         console.warn(`[SyncEngine] Ação desconhecida: ${(item as any).action}`);
         return true;

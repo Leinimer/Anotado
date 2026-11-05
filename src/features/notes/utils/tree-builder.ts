@@ -1,4 +1,4 @@
-import { Folder, Note, SearchMode, SYSTEM_ARCHIVE_FOLDER_ID, SYSTEM_FAVORITES_FOLDER_ID, TreeFolderNode, TreeNodeItem } from '../types';
+import { Folder, Note, SearchMode, SYSTEM_ARCHIVE_FOLDER_ID, SYSTEM_FAVORITES_FOLDER_ID, TreeFolderNode, TreeNodeItem, TreePdfItem } from '../types';
 import { extractHashtagsFromText, noteHasTag, stripToPlainText } from './hashtag-extractor';
 
 /**
@@ -27,35 +27,66 @@ export function getEffectiveFolderColor(
 }
 
 /**
- * Constrói a árvore hierárquica de pastas e notas a partir de listas planas,
+ * Constrói a árvore hierárquica de pastas, notas e PDFs a partir de listas planas,
  * segregando notas ativas da pasta especial do sistema "Notas arquivadas".
  */
 export function buildFolderTree(
   folders: Folder[],
   notes: Note[],
-  parentId: string | null = null,
-  depth = 0
-): { folders: TreeFolderNode[]; rootNotes: TreeNodeItem[]; favoritesFolder: TreeFolderNode; archivedFolder: TreeFolderNode } {
+  libraryPdfsOrParentId?: Array<any> | string | null,
+  parentIdOrDepth?: string | null | number,
+  depthOrLibraryPdfs?: number | Array<any>
+): {
+  folders: TreeFolderNode[];
+  rootNotes: TreeNodeItem[];
+  rootPdfs: TreePdfItem[];
+  favoritesFolder: TreeFolderNode;
+  archivedFolder: TreeFolderNode;
+} {
+  let actualPdfs: Array<any> = [];
+  let actualParentId: string | null = null;
+  let actualDepth = 0;
+
+  if (Array.isArray(libraryPdfsOrParentId)) {
+    actualPdfs = libraryPdfsOrParentId;
+    actualParentId = (typeof parentIdOrDepth === 'string' || parentIdOrDepth === null) ? parentIdOrDepth : null;
+    actualDepth = typeof depthOrLibraryPdfs === 'number' ? depthOrLibraryPdfs : 0;
+  } else {
+    actualParentId = (typeof libraryPdfsOrParentId === 'string' || libraryPdfsOrParentId === null) ? libraryPdfsOrParentId : null;
+    actualDepth = typeof parentIdOrDepth === 'number' ? parentIdOrDepth : 0;
+    actualPdfs = Array.isArray(depthOrLibraryPdfs) ? depthOrLibraryPdfs : [];
+  }
+
   // Segrega notas ativas de notas arquivadas
   const activeNotes = notes.filter((n) => !n.is_archived);
   const archivedNotes = notes.filter((n) => Boolean(n.is_archived));
 
-  // Filtra pastas filhas do parentId atual
+  // Filtra pastas filhas do actualParentId
   const childFolders = folders
-    .filter((f) => f.parent_id === parentId)
+    .filter((f) => f.parent_id === actualParentId)
     .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
 
-  // Filtra notas filhas do parentId atual (se parentId === null, notas ativas na raiz)
+  // Filtra notas filhas do actualParentId
   const childNotes = activeNotes
-    .filter((n) => n.folder_id === parentId)
+    .filter((n) => n.folder_id === actualParentId)
     .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
+
+  // Filtra PDFs filhos do actualParentId
+  const childPdfs = actualPdfs
+    .filter((p) => (p.folder_id || null) === actualParentId)
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || (a.file_name || '').localeCompare(b.file_name || ''));
 
   const treeFolders: TreeFolderNode[] = childFolders.map((folder) => {
-    const { folders: subfolders, rootNotes: recursiveNotes } = buildFolderTree(
+    const {
+      folders: subfolders,
+      rootNotes: recursiveNotes,
+      rootPdfs: recursivePdfs,
+    } = buildFolderTree(
       folders,
       notes,
+      actualPdfs,
       folder.id,
-      depth + 1
+      actualDepth + 1
     );
 
     const isSmartFolder = Boolean(folder.is_smart && folder.smart_tags && folder.smart_tags.length > 0);
@@ -74,7 +105,7 @@ export function buildFolderTree(
         content: note.content,
         folderId: note.folder_id, // Preserva a pasta física de origem
         position: note.position,
-        depth: depth + 1,
+        depth: actualDepth + 1,
         tags: note.tags || [],
         isFromSmartFolder: true,
         isArchived: false,
@@ -108,7 +139,8 @@ export function buildFolderTree(
       diary_month: folder.diary_month,
       subfolders,
       notes: folderNotes,
-      depth,
+      pdfs: recursivePdfs,
+      depth: actualDepth,
     };
   });
 
@@ -119,7 +151,7 @@ export function buildFolderTree(
     content: note.content,
     folderId: note.folder_id,
     position: note.position,
-    depth,
+    depth: actualDepth,
     tags: note.tags || [],
     isArchived: false,
     isFavorite: Boolean(note.is_favorite),
@@ -129,6 +161,22 @@ export function buildFolderTree(
     diary_year: note.diary_year,
     diary_month: note.diary_month,
     diary_day: note.diary_day,
+  }));
+
+  const treePdfs: TreePdfItem[] = childPdfs.map((pdf) => ({
+    type: 'pdf',
+    id: pdf.id,
+    title: (pdf.file_name || 'Documento PDF').replace(/\.pdf$/i, ''),
+    fileName: pdf.file_name || 'Documento.pdf',
+    folderId: pdf.folder_id || null,
+    position: pdf.position ?? 0,
+    depth: actualDepth,
+    fileSize: pdf.file_size,
+    storagePath: pdf.storage_path,
+    remoteUrl: pdf.remote_url,
+    isLibraryItem: pdf.is_library_item ?? true,
+    createdAt: pdf.created_at,
+    updatedAt: pdf.updated_at,
   }));
 
   // Cria a pasta especial do sistema "Favoritos" (Visão das notas favoritas)
@@ -192,7 +240,7 @@ export function buildFolderTree(
     depth: 0,
   };
 
-  return { folders: treeFolders, rootNotes: treeNotes, favoritesFolder, archivedFolder };
+  return { folders: treeFolders, rootNotes: treeNotes, rootPdfs: treePdfs, favoritesFolder, archivedFolder };
 }
 
 /**
@@ -236,10 +284,12 @@ export function filterTree(
   archivedFolder: TreeFolderNode,
   searchQuery: string = '',
   activeTag: string | null = null,
-  searchMode: SearchMode = 'all'
+  searchMode: SearchMode = 'all',
+  rootPdfs: TreePdfItem[] = []
 ): {
   filteredFolders: TreeFolderNode[];
   filteredNotes: TreeNodeItem[];
+  filteredPdfs: TreePdfItem[];
   filteredFavoritesFolder: TreeFolderNode | null;
   filteredArchivedFolder: TreeFolderNode | null;
   hasResults: boolean;
@@ -247,6 +297,15 @@ export function filterTree(
 } {
   const query = (searchQuery ?? '').trim().toLowerCase();
   const matchingIds = new Set<string>();
+
+  function matchesPdf(pdf: TreePdfItem): boolean {
+    if (activeTag) return false;
+    if (searchMode === 'folders' || searchMode === 'archived' || searchMode === 'tags') return false;
+    if (!query) return true;
+    const titleLower = (pdf.title || '').toLowerCase();
+    const fileNameLower = (pdf.fileName || '').toLowerCase();
+    return titleLower.includes(query) || fileNameLower.includes(query);
+  }
 
   function matchesNote(note: TreeNodeItem, isArchivedContext = false): boolean {
     const rawNote = {
@@ -333,12 +392,21 @@ export function filterTree(
       }
     }
 
-    if (isDirectMatch || filteredSubfolders.length > 0 || filteredNotes.length > 0) {
+    const filteredPdfs: TreePdfItem[] = [];
+    for (const pdf of (folder.pdfs || [])) {
+      if (matchesPdf(pdf)) {
+        filteredPdfs.push(pdf);
+        matchingIds.add(pdf.id);
+      }
+    }
+
+    if (isDirectMatch || filteredSubfolders.length > 0 || filteredNotes.length > 0 || filteredPdfs.length > 0) {
       matchingIds.add(folder.id);
       return {
         ...folder,
         subfolders: filteredSubfolders,
         notes: filteredNotes,
+        pdfs: filteredPdfs,
       };
     }
 
@@ -348,6 +416,7 @@ export function filterTree(
   // Se o modo for estritamente 'archived', não processa pastas normais nem notas ativas
   const filteredFolders: TreeFolderNode[] = [];
   const filteredNotes: TreeNodeItem[] = [];
+  const filteredPdfs: TreePdfItem[] = [];
 
   if (searchMode !== 'archived') {
     for (const folder of rootFolders) {
@@ -360,6 +429,13 @@ export function filterTree(
         if (matchesNote(note, false)) {
           matchingIds.add(note.id);
           filteredNotes.push(note);
+        }
+      }
+
+      for (const pdf of rootPdfs) {
+        if (matchesPdf(pdf)) {
+          matchingIds.add(pdf.id);
+          filteredPdfs.push(pdf);
         }
       }
     }
@@ -404,12 +480,14 @@ export function filterTree(
   const hasResults =
     filteredFolders.length > 0 ||
     filteredNotes.length > 0 ||
+    filteredPdfs.length > 0 ||
     Boolean(filteredFavoritesFolder && filteredFavoritesFolder.notes.length > 0) ||
     Boolean(filteredArchivedFolder && filteredArchivedFolder.notes.length > 0);
 
   return {
     filteredFolders,
     filteredNotes,
+    filteredPdfs,
     filteredFavoritesFolder,
     filteredArchivedFolder,
     hasResults,

@@ -505,6 +505,7 @@ export function PdfCanvasPage({
         width: pageDimensions ? `${pageDimensions.width}px` : `${595 * 1.333333 * zoom}px`,
         height: pageDimensions ? `${pageDimensions.height}px` : `${842 * 1.333333 * zoom}px`,
         minHeight: pageDimensions ? undefined : `${842 * 1.333333 * zoom}px`,
+        isolation: 'isolate',
       }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -512,6 +513,62 @@ export function PdfCanvasPage({
     >
       {/* Canvas da página do PDF */}
       <canvas ref={canvasRef} className="absolute inset-0 block pointer-events-none" />
+
+      {/* Camada de grifos (marca-texto) dedicada com mix-blend-mode: multiply direto sobre o canvas.
+          Isso garante que o texto preto (0,0,0) permaneça 100% preto, nítido e com contraste máximo,
+          enquanto o fundo branco (255,255,255) recebe a cor do grifo. */}
+      {pageDimensions && (
+        <svg
+          className="pdf-highlights-layer absolute inset-0 w-full h-full overflow-visible pointer-events-none"
+          viewBox={`0 0 ${pageDimensions.pdfWidth} ${pageDimensions.pdfHeight}`}
+          style={{
+            width: `${pageDimensions.width}px`,
+            height: `${pageDimensions.height}px`,
+            position: 'absolute',
+            inset: 0,
+            zIndex: 1,
+            pointerEvents: 'none',
+            mixBlendMode: 'multiply',
+          }}
+        >
+          {pageAnnotations
+            .filter((a) => a.type === 'highlight')
+            .map((ann) => {
+              const isSelected = ann.id === selectedAnnotationId;
+              return (
+                <g key={ann.id} className="pointer-events-auto">
+                  {ann.rects.map((r, i) => (
+                    <rect
+                      key={i}
+                      x={r.x}
+                      y={r.y}
+                      width={r.width}
+                      height={r.height}
+                      fill={ann.color}
+                      opacity={ann.opacity ?? 0.85}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (mode === 'eraser') onDeleteAnnotation(ann.id);
+                        else onSelectAnnotation(ann.id);
+                      }}
+                      className={`cursor-pointer ${isSelected ? 'stroke-2 stroke-blue-500' : ''}`}
+                    />
+                  ))}
+                </g>
+              );
+            })}
+          {isInteracting && startPoint && currentPoint && mode === 'highlight' && (
+            <rect
+              x={Math.min(startPoint.x, currentPoint.x)}
+              y={Math.min(startPoint.y, currentPoint.y)}
+              width={Math.abs(currentPoint.x - startPoint.x)}
+              height={Math.abs(currentPoint.y - startPoint.y)}
+              fill={highlightColor}
+              opacity={0.8}
+            />
+          )}
+        </svg>
+      )}
 
       {/* Texto transparente, mas selecionável e copiável como texto nativo do PDF. */}
       <div
@@ -537,8 +594,10 @@ export function PdfCanvasPage({
           style={{ width: `${pageDimensions.width}px`, height: `${pageDimensions.height}px`, position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none' }}
         >
           {/* Anotações existentes na página */}
-          {pageAnnotations.map((ann) => {
-            const isSelected = ann.id === selectedAnnotationId;
+          {pageAnnotations
+            .filter((a) => a.type !== 'highlight')
+            .map((ann) => {
+              const isSelected = ann.id === selectedAnnotationId;
 
             if (ann.type === 'drawing') {
               if (!ann.points || ann.points.length < 2) return null;
@@ -576,31 +635,6 @@ export function PdfCanvasPage({
                       opacity={0.3}
                     />
                   )}
-                </g>
-              );
-            }
-
-            if (ann.type === 'highlight') {
-              return (
-                <g key={ann.id} className="pointer-events-auto">
-                  {ann.rects.map((r, i) => (
-                    <rect
-                      key={i}
-                      x={r.x}
-                      y={r.y}
-                      width={r.width}
-                      height={r.height}
-                      fill={ann.color}
-                      opacity={Math.max(ann.opacity ?? 0.48, 0.48)}
-                      style={{ mixBlendMode: 'multiply' }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (mode === 'eraser') onDeleteAnnotation(ann.id);
-                        else onSelectAnnotation(ann.id);
-                      }}
-                      className={`cursor-pointer ${isSelected ? 'stroke-2 stroke-blue-500' : ''}`}
-                    />
-                  ))}
                 </g>
               );
             }
@@ -725,16 +759,6 @@ export function PdfCanvasPage({
                   strokeWidth={penWidth}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                />
-              )}
-              {mode === 'highlight' && (
-                <rect
-                  x={Math.min(startPoint.x, currentPoint.x)}
-                  y={Math.min(startPoint.y, currentPoint.y)}
-                  width={Math.abs(currentPoint.x - startPoint.x)}
-                  height={Math.abs(currentPoint.y - startPoint.y)}
-                  fill={highlightColor}
-                  opacity={0.35}
                 />
               )}
               {mode === 'underline' && (

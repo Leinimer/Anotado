@@ -21,14 +21,15 @@ import { FOLDER_PRESET_COLORS } from './sidebar-constants';
 interface SidebarContextMenuProps {
   menuOpenId: string | null;
   menuPosition: { top: number; left: number } | null;
-  menuItemType: 'folder' | 'note' | null;
+  menuItemType: 'folder' | 'note' | 'pdf' | null;
   menuNoteIsArchived: boolean;
   menuNoteIsFavorite?: boolean;
   folders: FolderType[];
   notes: NoteType[];
+  libraryPdfs?: any[];
   showColorSubmenu: boolean;
   onClose: () => void;
-  onStartRenaming: (id: string, type: 'folder' | 'note', name: string) => void;
+  onStartRenaming: (id: string, type: 'folder' | 'note' | 'pdf', name: string) => void;
   onCreateNoteInFolder?: (folderId: string) => void;
   onCreateSubfolder?: (parentFolderId: string) => void;
   onSplitNote?: (noteId: string) => void;
@@ -40,7 +41,7 @@ interface SidebarContextMenuProps {
   onUpdateFolderColor?: (folderId: string, color: string | null) => void;
   onOpenCustomColor?: (folderId: string) => void;
   onOpenSmartConfig: (folderId: string, smartTags: string[]) => void;
-  onPromptDelete: (id: string, type: 'folder' | 'note') => void;
+  onPromptDelete: (id: string, type: 'folder' | 'note' | 'pdf') => void;
   onMouseEnterColorOption: () => void;
   onMouseLeaveColorOption: () => void;
   onToggleColorSubmenu: () => void;
@@ -56,6 +57,7 @@ export function SidebarContextMenu({
   menuNoteIsFavorite,
   folders,
   notes,
+  libraryPdfs,
   showColorSubmenu,
   onClose,
   onStartRenaming,
@@ -93,10 +95,15 @@ export function SidebarContextMenu({
       <button
         id="context-menu-rename-btn"
         onClick={() => {
-          const currentName =
-            menuItemType === 'folder'
-              ? folders.find((f) => f.id === menuOpenId)?.name || ''
-              : notes.find((n) => n.id === menuOpenId)?.title || '';
+          let currentName = '';
+          if (menuItemType === 'folder') {
+            currentName = folders.find((f) => f.id === menuOpenId)?.name || '';
+          } else if (menuItemType === 'note') {
+            currentName = notes.find((n) => n.id === menuOpenId)?.title || '';
+          } else if (menuItemType === 'pdf') {
+            const pdfItem = (libraryPdfs || []).find((p) => p.id === menuOpenId);
+            currentName = (pdfItem?.file_name || pdfItem?.fileName || pdfItem?.title || '').replace(/\.pdf$/i, '');
+          }
           onStartRenaming(menuOpenId, menuItemType!, currentName);
         }}
         className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
@@ -105,6 +112,27 @@ export function SidebarContextMenu({
         <Edit2 className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" />
         <span>Renomear</span>
       </button>
+
+      {/* Opções para PDFs da Biblioteca */}
+      {menuItemType === 'pdf' && (
+        <>
+          <button
+            id="context-menu-open-pdf-new-tab-btn"
+            type="button"
+            onClick={() => {
+              if (onOpenNoteInNewTab && menuOpenId) {
+                onOpenNoteInNewTab(menuOpenId);
+              }
+              onClose();
+            }}
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
+            title="Abrir PDF em nova aba"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
+            <span>Abrir em nova aba</span>
+          </button>
+        </>
+      )}
 
       {/* Opções para NOTAS */}
       {menuItemType === 'note' && (

@@ -1,4 +1,4 @@
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, BlendMode } from 'pdf-lib';
 import { HighlightAnnotation, PdfAnnotation } from './types';
 
 function parseHexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -29,9 +29,9 @@ export async function exportPdfWithAnnotations(
 
   const pages = pdfDoc.getPages();
 
-  // 1. Renderiza os marca-textos em um content stream separado e move esse
-  // stream para ANTES do conteúdo original da página. Assim, as letras originais
-  // são pintadas por cima do destaque e continuam pretas/nítidas.
+  // 1. Renderiza os marca-textos em um content stream separado com blendMode Multiply
+  // e move esse stream para ANTES do conteúdo de texto original da página (logo após o pushGraphicsState).
+  // Assim, as letras originais são pintadas fisicamente por cima do destaque e continuam 100% pretas e nítidas.
   const highlightsByPage = new Map<number, HighlightAnnotation[]>();
   for (const ann of annotations) {
     if (ann.type !== 'highlight' || ann.pageIndex < 0 || ann.pageIndex >= pages.length) continue;
@@ -53,20 +53,22 @@ export async function exportPdfWithAnnotations(
           width: rct.width,
           height: rct.height,
           color: rgb(r, g, b),
-          opacity: Math.max(ann.opacity ?? 0.48, 0.48),
+          opacity: 1.0,
+          blendMode: BlendMode.Multiply,
         });
       }
     }
 
     // pdf-lib cria um content stream temporário no final. Move apenas esse
-    // stream para o início e zera o cache privado para que as próximas anotações
-    // ganhem outro stream, acima do conteúdo original do PDF.
+    // stream para o índice 1 (logo após o pushGraphicsState que está no índice 0,
+    // e antes dos streams de texto original da página).
+    // Zera o cache de stream para que as próximas anotações ganhem outro stream acima do texto original.
     const contents = page.node.normalizedEntries().Contents;
-    if (contents && contents.size() > 0) {
+    if (contents && contents.size() > 1) {
       const highlightStreamIndex = contents.size() - 1;
       const highlightStreamRef = contents.get(highlightStreamIndex);
       contents.remove(highlightStreamIndex);
-      contents.insert(0, highlightStreamRef);
+      contents.insert(1, highlightStreamRef);
 
       const pageInternals = page as unknown as {
         contentStream?: unknown;

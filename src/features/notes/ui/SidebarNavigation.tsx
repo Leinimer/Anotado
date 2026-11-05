@@ -27,10 +27,12 @@ import {
   CalendarDays,
   CalendarPlus,
   Star,
+  FileUp,
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { TagsModal } from './TagsModal';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
+import { AddPdfModal } from './AddPdfModal';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import { flushAllPendingSaves, toggleNoteFavorite } from '@/src/features/notes/api/notes-api';
 import { usePwa } from '@/src/features/pwa/PwaProvider';
@@ -42,6 +44,7 @@ import {
   SYSTEM_FAVORITES_FOLDER_ID,
   TreeFolderNode,
   TreeNodeItem,
+  TreePdfItem,
   WorkspaceType,
 } from '../types';
 import { extractAllUniqueTags } from '../utils/hashtag-extractor';
@@ -61,16 +64,21 @@ import { FolderCustomColorModal } from './FolderCustomColorModal';
 interface SidebarNavigationProps {
   folders: FolderType[];
   notes: NoteType[];
+  libraryPdfs?: any[];
   activeNoteId: string | null;
   activeFolderId: string | null;
+  activePdfId?: string | null;
   onSelectNote: (noteId: string, openInNewTab?: boolean) => void;
   onSelectFolder: (folderId: string | null) => void;
+  onSelectPdf?: (pdfId: string, openInNewTab?: boolean) => void;
   onCreateFolder: (parentId?: string | null) => Promise<string | void>;
   onCreateNote: (folderId?: string | null) => Promise<string | void>;
   onRenameFolder: (folderId: string, newName: string) => void;
   onRenameNote: (noteId: string, newTitle: string) => void;
+  onRenamePdf?: (pdfId: string, newTitle: string) => void;
   onDeleteFolder: (folderId: string) => void;
   onDeleteNote: (noteId: string) => void;
+  onDeletePdf?: (pdfId: string) => void;
   onArchiveNote?: (noteId: string) => void;
   onUnarchiveNote?: (noteId: string) => void;
   onSplitNote?: (noteId: string) => void;
@@ -80,18 +88,21 @@ interface SidebarNavigationProps {
   onUpdateFolderColor?: (folderId: string, color: string | null) => void;
   onUpdateFolderSmartConfig?: (folderId: string, isSmart: boolean, smartTags: string[]) => void;
   onMoveItem: (
-    itemType: 'folder' | 'note',
+    itemType: 'folder' | 'note' | 'pdf',
     itemId: string,
     targetFolderId: string | null,
     targetPosition: number
   ) => void;
   onReorderItem?: (
-    itemType: 'folder' | 'note',
+    itemType: 'folder' | 'note' | 'pdf',
     itemId: string,
     targetId: string | null,
     targetParentId: string | null,
     dropPosition: 'before' | 'after' | 'inside'
   ) => void;
+  onMovePdf?: (pdfId: string, targetFolderId: string | null, targetPosition: number) => void;
+  onAddIndependentPdf?: (file: File, folderId: string | null) => Promise<void>;
+  onAttachPdfToNote?: (file: File, noteId: string) => Promise<void>;
   onCloseMobile?: () => void;
   currentWorkspace?: WorkspaceType;
   onToggleWorkspace?: () => void;
@@ -104,16 +115,21 @@ interface SidebarNavigationProps {
 export function SidebarNavigation({
   folders,
   notes,
+  libraryPdfs = [],
   activeNoteId,
   activeFolderId,
+  activePdfId,
   onSelectNote,
   onSelectFolder,
+  onSelectPdf,
   onCreateFolder,
   onCreateNote,
   onRenameFolder,
   onRenameNote,
+  onRenamePdf,
   onDeleteFolder,
   onDeleteNote,
+  onDeletePdf,
   onArchiveNote,
   onUnarchiveNote,
   onSplitNote,
@@ -124,6 +140,9 @@ export function SidebarNavigation({
   onUpdateFolderSmartConfig,
   onMoveItem,
   onReorderItem,
+  onMovePdf,
+  onAddIndependentPdf,
+  onAttachPdfToNote,
   onCloseMobile,
   currentWorkspace = 'notes',
   onToggleWorkspace,
@@ -143,12 +162,13 @@ export function SidebarNavigation({
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('demo-user');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [isAddPdfModalOpen, setIsAddPdfModalOpen] = useState(false);
   const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2', SYSTEM_FAVORITES_FOLDER_ID]));
 
   // Estado para menu flutuante de opções (...)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-  const [menuItemType, setMenuItemType] = useState<'folder' | 'note' | null>(null);
+  const [menuItemType, setMenuItemType] = useState<'folder' | 'note' | 'pdf' | null>(null);
   const [menuNoteIsArchived, setMenuNoteIsArchived] = useState(false);
   const [menuNoteIsFavorite, setMenuNoteIsFavorite] = useState(false);
   const [showColorSubmenu, setShowColorSubmenu] = useState(false);
@@ -162,14 +182,14 @@ export function SidebarNavigation({
 
   // Estado para renomeação inline
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [editingItemType, setEditingItemType] = useState<'folder' | 'note' | null>(null);
+  const [editingItemType, setEditingItemType] = useState<'folder' | 'note' | 'pdf' | null>(null);
   const [editingValue, setEditingValue] = useState('');
   const editInputRef = useRef<HTMLInputElement>(null);
 
   // Estado para diálogo de confirmação de exclusão
   const [confirmDelete, setConfirmDelete] = useState<{
     id: string;
-    type: 'folder' | 'note';
+    type: 'folder' | 'note' | 'pdf';
     name: string;
     hasChildren?: boolean;
   } | null>(null);
@@ -184,7 +204,7 @@ export function SidebarNavigation({
 
   // Drag & Drop State (Diferenciação precisa de 'before', 'after' e 'inside')
   const [draggingItem, setDraggingItem] = useState<{
-    type: 'folder' | 'note';
+    type: 'folder' | 'note' | 'pdf';
     id: string;
   } | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTargetInfo | null>(null);
@@ -194,8 +214,8 @@ export function SidebarNavigation({
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
   // Estado para Seleção Múltipla e Marquee Selection (Bloco B)
-  const [selectedItems, setSelectedItems] = useState<Map<string, 'folder' | 'note'>>(new Map());
-  const lastSelectedIdRef = useRef<{ id: string; type: 'folder' | 'note' } | null>(null);
+  const [selectedItems, setSelectedItems] = useState<Map<string, 'folder' | 'note' | 'pdf'>>(new Map());
+  const lastSelectedIdRef = useRef<{ id: string; type: 'folder' | 'note' | 'pdf' } | null>(null);
   const [isMarqueeActive, setIsMarqueeActive] = useState(false);
   const [marqueeRect, setMarqueeRect] = useState<{
     startX: number;
@@ -207,7 +227,7 @@ export function SidebarNavigation({
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [showBatchMoveDialog, setShowBatchMoveDialog] = useState(false);
   const [draggingMultiItems, setDraggingMultiItems] = useState<
-    { type: 'folder' | 'note'; id: string }[] | null
+    { type: 'folder' | 'note' | 'pdf'; id: string }[] | null
   >(null);
 
   // Limpeza de timers e listeners globais no desmonte
@@ -408,10 +428,10 @@ export function SidebarNavigation({
   };
 
   const isCancellingRenameRef = useRef(false);
-  const lastClickRef = useRef<{ id: string; type: 'folder' | 'note'; time: number } | null>(null);
+  const lastClickRef = useRef<{ id: string; type: 'folder' | 'note' | 'pdf'; time: number } | null>(null);
 
   // Inicia edição de nome
-  const startRenaming = (id: string, type: 'folder' | 'note', initialName: string) => {
+  const startRenaming = (id: string, type: 'folder' | 'note' | 'pdf', initialName: string) => {
     isCancellingRenameRef.current = false;
     setEditingItemId(id);
     setEditingItemType(type);
@@ -429,6 +449,8 @@ export function SidebarNavigation({
     if (trimmed) {
       if (editingItemType === 'folder') {
         onRenameFolder(editingItemId, trimmed);
+      } else if (editingItemType === 'pdf') {
+        if (onRenamePdf) onRenamePdf(editingItemId, trimmed);
       } else {
         onRenameNote(editingItemId, trimmed);
       }
@@ -483,8 +505,8 @@ export function SidebarNavigation({
     top: number,
     left: number,
     id: string,
-    type: 'folder' | 'note',
-    isArchived: boolean,
+    type: 'folder' | 'note' | 'pdf',
+    isArchived = false,
     isFavorite = false
   ) => {
     setMenuPosition({ top, left });
@@ -503,7 +525,7 @@ export function SidebarNavigation({
   const handleOpenMenu = (
     e: React.MouseEvent,
     id: string,
-    type: 'folder' | 'note',
+    type: 'folder' | 'note' | 'pdf',
     isArchived = false,
     isFavorite = false
   ) => {
@@ -528,7 +550,7 @@ export function SidebarNavigation({
   const handleContextMenu = (
     e: React.MouseEvent,
     id: string,
-    type: 'folder' | 'note',
+    type: 'folder' | 'note' | 'pdf',
     isArchived = false,
     isFavorite = false
   ) => {
@@ -555,7 +577,7 @@ export function SidebarNavigation({
   };
 
   // Inicia confirmação de exclusão
-  const promptDelete = (id: string, type: 'folder' | 'note') => {
+  const promptDelete = (id: string, type: 'folder' | 'note' | 'pdf') => {
     setMenuOpenId(null);
     if (type === 'folder') {
       const targetFolder = folders.find((f) => f.id === id);
@@ -568,6 +590,13 @@ export function SidebarNavigation({
         type: 'folder',
         name: targetFolder?.name || 'esta pasta',
         hasChildren,
+      });
+    } else if (type === 'pdf') {
+      const targetPdf = (libraryPdfs || []).find((p) => p.id === id);
+      setConfirmDelete({
+        id,
+        type: 'pdf',
+        name: targetPdf?.file_name || targetPdf?.fileName || targetPdf?.title || 'este PDF',
       });
     } else {
       const targetNote = notes.find((n) => n.id === id);
@@ -583,6 +612,8 @@ export function SidebarNavigation({
     if (!confirmDelete) return;
     if (confirmDelete.type === 'folder') {
       onDeleteFolder(confirmDelete.id);
+    } else if (confirmDelete.type === 'pdf') {
+      if (onDeletePdf) onDeletePdf(confirmDelete.id);
     } else {
       onDeleteNote(confirmDelete.id);
     }
@@ -592,7 +623,7 @@ export function SidebarNavigation({
   // ==========================================
   // DRAG & DROP INTELIGENTE (REORDENAR VS ENTRAR VS ARQUIVAR + MULTI-SELEÇÃO)
   // ==========================================
-  const handleDragStart = (e: React.DragEvent, type: 'folder' | 'note', id: string) => {
+  const handleDragStart = (e: React.DragEvent, type: 'folder' | 'note' | 'pdf', id: string) => {
     e.stopPropagation();
     // Bloqueia arrastar pasta de sistema "Notas arquivadas"
     if (type === 'folder' && id === SYSTEM_ARCHIVE_FOLDER_ID) {
@@ -779,6 +810,42 @@ export function SidebarNavigation({
     }
   };
 
+  // Cálculo de posição para PDFs
+  const handleDragOverPdf = (
+    e: React.DragEvent,
+    pdf: TreePdfItem
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!draggingItem) return;
+
+    if (draggingItem.id === pdf.id) {
+      setDropTarget(null);
+      return;
+    }
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const relY = (e.clientY - rect.top) / rect.height;
+
+    if (relY < 0.5) {
+      setDropTarget({
+        targetId: pdf.id,
+        targetType: 'pdf' as any,
+        dropPosition: 'before',
+        targetParentId: pdf.folderId,
+        targetPosition: Math.max(0, pdf.position),
+      });
+    } else {
+      setDropTarget({
+        targetId: pdf.id,
+        targetType: 'pdf' as any,
+        dropPosition: 'after',
+        targetParentId: pdf.folderId,
+        targetPosition: pdf.position + 1,
+      });
+    }
+  };
+
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -798,7 +865,7 @@ export function SidebarNavigation({
       setDropTarget(null);
     };
 
-    const unarchiveIfArchived = (itemType: 'folder' | 'note', itemId: string) => {
+    const unarchiveIfArchived = (itemType: 'folder' | 'note' | 'pdf', itemId: string) => {
       if (itemType === 'note') {
         const isArchived = notes.find((n) => n.id === itemId)?.is_archived;
         if (isArchived && onUnarchiveNote) {
@@ -865,8 +932,10 @@ export function SidebarNavigation({
       }
     }
 
-    unarchiveIfArchived(type, id);
-    if (onReorderItem) {
+    unarchiveIfArchived(type as any, id);
+    if (type === 'pdf' && onMovePdf) {
+      onMovePdf(id, targetParentId, targetPosition);
+    } else if (onReorderItem) {
       onReorderItem(type, id, targetId, targetParentId, dropPosition);
     } else {
       onMoveItem(type, id, targetParentId, targetPosition);
@@ -911,6 +980,16 @@ export function SidebarNavigation({
     }
 
     const { type, id } = draggingItem;
+    if (type === 'pdf') {
+      if (onMovePdf) {
+        onMovePdf(id, null, folders.length + notes.length + (libraryPdfs || []).length);
+      } else {
+        onMoveItem('pdf', id, null, folders.length + notes.length + (libraryPdfs || []).length);
+      }
+      resetDragState();
+      return;
+    }
+
     const isArchivedNote = notes.find((n) => n.id === id)?.is_archived;
     if (isArchivedNote && type === 'note') {
       if (onUnarchiveNote) {
@@ -962,18 +1041,20 @@ export function SidebarNavigation({
     touchStartPosRef.current = null;
   };
 
-  // Constrói e filtra a árvore de pastas e notas
+  // Constrói e filtra a árvore de pastas, notas e PDFs
   const {
     folders: rawTreeFolders,
     rootNotes: rawRootNotes,
+    rootPdfs: rawRootPdfs,
     favoritesFolder: rawFavoritesFolder,
     archivedFolder: rawArchivedFolder,
-  } = buildFolderTree(folders, notes);
+  } = buildFolderTree(folders, notes, libraryPdfs);
 
   const isFiltering = (debouncedSearchQuery || '').trim().length > 0 || activeTag !== null || searchMode !== 'all';
   const {
     filteredFolders,
     filteredNotes,
+    filteredPdfs,
     filteredFavoritesFolder,
     filteredArchivedFolder,
     hasResults,
@@ -984,7 +1065,8 @@ export function SidebarNavigation({
     rawArchivedFolder,
     debouncedSearchQuery,
     activeTag,
-    searchMode
+    searchMode,
+    rawRootPdfs
   );
 
   // Placeholder dinâmico de acordo com o modo de busca
@@ -1007,13 +1089,14 @@ export function SidebarNavigation({
   };
 
   // Obtém lista ordenada de itens visíveis na árvore para suporte a Shift+Clique
-  const getVisibleTreeItems = React.useCallback((): { id: string; type: 'folder' | 'note' }[] => {
-    const items: { id: string; type: 'folder' | 'note' }[] = [];
+  const getVisibleTreeItems = React.useCallback((): { id: string; type: 'folder' | 'note' | 'pdf' }[] => {
+    const items: { id: string; type: 'folder' | 'note' | 'pdf' }[] = [];
     const traverseFolder = (folder: TreeFolderNode) => {
       items.push({ id: folder.id, type: 'folder' });
       if (openFolderIds.has(folder.id) || isFiltering) {
         folder.subfolders.forEach(traverseFolder);
         folder.notes.forEach((note) => items.push({ id: note.id, type: 'note' }));
+        (folder.pdfs || []).forEach((pdf) => items.push({ id: pdf.id, type: 'pdf' }));
       }
     };
     if (filteredFavoritesFolder) {
@@ -1021,11 +1104,12 @@ export function SidebarNavigation({
     }
     filteredFolders.forEach(traverseFolder);
     filteredNotes.forEach((note) => items.push({ id: note.id, type: 'note' }));
+    filteredPdfs.forEach((pdf) => items.push({ id: pdf.id, type: 'pdf' }));
     if (filteredArchivedFolder) {
       traverseFolder(filteredArchivedFolder);
     }
     return items;
-  }, [filteredFavoritesFolder, filteredFolders, filteredNotes, filteredArchivedFolder, openFolderIds, isFiltering]);
+  }, [filteredFavoritesFolder, filteredFolders, filteredNotes, filteredPdfs, filteredArchivedFolder, openFolderIds, isFiltering]);
 
   // Exclusão em lote
   const handleBatchConfirmDelete = () => {
@@ -1414,6 +1498,7 @@ export function SidebarNavigation({
           <div className="space-y-0.5">
             {folder.subfolders.map((sub) => renderFolderNode(sub))}
             {folder.notes.map((note) => renderNoteNode(note))}
+            {(folder.pdfs || []).map((pdf) => renderPdfNode(pdf))}
           </div>
         )}
       </div>
@@ -1626,10 +1711,201 @@ export function SidebarNavigation({
     );
   };
 
+  // Renderização de Item de PDF da Biblioteca
+  const renderPdfNode = (pdf: TreePdfItem) => {
+    const isActive = activePdfId === pdf.id;
+    const isEditing = editingItemId === pdf.id && editingItemType === 'pdf';
+    const isMenuOpenForThisPdf = menuOpenId === pdf.id;
+    const isSelectedInMulti = selectedItems.has(pdf.id);
+
+    const isCurrentDropTarget = dropTarget?.targetId === pdf.id && (dropTarget?.targetType as any) === 'pdf';
+    const isDropBefore = isCurrentDropTarget && dropTarget?.dropPosition === 'before';
+    const isDropAfter = isCurrentDropTarget && dropTarget?.dropPosition === 'after';
+
+    const handlePdfClick = (e: React.MouseEvent) => {
+      if (isEditing) return;
+
+      // Atalho: Ctrl / Cmd + Clique para abrir em nova aba
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (onSelectPdf) onSelectPdf(pdf.id, true);
+        if (onCloseMobile) onCloseMobile();
+        return;
+      }
+
+      // Shift + Clique para seleção em intervalo
+      if (e.shiftKey && lastSelectedIdRef.current) {
+        e.stopPropagation();
+        const visibleItems = getVisibleTreeItems();
+        const lastIdx = visibleItems.findIndex((it) => it.id === lastSelectedIdRef.current?.id);
+        const currentIdx = visibleItems.findIndex((it) => it.id === pdf.id);
+        if (lastIdx !== -1 && currentIdx !== -1) {
+          const start = Math.min(lastIdx, currentIdx);
+          const end = Math.max(lastIdx, currentIdx);
+          const rangeItems = visibleItems.slice(start, end + 1);
+          setSelectedItems((prev) => {
+            const next = new Map(prev);
+            rangeItems.forEach((it) => {
+              if (it.id !== SYSTEM_ARCHIVE_FOLDER_ID) {
+                next.set(it.id, it.type as any);
+              }
+            });
+            return next;
+          });
+          return;
+        }
+      }
+
+      if (selectedItems.size > 0 && !selectedItems.has(pdf.id)) {
+        setSelectedItems(new Map());
+      }
+      lastSelectedIdRef.current = { id: pdf.id, type: 'pdf' };
+
+      lastClickRef.current = { id: pdf.id, type: 'pdf', time: Date.now() };
+      if (onSelectPdf) onSelectPdf(pdf.id, false);
+      if (onCloseMobile) onCloseMobile();
+    };
+
+    const handlePdfDoubleClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isEditing) return;
+      startRenaming(pdf.id, 'pdf', pdf.title || pdf.fileName);
+    };
+
+    return (
+      <div key={pdf.id} className="relative space-y-0.5 select-none w-full" data-tree-row="true">
+        {/* Linha de Inserção Horizontal ANTES do PDF */}
+        {isDropBefore && (
+          <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#e11d48] z-30 rounded-full pointer-events-none shadow-xs" />
+        )}
+
+        <div className="flex items-center w-full min-w-0" data-tree-row-inner="true">
+          {/* Espaço de Indentação Livre à Esquerda */}
+          {pdf.depth > 0 && (
+            <div
+              style={{ width: `${pdf.depth * 14}px` }}
+              className="shrink-0 h-7 pointer-events-auto cursor-default"
+              data-tree-indent-space="true"
+            />
+          )}
+
+          {/* Cápsula Interativa Real do PDF */}
+          <div
+            id={`pdf-item-${pdf.id}`}
+            data-tree-item="true"
+            data-item-id={pdf.id}
+            data-item-type="pdf"
+            draggable={!isEditing}
+            onDragStart={(e) => handleDragStart(e, 'pdf', pdf.id)}
+            onDragEnd={handleDragEnd}
+            onDragOver={(e) => handleDragOverPdf(e, pdf)}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={handlePdfClick}
+            onDoubleClick={handlePdfDoubleClick}
+            onContextMenu={(e) => handleContextMenu(e, pdf.id, 'pdf')}
+            onAuxClick={(e) => {
+              if (e.button === 1) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (onSelectPdf) onSelectPdf(pdf.id, true);
+                if (onCloseMobile) onCloseMobile();
+              }
+            }}
+            onMouseDown={(e) => {
+              if (e.button === 1) e.preventDefault();
+            }}
+            title={pdf.fileName || pdf.title}
+            className={`group flex items-center justify-between gap-1.5 px-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative w-fit max-w-[calc(100%-4px)] min-w-[120px] ${
+              isSelectedInMulti
+                ? 'bg-[#ffe4e6] dark:bg-[#881337]/30 ring-1 ring-[#e11d48]/50 font-medium text-[#1b1c19] dark:text-[#fecdd3] shadow-2xs'
+                : isActive
+                ? 'bg-[#ffe4e6] dark:bg-[#881337]/30 text-[#1b1c19] dark:text-[#fecdd3] font-medium shadow-2xs'
+                : isMenuOpenForThisPdf
+                ? 'bg-[#e4e2dd]/80 dark:bg-[#2c2a27] text-[#1b1c19] dark:text-white'
+                : 'text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#ffe4e6]/50 dark:hover:bg-[#881337]/20'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className="relative shrink-0 flex items-center justify-center">
+                <FileText
+                  className={`w-4 h-4 shrink-0 ${
+                    isActive ? 'text-[#e11d48] stroke-[2]' : 'text-[#e11d48] stroke-[1.6]'
+                  }`}
+                />
+                <span className="absolute -bottom-1 -right-1 text-[7px] font-bold px-0.5 rounded bg-[#e11d48] text-white leading-tight">
+                  PDF
+                </span>
+              </div>
+
+              {isEditing ? (
+                <div
+                  className="flex items-center gap-1 flex-1 min-w-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    ref={editInputRef}
+                    id={`rename-input-pdf-${pdf.id}`}
+                    type="text"
+                    value={editingValue}
+                    onChange={(e) => setEditingValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSaveRename();
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        isCancellingRenameRef.current = true;
+                        setEditingItemId(null);
+                        setEditingItemType(null);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (isCancellingRenameRef.current) {
+                        isCancellingRenameRef.current = false;
+                        return;
+                      }
+                      handleSaveRename();
+                    }}
+                    className="w-full px-1.5 py-0.5 text-xs bg-white dark:bg-[#1a1918] text-[#1b1c19] dark:text-white border border-[#e11d48] rounded focus:outline-hidden min-w-[100px]"
+                  />
+                </div>
+              ) : (
+                <span
+                  id={`pdf-title-${pdf.id}`}
+                  className="truncate text-xs sm:text-sm font-sans-ui text-[#1b1c19] dark:text-[#f3efe6] flex-1 min-w-0"
+                >
+                  {pdf.title || pdf.fileName}
+                </span>
+              )}
+
+              {/* Menu Horizontal ... */}
+              <button
+                id={`pdf-menu-btn-${pdf.id}`}
+                onClick={(e) => handleOpenMenu(e, pdf.id, 'pdf')}
+                className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d1c4bc]/50 text-[#7f756e] hover:text-[#1b1c19] rounded transition-opacity ml-1 shrink-0"
+                title="Opções do PDF"
+                aria-label="Opções do PDF"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Linha de Inserção Horizontal DEPOIS do PDF */}
+        {isDropAfter && (
+          <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#e11d48] z-30 rounded-full pointer-events-none shadow-xs" />
+        )}
+      </div>
+    );
+  };
+
   return (
     <aside
       id="sidebar-navigation-container"
-      className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0"
+      className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0 overflow-hidden"
     >
       {/* Top Header: Brand Logo Centered in Sidebar & Search Bar */}
       <div className="space-y-3">
@@ -1828,7 +2104,7 @@ export function SidebarNavigation({
           e.preventDefault();
         }}
         onDrop={handleDropOnRoot}
-        className="flex-1 overflow-y-auto my-1 space-y-1 py-1 pr-1 relative"
+        className="flex-1 min-h-0 overflow-y-auto my-1 space-y-1 py-1 pr-1 relative"
       >
         {isFiltering && (
           <div className="px-2 py-1 flex items-center justify-between text-[11px] font-sans-ui text-[#7f756e] bg-[#f0eee9]/60 rounded-lg mb-1">
@@ -1860,6 +2136,9 @@ export function SidebarNavigation({
 
         {/* Notas Soltas na Raiz */}
         {filteredNotes.map((note) => renderNoteNode(note))}
+
+        {/* PDFs da Biblioteca Soltos na Raiz */}
+        {filteredPdfs.map((pdf) => renderPdfNode(pdf))}
 
         {/* Pasta Especial do Sistema: "Notas arquivadas" */}
         {filteredArchivedFolder && renderFolderNode(filteredArchivedFolder)}
@@ -1938,7 +2217,7 @@ export function SidebarNavigation({
       )}
 
       {/* Bottom Action Footer */}
-      <div className="pt-2 border-t border-[#eae8e3] space-y-2">
+      <div className="pt-2 border-t border-[#eae8e3] space-y-2 shrink-0">
         <div className="flex items-center justify-between px-0.5">
           <SyncStatusIndicator
             userId={userId || undefined}
@@ -1949,25 +2228,46 @@ export function SidebarNavigation({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          {/* Botão Nova Pasta (Sempre na raiz) */}
-          <button
-            id="sidebar-create-folder-btn"
-            onClick={handleTriggerCreateFolder}
-            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#eae8e3] hover:bg-[#e0ded8] text-[#4e453f] hover:text-[#1b1c19] text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer"
-          >
-            <FolderPlus className="w-4 h-4 text-[#68594d]" />
-            <span>Pasta</span>
-          </button>
+        <div className="space-y-1.5">
+          <div className="grid grid-cols-2 gap-1.5">
+            {/* Botão Nova Pasta (Sempre na raiz) */}
+            <button
+              id="sidebar-create-folder-btn"
+              onClick={handleTriggerCreateFolder}
+              className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#eae8e3] hover:bg-[#e0ded8] text-[#4e453f] hover:text-[#1b1c19] text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer"
+              title="Nova Pasta"
+            >
+              <FolderPlus className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
+              <span className="truncate">Pasta</span>
+            </button>
 
-          {/* Botão Nova Nota (Sempre na raiz) */}
+            {/* Botão Nova Nota (Sempre na raiz) */}
+            <button
+              id="sidebar-create-note-btn"
+              onClick={handleTriggerCreateNote}
+              className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#68594d] hover:bg-[#53463c] text-white text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer shadow-2xs"
+              title="Nova Nota"
+            >
+              <FilePlus className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Nota</span>
+            </button>
+          </div>
+
+          {/* Botão Adicionar PDF (Junto de Pasta e Nota na mesma área visual) */}
           <button
-            id="sidebar-create-note-btn"
-            onClick={handleTriggerCreateNote}
-            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#68594d] hover:bg-[#53463c] text-white text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer shadow-2xs"
+            id="sidebar-add-pdf-btn"
+            onClick={() => setIsAddPdfModalOpen(true)}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#fff1f2] hover:bg-[#ffe4e6] text-[#be123c] dark:bg-[#881337]/20 dark:hover:bg-[#881337]/35 dark:text-[#fda4af] border border-[#fecdd3] dark:border-[#9f1239]/40 text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer shadow-2xs group"
+            title="Adicionar PDF"
+            aria-label="Adicionar PDF"
           >
-            <FilePlus className="w-4 h-4" />
-            <span>Nota</span>
+            <div className="relative flex items-center justify-center shrink-0">
+              <FileText className="w-3.5 h-3.5 text-[#e11d48]" />
+              <span className="absolute -bottom-0.5 -right-1 text-[6px] font-bold px-0.5 rounded-xs bg-[#e11d48] text-white leading-none">
+                PDF
+              </span>
+            </div>
+            <span className="truncate">Adicionar PDF</span>
           </button>
         </div>
 
@@ -2018,6 +2318,7 @@ export function SidebarNavigation({
         menuNoteIsFavorite={menuNoteIsFavorite}
         folders={folders}
         notes={notes}
+        libraryPdfs={libraryPdfs}
         showColorSubmenu={showColorSubmenu}
         onClose={() => {
           setMenuOpenId(null);
@@ -2142,6 +2443,25 @@ export function SidebarNavigation({
         tags={uniqueTags}
         activeTag={activeTag}
         onSelectTag={(tag) => setActiveTag(activeTag === tag ? null : tag)}
+      />
+
+      {/* Modal de Adicionar PDF (Biblioteca independente ou anexar a nota) */}
+      <AddPdfModal
+        isOpen={isAddPdfModalOpen}
+        onClose={() => setIsAddPdfModalOpen(false)}
+        folders={folders}
+        notes={notes}
+        activeFolderId={activeFolderId}
+        onAddIndependentPdf={async (file, folderId) => {
+          if (onAddIndependentPdf) {
+            await onAddIndependentPdf(file, folderId);
+          }
+        }}
+        onAttachPdfToNote={async (file, noteId) => {
+          if (onAttachPdfToNote) {
+            await onAttachPdfToNote(file, noteId);
+          }
+        }}
       />
     </aside>
   );

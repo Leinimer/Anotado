@@ -35,11 +35,21 @@ import { saveQueue } from '@/src/features/notes/api/save-queue';
 import { perfProfiler } from '@/src/features/notes/editor/utils/media-optimizer';
 import { WorkspaceType } from '@/src/features/notes/types';
 import { NoteTabItem } from '@/src/features/notes/ui/NoteTabs';
+import {
+  fetchLibraryPdfs,
+  createLibraryPdf,
+  renameLibraryPdf,
+  moveLibraryPdf,
+  deleteLibraryPdf,
+  attachPdfToNote,
+} from '@/src/features/notes/api/storage-api';
+import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
 
 export function MainLayout() {
   const router = useRouter();
   const [folders, setFolders] = useState<Folder[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [libraryPdfs, setLibraryPdfs] = useState<any[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('');
@@ -271,6 +281,15 @@ export function MainLayout() {
         setFolders(allFolders);
         setNotes(fetchedNotes);
 
+        try {
+          const fetchedPdfs = await fetchLibraryPdfs(currentUserId);
+          if (isMounted) {
+            setLibraryPdfs(fetchedPdfs);
+          }
+        } catch (pdfErr) {
+          console.warn('[MainLayout] Aviso ao carregar PDFs da biblioteca:', pdfErr);
+        }
+
         const savedActiveId =
           typeof window !== 'undefined'
             ? sessionStorage.getItem('anotado_active_notes_id')
@@ -441,9 +460,75 @@ export function MainLayout() {
     ]
   );
 
-  // Abre a nota selecionada no botão direito em uma nova aba sem reutilizar a aba ativa.
+  // Abre/ativa um PDF como aba interna do mesmo workspace de notas.
+  const handleOpenPdfTab = useCallback(
+    async (detail: { attachmentId?: string; fileName?: string; sourceUrl?: string }) => {
+      const attachmentId = detail.attachmentId?.trim();
+      if (!attachmentId) return;
+
+      const noteIdsToFlush = new Set([activeNoteId, leftNoteId, rightNoteId].filter(Boolean) as string[]);
+      await Promise.all(
+        Array.from(noteIdsToFlush).map((id) =>
+          flushNoteSaves(id).catch((error) =>
+            console.warn('[MainLayout] Falha ao finalizar nota antes de abrir PDF:', error)
+          )
+        )
+      );
+
+      const existingTab = tabs.find(
+        (tab) => tab.type === 'pdf' && tab.attachmentId === attachmentId
+      );
+      const pdfTab: NoteTabItem = existingTab
+        ? {
+            ...existingTab,
+            sourceUrl: existingTab.sourceUrl || detail.sourceUrl,
+            title: detail.fileName || existingTab.title || 'Documento PDF',
+          }
+        : {
+            id: `pdf-tab-${attachmentId}`,
+            type: 'pdf',
+            noteId: '',
+            attachmentId,
+            sourceUrl: detail.sourceUrl,
+            title: detail.fileName || 'Documento PDF',
+          };
+
+      setTabs((previous) => {
+        const alreadyOpen = previous.some(
+          (tab) => tab.type === 'pdf' && tab.attachmentId === attachmentId
+        );
+        return alreadyOpen
+          ? previous.map((tab) =>
+              tab.type === 'pdf' && tab.attachmentId === attachmentId ? pdfTab : tab
+            )
+          : [...previous, pdfTab];
+      });
+
+      setIsSplit(false);
+      setLeftNoteId(null);
+      setRightNoteId(null);
+      setActiveTabId(pdfTab.id);
+      setActiveNoteId(null);
+      setIsNewNoteJustCreated(false);
+      setMobileSidebarOpen(false);
+    },
+    [activeNoteId, leftNoteId, rightNoteId, tabs]
+  );
+
+  // Abre a nota ou PDF selecionado no botão direito em uma nova aba sem reutilizar a aba ativa.
   const handleOpenNoteInNewTab = useCallback(
     async (noteId: string) => {
+      // Se for um PDF da biblioteca
+      const pdfTarget = libraryPdfs.find((p) => p.id === noteId);
+      if (pdfTarget) {
+        await handleOpenPdfTab({
+          attachmentId: pdfTarget.id,
+          fileName: pdfTarget.file_name,
+          sourceUrl: (pdfTarget as any).public_url || (pdfTarget as any).remote_url || undefined,
+        });
+        return;
+      }
+
       const target = notes.find((note) => note.id === noteId);
       if (!target || target.is_archived) return;
 
@@ -484,7 +569,7 @@ export function MainLayout() {
         console.error('[MainLayout] Erro ao carregar nota aberta em nova aba:', noteId, error);
       }
     },
-    [notes, activeNoteId, tabs, userId]
+    [notes, libraryPdfs, activeNoteId, tabs, userId, handleOpenPdfTab]
   );
 
   // Seleciona uma aba existente pelo seu ID
@@ -879,59 +964,91 @@ export function MainLayout() {
     [tabs, isSplit, leftNoteId, rightNoteId, activeTabId, activeNoteId, notes, userId]
   );
 
-  // Abre/ativa um PDF como aba interna do mesmo workspace de notas.
-  const handleOpenPdfTab = useCallback(
-    async (detail: { attachmentId?: string; fileName?: string; sourceUrl?: string }) => {
-      const attachmentId = detail.attachmentId?.trim();
-      if (!attachmentId) return;
+  const handleSelectPdf = useCallback(
+    async (pdfId: string, openInNewTab = false) => {
+      const targetPdf = libraryPdfs.find((p) => p.id === pdfId);
+      if (!targetPdf) return;
+      await handleOpenPdfTab({
+        attachmentId: targetPdf.id,
+        fileName: targetPdf.file_name,
+        sourceUrl: (targetPdf as any).public_url || (targetPdf as any).remote_url || undefined,
+      });
+    },
+    [libraryPdfs, handleOpenPdfTab]
+  );
 
-      const noteIdsToFlush = new Set([activeNoteId, leftNoteId, rightNoteId].filter(Boolean) as string[]);
-      await Promise.all(
-        Array.from(noteIdsToFlush).map((id) =>
-          flushNoteSaves(id).catch((error) =>
-            console.warn('[MainLayout] Falha ao finalizar nota antes de abrir PDF:', error)
-          )
+  const handleAddIndependentPdf = useCallback(
+    async (file: File, folderId: string | null) => {
+      try {
+        const newPdf = await createLibraryPdf(userId, file, folderId);
+        setLibraryPdfs((prev) => [newPdf, ...prev]);
+        await handleOpenPdfTab({
+          attachmentId: newPdf.id,
+          fileName: newPdf.file_name,
+          sourceUrl: (newPdf as any).public_url || (newPdf as any).remote_url || undefined,
+        });
+      } catch (err) {
+        console.error('[MainLayout] Erro ao criar PDF na biblioteca:', err);
+      }
+    },
+    [userId, handleOpenPdfTab]
+  );
+
+  const handleAttachPdfToNote = useCallback(
+    async (file: File, noteId: string) => {
+      try {
+        await attachPdfToNote(userId, noteId, file);
+        const updated = await indexedDBStorage.getNoteById(userId, noteId);
+        if (updated) {
+          setNotes((prev) =>
+            prev.map((n) =>
+              n.id === noteId ? { ...n, content: updated.content, updated_at: updated.updated_at } : n
+            )
+          );
+        }
+        handleSelectNote(noteId, false);
+      } catch (err) {
+        console.error('[MainLayout] Erro ao anexar PDF à nota:', err);
+      }
+    },
+    [userId, handleSelectNote]
+  );
+
+  const handleRenamePdf = useCallback(
+    async (pdfId: string, newTitle: string) => {
+      setLibraryPdfs((prev) =>
+        prev.map((p) => (p.id === pdfId ? { ...p, file_name: newTitle } : p))
+      );
+      setTabs((prev) =>
+        prev.map((t) => (t.type === 'pdf' && t.attachmentId === pdfId ? { ...t, title: newTitle } : t))
+      );
+      await renameLibraryPdf(userId, pdfId, newTitle);
+    },
+    [userId]
+  );
+
+  const handleDeletePdf = useCallback(
+    async (pdfId: string) => {
+      const pdfTab = tabs.find((t) => t.type === 'pdf' && t.attachmentId === pdfId);
+      if (pdfTab) {
+        await handleCloseTab(pdfTab.id);
+      }
+      setLibraryPdfs((prev) => prev.filter((p) => p.id !== pdfId));
+      await deleteLibraryPdf(userId, pdfId);
+    },
+    [userId, tabs, handleCloseTab]
+  );
+
+  const handleMovePdf = useCallback(
+    async (pdfId: string, targetFolderId: string | null, targetPosition: number) => {
+      setLibraryPdfs((prev) =>
+        prev.map((p) =>
+          p.id === pdfId ? { ...p, folder_id: targetFolderId, position: targetPosition } : p
         )
       );
-
-      const existingTab = tabs.find(
-        (tab) => tab.type === 'pdf' && tab.attachmentId === attachmentId
-      );
-      const pdfTab: NoteTabItem = existingTab
-        ? {
-            ...existingTab,
-            sourceUrl: existingTab.sourceUrl || detail.sourceUrl,
-            title: detail.fileName || existingTab.title || 'Documento PDF',
-          }
-        : {
-            id: `pdf-tab-${attachmentId}`,
-            type: 'pdf',
-            noteId: '',
-            attachmentId,
-            sourceUrl: detail.sourceUrl,
-            title: detail.fileName || 'Documento PDF',
-          };
-
-      setTabs((previous) => {
-        const alreadyOpen = previous.some(
-          (tab) => tab.type === 'pdf' && tab.attachmentId === attachmentId
-        );
-        return alreadyOpen
-          ? previous.map((tab) =>
-              tab.type === 'pdf' && tab.attachmentId === attachmentId ? pdfTab : tab
-            )
-          : [...previous, pdfTab];
-      });
-
-      setIsSplit(false);
-      setLeftNoteId(null);
-      setRightNoteId(null);
-      setActiveTabId(pdfTab.id);
-      setActiveNoteId(null);
-      setIsNewNoteJustCreated(false);
-      setMobileSidebarOpen(false);
+      await moveLibraryPdf(userId, pdfId, targetFolderId, targetPosition);
     },
-    [activeNoteId, leftNoteId, rightNoteId, tabs]
+    [userId]
   );
 
   useEffect(() => {
@@ -1300,11 +1417,16 @@ export function MainLayout() {
 
   const handleMoveItem = useCallback(
     async (
-      itemType: 'folder' | 'note',
+      itemType: 'folder' | 'note' | 'pdf',
       itemId: string,
       targetFolderId: string | null,
       targetPosition: number
     ) => {
+      if (itemType === 'pdf') {
+        await handleMovePdf(itemId, targetFolderId, targetPosition);
+        return;
+      }
+
       if (itemType === 'folder') {
         setFolders((prev) =>
           prev.map((f) =>
@@ -1325,17 +1447,22 @@ export function MainLayout() {
 
       await moveItem(userId, itemType, itemId, targetFolderId, targetPosition);
     },
-    [userId]
+    [userId, handleMovePdf]
   );
 
   const handleReorderItem = useCallback(
     async (
-      itemType: 'folder' | 'note',
+      itemType: 'folder' | 'note' | 'pdf',
       itemId: string,
       targetId: string | null,
       targetParentId: string | null,
       dropPosition: 'before' | 'after' | 'inside'
     ) => {
+      if (itemType === 'pdf') {
+        await handleMovePdf(itemId, targetParentId, 0);
+        return;
+      }
+
       if (itemType === 'note') {
         setNotes((prevNotes) => {
           const draggedNote = prevNotes.find((n) => n.id === itemId);
@@ -1461,7 +1588,7 @@ export function MainLayout() {
         });
       }
     },
-    [userId]
+    [userId, handleMovePdf]
   );
 
   const activePdfTab = tabs.find((tab) => tab.id === activeTabId && tab.type === 'pdf') || null;
@@ -1484,16 +1611,21 @@ export function MainLayout() {
           <SidebarNavigation
             folders={folders}
             notes={notes}
+            libraryPdfs={libraryPdfs}
             activeNoteId={activeNoteId}
             activeFolderId={activeFolderId}
+            activePdfId={activePdfAttachmentId}
             onSelectNote={handleSelectNote}
             onSelectFolder={(id) => setActiveFolderId(id)}
+            onSelectPdf={handleSelectPdf}
             onCreateFolder={handleCreateFolder}
             onCreateNote={handleCreateNote}
             onRenameFolder={handleRenameFolder}
             onRenameNote={handleUpdateTitle}
+            onRenamePdf={handleRenamePdf}
             onDeleteFolder={handleDeleteFolder}
             onDeleteNote={handleDeleteNote}
+            onDeletePdf={handleDeletePdf}
             onArchiveNote={handleArchiveNote}
             onUnarchiveNote={handleUnarchiveNote}
             onToggleFavoriteNote={handleToggleFavoriteNote}
@@ -1504,6 +1636,9 @@ export function MainLayout() {
             onOpenNoteInNewTab={handleOpenNoteInNewTab}
             onMoveItem={handleMoveItem}
             onReorderItem={handleReorderItem}
+            onMovePdf={handleMovePdf}
+            onAddIndependentPdf={handleAddIndependentPdf}
+            onAttachPdfToNote={handleAttachPdfToNote}
             currentWorkspace="notes"
             onToggleWorkspace={handleToggleWorkspace}
           />
@@ -1526,19 +1661,27 @@ export function MainLayout() {
               <SidebarNavigation
                 folders={folders}
                 notes={notes}
+                libraryPdfs={libraryPdfs}
                 activeNoteId={activeNoteId}
                 activeFolderId={activeFolderId}
+                activePdfId={activePdfAttachmentId}
                 onSelectNote={(id, openInNewTab) => {
                   handleSelectNote(id, openInNewTab);
                   setMobileSidebarOpen(false);
                 }}
                 onSelectFolder={(id) => setActiveFolderId(id)}
+                onSelectPdf={(id, openInNewTab) => {
+                  handleSelectPdf(id, openInNewTab);
+                  setMobileSidebarOpen(false);
+                }}
                 onCreateFolder={handleCreateFolder}
                 onCreateNote={handleCreateNote}
                 onRenameFolder={handleRenameFolder}
                 onRenameNote={handleUpdateTitle}
+                onRenamePdf={handleRenamePdf}
                 onDeleteFolder={handleDeleteFolder}
                 onDeleteNote={handleDeleteNote}
+                onDeletePdf={handleDeletePdf}
                 onArchiveNote={handleArchiveNote}
                 onUnarchiveNote={handleUnarchiveNote}
                 onToggleFavoriteNote={handleToggleFavoriteNote}
@@ -1551,6 +1694,9 @@ export function MainLayout() {
                 }}
                 onMoveItem={handleMoveItem}
                 onReorderItem={handleReorderItem}
+                onMovePdf={handleMovePdf}
+                onAddIndependentPdf={handleAddIndependentPdf}
+                onAttachPdfToNote={handleAttachPdfToNote}
                 onOpenNoteInNewTab={handleOpenNoteInNewTab}
                 onCloseMobile={() => setMobileSidebarOpen(false)}
                 currentWorkspace="notes"

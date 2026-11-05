@@ -225,6 +225,9 @@ export async function uploadNoteAttachment(
     fileName?: string;
     mimeType?: string;
     customAttachmentId?: string;
+    isLibraryItem?: boolean;
+    folderId?: string | null;
+    position?: number;
   }
 ): Promise<UploadedMediaResult> {
   if (!userId || userId === 'anonymous') {
@@ -236,9 +239,12 @@ export async function uploadNoteAttachment(
   const fileName = options?.fileName || (fileOrBlob instanceof File ? fileOrBlob.name : 'attachment.dat');
   const mimeType = options?.mimeType || (fileOrBlob.type || 'application/octet-stream');
   const noteId = options?.noteId || null;
+  const isLibraryItem = Boolean(options?.isLibraryItem);
+  const folderId = options?.folderId || null;
+  const position = options?.position ?? 0;
   const storagePath = getAttachmentStoragePath(userId, attachmentId, fileName);
 
-  console.log(`[ATTACHMENT] INPUT_FILE name="${fileName}" size=${fileOrBlob.size} type="${mimeType}"`);
+  console.log(`[ATTACHMENT] INPUT_FILE name="${fileName}" size=${fileOrBlob.size} type="${mimeType}" isLibrary=${isLibraryItem}`);
 
   // 1. Extrai imediatamente os bytes reais do arquivo para desvincular do ciclo de vida do input mobile
   const arrayBuffer = await fileOrBlob.arrayBuffer();
@@ -266,6 +272,10 @@ export async function uploadNoteAttachment(
     file_size: fileSize,
     blob: detachedBlob,
     storage_path: storagePath,
+    bucket_id: ATTACHMENTS_BUCKET_NAME,
+    folder_id: folderId,
+    position,
+    is_library_item: isLibraryItem,
     remote_url: null,
     syncRequired: true,
     syncStatus: 'pending',
@@ -296,7 +306,11 @@ export async function uploadNoteAttachment(
         mimeType,
         fileSize,
         storagePath,
+        bucketId: ATTACHMENTS_BUCKET_NAME,
         noteId,
+        isLibraryItem,
+        folderId,
+        position,
       },
       revision: 1,
     });
@@ -542,7 +556,7 @@ export async function uploadAttachmentBinary(
         }
       }
 
-      const { error: dbErr } = await supabase.from('note_attachments').upsert({
+      const upsertRecord: any = {
         id: attachment.id,
         note_id: targetNoteId,
         user_id: userId,
@@ -551,9 +565,23 @@ export async function uploadAttachmentBinary(
         file_size: buffer.byteLength,
         storage_path: filePath,
         bucket_id: ATTACHMENTS_BUCKET_NAME,
+        is_library_item: Boolean(attachment.is_library_item),
+        folder_id: attachment.folder_id || null,
+        position: attachment.position ?? 0,
         created_at: attachment.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      });
+      };
+
+      let { error: dbErr } = await supabase.from('note_attachments').upsert(upsertRecord);
+
+      // Compatibilidade retroativa caso a migration de library items ainda não tenha sido executada no banco
+      if (dbErr && (dbErr.code === '42703' || /is_library_item|folder_id|position/i.test(dbErr.message || ''))) {
+        delete upsertRecord.is_library_item;
+        delete upsertRecord.folder_id;
+        delete upsertRecord.position;
+        const fallbackUpsert = await supabase.from('note_attachments').upsert(upsertRecord);
+        dbErr = fallbackUpsert.error;
+      }
 
       if (dbErr) {
         lastError = new Error(`Falha ao registrar o anexo em note_attachments: ${dbErr.message}`);
@@ -1014,4 +1042,238 @@ export async function migrateAllLegacyAttachments(userId: string): Promise<numbe
   }
 
   return totalMigrated;
+}
+
+/**
+ * Recupera todos os PDFs independentes da biblioteca do usuário.
+ * Estratégia offline-first: lê do IndexedDB e sincroniza com o Supabase quando online.
+ */
+export async function fetchLibraryPdfs(userId: string | null): Promise<LocalAttachment[]> {
+  if (!userId || userId === 'anonymous') return [];
+
+  // 1. Carrega localmente do IndexedDB
+  const localPdfs = await indexedDBStorage.getLibraryPdfs(userId).catch(() => []);
+
+  // 2. Se online e configurado, busca do Supabase para atualizar metadados locais
+  if (isSupabaseConfigured() && networkMonitor.getState().isBackendReachable) {
+    try {
+      const supabase = createClient();
+      const { data: remotePdfs, error } = await supabase
+        .from('note_attachments')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('is_library_item', true);
+
+      if (!error && remotePdfs && remotePdfs.length > 0) {
+        for (const remote of remotePdfs) {
+          const existing = localPdfs.find((lp) => lp.id === remote.id);
+          const updatedRecord: LocalAttachment = {
+            id: remote.id,
+            user_id: userId,
+            note_id: null,
+            file_name: remote.file_name || 'Documento.pdf',
+            file_type: remote.mime_type || 'application/pdf',
+            mime_type: remote.mime_type || 'application/pdf',
+            file_size: Number(remote.file_size || 0),
+            storage_path: remote.storage_path,
+            bucket_id: remote.bucket_id || ATTACHMENTS_BUCKET_NAME,
+            folder_id: remote.folder_id || null,
+            position: Number(remote.position || 0),
+            is_library_item: true,
+            blob: existing?.blob, // preserva o blob em cache se já tiver sido carregado
+            remote_url: null,
+            syncRequired: false,
+            syncStatus: 'synced',
+            created_at: remote.created_at || new Date().toISOString(),
+            updated_at: remote.updated_at || new Date().toISOString(),
+          };
+          await indexedDBStorage.putAttachment(userId, updatedRecord);
+        }
+        return await indexedDBStorage.getLibraryPdfs(userId);
+      }
+    } catch (e) {
+      console.warn('[StorageAPI] Falha ao consultar PDFs da biblioteca no Supabase:', e);
+    }
+  }
+
+  return localPdfs;
+}
+
+/**
+ * Cria um novo PDF independente na biblioteca do usuário.
+ */
+export async function createLibraryPdf(
+  userId: string,
+  file: File,
+  folderId?: string | null
+): Promise<LocalAttachment> {
+  const result = await uploadNoteAttachment(userId, file, {
+    fileName: file.name,
+    mimeType: file.type || 'application/pdf',
+    isLibraryItem: true,
+    folderId: folderId || null,
+  });
+
+  const attachment = await indexedDBStorage.getAttachment(userId, result.attachmentId);
+  if (!attachment) {
+    throw new Error('Falha ao recuperar PDF criado no armazenamento local');
+  }
+  return attachment;
+}
+
+/**
+ * Renomeia um PDF da biblioteca.
+ */
+export async function renameLibraryPdf(
+  userId: string,
+  attachmentId: string,
+  newFileName: string
+): Promise<void> {
+  const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
+  if (!attachment) return;
+
+  const trimmed = newFileName.trim();
+  if (!trimmed) return;
+
+  attachment.file_name = trimmed;
+  attachment.updated_at = new Date().toISOString();
+  await indexedDBStorage.putAttachment(userId, attachment);
+
+  // Enfileira sincronização
+  await indexedDBStorage.enqueueSyncItem(userId, {
+    id: `sync_att_meta_${attachmentId}`,
+    action: 'UPDATE_ATTACHMENT_METADATA',
+    entity_type: 'attachment',
+    entity_id: attachmentId,
+    payload: {
+      attachmentId,
+      fileName: trimmed,
+      folderId: attachment.folder_id || null,
+      position: attachment.position ?? 0,
+    },
+    revision: 1,
+  });
+
+  import('./sync-engine').then(({ syncEngine }) => syncEngine.scheduleSync(100)).catch(() => {});
+}
+
+/**
+ * Move um PDF da biblioteca para outra pasta ou altera sua posição.
+ */
+export async function moveLibraryPdf(
+  userId: string,
+  attachmentId: string,
+  targetFolderId: string | null,
+  targetPosition: number
+): Promise<void> {
+  const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
+  if (!attachment) return;
+
+  attachment.folder_id = targetFolderId;
+  attachment.position = targetPosition;
+  attachment.updated_at = new Date().toISOString();
+  await indexedDBStorage.putAttachment(userId, attachment);
+
+  await indexedDBStorage.enqueueSyncItem(userId, {
+    id: `sync_att_move_${attachmentId}`,
+    action: 'UPDATE_ATTACHMENT_METADATA',
+    entity_type: 'attachment',
+    entity_id: attachmentId,
+    payload: {
+      attachmentId,
+      fileName: attachment.file_name,
+      folderId: targetFolderId,
+      position: targetPosition,
+    },
+    revision: 1,
+  });
+
+  import('./sync-engine').then(({ syncEngine }) => syncEngine.scheduleSync(100)).catch(() => {});
+}
+
+/**
+ * Exclui um PDF independente da biblioteca.
+ */
+export async function deleteLibraryPdf(
+  userId: string,
+  attachmentId: string
+): Promise<void> {
+  const attachment = await indexedDBStorage.getAttachment(userId, attachmentId);
+  await indexedDBStorage.deleteAttachment(userId, attachmentId);
+  invalidateAttachmentCache(attachmentId);
+
+  await indexedDBStorage.enqueueSyncItem(userId, {
+    id: `sync_att_del_${attachmentId}`,
+    action: 'DELETE_ATTACHMENT',
+    entity_type: 'attachment',
+    entity_id: attachmentId,
+    payload: {
+      attachmentId,
+      storagePath: attachment?.storage_path,
+      bucketId: attachment?.bucket_id || ATTACHMENTS_BUCKET_NAME,
+    },
+    revision: 1,
+  });
+
+  import('./sync-engine').then(({ syncEngine }) => syncEngine.scheduleSync(100)).catch(() => {});
+}
+
+/**
+ * Faz upload de um PDF e o anexa a uma nota existente.
+ */
+export async function attachPdfToNote(
+  userId: string,
+  noteId: string,
+  file: File
+): Promise<{ attachmentId: string; fileName: string; fileSize: number; url: string }> {
+  const result = await uploadNoteAttachment(userId, file, {
+    noteId,
+    fileName: file.name,
+    mimeType: file.type || 'application/pdf',
+    isLibraryItem: false,
+  });
+
+  try {
+    const existingNote = await indexedDBStorage.getNoteById(userId, noteId);
+    if (existingNote) {
+      const attachmentHtml = `<div data-type="documentAttachment" data-src="${result.url}" data-name="${encodeURIComponent(result.name)}" data-size="${result.size}" data-type-mime="${result.type}" data-alignment="left" data-attachment-id="${result.attachmentId}"></div>`;
+      const currentContent = existingNote.content || '';
+      const updatedContent = currentContent ? `${currentContent}\n${attachmentHtml}` : attachmentHtml;
+      const now = new Date().toISOString();
+      const updatedNote = {
+        ...existingNote,
+        content: updatedContent,
+        updated_at: now,
+      };
+      await indexedDBStorage.putNote(userId, updatedNote);
+      await indexedDBStorage.enqueueSyncItem(userId, {
+        action: 'UPDATE',
+        entity_type: 'notes',
+        entity_id: noteId,
+        payload: {
+          content: updatedContent,
+          updated_at: now,
+        },
+      });
+
+      const supabase = createClient();
+      if (isSupabaseConfigured() && supabase) {
+        supabase
+          .from('notes')
+          .update({ content: updatedContent, updated_at: now })
+          .eq('id', noteId)
+          .then(() => {})
+          .catch((err) => console.warn('[attachPdfToNote] Falha no sync direto da nota:', err));
+      }
+    }
+  } catch (err) {
+    console.error('[attachPdfToNote] Erro ao injetar nó de anexo na nota:', err);
+  }
+
+  return {
+    attachmentId: result.attachmentId,
+    fileName: result.name,
+    fileSize: result.size,
+    url: result.url,
+  };
 }

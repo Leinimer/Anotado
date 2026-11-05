@@ -6,7 +6,7 @@ import { AlertTriangle } from 'lucide-react';
 interface ConfirmDeleteModalProps {
   confirmDelete: {
     id: string;
-    type: 'folder' | 'note';
+    type: 'folder' | 'note' | 'pdf';
     name: string;
     hasChildren?: boolean;
   } | null;

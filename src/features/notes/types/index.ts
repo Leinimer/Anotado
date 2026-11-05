@@ -64,6 +64,7 @@ export interface TreeFolderNode {
   diary_month?: number | null;
   subfolders: TreeFolderNode[];
   notes: TreeNodeItem[];
+  pdfs?: TreePdfItem[];
   depth: number;
 }
 
@@ -87,7 +88,24 @@ export interface TreeNodeItem {
   diary_day?: number | null;
 }
 
-export type TreeItem = TreeFolderNode | TreeNodeItem;
+export interface TreePdfItem {
+  type: 'pdf';
+  id: string; // attachmentId
+  title: string; // file_name
+  fileName: string;
+  fileSize: number;
+  folderId: string | null;
+  position: number;
+  depth: number;
+  storagePath: string;
+  bucketId?: string | null;
+  remoteUrl?: string | null;
+  isLibraryItem?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TreeItem = TreeFolderNode | TreeNodeItem | TreePdfItem;
 
 export interface NoteAttachment {
   id: string; // UUID
@@ -97,6 +115,10 @@ export interface NoteAttachment {
   mime_type: string;
   file_size: number;
   storage_path: string; // `${user_id}/${id}.${extension}`
+  bucket_id?: string | null;
+  folder_id?: string | null;
+  position?: number;
+  is_library_item?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -30,7 +30,11 @@ export interface LocalAttachment {
   data_url?: string;
   storage_path?: string | null;
   bucket_id?: string | null;
+  folder_id?: string | null;
+  position?: number;
+  is_library_item?: boolean;
   remote_url?: string | null;
+  public_url?: string | null;
   syncRequired: boolean;
   syncStatus: SyncEntityStatus;
   sync_status?: 'pending' | 'synced' | 'failed'; // compatibilidade legada
@@ -47,6 +51,8 @@ export type SyncAction =
   | 'ARCHIVE_NOTE'
   | 'UNARCHIVE_NOTE'
   | 'FAVORITE_NOTE'
+  | 'UPDATE_ATTACHMENT_METADATA'
+  | 'DELETE_ATTACHMENT'
   | 'CREATE_FOLDER'
   | 'UPDATE_FOLDER'
   | 'DELETE_FOLDER'
@@ -843,6 +849,9 @@ class IndexedDBStorage {
         data_url: attachment.data_url,
         storage_path: attachment.storage_path || null,
         bucket_id: attachment.bucket_id || null,
+        folder_id: attachment.folder_id || null,
+        position: attachment.position ?? 0,
+        is_library_item: Boolean(attachment.is_library_item),
         remote_url: attachment.remote_url || null,
         syncRequired: syncReq,
         syncStatus: status,
@@ -855,6 +864,11 @@ class IndexedDBStorage {
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
+  }
+
+  public async getLibraryPdfs(userId: string): Promise<LocalAttachment[]> {
+    const all = await this.getAllAttachments(userId);
+    return all.filter((a) => Boolean(a.is_library_item));
   }
 
   public async getPendingAttachments(userId: string): Promise<LocalAttachment[]> {

@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS public.note_attachments (
     file_size BIGINT NOT NULL DEFAULT 0,
     storage_path TEXT NOT NULL,
     bucket_id TEXT DEFAULT 'note-attachments',
+    is_library_item BOOLEAN NOT NULL DEFAULT FALSE,
+    folder_id UUID REFERENCES public.folders(id) ON DELETE SET NULL,
+    position INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
