@@ -2704,7 +2704,7 @@ class SyncEngine {
           updatedAttachmentRow = insertWithBucket.data;
           dbErr = insertWithBucket.error;
 
-          if (dbErr && (dbErr.code === '42703' || /bucket_id.*does not exist/i.test(dbErr.message || ''))) {
+          if (dbErr && isMissingBucketIdColumn(dbErr)) {
             const legacyInsert = await supabase
               .from('note_attachments')
               .insert(metadataBase)
