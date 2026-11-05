@@ -177,7 +177,7 @@ export function NoteCanvas({
 
       const href = anchor.getAttribute('href') || '';
       const parts = href.slice('#pdf-citation/'.length).split('/');
-      if (parts.length < 8) return;
+      if (parts.length < 7) return;
 
       const [attachmentId, rawPage, annotationId, rawX, rawY, rawWidth, rawHeight] = parts;
       const detail = {
