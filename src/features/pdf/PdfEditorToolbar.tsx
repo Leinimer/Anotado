@@ -58,7 +58,7 @@ interface PdfEditorToolbarProps {
 }
 
 const HIGHLIGHT_COLORS = [
-  { label: 'Amarelo vivo', hex: '#ffeb3b' },
+  { label: 'Amarelo vivo', hex: '#ffe600' },
   { label: 'Verde', hex: '#55d66b' },
   { label: 'Rosa', hex: '#ff6b91' },
   { label: 'Azul', hex: '#55a9ff' },
