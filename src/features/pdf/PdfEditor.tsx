@@ -388,22 +388,48 @@ function multiplyPdfTransforms(a: number[], b: number[]) {
 }
 
 /** Recupera o texto que está geometricamente coberto por uma marcação antiga. */
-async function extractQuoteTextForHighlight(pdfDoc: any, highlight: Extract<PdfAnnotation, { type: 'highlight' }>): Promise<string> {
-  try {
-    const page = await pdfDoc.getPage(highlight.pageIndex + 1);
-    const viewport = page.getViewport({ scale: 1 });
-    const view = page.view as number[];
-    const pdfWidth = Math.abs(Number(view?.[2] ?? viewport.width) - Number(view?.[0] ?? 0)) || viewport.width;
-    const pdfHeight = Math.abs(Number(view?.[3] ?? viewport.height) - Number(view?.[1] ?? 0)) || viewport.height;
-    const scaleX = viewport.width / pdfWidth || 1;
-    const scaleY = viewport.height / pdfHeight || 1;
-    const textContent = await page.getTextContent();
-    const styles = textContent.styles || {};
+type CachedPdfTextPage = {
+  scaleX: number;
+  scaleY: number;
+  textItems: any[];
+  styles: Record<string, any>;
+  transform: number[];
+};
 
-    const matches = (textContent.items as any[])
+/** Recupera o texto coberto pelo grifo, reutilizando a extração por página. */
+async function extractQuoteTextForHighlight(
+  pdfDoc: any,
+  highlight: Extract<PdfAnnotation, { type: 'highlight' }>,
+  pageCache?: Map<number, Promise<CachedPdfTextPage>>
+): Promise<string> {
+  try {
+    let pageDataPromise = pageCache?.get(highlight.pageIndex);
+    if (!pageDataPromise) {
+      pageDataPromise = (async () => {
+        const page = await pdfDoc.getPage(highlight.pageIndex + 1);
+        const viewport = page.getViewport({ scale: 1 });
+        const view = page.view as number[];
+        const pdfWidth = Math.abs(Number(view?.[2] ?? viewport.width) - Number(view?.[0] ?? 0)) || viewport.width;
+        const pdfHeight = Math.abs(Number(view?.[3] ?? viewport.height) - Number(view?.[1] ?? 0)) || viewport.height;
+        const textContent = await page.getTextContent();
+        return {
+          scaleX: viewport.width / pdfWidth || 1,
+          scaleY: viewport.height / pdfHeight || 1,
+          textItems: textContent.items as any[],
+          styles: textContent.styles || {},
+          transform: viewport.transform as number[],
+        };
+      })();
+      pageCache?.set(highlight.pageIndex, pageDataPromise);
+    }
+
+    const pageData = await pageDataPromise;
+    const { scaleX, scaleY, textItems, styles, transform } = pageData;
+
+    const matches = textItems
       .filter((item) => typeof item?.str === 'string' && item.str.trim())
       .map((item, index) => {
-        const tx = multiplyPdfTransforms(viewport.transform, item.transform);
+        const tx = multiplyPdfTransforms(transform, item.transform);
         const fontHeight = Math.hypot(tx[2], tx[3]);
         const style = styles[item.fontName] || {};
         const ascent = typeof style.ascent === 'number' ? style.ascent : 0.8;
@@ -434,13 +460,13 @@ async function extractQuoteTextForHighlight(pdfDoc: any, highlight: Extract<PdfA
     for (const item of matches) {
       if (previous) {
         const sameLine = Math.abs(item.y - previous.y) <= Math.max(item.height, previous.height) * 0.55;
-        if (!sameLine) output += '\\n';
-        else if (output && !/\\s$/.test(output) && !/^\\s/.test(item.text)) output += ' ';
+        if (!sameLine) output += '\n';
+        else if (output && !/\s$/.test(output) && !/^\s/.test(item.text)) output += ' ';
       }
       output += item.text;
       previous = item;
     }
-    return output.replace(/[ \\t]+/g, ' ').replace(/ *\\n */g, '\\n').trim();
+    return output.replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').trim();
   } catch (error) {
     console.warn('[PdfEditor] Não foi possível recuperar o texto de um grifo antigo:', error);
     return '';
@@ -1286,11 +1312,12 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       rects: Array<{ x: number; y: number; width: number; height: number }>;
     }> = [];
     const enriched = [...annotationsRef.current];
+    const legacyQuotePageCache = new Map<number, Promise<CachedPdfTextPage>>();
     let changed = false;
 
     for (const highlight of currentHighlights) {
       const quoteText = highlight.quoteText?.trim() ||
-        (pdfDoc ? await extractQuoteTextForHighlight(pdfDoc, highlight) : '');
+        (pdfDoc ? await extractQuoteTextForHighlight(pdfDoc, highlight, legacyQuotePageCache) : '');
       if (!quoteText) continue;
       summaryHighlights.push({
         annotationId: highlight.id,
