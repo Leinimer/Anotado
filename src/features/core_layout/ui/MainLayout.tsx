@@ -91,6 +91,7 @@ export function MainLayout() {
   const pendingPdfSummaryIdsRef = useRef<Set<string>>(new Set());
   const pendingPdfHighlightsRef = useRef<Map<string, any[]>>(new Map());
   const pendingPdfCropsRef = useRef<Map<string, Array<{ cropId: string; pageIndex: number; image: Blob; rect: { x: number; y: number; width: number; height: number } }>>>(new Map());
+  const deletedPdfCropIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
@@ -1161,6 +1162,10 @@ export function MainLayout() {
         fileName,
         mimeType: 'image/png',
       });
+      if (deletedPdfCropIdsRef.current.has(crop.cropId)) {
+        await deleteNoteAttachment(userId, uploaded.attachmentId);
+        return '';
+      }
       const citationPath = [
         encodeURIComponent(attachmentId),
         crop.pageIndex,
@@ -1351,6 +1356,7 @@ export function MainLayout() {
       if (!detail.attachmentId || !detail.annotationId || !detail.annotationType) return;
 
       const { attachmentId, annotationId, annotationType } = detail;
+      if (annotationType === 'crop') deletedPdfCropIdsRef.current.add(annotationId);
       const summary = notes.find((note) => note.parent_pdf_id === attachmentId && !note.is_archived);
 
       // Se o Resumo ainda não existe, também remove o recorte que estava aguardando
