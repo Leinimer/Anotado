@@ -1218,8 +1218,13 @@ export function MainLayout() {
       if (!attachmentId || highlights.length === 0) return;
       const summary = notes.find((note) => note.parent_pdf_id === attachmentId && !note.is_archived);
       if (!summary) {
-        const pending = pendingPdfHighlightsRef.current.get(attachmentId) || [];
-        pendingPdfHighlightsRef.current.set(attachmentId, [...pending, ...highlights]);
+        // Antes da criação, os grifos válidos são relidos diretamente das anotações
+        // atuais do PDF ao clicar em Resumo. Só enfileira eventos durante a criação,
+        // evitando incluir citações de grifos que o usuário já apagou.
+        if (pendingPdfSummaryIdsRef.current.has(attachmentId)) {
+          const pending = pendingPdfHighlightsRef.current.get(attachmentId) || [];
+          pendingPdfHighlightsRef.current.set(attachmentId, [...pending, ...highlights]);
+        }
         return;
       }
       await appendHighlights(summary, attachmentId, highlights);
