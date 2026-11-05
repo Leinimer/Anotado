@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect, useState } from 'react';
-import { X, Plus, FileText, Columns2, Minimize2, ArrowLeftRight } from 'lucide-react';
+import { X, Plus, FileText, StickyNote, Columns2, Minimize2, ArrowLeftRight } from 'lucide-react';
 import { Note as NoteType } from '../types';
 
 export interface NoteTabItem {
