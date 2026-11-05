@@ -68,7 +68,7 @@ export function buildFolderTree(
 
   // Filtra notas filhas do actualParentId
   const childNotes = activeNotes
-    .filter((n) => n.folder_id === actualParentId)
+    .filter((n) => n.folder_id === actualParentId && !n.parent_pdf_id)
     .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
 
   // Filtra PDFs filhos do actualParentId
@@ -177,11 +177,33 @@ export function buildFolderTree(
     isLibraryItem: pdf.is_library_item ?? true,
     createdAt: pdf.created_at,
     updatedAt: pdf.updated_at,
+    summaryNote: (() => {
+      const note = activeNotes.find((candidate) => candidate.parent_pdf_id === pdf.id);
+      return note ? {
+        type: 'note' as const,
+        id: note.id,
+        title: note.title,
+        content: note.content,
+        folderId: note.folder_id,
+        position: note.position,
+        depth: actualDepth + 1,
+        tags: note.tags || [],
+        isArchived: false,
+        isFavorite: Boolean(note.is_favorite),
+        previousFolderId: note.previous_folder_id ?? null,
+        workspace_type: note.workspace_type,
+        entry_date: note.entry_date,
+        diary_year: note.diary_year,
+        diary_month: note.diary_month,
+        diary_day: note.diary_day,
+        parentPdfId: pdf.id,
+      } : null;
+    })(),
   }));
 
   // Cria a pasta especial do sistema "Favoritos" (Visão das notas favoritas)
   const favoriteNotes = activeNotes
-    .filter((n) => Boolean(n.is_favorite))
+    .filter((n) => Boolean(n.is_favorite) && !n.parent_pdf_id)
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || a.position - b.position);
 
   const favoritesFolder: TreeFolderNode = {
