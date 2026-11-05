@@ -1,4 +1,12 @@
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFDict,
+  PDFHexString,
+  PDFName,
+  PDFString,
+  rgb,
+  StandardFonts,
+} from 'pdf-lib';
 import { HighlightAnnotation, PdfAnnotation } from './types';
 
 function parseHexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -16,6 +24,115 @@ function parseHexToRgb(hex: string): { r: number; g: number; b: number } {
 }
 
 /**
+ * Remove somente as anotações pertencentes ao ANOTADO. Isso permite editar/excluir
+ * um grifo ou comentário salvo e exportar repetidamente sem duplicar anotações.
+ * Anotações criadas por outros leitores de PDF são preservadas.
+ */
+function removeExistingAnotadoAnnotations(pdfDoc: any, page: any): void {
+  const annots = page.node.normalizedEntries().Annots;
+  for (let index = annots.size() - 1; index >= 0; index -= 1) {
+    const reference = annots.get(index);
+    const dict = pdfDoc.context.lookupMaybe(reference, PDFDict);
+    if (!dict) continue;
+
+    const name = dict.lookupMaybe(PDFName.of('NM'), PDFHexString, PDFString);
+    const marker = name?.decodeText?.() || '';
+    if (marker.startsWith('ANOTADO:')) {
+      annots.remove(index);
+    }
+  }
+}
+
+function addNativeHighlightAnnotation(
+  pdfDoc: any,
+  page: any,
+  ann: HighlightAnnotation
+): void {
+  const crop = page.getCropBox();
+  const quadPoints: number[] = [];
+  let left = Number.POSITIVE_INFINITY;
+  let bottom = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let top = Number.NEGATIVE_INFINITY;
+
+  for (const rect of ann.rects || []) {
+    if (
+      !Number.isFinite(rect.x) ||
+      !Number.isFinite(rect.y) ||
+      !Number.isFinite(rect.width) ||
+      !Number.isFinite(rect.height) ||
+      rect.width <= 0 ||
+      rect.height <= 0
+    ) continue;
+
+    // A seleção interna usa origem no topo da página; PDF QuadPoints usa
+    // coordenadas PDF com origem inferior esquerda.
+    const x1 = crop.x + rect.x;
+    const x2 = x1 + rect.width;
+    const yTop = crop.y + crop.height - rect.y;
+    const yBottom = yTop - rect.height;
+
+    // Ordem normalizada aceita pelo PDF.js: top-left, top-right,
+    // bottom-left, bottom-right.
+    quadPoints.push(x1, yTop, x2, yTop, x1, yBottom, x2, yBottom);
+    left = Math.min(left, x1);
+    bottom = Math.min(bottom, yBottom);
+    right = Math.max(right, x2);
+    top = Math.max(top, yTop);
+  }
+
+  if (quadPoints.length === 0) return;
+
+  const { r, g, b } = parseHexToRgb(ann.color);
+  const annotation = pdfDoc.context.obj({
+    Type: 'Annot',
+    Subtype: 'Highlight',
+    Rect: [left, bottom, right, top],
+    QuadPoints: quadPoints,
+    C: [r, g, b],
+    CA: Math.min(1, Math.max(0.05, ann.opacity ?? 0.48)),
+    T: PDFHexString.fromText('ANOTADO'),
+    NM: PDFHexString.fromText(`ANOTADO:${ann.id}`),
+    Contents: PDFHexString.fromText('Marca-texto'),
+    M: PDFString.fromDate(new Date()),
+    F: 4,
+  });
+
+  page.node.addAnnot(pdfDoc.context.register(annotation));
+}
+
+function addNativeStickyNoteAnnotation(
+  pdfDoc: any,
+  page: any,
+  ann: Extract<PdfAnnotation, { type: 'sticky_note' }>
+): void {
+  const crop = page.getCropBox();
+  const iconSize = 22;
+  const x = crop.x + ann.x;
+  const top = crop.y + crop.height - ann.y;
+  const bottom = top - iconSize;
+  const { r, g, b } = parseHexToRgb(ann.color || '#fef08a');
+
+  // /Text é uma anotação nativa de comentário. O texto fica em /Contents
+  // e aparece no popup do leitor de PDF, não impresso ao lado do ícone.
+  const annotation = pdfDoc.context.obj({
+    Type: 'Annot',
+    Subtype: 'Text',
+    Rect: [x, bottom, x + iconSize, top],
+    Name: 'Note',
+    C: [r, g, b],
+    T: PDFHexString.fromText('ANOTADO'),
+    NM: PDFHexString.fromText(`ANOTADO:${ann.id}`),
+    Contents: PDFHexString.fromText(ann.text || ''),
+    M: PDFString.fromDate(new Date()),
+    Open: false,
+    F: 4,
+  });
+
+  page.node.addAnnot(pdfDoc.context.register(annotation));
+}
+
+/**
  * Aplica todas as anotações sobre o documento PDF original e retorna o Blob atualizado
  * com as anotações embutidas no formato padrão de PDF.
  */
@@ -29,85 +146,23 @@ export async function exportPdfWithAnnotations(
 
   const pages = pdfDoc.getPages();
 
-  // 1. Grifa atrás do texto original.
-  //
-  // PDFPageLeaf.normalize() do pdf-lib (PDFDocument.load) envolve os streams
-  // originais com q/Q quando há conteúdo. drawRectangle adiciona seu próprio
-  // stream ao final; movemos SOMENTE esse stream para imediatamente depois do
-  // q inicial (índice 1), antes dos streams originais. A ordem efetiva fica:
-  // q -> grifos -> conteúdo original (texto/imagens) -> Q.
-  //
-  // Não usamos BlendMode.Multiply aqui: a ordem de pintura já preserva as letras
-  // originais sem clareá-las, e a opacidade normal evita diferenças entre leitores.
-  const highlightsByPage = new Map<number, HighlightAnnotation[]>();
-  for (const ann of annotations) {
-    if (ann.type !== 'highlight' || ann.pageIndex < 0 || ann.pageIndex >= pages.length) continue;
-    if (!Array.isArray(ann.rects) || ann.rects.length === 0) continue;
-    const group = highlightsByPage.get(ann.pageIndex) || [];
-    group.push(ann);
-    highlightsByPage.set(ann.pageIndex, group);
+  // 1. Recria as marcações nativas do ANOTADO dentro de /Annots.
+  // O subtipo PDF /Highlight usa QuadPoints e a aparência Multiply padrão dos
+  // leitores PDF (incluindo PDF.js), mantendo a tinta dos glifos legível.
+  // Ao contrário de retângulos em Contents, essas marcações são reconhecidas
+  // como grifos reais e continuam vinculadas à seleção do texto.
+  for (const page of pages) {
+    removeExistingAnotadoAnnotations(pdfDoc, page);
   }
 
-  for (const [pageIndex, pageHighlights] of highlightsByPage.entries()) {
-    const page = pages[pageIndex];
-    const pageHeight = page.getHeight();
-    const pageInternals = page as unknown as {
-      contentStream?: unknown;
-      contentStreamRef?: unknown;
-    };
-
-    // Normaliza a página ANTES de desenhar e registra a quantidade de streams
-    // existentes. Isso evita supor que qualquer stream no índice final é original.
-    const beforeContents = page.node.normalizedEntries().Contents;
-    const originalStreamCount = beforeContents?.size() ?? 0;
-
-    // Força um stream exclusivo para os destaques.
-    pageInternals.contentStream = undefined;
-    pageInternals.contentStreamRef = undefined;
-
-    for (const ann of pageHighlights) {
-      const { r, g, b } = parseHexToRgb(ann.color);
-      for (const rect of ann.rects) {
-        if (
-          !Number.isFinite(rect.x) ||
-          !Number.isFinite(rect.y) ||
-          !Number.isFinite(rect.width) ||
-          !Number.isFinite(rect.height) ||
-          rect.width <= 0 ||
-          rect.height <= 0
-        ) {
-          continue;
-        }
-
-        page.drawRectangle({
-          x: rect.x,
-          y: pageHeight - rect.y - rect.height,
-          width: rect.width,
-          height: rect.height,
-          color: rgb(r, g, b),
-          opacity: Math.min(1, Math.max(0.2, ann.opacity ?? 0.48)),
-        });
-      }
+  for (const ann of annotations) {
+    if (ann.pageIndex < 0 || ann.pageIndex >= pages.length) continue;
+    const page = pages[ann.pageIndex];
+    if (ann.type === 'highlight') {
+      addNativeHighlightAnnotation(pdfDoc, page, ann);
+    } else if (ann.type === 'sticky_note') {
+      addNativeStickyNoteAnnotation(pdfDoc, page, ann);
     }
-
-    const contents = page.node.normalizedEntries().Contents;
-    const afterCount = contents?.size() ?? 0;
-    if (!contents || afterCount <= originalStreamCount) {
-      throw new Error(`Não foi possível incorporar o grifo da página ${pageIndex + 1} ao PDF.`);
-    }
-
-    // drawRectangle cria o stream de grifos no fim. Retira-o de lá e o coloca
-    // depois do q de abertura, antes do primeiro stream com conteúdo original.
-    // Se a página não tinha conteúdo, o stream fica na posição 0.
-    const highlightStreamIndex = afterCount - 1;
-    const highlightStreamRef = contents.get(highlightStreamIndex);
-    contents.remove(highlightStreamIndex);
-    contents.insert(originalStreamCount > 0 ? 1 : 0, highlightStreamRef);
-
-    // Não reutilizar o stream que acabou de ser movido: as demais anotações
-    // precisam ser criadas depois do conteúdo original, em streams de foreground.
-    pageInternals.contentStream = undefined;
-    pageInternals.contentStreamRef = undefined;
   }
 
   // 2. Todas as demais anotações são desenhadas depois do conteúdo original,
@@ -136,7 +191,7 @@ export async function exportPdfWithAnnotations(
       }
 
       case 'highlight': {
-        // Já foi desenhado em um stream anterior ao conteúdo original da página.
+        // Persistido como anotação PDF nativa /Highlight em /Annots.
         break;
       }
 
@@ -259,42 +314,8 @@ export async function exportPdfWithAnnotations(
       }
 
       case 'sticky_note': {
-        const { r, g, b } = parseHexToRgb(ann.color || '#fed7aa');
-        // Desenha um quadrado de nota adesiva e se houver texto, anota o conteúdo
-        const iconSize = 20;
-        page.drawRectangle({
-          x: ann.x,
-          y: pageHeight - ann.y - iconSize,
-          width: iconSize,
-          height: iconSize,
-          color: rgb(r, g, b),
-          borderColor: rgb(0.3, 0.25, 0.2),
-          borderWidth: 1,
-        });
-
-        // Ícone "N" de nota
-        page.drawText('?', {
-          x: ann.x + 6,
-          y: pageHeight - ann.y - iconSize + 4,
-          size: 11,
-          font: helveticaBold,
-          color: rgb(0.2, 0.15, 0.1),
-        });
-
-        if (ann.text && ann.text.trim()) {
-          const lines = ann.text.split('\n');
-          let noteY = pageHeight - ann.y - iconSize - 12;
-          for (const line of lines) {
-            page.drawText(line, {
-              x: ann.x + iconSize + 4,
-              y: noteY,
-              size: 9,
-              font: helveticaFont,
-              color: rgb(0.2, 0.15, 0.1),
-            });
-            noteY -= 11;
-          }
-        }
+        // Persistido como anotação PDF nativa /Text. O comentário permanece
+        // em /Contents e aparece no popup, sem virar texto impresso na página.
         break;
       }
     }
