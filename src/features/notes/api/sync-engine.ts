@@ -1493,6 +1493,7 @@ class SyncEngine {
           is_archived: Boolean(effectiveNote.is_archived),
           is_favorite: Boolean(effectiveNote.is_favorite),
           previous_folder_id: effectiveNote.previous_folder_id || null,
+          parent_pdf_id: effectiveNote.parent_pdf_id || null,
           revision: effectiveRevision,
           workspace_type: effectiveNote.workspace_type || 'notes',
           entry_date: effectiveNote.entry_date || null,
@@ -1545,6 +1546,8 @@ class SyncEngine {
           delete notePayload.diary_year;
           delete notePayload.diary_month;
           delete notePayload.diary_day;
+          // Compatibilidade com projetos que ainda não aplicaram a migration de resumo PDF.
+          delete notePayload.parent_pdf_id;
           const retry = await supabase.from('notes').upsert(notePayload);
           upsertError = retry.error;
         }
