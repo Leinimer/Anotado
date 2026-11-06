@@ -18,6 +18,65 @@ export interface UploadedMediaResult {
   storagePath?: string;
 }
 
+const DOCUMENT_MIME_TYPES_BY_EXTENSION: Record<string, string> = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  txt: 'text/plain',
+  rtf: 'application/rtf',
+  md: 'text/markdown',
+  csv: 'text/csv',
+  json: 'application/json',
+  xml: 'application/xml',
+};
+
+const SUPPORTED_NOTE_DOCUMENT_EXTENSIONS = new Set(Object.keys(DOCUMENT_MIME_TYPES_BY_EXTENSION));
+
+/**
+ * Alguns navegadores e sistemas operacionais informam MIME vazio ou genérico
+ * (application/octet-stream) para arquivos .txt. A extensão preserva o tipo real.
+ */
+export function inferAttachmentMimeType(fileName: string, providedMimeType?: string | null): string {
+  const extension = (fileName.split('.').pop() || '').trim().toLowerCase();
+  const inferredMimeType = DOCUMENT_MIME_TYPES_BY_EXTENSION[extension];
+  const normalizedMimeType = (providedMimeType || '').trim().toLowerCase();
+  const genericMimeTypes = new Set([
+    '',
+    'application/octet-stream',
+    'binary/octet-stream',
+    'application/x-empty',
+    'application/unknown',
+  ]);
+
+  if (inferredMimeType && genericMimeTypes.has(normalizedMimeType)) {
+    return inferredMimeType;
+  }
+
+  return normalizedMimeType || inferredMimeType || 'application/octet-stream';
+}
+
+/**
+ * Reconhece arquivos anexáveis tanto pelo MIME quanto pela extensão.
+ * É importante não depender apenas do MIME, pois .txt costuma chegar como text/plain
+ * ou até mesmo sem MIME em alguns navegadores.
+ */
+export function isSupportedNoteAttachmentFile(file: Pick<File, 'name' | 'type'>): boolean {
+  const mimeType = (file.type || '').trim().toLowerCase();
+  const extension = (file.name.split('.').pop() || '').trim().toLowerCase();
+
+  return (
+    mimeType.startsWith('image/') ||
+    mimeType.startsWith('video/') ||
+    mimeType === 'text/plain' ||
+    mimeType === 'application/pdf' ||
+    mimeType === 'application/msword' ||
+    mimeType === 'application/rtf' ||
+    mimeType.includes('document') ||
+    mimeType.includes('officedocument') ||
+    SUPPORTED_NOTE_DOCUMENT_EXTENSIONS.has(extension)
+  );
+}
+
 /**
  * Converte uma data URI Base64 em Blob binário real com mimeType e extensão deduzida.
  */
@@ -47,6 +106,12 @@ export function base64ToBlob(base64Data: string): { blob: Blob; mimeType: string
   else if (mimeType.includes('gif')) extension = 'gif';
   else if (mimeType.includes('svg')) extension = 'svg';
   else if (mimeType.includes('pdf')) extension = 'pdf';
+  else if (mimeType.includes('text/plain')) extension = 'txt';
+  else if (mimeType.includes('text/markdown')) extension = 'md';
+  else if (mimeType.includes('text/csv')) extension = 'csv';
+  else if (mimeType.includes('application/json')) extension = 'json';
+  else if (mimeType.includes('application/xml')) extension = 'xml';
+  else if (mimeType.includes('application/rtf')) extension = 'rtf';
   else if (mimeType.includes('mp4')) extension = 'mp4';
   else if (mimeType.includes('quicktime')) extension = 'mov';
   else if (mimeType.includes('audio/mpeg') || mimeType.includes('mp3')) extension = 'mp3';
@@ -237,7 +302,8 @@ export async function uploadNoteAttachment(
   const attachmentId = options?.customAttachmentId || generateUUID();
 
   const fileName = options?.fileName || (fileOrBlob instanceof File ? fileOrBlob.name : 'attachment.dat');
-  const mimeType = options?.mimeType || (fileOrBlob.type || 'application/octet-stream');
+  const providedMimeType = options?.mimeType || fileOrBlob.type;
+  const mimeType = inferAttachmentMimeType(fileName, providedMimeType);
   const noteId = options?.noteId || null;
   const isLibraryItem = Boolean(options?.isLibraryItem);
   const folderId = options?.folderId || null;
