@@ -279,24 +279,6 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
   }, [beginLocalDictation, editor, modelInstalled]);
 
   /**
-   * Inicia o ditado por voz
-   */
-  const handleStart = useCallback(() => {
-    if (!editor) return;
-
-    editor.commands.focus();
-    const { from, to } = editor.state.selection;
-    sessionAnchorPosRef.current = from;
-    interimLengthRef.current = Math.max(0, to - from);
-    confirmedIndexRef.current = 0;
-
-    setErrorMessage('');
-    setEngineStatus('');
-    updateMode('listening');
-    startRecognitionSession();
-  }, [editor, startRecognitionSession, updateMode]);
-
-  /**
    * Pausa o ditado para edição manual completa
    */
   const handlePause = useCallback(async () => {
@@ -332,7 +314,6 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
     sessionAnchorPosRef.current = from;
     interimLengthRef.current = Math.max(0, to - from);
     confirmedIndexRef.current = 0;
-    isStoppingRef.current = false;
     setErrorMessage('');
     updateMode('listening');
 
