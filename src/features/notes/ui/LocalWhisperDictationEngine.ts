@@ -1,5 +1,5 @@
 type WhisperWorkerResponse =
-  | { type: 'progress'; message: string }
+  | { type: 'progress'; message: string; progress?: number; loaded?: number; total?: number }
   | { type: 'ready'; device: 'webgpu' | 'wasm' }
   | { type: 'transcript'; id: number; text: string }
   | { type: 'error'; id?: number; message: string };
@@ -12,6 +12,7 @@ interface PendingTranscription {
 type EngineCallbacks = {
   onTranscript: (text: string) => void;
   onStatus: (message: string) => void;
+  onProgress?: (progress: number, loaded: number, total: number) => void;
   onError: (message: string) => void;
 };
 
@@ -57,6 +58,10 @@ export class LocalWhisperDictationEngine {
   }
 
   private async startInternal(): Promise<void> {
+    // O modelo deve estar pronto antes de abrir o microfone; na primeira execução,
+    // o usuário faz isso pelo diálogo explícito de instalação.
+    await this.prepare();
+
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('Este navegador não permite acessar o microfone neste endereço.');
     }
@@ -64,7 +69,6 @@ export class LocalWhisperDictationEngine {
       throw new Error('Este navegador não oferece gravação de áudio compatível com o ditado local.');
     }
 
-    // Captura o microfone primeiro para não perder o início da fala durante o download do modelo.
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
@@ -77,15 +81,9 @@ export class LocalWhisperDictationEngine {
     this.recording = true;
     this.currentRecorder = this.createRecorder();
     this.scheduleRotation();
-
-    if (!this.workerReadyPromise) {
-      this.workerReadyPromise = this.initializeWorker();
-    }
-    await this.workerReadyPromise;
-    if (this.recording) this.callbacks.onStatus('Ditado local ativo');
+    this.callbacks.onStatus('Ditado local ativo');
     void this.processQueue();
   }
-
   async pause(): Promise<void> {
     if (this.startPromise) {
       try { await this.startPromise; } catch {}
@@ -97,10 +95,7 @@ export class LocalWhisperDictationEngine {
   async resume(): Promise<void> {
     if (this.disposed) throw new Error('A sessão local já foi encerrada.');
     if (this.recording) return;
-    if (!this.ready) {
-      if (!this.workerReadyPromise) this.workerReadyPromise = this.initializeWorker();
-      await this.workerReadyPromise;
-    }
+    await this.prepare();
 
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('Não foi possível acessar o microfone neste navegador.');
@@ -132,7 +127,20 @@ export class LocalWhisperDictationEngine {
     this.pending.clear();
   }
 
-  private async initializeWorker(): Promise<void> {
+  /**
+   * Prepara o Worker e o modelo uma única vez. A promise compartilhada impede
+   * que cliques repetidos iniciem downloads concorrentes.
+   */
+  async prepare(): Promise<void> {
+    if (this.disposed) throw new Error('A sessão local já foi encerrada.');
+    if (this.ready) return;
+    if (!this.workerReadyPromise) {
+      this.workerReadyPromise = this.initializeWorker();
+    }
+    await this.workerReadyPromise;
+  }
+
+  private initializeWorker(): Promise<void> {
     this.callbacks.onStatus('Preparando o modelo de transcrição local…');
     const worker = new Worker(new URL('./local-whisper.worker.ts', import.meta.url), {
       type: 'module',
@@ -140,15 +148,23 @@ export class LocalWhisperDictationEngine {
     });
     this.worker = worker;
 
-    this.workerReadyPromise = new Promise<void>((resolve, reject) => {
+    const readyPromise = new Promise<void>((resolve, reject) => {
       const handleMessage = (event: MessageEvent<WhisperWorkerResponse>) => {
         const message = event.data;
         if (message.type === 'progress') {
           this.callbacks.onStatus(message.message);
+          if (typeof message.progress === 'number') {
+            this.callbacks.onProgress?.(
+              Math.max(0, Math.min(100, message.progress)),
+              Number(message.loaded) || 0,
+              Number(message.total) || 0
+            );
+          }
           return;
         }
         if (message.type === 'ready') {
           this.ready = true;
+          this.callbacks.onProgress?.(100, 1, 1);
           this.callbacks.onStatus(
             message.device === 'webgpu'
               ? 'Modelo local pronto (GPU)'
@@ -186,8 +202,15 @@ export class LocalWhisperDictationEngine {
       worker.postMessage({ type: 'init' });
     });
 
-    await this.workerReadyPromise;
-    void this.processQueue();
+    this.workerReadyPromise = readyPromise.catch((error) => {
+      worker.terminate();
+      if (this.worker === worker) this.worker = null;
+      this.ready = false;
+      this.workerReadyPromise = null;
+      throw error;
+    });
+
+    return this.workerReadyPromise;
   }
 
   private createRecorder(): MediaRecorder {
