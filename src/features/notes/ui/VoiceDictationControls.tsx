@@ -3,13 +3,22 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Editor } from '@tiptap/react';
 import { TextSelection } from '@tiptap/pm/state';
-import { Mic, Pause, Play, Square } from 'lucide-react';
+import { Mic, Pause, Play, Square, AlertCircle, Info } from 'lucide-react';
 
-type DictationMode = 'idle' | 'listening' | 'paused';
+export type DictationMode = 'idle' | 'listening' | 'paused';
+
+/**
+ * Interface preparada para futura expansão de transcrição de arquivos de áudio
+ * (ex.: MP3, WAV, M4A, WebM utilizando Transformers.js / Whisper no cliente).
+ */
+export interface AudioTranscriptionProvider {
+  transcribeFile: (file: File, options?: { language?: string }) => Promise<string>;
+}
 
 type SpeechResult = {
   0: { transcript: string };
   isFinal: boolean;
+  length: number;
 };
 
 type SpeechResultEvent = Event & {
@@ -42,11 +51,6 @@ type SpeechWindow = Window & {
   webkitSpeechRecognition?: SpeechRecognitionConstructor;
 };
 
-interface DictationRange {
-  from: number;
-  length: number;
-}
-
 interface VoiceDictationControlsProps {
   editor: Editor | null;
   activeNoteId?: string | null;
@@ -54,57 +58,113 @@ interface VoiceDictationControlsProps {
 
 export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationControlsProps) {
   const [mode, setMode] = useState<DictationMode>('idle');
-  const [error, setError] = useState('');
-  const [interimText, setInterimText] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [showPrivacyNotice, setShowPrivacyNotice] = useState<boolean>(false);
+
+  // Instância ativa do SpeechRecognition
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const modeRef = useRef<DictationMode>('idle');
-  const rangeRef = useRef<DictationRange | null>(null);
+
+  // Controle pontual da posição no ProseMirror/Tiptap:
+  // sessionAnchorPosRef: posição no documento onde o segmento atual começa
+  // interimLengthRef: quantos caracteres provisórios (interim) estão renderizados nessa âncora
+  // confirmedIndexRef: índice dos resultados de SpeechRecognition já consolidados permanentemente
+  const sessionAnchorPosRef = useRef<number>(1);
+  const interimLengthRef = useRef<number>(0);
+  const confirmedIndexRef = useRef<number>(0);
+
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
+  const isStoppingRef = useRef<boolean>(false);
+  const mountedRef = useRef<boolean>(true);
 
   const updateMode = useCallback((nextMode: DictationMode) => {
     modeRef.current = nextMode;
-    if (mountedRef.current) setMode(nextMode);
+    if (mountedRef.current) {
+      setMode(nextMode);
+    }
   }, []);
 
-  const insertTranscriptPreview = useCallback((text: string) => {
-    if (!editor || !text) return;
-    const range = rangeRef.current;
-    if (!range) return;
-
-    const from = Math.max(1, Math.min(range.from, editor.state.doc.content.size));
-    const to = Math.max(from, Math.min(range.from + range.length, editor.state.doc.content.size));
-    const previousCharacter = range.length === 0 && from > 1
-      ? editor.state.doc.textBetween(from - 1, from, '', '')
-      : '';
-    const textToInsert = previousCharacter &&
-      !/\\s/.test(previousCharacter) &&
-      !/^[,.;:!?)]/.test(text)
-      ? ` ${text}`
-      : text;
-
-    try {
-      const tr = editor.state.tr.insertText(textToInsert, from, to);
-      const cursorPosition = Math.min(from + textToInsert.length, tr.doc.content.size);
-      tr.setSelection(TextSelection.near(tr.doc.resolve(cursorPosition), 1));
-      editor.view.dispatch(tr);
-      rangeRef.current = { from, length: textToInsert.length };
-      if (mountedRef.current) setInterimText(textToInsert);
-    } catch (cause) {
-      console.warn('[VoiceDictation] Não foi possível inserir a transcrição no editor:', cause);
+  /**
+   * Dispara aviso toast global do Anotado
+   */
+  const showToast = useCallback((message: string) => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('anotado:toast-warning', {
+          detail: { message },
+        })
+      );
     }
-  }, [editor]);
+  }, []);
 
-  const captureCurrentSelection = useCallback(() => {
-    if (!editor) return;
-    const { from, to } = editor.state.selection;
-    rangeRef.current = { from, length: Math.max(0, to - from) };
-    setInterimText('');
-  }, [editor]);
+  /**
+   * Aplica uma alteração de texto pontual no editor Tiptap usando transações do ProseMirror.
+   * - Substitui apenas a fatia provisória [anchor, anchor + interimLength]
+   * - Quando isFinal === true, avança a âncora e zera a fatia provisória, consolidando o texto permanentemente.
+   * - Não duplica palavras nem substitui o documento inteiro.
+   */
+  const applyTranscriptTransaction = useCallback(
+    (text: string, isFinal: boolean) => {
+      if (!editor || !editor.view) return;
 
-  const startRecognition = useCallback(() => {
+      const docSize = editor.state.doc.content.size;
+      const anchor = Math.max(1, Math.min(sessionAnchorPosRef.current, docSize));
+      const replaceTo = Math.max(anchor, Math.min(anchor + interimLengthRef.current, docSize));
+
+      let textToInsert = text;
+
+      // Adiciona espaço anterior apenas se necessário (ex.: precedido por palavra sem espaço)
+      if (anchor > 1 && !/^[\s,.;:!?)]/.test(textToInsert) && interimLengthRef.current === 0) {
+        try {
+          const charBefore = editor.state.doc.textBetween(anchor - 1, anchor, '', '');
+          if (charBefore && !/\s/.test(charBefore)) {
+            textToInsert = ` ${textToInsert}`;
+          }
+        } catch {
+          // Fallback silencioso caso posição seja limite de bloco
+        }
+      }
+
+      try {
+        const tr = editor.state.tr.insertText(textToInsert, anchor, replaceTo);
+        const newCursorPos = Math.min(anchor + textToInsert.length, tr.doc.content.size);
+        tr.setSelection(TextSelection.near(tr.doc.resolve(newCursorPos), 1));
+        tr.scrollIntoView();
+        editor.view.dispatch(tr);
+
+        if (isFinal) {
+          // Texto confirmado definitivamente: avança a âncora para após o texto confirmado
+          sessionAnchorPosRef.current = newCursorPos;
+          interimLengthRef.current = 0;
+        } else {
+          // Texto provisório: mantém a âncora fixa e atualiza o comprimento da fatia a ser substituída
+          sessionAnchorPosRef.current = anchor;
+          interimLengthRef.current = textToInsert.length;
+        }
+      } catch (err) {
+        console.warn('[VoiceDictation] Erro ao aplicar transação de fala no Tiptap:', err);
+      }
+    },
+    [editor]
+  );
+
+  /**
+   * Consolida qualquer texto provisório pendente na posição atual, transformando-o em permanente
+   */
+  const commitPendingInterim = useCallback(() => {
+    if (interimLengthRef.current > 0) {
+      sessionAnchorPosRef.current += interimLengthRef.current;
+      interimLengthRef.current = 0;
+    }
+  }, []);
+
+  /**
+   * Inicia o motor Web Speech API nativo
+   */
+  const startRecognitionSession = useCallback(() => {
     if (!editor || typeof window === 'undefined') return false;
-    // Evita abrir duas sessões caso o navegador dispare onend atrasado ao retomar.
+
+    // Se já houver instância ativa, não recria
     if (recognitionRef.current) return true;
 
     const speechWindow = window as SpeechWindow;
@@ -112,7 +172,9 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
 
     if (!Recognition) {
       updateMode('idle');
-      setError('Este navegador não oferece ditado por voz. Use uma versão atual do Chrome ou Edge.');
+      const msg = 'Ditado por voz não suportado neste navegador. Use o Google Chrome ou Microsoft Edge.';
+      setErrorMessage(msg);
+      showToast(msg);
       return false;
     }
 
@@ -123,42 +185,69 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
-      recognition.onresult = (event) => {
-        // O navegador devolve resultados finais e provisórios. Substituímos apenas
-        // o trecho desta sessão para que o texto provisório não seja duplicado.
-        let transcript = '';
-        for (let index = 0; index < event.results.length; index += 1) {
-          const item = event.results[index];
-          const part = item?.[0]?.transcript || '';
-          if (!part) continue;
-          if (
-            transcript &&
-            !/\\s$/.test(transcript) &&
-            !/^\\s/.test(part) &&
-            !/^[,.;:!?]/.test(part)
-          ) {
-            transcript += ' ';
+      recognition.onresult = (event: SpeechResultEvent) => {
+        if (!editor || !editor.view) return;
+
+        // 1. Processa novos resultados definitivos (isFinal === true)
+        let hasNewFinal = false;
+        for (let i = confirmedIndexRef.current; i < event.results.length; i++) {
+          const item = event.results[i];
+          if (item.isFinal) {
+            const finalPart = (item[0]?.transcript || '').trim();
+            if (finalPart) {
+              applyTranscriptTransaction(finalPart, true);
+            }
+            confirmedIndexRef.current = i + 1;
+            hasNewFinal = true;
           }
-          transcript += part;
         }
 
-        const normalized = transcript.replace(/[\\t ]+/g, ' ').replace(/^\\s+/, '');
-        if (normalized) insertTranscriptPreview(normalized);
+        // 2. Coleta os resultados provisórios (isFinal === false) que ainda não foram consolidados
+        let interimCombined = '';
+        for (let i = confirmedIndexRef.current; i < event.results.length; i++) {
+          const item = event.results[i];
+          if (!item.isFinal) {
+            const part = (item[0]?.transcript || '').trim();
+            if (part) {
+              if (interimCombined) interimCombined += ' ';
+              interimCombined += part;
+            }
+          }
+        }
+
+        if (interimCombined) {
+          applyTranscriptTransaction(interimCombined, false);
+        } else if (hasNewFinal && interimLengthRef.current > 0) {
+          interimLengthRef.current = 0;
+        }
       };
 
-      recognition.onerror = (event) => {
-        const fatalErrors = ['not-allowed', 'service-not-allowed', 'audio-capture'];
-        if (fatalErrors.includes(event.error)) {
+      recognition.onerror = (event: SpeechErrorEvent) => {
+        // 'no-speech' é um evento normal quando o usuário faz pausas ao falar
+        if (event.error === 'no-speech') {
+          return;
+        }
+
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           updateMode('idle');
-          const messages: Record<string, string> = {
-            'not-allowed': 'Permita o acesso ao microfone nas configurações do navegador.',
-            'service-not-allowed': 'O serviço de reconhecimento de voz não está disponível.',
-            'audio-capture': 'Nenhum microfone disponível foi encontrado.',
-          };
-          setError(messages[event.error] || 'Não foi possível iniciar o ditado.');
+          isStoppingRef.current = true;
+          const msg = 'Acesso ao microfone negado. Permita o uso do microfone no navegador.';
+          setErrorMessage(msg);
+          showToast(msg);
+        } else if (event.error === 'audio-capture') {
+          updateMode('idle');
+          isStoppingRef.current = true;
+          const msg = 'Nenhum microfone encontrado. Conecte um microfone e tente novamente.';
+          setErrorMessage(msg);
+          showToast(msg);
         } else if (event.error === 'network') {
-          setError('A conexão com o serviço de reconhecimento foi interrompida. Tente retomar o ditado.');
+          commitPendingInterim();
           updateMode('paused');
+          const msg = 'Conexão interrompida com o serviço de voz. Clique em Retomar para reconectar.';
+          setErrorMessage(msg);
+          showToast(msg);
+        } else {
+          console.warn('[VoiceDictation] Erro de reconhecimento:', event.error);
         }
       };
 
@@ -167,187 +256,298 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
           recognitionRef.current = null;
         }
 
-        if (modeRef.current !== 'listening') return;
+        // Se o usuário não pausou nem finalizou manualmente, os navegadores (Chrome/Edge)
+        // podem encerrar sessões contínuas após alguns segundos de silêncio.
+        // Reiniciamos transparentemente a sessão sem perder texto nem mover o cursor.
+        if (modeRef.current === 'listening' && !isStoppingRef.current) {
+          commitPendingInterim();
+          confirmedIndexRef.current = 0;
 
-        // Alguns navegadores encerram uma sessão contínua após períodos de silêncio.
-        // Reabrimos o reconhecimento a partir do ponto em que o texto foi inserido.
-        const currentRange = rangeRef.current;
-        if (currentRange) {
-          const nextPosition = Math.min(
-            currentRange.from + currentRange.length,
-            editor.state.doc.content.size
-          );
-          rangeRef.current = { from: nextPosition, length: 0 };
+          if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = setTimeout(() => {
+            if (modeRef.current === 'listening' && !isStoppingRef.current) {
+              startRecognitionSession();
+            }
+          }, 180);
         }
-
-        if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-        restartTimerRef.current = setTimeout(() => {
-          if (modeRef.current === 'listening') startRecognition();
-        }, 250);
       };
 
+      isStoppingRef.current = false;
       recognitionRef.current = recognition;
       recognition.start();
-      setError('');
+      setErrorMessage('');
       return true;
     } catch (cause) {
       console.warn('[VoiceDictation] Falha ao iniciar reconhecimento:', cause);
       updateMode('idle');
-      setError('Não foi possível iniciar o microfone. Tente novamente.');
+      const msg = 'Não foi possível iniciar o microfone. Verifique as permissões.';
+      setErrorMessage(msg);
+      showToast(msg);
       return false;
     }
-  }, [editor, insertTranscriptPreview, updateMode]);
+  }, [applyTranscriptTransaction, commitPendingInterim, editor, showToast, updateMode]);
 
+  /**
+   * Inicia o ditado por voz
+   */
   const handleStart = useCallback(() => {
     if (!editor) return;
-    captureCurrentSelection();
-    setError('');
-    updateMode('listening');
-    startRecognition();
-  }, [editor, captureCurrentSelection, startRecognition, updateMode]);
 
+    editor.commands.focus();
+    const { from, to } = editor.state.selection;
+    sessionAnchorPosRef.current = from;
+    interimLengthRef.current = Math.max(0, to - from);
+    confirmedIndexRef.current = 0;
+
+    setErrorMessage('');
+    updateMode('listening');
+    startRecognitionSession();
+  }, [editor, startRecognitionSession, updateMode]);
+
+  /**
+   * Pausa o ditado para edição manual completa
+   */
   const handlePause = useCallback(() => {
-    // O modo muda antes de stop() para impedir que onend reinicie automaticamente.
+    isStoppingRef.current = true;
     updateMode('paused');
+
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
+
+    commitPendingInterim();
+
     try {
       recognitionRef.current?.stop();
-    } catch {}
-  }, [updateMode]);
+    } catch {
+      // Ignora erro se já estava parando
+    }
+    recognitionRef.current = null;
+  }, [commitPendingInterim, updateMode]);
 
+  /**
+   * Retoma o ditado na posição ATUAL do cursor após edição livre do usuário
+   */
   const handleResume = useCallback(() => {
     if (!editor) return;
-    // O usuário pode editar a nota enquanto pausado. A retomada começa
-    // exatamente na posição atual do cursor/seleção, sem apagar o texto anterior.
-    captureCurrentSelection();
-    setError('');
-    updateMode('listening');
-    startRecognition();
-  }, [editor, captureCurrentSelection, startRecognition, updateMode]);
 
+    // Foca o editor e lê a nova posição do cursor (o usuário pode ter clicado em qualquer lugar)
+    editor.commands.focus();
+    const { from, to } = editor.state.selection;
+    sessionAnchorPosRef.current = from;
+    interimLengthRef.current = Math.max(0, to - from);
+    confirmedIndexRef.current = 0;
+
+    isStoppingRef.current = false;
+    setErrorMessage('');
+    updateMode('listening');
+    startRecognitionSession();
+  }, [editor, startRecognitionSession, updateMode]);
+
+  /**
+   * Finaliza e encerra a sessão de ditado por voz
+   */
   const handleFinish = useCallback(() => {
+    isStoppingRef.current = true;
     updateMode('idle');
+
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
+    commitPendingInterim();
+
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // Ignora erro
+    }
+    recognitionRef.current = null;
+    sessionAnchorPosRef.current = 1;
+    interimLengthRef.current = 0;
+    confirmedIndexRef.current = 0;
+    setErrorMessage('');
+  }, [commitPendingInterim, updateMode]);
+
+  // Limpa o estado quando a nota ativa ou a instância do editor mudar
+  useEffect(() => {
+    isStoppingRef.current = true;
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
     try {
-      recognitionRef.current?.stop();
-    } catch {}
+      recognitionRef.current?.abort?.();
+    } catch {
+      // Ignora
+    }
     recognitionRef.current = null;
-    rangeRef.current = null;
-    setInterimText('');
-    setError('');
-  }, [updateMode]);
-
-  useEffect(() => {
-    // Cada editor/nota possui uma sessão de ditado independente.
     modeRef.current = 'idle';
     setMode('idle');
-    setError('');
-    setInterimText('');
-    rangeRef.current = null;
+    setErrorMessage('');
+    sessionAnchorPosRef.current = 1;
+    interimLengthRef.current = 0;
+    confirmedIndexRef.current = 0;
   }, [editor, activeNoteId]);
 
+  // Limpa na desmontagem do componente
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      modeRef.current = 'idle';
-      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-      recognitionRef.current?.abort?.();
+      isStoppingRef.current = true;
+      if (restartTimerRef.current) {
+        clearTimeout(restartTimerRef.current);
+      }
+      try {
+        recognitionRef.current?.abort?.();
+      } catch {
+        // Ignora
+      }
       recognitionRef.current = null;
     };
-  }, [editor, activeNoteId]);
+  }, []);
 
   const baseButton =
     'min-w-[38px] min-h-[38px] sm:min-w-[40px] sm:min-h-[40px] px-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0';
 
+  // ESTADO INATIVO (IDLE)
   if (mode === 'idle') {
     return (
-      <div className="flex items-center gap-1 shrink-0" title="Ditado em português (Brasil)">
+      <div className="flex items-center gap-1 shrink-0 relative" title="Ditado por voz (pt-BR)">
         <button
           id="toolbar-btn-voice-dictation"
           type="button"
           onClick={handleStart}
-          className={`${baseButton} text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] dark:text-[#d4d4d4] dark:hover:bg-[#222222] dark:hover:text-white`}
-          title="Ditar na nota"
+          disabled={!editor}
+          className={`${baseButton} text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] dark:text-[#d4d4d4] dark:hover:bg-[#222222] dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed`}
+          title="Iniciar ditado por voz (pt-BR) — A fala é transcrita diretamente na nota"
           aria-label="Iniciar ditado por voz"
         >
-          <Mic className="w-4.5 h-4.5" />
+          <Mic className="w-4.5 h-4.5 stroke-[2.25]" />
         </button>
-        {error && (
-          <span className="max-w-[190px] text-[10px] leading-tight text-[#ba1a1a] dark:text-[#fca5a5]" role="status">
-            {error}
-          </span>
+
+        {errorMessage && (
+          <div
+            className="flex items-center gap-1 max-w-[200px] text-[10px] leading-tight text-[#ba1a1a] dark:text-[#fca5a5] pl-1 font-sans-ui"
+            role="status"
+          >
+            <AlertCircle className="w-3 h-3 shrink-0" />
+            <span className="truncate" title={errorMessage}>
+              {errorMessage}
+            </span>
+          </div>
         )}
       </div>
     );
   }
 
-  return (
-    <div
-      className="flex items-center gap-1 rounded-xl border border-[#e4e2dd] dark:border-[#393939] bg-[#f5f3ee] dark:bg-[#111111] px-1 shrink-0"
-      title={mode === 'listening' ? 'O texto reconhecido aparece na nota em tempo real' : 'Ditado pausado; edite o texto e retome quando quiser'}
-    >
-      <span
-        className={`hidden sm:inline-flex items-center gap-1.5 px-1.5 text-[10px] font-sans-ui whitespace-nowrap ${
-          mode === 'listening' ? 'text-[#ba1a1a] dark:text-[#fca5a5]' : 'text-[#7f756e] dark:text-[#a3a3a3]'
-        }`}
-        aria-live="polite"
+  // ESTADO GRAVANDO / OUVINDO (LISTENING)
+  if (mode === 'listening') {
+    return (
+      <div
+        id="voice-dictation-active-bar"
+        className="flex items-center gap-1 sm:gap-1.5 py-1 px-2 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50/90 dark:bg-red-950/40 text-[#1b1c19] dark:text-[#f5f5f5] shrink-0 animate-in fade-in duration-150 shadow-2xs font-sans-ui"
       >
-        <span className={`w-1.5 h-1.5 rounded-full ${mode === 'listening' ? 'bg-[#dc2626] animate-pulse' : 'bg-[#a1a1aa]'}`} />
-        {mode === 'listening' ? 'Ditando' : 'Pausado'}
-      </span>
+        {/* Indicador de Microfone Ativo */}
+        <div className="flex items-center gap-1.5 pr-1">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600"></span>
+          </span>
+          <span className="text-[11px] font-semibold text-red-700 dark:text-red-300 whitespace-nowrap">
+            Ouvindo...
+          </span>
+        </div>
 
-      {mode === 'listening' ? (
+        {/* Botão Pausar */}
         <button
           id="toolbar-btn-voice-pause"
           type="button"
           onClick={handlePause}
-          className={`${baseButton} text-[#4e453f] hover:bg-[#e8e4db] dark:text-[#e5e5e5] dark:hover:bg-[#262626]`}
-          title="Pausar para editar a nota"
-          aria-label="Pausar ditado"
+          className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-white/95 dark:bg-[#1a1a1a] hover:bg-white dark:hover:bg-[#262626] border border-red-200 dark:border-red-900/40 text-[#4a4742] dark:text-[#e4e2dd] transition-all cursor-pointer shadow-2xs active:scale-95"
+          title="Pausar o ditado para digitar, apagar ou editar livremente no editor"
+          aria-label="Pausar ditado para edição"
         >
-          <Pause className="w-4 h-4" />
+          <Pause className="w-3.5 h-3.5 fill-current" />
+          <span className="hidden sm:inline">Pausar</span>
         </button>
-      ) : (
-        <button
-          id="toolbar-btn-voice-resume"
-          type="button"
-          onClick={handleResume}
-          className={`${baseButton} text-[#166534] hover:bg-[#dcfce7] dark:text-[#86efac] dark:hover:bg-[#14251a]`}
-          title="Retomar ditado no cursor"
-          aria-label="Retomar ditado"
-        >
-          <Play className="w-4 h-4" />
-        </button>
-      )}
 
+        {/* Botão Concluir/Finalizar */}
+        <button
+          id="toolbar-btn-voice-finish"
+          type="button"
+          onClick={handleFinish}
+          className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white transition-all cursor-pointer shadow-2xs active:scale-95"
+          title="Concluir e encerrar ditado"
+          aria-label="Finalizar ditado"
+        >
+          <Square className="w-3 h-3 fill-current" />
+          <span className="hidden sm:inline">Concluir</span>
+        </button>
+
+        {/* Botão sutil de aviso de privacidade */}
+        <button
+          type="button"
+          onClick={() => setShowPrivacyNotice((prev) => !prev)}
+          className="p-1 rounded-md text-red-600/70 hover:text-red-700 dark:text-red-300/70 dark:hover:text-red-200 hover:bg-red-100/50 dark:hover:bg-red-900/30 transition-colors ml-0.5 cursor-pointer"
+          title="Informações de privacidade do ditado"
+          aria-label="Privacidade do ditado por voz"
+        >
+          <Info className="w-3.5 h-3.5" />
+        </button>
+
+        {showPrivacyNotice && (
+          <div className="absolute top-full mt-2 left-0 z-50 p-3 bg-white dark:bg-[#1a1a1a] border border-[#e4e2dd] dark:border-[#333333] rounded-xl shadow-xl max-w-[280px] text-[11px] leading-relaxed text-[#4a4742] dark:text-[#d4d4d4]">
+            <p className="font-semibold text-[#1b1c19] dark:text-[#f5f5f5] mb-1">Privacidade do Ditado</p>
+            <p>O áudio não é salvo no aplicativo. O navegador processa a fala localmente ou via serviço de reconhecimento nativo do próprio sistema/navegador.</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ESTADO PAUSADO (PAUSED)
+  return (
+    <div
+      id="voice-dictation-paused-bar"
+      className="flex items-center gap-1 sm:gap-1.5 py-1 px-2 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/90 dark:bg-amber-950/40 text-[#1b1c19] dark:text-[#f5f5f5] shrink-0 animate-in fade-in duration-150 shadow-2xs font-sans-ui"
+    >
+      {/* Indicador Pausado */}
+      <div className="flex items-center gap-1.5 pr-1">
+        <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+        <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 whitespace-nowrap">
+          Pausado
+        </span>
+      </div>
+
+      {/* Botão Retomar */}
+      <button
+        id="toolbar-btn-voice-resume"
+        type="button"
+        onClick={handleResume}
+        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-all cursor-pointer shadow-2xs active:scale-95"
+        title="Retomar ditado na posição atual do cursor (após suas edições)"
+        aria-label="Retomar ditado"
+      >
+        <Play className="w-3.5 h-3.5 fill-current" />
+        <span className="hidden sm:inline">Retomar</span>
+      </button>
+
+      {/* Botão Concluir/Finalizar */}
       <button
         id="toolbar-btn-voice-finish"
         type="button"
         onClick={handleFinish}
-        className={`${baseButton} text-[#ba1a1a] hover:bg-[#fee2e2] dark:text-[#fca5a5] dark:hover:bg-[#351515]`}
-        title="Finalizar ditado"
+        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-white/95 dark:bg-[#1a1a1a] hover:bg-white dark:hover:bg-[#262626] border border-amber-200 dark:border-amber-900/40 text-[#4a4742] dark:text-[#e4e2dd] transition-all cursor-pointer shadow-2xs active:scale-95"
+        title="Concluir e encerrar ditado"
         aria-label="Finalizar ditado"
       >
-        <Square className="w-3.5 h-3.5" />
+        <Square className="w-3 h-3" />
+        <span className="hidden sm:inline">Concluir</span>
       </button>
-
-      {error && (
-        <span className="hidden md:inline text-[10px] text-[#ba1a1a] dark:text-[#fca5a5] max-w-[150px]" role="status">
-          {error}
-        </span>
-      )}
-      {interimText && (
-        <span className="sr-only" aria-live="polite">
-          {interimText}
-        </span>
-      )}
     </div>
   );
 }
