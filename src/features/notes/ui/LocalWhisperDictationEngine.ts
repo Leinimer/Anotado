@@ -37,6 +37,7 @@ export class LocalWhisperDictationEngine {
   private disposed = false;
   private previousWords: string[] = [];
   private workerReadyPromise: Promise<void> | null = null;
+  private startPromise: Promise<void> | null = null;
 
   constructor(callbacks: EngineCallbacks) {
     this.callbacks = callbacks;
@@ -45,7 +46,17 @@ export class LocalWhisperDictationEngine {
   async start(): Promise<void> {
     if (this.disposed) throw new Error('A sessão local já foi encerrada.');
     if (this.recording) return;
+    if (this.startPromise) return this.startPromise;
 
+    this.startPromise = this.startInternal();
+    try {
+      await this.startPromise;
+    } finally {
+      this.startPromise = null;
+    }
+  }
+
+  private async startInternal(): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('Este navegador não permite acessar o microfone neste endereço.');
     }
@@ -71,11 +82,14 @@ export class LocalWhisperDictationEngine {
       this.workerReadyPromise = this.initializeWorker();
     }
     await this.workerReadyPromise;
-    this.callbacks.onStatus('Ditado local ativo');
+    if (this.recording) this.callbacks.onStatus('Ditado local ativo');
     void this.processQueue();
   }
 
   async pause(): Promise<void> {
+    if (this.startPromise) {
+      try { await this.startPromise; } catch {}
+    }
     await this.stopCaptureAndFlush();
     this.callbacks.onStatus('Ditado local pausado');
   }
@@ -106,6 +120,9 @@ export class LocalWhisperDictationEngine {
   }
 
   async stop(): Promise<void> {
+    if (this.startPromise) {
+      try { await this.startPromise; } catch {}
+    }
     await this.stopCaptureAndFlush();
     this.disposed = true;
     this.worker?.terminate();
