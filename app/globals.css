@@ -1333,35 +1333,35 @@ html.dark {
    CARTÕES DE ANEXOS — MODO DARK
    Fundo preto uniforme com texto, metadados, ícones e controles legíveis.
    ========================================================================== */
-.dark .document-attachment-wrapper > div > div {
+.dark [data-document-attachment-card] {
   background-color: #000000 !important;
   border-color: #2a2a2a !important;
   color: #f5f5f5 !important;
 }
 
-.dark .document-attachment-wrapper > div > div:hover {
+.dark [data-document-attachment-card]:hover {
   background-color: #101010 !important;
 }
 
-.dark .document-attachment-wrapper > div > div p {
+.dark [data-document-attachment-card] p {
   color: #f5f5f5 !important;
 }
 
-.dark .document-attachment-wrapper > div > div span {
+.dark [data-document-attachment-card] span {
   color: #a3a3a3 !important;
 }
 
-.dark .document-attachment-wrapper > div > div button {
+.dark [data-document-attachment-card] button {
   background-color: #111111 !important;
   border-color: #4a4a4a !important;
   color: #f5f5f5 !important;
 }
 
-.dark .document-attachment-wrapper > div > div button:hover {
+.dark [data-document-attachment-card] button:hover {
   background-color: #292929 !important;
   color: #ffffff !important;
 }
 
-.dark .document-attachment-wrapper > div > div > div:first-child {
+.dark [data-document-attachment-card] > div:first-child {
   color: #ff9b9b !important;
 }
