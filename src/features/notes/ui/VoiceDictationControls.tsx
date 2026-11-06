@@ -18,41 +18,6 @@ export interface AudioTranscriptionProvider {
   transcribeFile: (file: File, options?: { language?: string }) => Promise<string>;
 }
 
-type SpeechResult = {
-  0: { transcript: string };
-  isFinal: boolean;
-  length: number;
-};
-
-type SpeechResultEvent = Event & {
-  resultIndex: number;
-  results: ArrayLike<SpeechResult>;
-};
-
-type SpeechErrorEvent = Event & {
-  error: string;
-  message?: string;
-};
-
-interface SpeechRecognitionLike {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  maxAlternatives: number;
-  onresult: ((event: SpeechResultEvent) => void) | null;
-  onerror: ((event: SpeechErrorEvent) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort?: () => void;
-}
-
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
-
-type SpeechWindow = Window & {
-  SpeechRecognition?: SpeechRecognitionConstructor;
-  webkitSpeechRecognition?: SpeechRecognitionConstructor;
-};
 
 interface VoiceDictationControlsProps {
   editor: Editor | null;
@@ -74,8 +39,6 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
   const [installError, setInstallError] = useState('');
   const [persistentStorageGranted, setPersistentStorageGranted] = useState<boolean | null>(null);
 
-  // Instância ativa do SpeechRecognition
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const localEngineRef = useRef<LocalWhisperDictationEngine | null>(null);
   const modeRef = useRef<DictationMode>('idle');
 
@@ -87,8 +50,6 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
   const interimLengthRef = useRef<number>(0);
   const confirmedIndexRef = useRef<number>(0);
 
-  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isStoppingRef = useRef<boolean>(false);
   const mountedRef = useRef<boolean>(true);
 
   const updateMode = useCallback((nextMode: DictationMode) => {
@@ -255,7 +216,6 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
     sessionAnchorPosRef.current = from;
     interimLengthRef.current = Math.max(0, to - from);
     confirmedIndexRef.current = 0;
-    isStoppingRef.current = false;
     setErrorMessage('');
     setEngineStatus('Carregando modelo salvo…');
     setInstallDialogOpen(false);
@@ -340,35 +300,26 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
    * Pausa o ditado para edição manual completa
    */
   const handlePause = useCallback(async () => {
-    if (localEngineRef.current) {
-      setEngineStatus('Finalizando o trecho atual antes de pausar…');
-      try {
-        await localEngineRef.current.pause();
-        commitPendingInterim();
-        updateMode('paused');
-        setEngineStatus('Ditado local pausado');
-      } catch (error) {
-        updateMode('paused');
-        const message = error instanceof Error ? error.message : 'Não foi possível pausar o ditado local.';
-        setErrorMessage(message);
-        setEngineStatus('');
-      }
+    const engine = localEngineRef.current;
+    if (!engine) {
+      updateMode('paused');
       return;
     }
 
-    isStoppingRef.current = true;
-    updateMode('paused');
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
-    commitPendingInterim();
-
+    setEngineStatus('Finalizando o trecho atual antes de pausar…');
     try {
-      recognitionRef.current?.stop();
-    } catch {}
-    recognitionRef.current = null;
+      await engine.pause();
+      commitPendingInterim();
+      updateMode('paused');
+      setEngineStatus('Ditado local pausado');
+    } catch (error) {
+      updateMode('paused');
+      const message = error instanceof Error ? error.message : 'Não foi possível pausar o ditado local.';
+      setErrorMessage(message);
+      setEngineStatus('');
+    }
   }, [commitPendingInterim, updateMode]);
+
 
   /**
    * Retoma o ditado na posição ATUAL do cursor após edição livre do usuário.
@@ -408,12 +359,6 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
    * Finaliza a captura e preserva inclusive o último trecho ainda em processamento.
    */
   const handleFinish = useCallback(async () => {
-    isStoppingRef.current = true;
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
-
     const localEngine = localEngineRef.current;
     if (localEngine) {
       setEngineStatus('Finalizando e transcrevendo o último trecho…');
@@ -423,11 +368,6 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
         console.warn('[VoiceDictation] Erro ao finalizar transcrição local:', error);
       }
       if (localEngineRef.current === localEngine) localEngineRef.current = null;
-    } else {
-      try {
-        recognitionRef.current?.stop();
-      } catch {}
-      recognitionRef.current = null;
     }
 
     commitPendingInterim();
@@ -439,20 +379,8 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
     updateMode('idle');
   }, [commitPendingInterim, updateMode]);
 
-
   // Limpa o estado quando a nota ativa ou a instância do editor mudar
   useEffect(() => {
-    isStoppingRef.current = true;
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
-    try {
-      recognitionRef.current?.abort?.();
-    } catch {
-      // Ignora
-    }
-    recognitionRef.current = null;
     const localEngine = localEngineRef.current;
     localEngineRef.current = null;
     if (localEngine) void localEngine.stop();
@@ -470,16 +398,6 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      isStoppingRef.current = true;
-      if (restartTimerRef.current) {
-        clearTimeout(restartTimerRef.current);
-      }
-      try {
-        recognitionRef.current?.abort?.();
-      } catch {
-        // Ignora
-      }
-      recognitionRef.current = null;
       const localEngine = localEngineRef.current;
       localEngineRef.current = null;
       if (localEngine) void localEngine.stop();
