@@ -272,6 +272,8 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
       };
 
       recognition.onerror = (event: SpeechErrorEvent) => {
+        // Ignora eventos tardios gerados por stop()/abort() após uma troca de motor.
+        if (isStoppingRef.current && event.error !== 'not-allowed') return;
         // 'no-speech' é um evento normal quando o usuário faz pausas ao falar
         if (event.error === 'no-speech') {
           return;
