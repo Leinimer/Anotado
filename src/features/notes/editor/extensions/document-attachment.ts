@@ -218,13 +218,13 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
           target: '_blank',
           rel: 'noopener noreferrer',
           class:
-            'flex items-center gap-3 p-3 my-3 bg-[#f5f3ee] hover:bg-[#eae8e3] border border-[#e4e2dd] rounded-xl transition-all max-w-md no-underline text-[#1b1c19]',
+            'flex items-center gap-3 p-3 my-3 bg-[#f5f3ee] hover:bg-[#eae8e3] dark:bg-[#080808] dark:hover:bg-[#141414] border border-[#e4e2dd] dark:border-[#292929] rounded-xl transition-all max-w-md no-underline text-[#1b1c19] dark:text-[#f5f5f5]',
         },
         [
           'div',
           {
             class: `w-10 h-10 rounded-lg flex items-center justify-center font-bold text-xs uppercase shrink-0 ${
-              isPdf ? 'bg-[#ba1a1a]/10 text-[#ba1a1a]' : 'bg-[#68594d]/10 text-[#68594d]'
+              isPdf ? 'bg-[#ba1a1a]/10 text-[#ba1a1a] dark:bg-[#3a1111] dark:text-[#ff8585]' : 'bg-[#68594d]/10 text-[#68594d] dark:bg-[#211d1a] dark:text-[#d6c4b5]'
             }`,
           },
           isPdf ? 'PDF' : 'DOC',
@@ -234,12 +234,12 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
           { class: 'flex-1 min-w-0' },
           [
             'p',
-            { class: 'text-sm font-semibold truncate text-[#1b1c19] m-0 leading-tight font-sans-ui' },
+            { class: 'text-sm font-semibold truncate text-[#1b1c19] dark:text-[#f5f5f5] m-0 leading-tight font-sans-ui' },
             name,
           ],
           [
             'span',
-            { class: 'text-xs text-[#7f756e] font-sans-ui mt-0.5 block' },
+            { class: 'text-xs text-[#7f756e] dark:text-[#a3a3a3] font-sans-ui mt-0.5 block' },
             displaySize,
           ],
         ],
@@ -247,7 +247,7 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
           'span',
           {
             class:
-              'text-xs text-[#68594d] font-sans-ui font-medium px-2.5 py-1 bg-white border border-[#d1c4bc] rounded-lg group-hover:bg-[#68594d] group-hover:text-white transition-colors shrink-0',
+              'text-xs text-[#68594d] font-sans-ui font-medium px-2.5 py-1 bg-white border border-[#d1c4bc] dark:text-[#f0e5dc] dark:bg-[#171717] dark:border-[#51463e] rounded-lg group-hover:bg-[#68594d] group-hover:text-white dark:group-hover:bg-[#352b25] dark:group-hover:text-white transition-colors shrink-0',
           },
           'Abrir',
         ],
