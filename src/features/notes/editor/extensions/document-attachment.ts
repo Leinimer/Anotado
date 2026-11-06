@@ -70,13 +70,16 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
         }),
       },
       type: {
-        default: 'application/pdf',
+        default: 'application/octet-stream',
         parseHTML: (element) =>
           element.getAttribute('data-type-mime') ||
-          element.getAttribute('data-type') ||
-          'application/pdf',
+          (element.getAttribute('data-type') !== 'documentAttachment'
+            ? element.getAttribute('data-type')
+            : null) ||
+          'application/octet-stream',
+        // data-type identifica o nó Tiptap; o MIME deve ficar em um atributo separado.
         renderHTML: (attributes) => ({
-          'data-type': attributes.type,
+          'data-type-mime': attributes.type || 'application/octet-stream',
         }),
       },
       alignment: {
@@ -135,7 +138,12 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
             src: element.getAttribute('data-src') || element.getAttribute('href') || element.getAttribute('src'),
             name: rawName,
             size: Number(element.getAttribute('data-size') || 0),
-            type: element.getAttribute('data-type-mime') || element.getAttribute('data-type') || 'application/pdf',
+            type:
+              element.getAttribute('data-type-mime') ||
+              (element.getAttribute('data-type') !== 'documentAttachment'
+                ? element.getAttribute('data-type')
+                : null) ||
+              'application/octet-stream',
             alignment:
               element.getAttribute('data-alignment') ||
               element.getAttribute('data-align') ||
@@ -160,7 +168,7 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
             src: element.getAttribute('href') || element.getAttribute('data-src'),
             name: element.getAttribute('data-name') || element.textContent || 'Documento',
             size: Number(element.getAttribute('data-size') || 0),
-            type: element.getAttribute('data-type') || 'application/pdf',
+            type: element.getAttribute('data-type-mime') || element.getAttribute('data-type') || 'application/octet-stream',
             alignment: element.getAttribute('data-alignment') || 'left',
             width: element.getAttribute('data-width') || null,
             attachmentId:
@@ -202,7 +210,8 @@ export const DocumentAttachment = Node.create<DocumentAttachmentOptions>({
     const name = HTMLAttributes['data-name'] || 'Documento';
     const size = Number(HTMLAttributes['data-size'] || 0);
     const src = HTMLAttributes['data-src'] || '#';
-    const isPdf = name.toLowerCase().endsWith('.pdf') || HTMLAttributes['data-type']?.includes('pdf');
+    const mimeType = HTMLAttributes['data-type-mime'] || HTMLAttributes['data-type'] || '';
+    const isPdf = name.toLowerCase().endsWith('.pdf') || mimeType.includes('pdf');
     const displaySize = size > 0 ? formatBytes(size) : 'Arquivo anexado';
 
     return [
