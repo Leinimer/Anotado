@@ -8,7 +8,7 @@ import { defaultEditorExtensions } from '../editor/editor-config';
 import { FloatingBubbleToolbar } from './FloatingBubbleToolbar';
 import { isYouTubeUrl, getYouTubeEmbedUrl, normalizeUrl } from '../editor/utils/url-helper';
 import { perfProfiler } from '../editor/utils/media-optimizer';
-import { uploadNoteFile } from '../api/storage-api';
+import { isSupportedNoteAttachmentFile, uploadNoteFile } from '../api/storage-api';
 
 function normalizeEditorSelection(editor: Editor) {
   if (!editor || !editor.state) return;
@@ -112,12 +112,7 @@ export function NoteEditor({
         }
 
         if (file) {
-          if (
-            file.type.startsWith('image/') ||
-            file.type === 'application/pdf' ||
-            file.type.startsWith('video/') ||
-            file.type.includes('document')
-          ) {
+          if (isSupportedNoteAttachmentFile(file)) {
             event.preventDefault();
             const effectiveUser =
               userId && userId !== 'anonymous'
@@ -242,12 +237,7 @@ export function NoteEditor({
         const files = event.dataTransfer?.files;
         if (files && files.length > 0) {
           const file = files[0];
-          if (
-            file.type.startsWith('image/') ||
-            file.type === 'application/pdf' ||
-            file.type.startsWith('video/') ||
-            file.type.includes('document')
-          ) {
+          if (isSupportedNoteAttachmentFile(file)) {
             event.preventDefault();
             const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY });
             const dropPos = coordinates ? coordinates.pos : view.state.selection.from;
