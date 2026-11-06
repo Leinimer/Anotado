@@ -564,7 +564,7 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600"></span>
           </span>
           <span className="text-[11px] font-semibold text-red-700 dark:text-red-300 whitespace-nowrap">
-            Ouvindo...
+            {engineStatus || 'Ouvindo...'}
           </span>
         </div>
 
@@ -642,6 +642,15 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
         <span className="hidden sm:inline">Retomar</span>
       </button>
 
+      {(engineStatus || errorMessage) && (
+        <span
+          className={`hidden lg:inline max-w-[220px] truncate text-[10px] ${errorMessage ? 'text-[#ba1a1a] dark:text-[#fca5a5]' : 'text-[#7f756e] dark:text-[#a3a3a3]'}`}
+          role={errorMessage ? 'alert' : 'status'}
+          title={errorMessage || engineStatus}
+        >
+          {errorMessage || engineStatus}
+        </span>
+      )}
       {/* Botão Concluir/Finalizar */}
       <button
         id="toolbar-btn-voice-finish"
