@@ -614,9 +614,6 @@ export function PdfEditorToolbar({
             </div>
 
             {/* Borracha */}
-            </div>
-
-            {/* Borracha */}
             <button
               type="button"
               onClick={() => {
@@ -679,9 +676,6 @@ export function PdfEditorToolbar({
                 <ChevronDown className="w-2.5 h-2.5 opacity-60" />
               </button>
 
-            </div>
-
-            {/* Nota Adesiva / Comentário */}
             </div>
 
             {/* Nota Adesiva / Comentário */}
@@ -786,11 +780,6 @@ export function PdfEditorToolbar({
             <ChevronDown className="w-2.5 h-2.5 opacity-60" />
           </button>
 
-        </div>
-
-        <button
-          type="button"
-          onClick={onZoomIn}
         </div>
 
         <button
