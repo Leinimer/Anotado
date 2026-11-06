@@ -37,6 +37,7 @@ async function loadModel(): Promise<void> {
     };
 
     const canUseWebGpu = Boolean(scope.navigator?.gpu);
+    let selectedDevice: 'webgpu' | 'wasm' = 'wasm';
     if (canUseWebGpu) {
       try {
         transcriber = await pipeline(
@@ -44,6 +45,7 @@ async function loadModel(): Promise<void> {
           MODEL_ID,
           { device: 'webgpu', dtype: 'fp16', progress_callback: reportProgress }
         ) as unknown as typeof transcriber;
+        selectedDevice = 'webgpu';
       } catch (error) {
         console.warn('[LocalWhisper] WebGPU indisponível; usando WASM:', error);
       }
@@ -57,7 +59,7 @@ async function loadModel(): Promise<void> {
       ) as unknown as typeof transcriber;
     }
 
-    scope.postMessage({ type: 'ready', device: canUseWebGpu && transcriber ? 'webgpu' : 'wasm' });
+    scope.postMessage({ type: 'ready', device: selectedDevice });
   })().catch((error) => {
     initializing = null;
     throw error;
