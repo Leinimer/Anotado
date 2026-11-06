@@ -167,11 +167,21 @@ export function PdfEditorToolbar({
         (showShapeMenu && (shapePopoverRef.current?.contains(target) || shapeButtonRef.current?.contains(target))) ||
         (showZoomMenu && (zoomPopoverRef.current?.contains(target) || zoomButtonRef.current?.contains(target)));
 
-      if (!clickedInsidePopupOrTrigger) closeAllMenus();
+      if (!clickedInsidePopupOrTrigger) {
+        setShowHighlightMenu(false);
+        setShowPenMenu(false);
+        setShowShapeMenu(false);
+        setShowZoomMenu(false);
+      }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeAllMenus();
+      if (event.key === 'Escape') {
+        setShowHighlightMenu(false);
+        setShowPenMenu(false);
+        setShowShapeMenu(false);
+        setShowZoomMenu(false);
+      }
     };
 
     document.addEventListener('mousedown', handlePointerDown);
