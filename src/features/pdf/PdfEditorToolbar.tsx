@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   MousePointer,
   Hand,
@@ -111,6 +111,9 @@ export function PdfEditorToolbar({
   const [showHighlightMenu, setShowHighlightMenu] = useState(false);
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [showZoomMenu, setShowZoomMenu] = useState(false);
+  const highlightButtonRef = useRef<HTMLButtonElement>(null);
+  const highlightPopoverRef = useRef<HTMLDivElement>(null);
+  const [highlightPopoverCoords, setHighlightPopoverCoords] = useState<{ bottom: number; left: number } | null>(null);
 
   const closeAllMenus = () => {
     setShowPenMenu(false);
@@ -118,6 +121,47 @@ export function PdfEditorToolbar({
     setShowShapeMenu(false);
     setShowZoomMenu(false);
   };
+
+  // Mantém o seletor de cores fora da barra, ancorado visualmente ao botão.
+  const toggleHighlightMenu = () => {
+    if (showHighlightMenu) {
+      setShowHighlightMenu(false);
+      return;
+    }
+
+    const button = highlightButtonRef.current;
+    if (!button) return;
+
+    const rect = button.getBoundingClientRect();
+    setHighlightPopoverCoords({
+      bottom: window.innerHeight - rect.top + 8,
+      left: rect.left + rect.width / 2,
+    });
+    closeAllMenus();
+    onSetMode('highlight');
+    setShowHighlightMenu(true);
+  };
+
+  useEffect(() => {
+    if (!showHighlightMenu) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (highlightPopoverRef.current?.contains(target) || highlightButtonRef.current?.contains(target)) return;
+      setShowHighlightMenu(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowHighlightMenu(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showHighlightMenu]);
 
   const getShapeIcon = (shape: ShapeType) => {
     switch (shape) {
@@ -177,15 +221,11 @@ export function PdfEditorToolbar({
             <div className="h-4 w-[1px] bg-[#e4e2dd] dark:bg-[#383633] mx-0.5" />
 
             {/* Marca-texto (com dropdown de cores) */}
-            <div className="relative">
+            <div>
               <button
+                ref={highlightButtonRef}
                 type="button"
-                onClick={() => {
-                  const shouldOpen = !showHighlightMenu;
-                  closeAllMenus();
-                  onSetMode('highlight');
-                  setShowHighlightMenu(shouldOpen);
-                }}
+                onClick={toggleHighlightMenu}
                 className={`p-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-0.5 ${
                   currentMode === 'highlight'
                     ? 'bg-[#e8e4db] dark:bg-[#383633] text-[#68594d] dark:text-white font-medium shadow-2xs'
@@ -202,10 +242,12 @@ export function PdfEditorToolbar({
                 <ChevronDown className="w-2.5 h-2.5 opacity-60" />
               </button>
 
-              {showHighlightMenu && (
+              {showHighlightMenu && highlightPopoverCoords && (
                 <div
+                  ref={highlightPopoverRef}
                   onMouseDown={(e) => e.stopPropagation()}
-                  className="absolute bottom-full mb-2 left-0 bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2 shadow-xl flex items-center gap-1.5 z-[100] whitespace-nowrap"
+                  style={{ position: 'fixed', bottom: highlightPopoverCoords.bottom, left: highlightPopoverCoords.left, transform: 'translateX(-50%)' }}
+                  className="bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2 shadow-xl flex items-center gap-1.5 z-[1000] whitespace-nowrap"
                 >
                   {HIGHLIGHT_COLORS.map((c) => (
                     <button
