@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Editor } from '@tiptap/react';
 import { TextSelection } from '@tiptap/pm/state';
-import { Mic, Pause, Play, Square, AlertCircle } from 'lucide-react';
+import { Mic, Pause, Play, Square } from 'lucide-react';
 
 type DictationMode = 'idle' | 'listening' | 'paused';
 
