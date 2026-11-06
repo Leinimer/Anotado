@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Editor } from '@tiptap/react';
 import { TextSelection } from '@tiptap/pm/state';
 import { Mic, Pause, Play, Square, AlertCircle, Info } from 'lucide-react';
+import { LocalWhisperDictationEngine } from './LocalWhisperDictationEngine';
 
 export type DictationMode = 'idle' | 'listening' | 'paused';
 
@@ -60,9 +61,11 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
   const [mode, setMode] = useState<DictationMode>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [showPrivacyNotice, setShowPrivacyNotice] = useState<boolean>(false);
+  const [engineStatus, setEngineStatus] = useState<string>('');
 
   // Instância ativa do SpeechRecognition
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const localEngineRef = useRef<LocalWhisperDictationEngine | null>(null);
   const modeRef = useRef<DictationMode>('idle');
 
   // Controle pontual da posição no ProseMirror/Tiptap:
@@ -159,6 +162,55 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
   }, []);
 
   /**
+   * Fallback independente do serviço de voz do navegador.
+   * Usa Whisper local em Worker quando Chrome/Edge retorna erro de rede.
+   */
+  const startLocalFallback = useCallback(async () => {
+    if (!editor || localEngineRef.current) return;
+
+    const engine = new LocalWhisperDictationEngine({
+      onTranscript: (text) => {
+        applyTranscriptTransaction(text, true);
+      },
+      onStatus: (message) => {
+        if (mountedRef.current) setEngineStatus(message);
+      },
+      onError: (message) => {
+        if (mountedRef.current) {
+          setErrorMessage(message);
+          showToast(message);
+        }
+      },
+    });
+
+    localEngineRef.current = engine;
+    setErrorMessage('');
+    setEngineStatus('Ativando transcrição local e preparando o modelo Whisper…');
+
+    try {
+      await engine.start();
+      if (mountedRef.current) {
+        setErrorMessage('');
+        setEngineStatus('Ditado local ativo');
+      }
+    } catch (error) {
+      console.error('[VoiceDictation] Fallback local falhou:', error);
+      try {
+        await engine.stop();
+      } catch {}
+      if (localEngineRef.current === engine) localEngineRef.current = null;
+      if (!mountedRef.current) return;
+
+      updateMode('paused');
+      const detail = error instanceof Error ? error.message : 'Erro desconhecido';
+      const message = `Não foi possível ativar o ditado local: ${detail}`;
+      setErrorMessage(message);
+      setEngineStatus('');
+      showToast(message);
+    }
+  }, [applyTranscriptTransaction, editor, showToast, updateMode]);
+
+  /**
    * Inicia o motor Web Speech API nativo
    */
   const startRecognitionSession = useCallback(() => {
@@ -171,11 +223,8 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
     const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
 
     if (!Recognition) {
-      updateMode('idle');
-      const msg = 'Ditado por voz não suportado neste navegador. Use o Google Chrome ou Microsoft Edge.';
-      setErrorMessage(msg);
-      showToast(msg);
-      return false;
+      void startLocalFallback();
+      return true;
     }
 
     try {
@@ -228,7 +277,7 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
           return;
         }
 
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        if (event.error === 'not-allowed') {
           updateMode('idle');
           isStoppingRef.current = true;
           const msg = 'Acesso ao microfone negado. Permita o uso do microfone no navegador.';
@@ -237,17 +286,29 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
         } else if (event.error === 'audio-capture') {
           updateMode('idle');
           isStoppingRef.current = true;
-          const msg = 'Nenhum microfone encontrado. Conecte um microfone e tente novamente.';
+          const msg = 'Nenhum microfone encontrado. Verifique se ele está conectado e tente novamente.';
           setErrorMessage(msg);
           showToast(msg);
-        } else if (event.error === 'network') {
+        } else if (
+          event.error === 'network' ||
+          event.error === 'service-not-allowed' ||
+          event.error === 'language-not-supported'
+        ) {
+          // O Chrome pode depender de um serviço remoto de voz. Em caso de falha,
+          // não pede ao usuário para tentar o mesmo serviço novamente: muda para Whisper local.
+          isStoppingRef.current = true;
           commitPendingInterim();
-          updateMode('paused');
-          const msg = 'Conexão interrompida com o serviço de voz. Clique em Retomar para reconectar.';
-          setErrorMessage(msg);
-          showToast(msg);
+          try {
+            recognition.stop();
+          } catch {}
+          recognitionRef.current = null;
+          setErrorMessage('');
+          setEngineStatus('Serviço de voz do navegador indisponível. Mudando para transcrição local…');
+          void startLocalFallback();
         } else {
           console.warn('[VoiceDictation] Erro de reconhecimento:', event.error);
+          setErrorMessage(`Falha no reconhecimento de voz: ${event.error}`);
+          updateMode('paused');
         }
       };
 
@@ -285,7 +346,7 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
       showToast(msg);
       return false;
     }
-  }, [applyTranscriptTransaction, commitPendingInterim, editor, showToast, updateMode]);
+  }, [applyTranscriptTransaction, commitPendingInterim, editor, showToast, startLocalFallback, updateMode]);
 
   /**
    * Inicia o ditado por voz
@@ -300,6 +361,7 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
     confirmedIndexRef.current = 0;
 
     setErrorMessage('');
+    setEngineStatus('');
     updateMode('listening');
     startRecognitionSession();
   }, [editor, startRecognitionSession, updateMode]);
@@ -307,69 +369,106 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
   /**
    * Pausa o ditado para edição manual completa
    */
-  const handlePause = useCallback(() => {
+  const handlePause = useCallback(async () => {
+    if (localEngineRef.current) {
+      setEngineStatus('Finalizando o trecho atual antes de pausar…');
+      try {
+        await localEngineRef.current.pause();
+        commitPendingInterim();
+        updateMode('paused');
+        setEngineStatus('Ditado local pausado');
+      } catch (error) {
+        updateMode('paused');
+        const message = error instanceof Error ? error.message : 'Não foi possível pausar o ditado local.';
+        setErrorMessage(message);
+        setEngineStatus('');
+      }
+      return;
+    }
+
     isStoppingRef.current = true;
     updateMode('paused');
-
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
-
     commitPendingInterim();
 
     try {
       recognitionRef.current?.stop();
-    } catch {
-      // Ignora erro se já estava parando
-    }
+    } catch {}
     recognitionRef.current = null;
   }, [commitPendingInterim, updateMode]);
 
   /**
-   * Retoma o ditado na posição ATUAL do cursor após edição livre do usuário
+   * Retoma o ditado na posição ATUAL do cursor após edição livre do usuário.
    */
-  const handleResume = useCallback(() => {
+  const handleResume = useCallback(async () => {
     if (!editor) return;
 
-    // Foca o editor e lê a nova posição do cursor (o usuário pode ter clicado em qualquer lugar)
     editor.commands.focus();
     const { from, to } = editor.state.selection;
     sessionAnchorPosRef.current = from;
     interimLengthRef.current = Math.max(0, to - from);
     confirmedIndexRef.current = 0;
-
     isStoppingRef.current = false;
     setErrorMessage('');
     updateMode('listening');
+
+    if (localEngineRef.current) {
+      setEngineStatus('Reabrindo o microfone local…');
+      try {
+        await localEngineRef.current.resume();
+        setEngineStatus('Ditado local ativo');
+      } catch (error) {
+        updateMode('paused');
+        const message = error instanceof Error ? error.message : 'Não foi possível retomar o ditado local.';
+        setErrorMessage(message);
+        setEngineStatus('');
+        showToast(message);
+      }
+      return;
+    }
+
+    setEngineStatus('');
     startRecognitionSession();
-  }, [editor, startRecognitionSession, updateMode]);
+  }, [editor, showToast, startRecognitionSession, updateMode]);
 
   /**
-   * Finaliza e encerra a sessão de ditado por voz
+   * Finaliza a captura e preserva inclusive o último trecho ainda em processamento.
    */
-  const handleFinish = useCallback(() => {
+  const handleFinish = useCallback(async () => {
     isStoppingRef.current = true;
-    updateMode('idle');
-
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
 
-    commitPendingInterim();
-
-    try {
-      recognitionRef.current?.stop();
-    } catch {
-      // Ignora erro
+    const localEngine = localEngineRef.current;
+    if (localEngine) {
+      setEngineStatus('Finalizando e transcrevendo o último trecho…');
+      try {
+        await localEngine.stop();
+      } catch (error) {
+        console.warn('[VoiceDictation] Erro ao finalizar transcrição local:', error);
+      }
+      if (localEngineRef.current === localEngine) localEngineRef.current = null;
+    } else {
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
+      recognitionRef.current = null;
     }
-    recognitionRef.current = null;
+
+    commitPendingInterim();
     sessionAnchorPosRef.current = 1;
     interimLengthRef.current = 0;
     confirmedIndexRef.current = 0;
     setErrorMessage('');
+    setEngineStatus('');
+    updateMode('idle');
   }, [commitPendingInterim, updateMode]);
+
 
   // Limpa o estado quando a nota ativa ou a instância do editor mudar
   useEffect(() => {
@@ -384,6 +483,10 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
       // Ignora
     }
     recognitionRef.current = null;
+    const localEngine = localEngineRef.current;
+    localEngineRef.current = null;
+    if (localEngine) void localEngine.stop();
+    setEngineStatus('');
     modeRef.current = 'idle';
     setMode('idle');
     setErrorMessage('');
@@ -407,6 +510,9 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
         // Ignora
       }
       recognitionRef.current = null;
+      const localEngine = localEngineRef.current;
+      localEngineRef.current = null;
+      if (localEngine) void localEngine.stop();
     };
   }, []);
 
