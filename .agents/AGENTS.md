@@ -267,7 +267,6 @@ Componentes principais:
 - **NoteEditor.tsx**: instancia Tiptap, recebe conteúdo inicial, persiste alterações via callbacks, lida com colagem, anexos, seleção e eventos.
 - **NoteTabs.tsx**: abas, fechar/nova aba, menu de contexto, dividir, desagrupar e trocar de lado.
 - **EditorToolbar.tsx**: toolbar de formatação/inserção.
-- **VoiceDictationControls.tsx**: ditado por voz nativo via Web Speech API (`pt-BR`, continuous, interimResults). Suporta início, pausa para edição manual livre, retomada na nova posição do cursor sem duplicar nem apagar texto prévio, encerramento e transações pontuais no ProseMirror integradas ao SaveQueue/IndexedDB.
 - **FloatingBubbleToolbar.tsx**: toolbar contextual.
 - **TextLevelDropdown.tsx**: níveis de texto.
 - **InternalNoteReferenceModal.tsx**: escolha do destino de referência.

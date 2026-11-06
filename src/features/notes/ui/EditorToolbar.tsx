@@ -27,7 +27,6 @@ import {
   Loader2,
   FileSymlink,
 } from 'lucide-react';
-import { VoiceDictationControls } from './VoiceDictationControls';
 import { uploadNoteFile } from '../api/storage-api';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import { useMobileKeyboardViewport } from '../hooks/useMobileKeyboardViewport';
@@ -833,8 +832,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             <Paperclip className="w-4.5 h-4.5 stroke-[2.25]" />
           )}
         </button>
-        <div className="h-5 w-[1px] bg-[#e4e2dd] dark:bg-[#333333] mx-0.5 shrink-0" />
-        <VoiceDictationControls editor={editor} activeNoteId={activeNoteId} />
       </nav>
 
       {/* POPOVER FLUTUANTE: COR DO TEXTO */}
