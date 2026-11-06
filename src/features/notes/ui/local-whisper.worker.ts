@@ -17,22 +17,71 @@ let initializing: Promise<void> | null = null;
 
 env.allowRemoteModels = true;
 env.useBrowserCache = true;
+env.useWasmCache = true;
 
 async function loadModel(): Promise<void> {
   if (transcriber) return;
   if (initializing) return initializing;
 
   initializing = (async () => {
+    const perFile = new Map<string, { loaded: number; total: number }>();
+
     const reportProgress = (info: Record<string, unknown>) => {
       const status = String(info.status || '');
       const file = String(info.file || '');
-      const progress = typeof info.progress === 'number' ? Math.round(info.progress) : null;
-      if (status === 'progress' && progress !== null) {
-        scope.postMessage({ type: 'progress', message: `Baixando modelo Whisper: ${progress}%` });
-      } else if (status === 'initiate') {
-        scope.postMessage({ type: 'progress', message: file ? `Baixando ${file}…` : 'Baixando modelo Whisper…' });
-      } else if (status === 'done') {
-        scope.postMessage({ type: 'progress', message: 'Preparando modelo de transcrição…' });
+      const progress = typeof info.progress === 'number' ? info.progress : null;
+      const loaded = typeof info.loaded === 'number' ? info.loaded : 0;
+      const total = typeof info.total === 'number' ? info.total : 0;
+
+      // A biblioteca emite progress por arquivo (que recomeça em 0% a cada arquivo)
+      // e progress_total para o agregado. Exibimos sempre o agregado.
+      if (status === 'progress_total' && progress !== null) {
+        scope.postMessage({
+          type: 'progress',
+          message: 'Baixando modelo Whisper',
+          progress: Math.max(0, Math.min(100, progress)),
+          loaded,
+          total,
+        });
+        return;
+      }
+
+      if (status === 'initiate') {
+        scope.postMessage({
+          type: 'progress',
+          message: 'Verificando arquivos do modelo no cache local…',
+        });
+        return;
+      }
+
+      if (status === 'progress' && file) {
+        perFile.set(file, { loaded, total });
+        const values = Array.from(perFile.values());
+        const aggregateLoaded = values.reduce((sum, item) => sum + item.loaded, 0);
+        const aggregateTotal = values.reduce((sum, item) => sum + item.total, 0);
+        const aggregateProgress = aggregateTotal > 0
+          ? Math.min(99, (aggregateLoaded / aggregateTotal) * 100)
+          : progress;
+
+        scope.postMessage({
+          type: 'progress',
+          message: 'Baixando arquivos do modelo Whisper',
+          progress: aggregateProgress === null ? undefined : Math.max(0, aggregateProgress),
+          loaded: aggregateLoaded,
+          total: aggregateTotal,
+        });
+        return;
+      }
+
+      if (status === 'done' && file) {
+        const current = perFile.get(file);
+        if (current?.total) {
+          perFile.set(file, { loaded: current.total, total: current.total });
+        }
+        scope.postMessage({
+          type: 'progress',
+          message: 'Arquivo preparado; verificando os próximos arquivos…',
+        });
       }
     };
 
