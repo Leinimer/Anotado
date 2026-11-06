@@ -3,10 +3,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Editor } from '@tiptap/react';
 import { TextSelection } from '@tiptap/pm/state';
-import { Mic, Pause, Play, Square, AlertCircle, Info } from 'lucide-react';
+import { Mic, Pause, Play, Square, AlertCircle, Info, Download, CheckCircle2, X, HardDrive } from 'lucide-react';
 import { LocalWhisperDictationEngine } from './LocalWhisperDictationEngine';
 
 export type DictationMode = 'idle' | 'listening' | 'paused';
+
+const WHISPER_INSTALL_KEY = 'anotado:local-whisper:onnx-community-whisper-tiny:v1';
 
 /**
  * Interface preparada para futura expansão de transcrição de arquivos de áudio
@@ -62,6 +64,15 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [showPrivacyNotice, setShowPrivacyNotice] = useState<boolean>(false);
   const [engineStatus, setEngineStatus] = useState<string>('');
+  const [modelInstalled, setModelInstalled] = useState(false);
+  const [installDialogOpen, setInstallDialogOpen] = useState(false);
+  const [installingModel, setInstallingModel] = useState(false);
+  const [installProgress, setInstallProgress] = useState(0);
+  const [installLoadedBytes, setInstallLoadedBytes] = useState(0);
+  const [installTotalBytes, setInstallTotalBytes] = useState(0);
+  const [installStatus, setInstallStatus] = useState('O modelo será baixado uma única vez e ficará salvo no navegador.');
+  const [installError, setInstallError] = useState('');
+  const [persistentStorageGranted, setPersistentStorageGranted] = useState<boolean | null>(null);
 
   // Instância ativa do SpeechRecognition
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -161,194 +172,151 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
     }
   }, []);
 
-  /**
-   * Fallback independente do serviço de voz do navegador.
-   * Usa Whisper local em Worker quando Chrome/Edge retorna erro de rede.
-   */
-  const startLocalFallback = useCallback(async () => {
-    if (!editor || localEngineRef.current) return;
+  const getOrCreateLocalEngine = useCallback(() => {
+    if (localEngineRef.current) return localEngineRef.current;
 
     const engine = new LocalWhisperDictationEngine({
-      onTranscript: (text) => {
-        applyTranscriptTransaction(text, true);
-      },
+      onTranscript: (text) => applyTranscriptTransaction(text, true),
       onStatus: (message) => {
-        if (mountedRef.current) setEngineStatus(message);
+        if (mountedRef.current) {
+          setEngineStatus(message);
+          if (installDialogOpen) setInstallStatus(message);
+        }
+      },
+      onProgress: (progress, loaded, total) => {
+        if (!mountedRef.current) return;
+        setInstallProgress(Math.round(progress));
+        setInstallLoadedBytes(loaded);
+        setInstallTotalBytes(total);
       },
       onError: (message) => {
         if (mountedRef.current) {
           setErrorMessage(message);
+          setInstallError(message);
           showToast(message);
         }
       },
     });
 
     localEngineRef.current = engine;
-    setErrorMessage('');
-    setEngineStatus('Ativando transcrição local e preparando o modelo Whisper…');
+    return engine;
+  }, [applyTranscriptTransaction, installDialogOpen, showToast]);
+
+  const handleInstallModel = useCallback(async () => {
+    if (installingModel) return;
+    setInstallingModel(true);
+    setInstallProgress(0);
+    setInstallLoadedBytes(0);
+    setInstallTotalBytes(0);
+    setInstallError('');
+    setInstallStatus('Verificando o cache e preparando o modelo Whisper…');
 
     try {
-      await engine.start();
-      if (mountedRef.current) {
-        setErrorMessage('');
-        setEngineStatus('Ditado local ativo');
-      }
-    } catch (error) {
-      console.error('[VoiceDictation] Fallback local falhou:', error);
-      try {
-        await engine.stop();
-      } catch {}
-      if (localEngineRef.current === engine) localEngineRef.current = null;
-      if (!mountedRef.current) return;
+      const engine = getOrCreateLocalEngine();
+      await engine.prepare();
 
-      updateMode('paused');
-      const detail = error instanceof Error ? error.message : 'Erro desconhecido';
-      const message = `Não foi possível ativar o ditado local: ${detail}`;
+      let persistent = false;
+      try {
+        if (navigator.storage?.persist) {
+          persistent = await navigator.storage.persist();
+        }
+      } catch {
+        persistent = false;
+      }
+
+      try {
+        localStorage.setItem(WHISPER_INSTALL_KEY, 'installed');
+      } catch {
+        // A sessão atual continua funcionando mesmo quando o navegador bloqueia localStorage.
+      }
+
+      setPersistentStorageGranted(persistent);
+      setModelInstalled(true);
+      setInstallProgress(100);
+      setInstallStatus('Modelo instalado e pronto para uso.');
+    } catch (error) {
+      console.error('[VoiceDictation] Falha ao instalar o modelo Whisper:', error);
+      const message = error instanceof Error
+        ? error.message
+        : 'Não foi possível baixar e preparar o modelo de voz.';
+      setInstallError(message);
+      setInstallStatus('A instalação não foi concluída. Você pode tentar novamente.');
+      setModelInstalled(false);
+    } finally {
+      setInstallingModel(false);
+    }
+  }, [getOrCreateLocalEngine, installingModel]);
+
+  const beginLocalDictation = useCallback(async () => {
+    if (!editor) return;
+
+    editor.commands.focus();
+    const { from, to } = editor.state.selection;
+    sessionAnchorPosRef.current = from;
+    interimLengthRef.current = Math.max(0, to - from);
+    confirmedIndexRef.current = 0;
+    isStoppingRef.current = false;
+    setErrorMessage('');
+    setEngineStatus('Carregando modelo salvo…');
+    setInstallDialogOpen(false);
+    updateMode('listening');
+
+    try {
+      const engine = getOrCreateLocalEngine();
+      // Se o navegador limpou o cache, prepare() baixa novamente os arquivos ausentes.
+      await engine.prepare();
+      await engine.start();
+      try {
+        localStorage.setItem(WHISPER_INSTALL_KEY, 'installed');
+      } catch {}
+      setModelInstalled(true);
+      setEngineStatus('Ditado local ativo');
+    } catch (error) {
+      updateMode('idle');
+      const message = error instanceof Error
+        ? error.message
+        : 'Não foi possível iniciar o ditado local.';
       setErrorMessage(message);
       setEngineStatus('');
       showToast(message);
     }
-  }, [applyTranscriptTransaction, editor, showToast, updateMode]);
+  }, [editor, getOrCreateLocalEngine, showToast, updateMode]);
+
+  // Reconhece a instalação feita anteriormente neste navegador.
+  useEffect(() => {
+    try {
+      setModelInstalled(localStorage.getItem(WHISPER_INSTALL_KEY) === 'installed');
+    } catch {
+      setModelInstalled(false);
+    }
+  }, []);
 
   /**
-   * Inicia o motor Web Speech API nativo
+   * Na primeira utilização, abre o diálogo de instalação em vez de iniciar
+   * um download oculto em segundo plano. Após a instalação, inicia direto.
    */
-  const startRecognitionSession = useCallback(() => {
-    if (!editor || typeof window === 'undefined') return false;
+  const handleStart = useCallback(() => {
+    if (!editor) return;
 
-    // Se já houver instância ativa, não recria
-    if (recognitionRef.current) return true;
+    editor.commands.focus();
+    const { from, to } = editor.state.selection;
+    sessionAnchorPosRef.current = from;
+    interimLengthRef.current = Math.max(0, to - from);
+    confirmedIndexRef.current = 0;
+    setErrorMessage('');
 
-    const speechWindow = window as SpeechWindow;
-    const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
-
-    if (!Recognition) {
-      void startLocalFallback();
-      return true;
+    if (!modelInstalled) {
+      setInstallDialogOpen(true);
+      setInstallError('');
+      setInstallProgress(0);
+      setInstallLoadedBytes(0);
+      setInstallTotalBytes(0);
+      setInstallStatus('O modelo será baixado uma vez e ficará salvo no navegador.');
+      return;
     }
 
-    try {
-      const recognition = new Recognition();
-      recognition.lang = 'pt-BR';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-
-      recognition.onresult = (event: SpeechResultEvent) => {
-        if (!editor || !editor.view) return;
-
-        // 1. Processa novos resultados definitivos (isFinal === true)
-        let hasNewFinal = false;
-        for (let i = confirmedIndexRef.current; i < event.results.length; i++) {
-          const item = event.results[i];
-          if (item.isFinal) {
-            const finalPart = (item[0]?.transcript || '').trim();
-            if (finalPart) {
-              applyTranscriptTransaction(finalPart, true);
-            }
-            confirmedIndexRef.current = i + 1;
-            hasNewFinal = true;
-          }
-        }
-
-        // 2. Coleta os resultados provisórios (isFinal === false) que ainda não foram consolidados
-        let interimCombined = '';
-        for (let i = confirmedIndexRef.current; i < event.results.length; i++) {
-          const item = event.results[i];
-          if (!item.isFinal) {
-            const part = (item[0]?.transcript || '').trim();
-            if (part) {
-              if (interimCombined) interimCombined += ' ';
-              interimCombined += part;
-            }
-          }
-        }
-
-        if (interimCombined) {
-          applyTranscriptTransaction(interimCombined, false);
-        } else if (hasNewFinal && interimLengthRef.current > 0) {
-          interimLengthRef.current = 0;
-        }
-      };
-
-      recognition.onerror = (event: SpeechErrorEvent) => {
-        // Ignora eventos tardios gerados por stop()/abort() após uma troca de motor.
-        if (isStoppingRef.current && event.error !== 'not-allowed') return;
-        // 'no-speech' é um evento normal quando o usuário faz pausas ao falar
-        if (event.error === 'no-speech') {
-          return;
-        }
-
-        if (event.error === 'not-allowed') {
-          updateMode('idle');
-          isStoppingRef.current = true;
-          const msg = 'Acesso ao microfone negado. Permita o uso do microfone no navegador.';
-          setErrorMessage(msg);
-          showToast(msg);
-        } else if (event.error === 'audio-capture') {
-          updateMode('idle');
-          isStoppingRef.current = true;
-          const msg = 'Nenhum microfone encontrado. Verifique se ele está conectado e tente novamente.';
-          setErrorMessage(msg);
-          showToast(msg);
-        } else if (
-          event.error === 'network' ||
-          event.error === 'service-not-allowed' ||
-          event.error === 'language-not-supported'
-        ) {
-          // O Chrome pode depender de um serviço remoto de voz. Em caso de falha,
-          // não pede ao usuário para tentar o mesmo serviço novamente: muda para Whisper local.
-          isStoppingRef.current = true;
-          commitPendingInterim();
-          try {
-            recognition.stop();
-          } catch {}
-          recognitionRef.current = null;
-          setErrorMessage('');
-          setEngineStatus('Serviço de voz do navegador indisponível. Mudando para transcrição local…');
-          void startLocalFallback();
-        } else {
-          console.warn('[VoiceDictation] Erro de reconhecimento:', event.error);
-          setErrorMessage(`Falha no reconhecimento de voz: ${event.error}`);
-          updateMode('paused');
-        }
-      };
-
-      recognition.onend = () => {
-        if (recognitionRef.current === recognition) {
-          recognitionRef.current = null;
-        }
-
-        // Se o usuário não pausou nem finalizou manualmente, os navegadores (Chrome/Edge)
-        // podem encerrar sessões contínuas após alguns segundos de silêncio.
-        // Reiniciamos transparentemente a sessão sem perder texto nem mover o cursor.
-        if (modeRef.current === 'listening' && !isStoppingRef.current) {
-          commitPendingInterim();
-          confirmedIndexRef.current = 0;
-
-          if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-          restartTimerRef.current = setTimeout(() => {
-            if (modeRef.current === 'listening' && !isStoppingRef.current) {
-              startRecognitionSession();
-            }
-          }, 180);
-        }
-      };
-
-      isStoppingRef.current = false;
-      recognitionRef.current = recognition;
-      recognition.start();
-      setErrorMessage('');
-      return true;
-    } catch (cause) {
-      console.warn('[VoiceDictation] Falha ao iniciar reconhecimento:', cause);
-      updateMode('idle');
-      const msg = 'Não foi possível iniciar o microfone. Verifique as permissões.';
-      setErrorMessage(msg);
-      showToast(msg);
-      return false;
-    }
-  }, [applyTranscriptTransaction, commitPendingInterim, editor, showToast, startLocalFallback, updateMode]);
+    void beginLocalDictation();
+  }, [beginLocalDictation, editor, modelInstalled]);
 
   /**
    * Inicia o ditado por voz
@@ -433,8 +401,8 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
     }
 
     setEngineStatus('');
-    startRecognitionSession();
-  }, [editor, showToast, startRecognitionSession, updateMode]);
+    void beginLocalDictation();
+  }, [beginLocalDictation, editor, showToast, updateMode]);
 
   /**
    * Finaliza a captura e preserva inclusive o último trecho ainda em processamento.
@@ -518,12 +486,133 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
     };
   }, []);
 
+  const formatBytes = (bytes: number) => {
+    if (!bytes || bytes < 0) return '0 MB';
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const installDialog = installDialogOpen ? (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/65 p-4" role="presentation">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="whisper-install-title"
+        className="w-full max-w-[460px] rounded-2xl border border-[#e4e2dd] dark:border-[#383838] bg-[#fbf9f4] dark:bg-[#111111] p-5 shadow-2xl text-[#1b1c19] dark:text-[#f5f5f5]"
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#eee7df] dark:bg-[#29231f] text-[#735e4c] dark:text-[#d6c0aa]">
+            {modelInstalled ? <CheckCircle2 className="h-5 w-5" /> : <Download className="h-5 w-5" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="whisper-install-title" className="text-base font-semibold">
+              {modelInstalled ? 'Modelo de voz instalado' : 'Preparar ditado por voz'}
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-[#6f665e] dark:text-[#b5b5b5]">
+              {modelInstalled
+                ? 'O Whisper já está preparado neste navegador. Clique abaixo para começar a ditar.'
+                : 'Na primeira utilização, o Anotado precisa baixar e preparar o modelo Whisper. Depois disso, ele será reutilizado pelo cache local do navegador.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => !installingModel && setInstallDialogOpen(false)}
+            disabled={installingModel}
+            className="rounded-lg p-1.5 text-[#746b63] hover:bg-[#eee9e2] dark:text-[#b5b5b5] dark:hover:bg-[#242424] disabled:opacity-30"
+            aria-label="Fechar diálogo"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {installingModel && (
+          <div className="mt-5 space-y-2" aria-live="polite">
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="truncate text-[#5e554d] dark:text-[#d1d1d1]">{installStatus}</span>
+              <span className="shrink-0 font-semibold tabular-nums">{installProgress}%</span>
+            </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-[#e6e0d8] dark:bg-[#303030]">
+              <div
+                className="h-full rounded-full bg-[#8a725d] dark:bg-[#c0a68e] transition-[width] duration-300"
+                style={{ width: `${Math.max(0, Math.min(100, installProgress))}%` }}
+              />
+            </div>
+            {installTotalBytes > 0 && (
+              <p className="text-[11px] tabular-nums text-[#7f756e] dark:text-[#a3a3a3]">
+                {formatBytes(installLoadedBytes)} de {formatBytes(installTotalBytes)} carregados
+              </p>
+            )}
+          </div>
+        )}
+
+        {installError && (
+          <div className="mt-4 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 p-3 text-xs leading-relaxed text-red-700 dark:text-red-300" role="alert">
+            {installError}
+          </div>
+        )}
+
+        {modelInstalled && !installingModel && (
+          <div className="mt-4 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/25 p-3 text-xs text-emerald-800 dark:text-emerald-300">
+            <div className="flex items-center gap-2 font-semibold">
+              <CheckCircle2 className="h-4 w-4" />
+              Instalação concluída
+            </div>
+            <p className="mt-1">
+              {persistentStorageGranted === false
+                ? 'O navegador não garantiu armazenamento permanente; evite limpar os dados deste site.'
+                : 'O modelo está pronto e será reutilizado neste navegador.'}
+            </p>
+          </div>
+        )}
+
+        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+          {!installingModel && !modelInstalled && (
+            <button
+              type="button"
+              onClick={() => setInstallDialogOpen(false)}
+              className="rounded-xl border border-[#d8d0c7] dark:border-[#414141] px-3.5 py-2 text-xs font-medium text-[#665c53] dark:text-[#d0d0d0] hover:bg-[#eee9e2] dark:hover:bg-[#222222]"
+            >
+              Agora não
+            </button>
+          )}
+          {!modelInstalled && (
+            <button
+              type="button"
+              onClick={handleInstallModel}
+              disabled={installingModel}
+              className="rounded-xl bg-[#735e4c] px-4 py-2 text-xs font-semibold text-white hover:bg-[#5f4b3c] disabled:cursor-wait disabled:opacity-60"
+            >
+              {installingModel ? 'Instalando…' : 'Baixar e instalar'}
+            </button>
+          )}
+          {modelInstalled && !installingModel && (
+            <button
+              type="button"
+              onClick={() => void beginLocalDictation()}
+              className="rounded-xl bg-[#735e4c] px-4 py-2 text-xs font-semibold text-white hover:bg-[#5f4b3c]"
+            >
+              Iniciar ditado
+            </button>
+          )}
+        </div>
+
+        <div className="mt-4 flex items-start gap-2 border-t border-[#e5ded6] dark:border-[#303030] pt-3 text-[10px] leading-relaxed text-[#827970] dark:text-[#a3a3a3]">
+          <HardDrive className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <p>
+            O modelo fica no armazenamento local do navegador. O áudio é processado no próprio dispositivo; se os dados do site forem apagados pelo navegador, será necessário baixar o modelo novamente.
+          </p>
+        </div>
+      </section>
+    </div>
+  ) : null;
+
   const baseButton =
     'min-w-[38px] min-h-[38px] sm:min-w-[40px] sm:min-h-[40px] px-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0';
 
   // ESTADO INATIVO (IDLE)
   if (mode === 'idle') {
     return (
+      <>
+      {installDialog}
       <div className="flex items-center gap-1 shrink-0 relative" title="Ditado por voz (pt-BR)">
         <button
           id="toolbar-btn-voice-dictation"
@@ -549,12 +638,15 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
           </div>
         )}
       </div>
+      </>
     );
   }
 
   // ESTADO GRAVANDO / OUVINDO (LISTENING)
   if (mode === 'listening') {
     return (
+      <>
+      {installDialog}
       <div
         id="voice-dictation-active-bar"
         className="flex items-center gap-1 sm:gap-1.5 py-1 px-2 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50/90 dark:bg-red-950/40 text-[#1b1c19] dark:text-[#f5f5f5] shrink-0 animate-in fade-in duration-150 shadow-2xs font-sans-ui"
@@ -610,15 +702,18 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
         {showPrivacyNotice && (
           <div className="absolute top-full mt-2 left-0 z-50 p-3 bg-white dark:bg-[#1a1a1a] border border-[#e4e2dd] dark:border-[#333333] rounded-xl shadow-xl max-w-[280px] text-[11px] leading-relaxed text-[#4a4742] dark:text-[#d4d4d4]">
             <p className="font-semibold text-[#1b1c19] dark:text-[#f5f5f5] mb-1">Privacidade do Ditado</p>
-            <p>O áudio não é salvo no aplicativo. O navegador processa a fala localmente ou via serviço de reconhecimento nativo do próprio sistema/navegador.</p>
+            <p>O áudio é processado localmente pelo Whisper no próprio dispositivo. O aplicativo salva apenas o texto reconhecido na nota.</p>
           </div>
         )}
       </div>
+      </>
     );
   }
 
   // ESTADO PAUSADO (PAUSED)
   return (
+    <>
+    {installDialog}
     <div
       id="voice-dictation-paused-bar"
       className="flex items-center gap-1 sm:gap-1.5 py-1 px-2 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/90 dark:bg-amber-950/40 text-[#1b1c19] dark:text-[#f5f5f5] shrink-0 animate-in fade-in duration-150 shadow-2xs font-sans-ui"
@@ -666,5 +761,6 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
         <span className="hidden sm:inline">Concluir</span>
       </button>
     </div>
+    </>
   );
 }
