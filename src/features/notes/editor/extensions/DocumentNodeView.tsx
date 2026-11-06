@@ -324,7 +324,7 @@ export function DocumentNodeView(props: NodeViewProps) {
         )}
 
         {/* Card do Documento */}
-        <div className="flex items-center gap-3.5 p-3.5 bg-[#f5f3ee] hover:bg-[#eae8e3] dark:bg-black dark:hover:bg-[#101010] border border-[#e4e2dd] dark:border-[#2a2a2a] rounded-2xl transition-all w-full text-[#1b1c19] dark:text-[#f5f5f5]">
+        <div data-document-attachment-card="true" className="flex items-center gap-3.5 p-3.5 bg-[#f5f3ee] hover:bg-[#eae8e3] dark:bg-black dark:hover:bg-[#101010] border border-[#e4e2dd] dark:border-[#2a2a2a] rounded-2xl transition-all w-full text-[#1b1c19] dark:text-[#f5f5f5]">
           <div
             className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-xs uppercase shrink-0 shadow-2xs ${
               isPdf ? 'bg-[#ba1a1a]/10 text-[#ba1a1a] dark:bg-[#7f1d1d]/25 dark:text-[#ff9b9b]' : 'bg-[#68594d]/10 text-[#68594d] dark:bg-[#4a4038]/35 dark:text-[#d6c4b5]'
