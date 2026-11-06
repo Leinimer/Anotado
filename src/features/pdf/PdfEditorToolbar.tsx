@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   MousePointer,
   Hand,
@@ -177,7 +178,52 @@ export function PdfEditorToolbar({
     }
   };
 
+  // O portal renderiza diretamente no body para impedir que a barra ou
+  // qualquer contêiner com overflow/transform recorte ou esconda o seletor.
+  const highlightMenuPortal =
+    showHighlightMenu && highlightPopoverCoords && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={highlightPopoverRef}
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{
+              position: 'fixed',
+              bottom: highlightPopoverCoords.bottom,
+              left: highlightPopoverCoords.left,
+              transform: 'translateX(-50%)',
+              zIndex: 99999,
+            }}
+            className="bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2 shadow-xl flex items-center gap-1.5 whitespace-nowrap"
+            role="dialog"
+            aria-label="Cores do marca-texto"
+          >
+            {HIGHLIGHT_COLORS.map((color) => (
+              <button
+                key={color.hex}
+                type="button"
+                onClick={() => {
+                  onSetHighlightColor(color.hex);
+                  setShowHighlightMenu(false);
+                }}
+                className={`w-6 h-6 rounded-full border transition-transform cursor-pointer hover:scale-110 ${
+                  highlightColor === color.hex
+                    ? 'ring-2 ring-[#68594d] border-transparent scale-105'
+                    : 'border-black/15'
+                }`}
+                style={{ backgroundColor: color.hex }}
+                title={color.label}
+                aria-label={color.label}
+                aria-pressed={highlightColor === color.hex}
+              />
+            ))}
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
+    <>
+    {highlightMenuPortal}
     <footer data-pdf-editor-toolbar="true" className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 w-max max-w-[96vw]">
       <div className="bg-[#fbf9f4]/95 dark:bg-[#252422]/95 border border-[#e4e2dd] dark:border-[#383633] backdrop-blur-md rounded-2xl shadow-xl px-2.5 py-1.5 flex flex-nowrap items-center justify-center gap-1 overflow-x-auto max-w-full whitespace-nowrap text-[#1b1c19] dark:text-[#ededed] select-none">
         {/* Ferramenta Selecionar */}
@@ -242,32 +288,7 @@ export function PdfEditorToolbar({
                 <ChevronDown className="w-2.5 h-2.5 opacity-60" />
               </button>
 
-              {showHighlightMenu && highlightPopoverCoords && (
-                <div
-                  ref={highlightPopoverRef}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  style={{ position: 'fixed', bottom: highlightPopoverCoords.bottom, left: highlightPopoverCoords.left, transform: 'translateX(-50%)' }}
-                  className="bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2 shadow-xl flex items-center gap-1.5 z-[1000] whitespace-nowrap"
-                >
-                  {HIGHLIGHT_COLORS.map((c) => (
-                    <button
-                      key={c.hex}
-                      type="button"
-                      onClick={() => {
-                        onSetHighlightColor(c.hex);
-                        setShowHighlightMenu(false);
-                      }}
-                      className={`w-6 h-6 rounded-full border transition-transform cursor-pointer hover:scale-110 ${
-                        highlightColor === c.hex
-                          ? 'ring-2 ring-[#68594d] border-transparent scale-105'
-                          : 'border-black/15'
-                      }`}
-                      style={{ backgroundColor: c.hex }}
-                      title={c.label}
-                    />
-                  ))}
-                </div>
-              )}
+
             </div>
 
             {/* Sublinhado */}
@@ -724,5 +745,6 @@ export function PdfEditorToolbar({
         )}
       </div>
     </footer>
+    </>
   );
 }
