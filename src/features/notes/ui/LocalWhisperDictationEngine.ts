@@ -255,6 +255,14 @@ export class LocalWhisperDictationEngine {
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = null;
 
+    if (this.workerReadyPromise && !this.ready) {
+      try {
+        await this.workerReadyPromise;
+      } catch {
+        this.queue = [];
+      }
+    }
+    if (!this.ready) this.queue = [];
     await this.waitForQueueIdle();
   }
 
