@@ -104,6 +104,8 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
 
   const startRecognition = useCallback(() => {
     if (!editor || typeof window === 'undefined') return false;
+    // Evita abrir duas sessões caso o navegador dispare onend atrasado ao retomar.
+    if (recognitionRef.current) return true;
 
     const speechWindow = window as SpeechWindow;
     const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
@@ -243,11 +245,12 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
 
   useEffect(() => {
     // Cada editor/nota possui uma sessão de ditado independente.
+    modeRef.current = 'idle';
+    setMode('idle');
     setError('');
     setInterimText('');
     rangeRef.current = null;
-    updateMode('idle');
-  }, [editor, activeNoteId, updateMode]);
+  }, [editor, activeNoteId]);
 
   useEffect(() => {
     mountedRef.current = true;
