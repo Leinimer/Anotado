@@ -23,7 +23,7 @@ export function DocumentNodeView(props: NodeViewProps) {
   const rawSrc = node.attrs.src || '#';
   const name = node.attrs.name || 'Documento';
   const size = Number(node.attrs.size || 0);
-  const type = node.attrs.type || 'application/pdf';
+  const type = node.attrs.type || 'application/octet-stream';
   const initialWidthAttr = node.attrs.width || '50%';
   const alignment = (node.attrs.alignment as 'left' | 'center' | 'right') || 'left';
 
