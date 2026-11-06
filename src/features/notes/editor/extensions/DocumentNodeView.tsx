@@ -281,7 +281,7 @@ export function DocumentNodeView(props: NodeViewProps) {
       <div
         ref={cardRef}
         className={`relative inline-block max-w-full transition-shadow duration-150 ${
-          isSelected && editor?.isEditable ? 'ring-2 ring-[#68594d] ring-offset-2 ring-offset-white rounded-2xl' : ''
+          isSelected && editor?.isEditable ? 'ring-2 ring-[#68594d] dark:ring-[#c8b7a7] ring-offset-2 ring-offset-white dark:ring-offset-black rounded-2xl' : ''
         }`}
         style={{
           width: currentDisplayWidth,
@@ -309,11 +309,11 @@ export function DocumentNodeView(props: NodeViewProps) {
             onDelete={() => deleteNode()}
             deleteTitle="Excluir Documento"
           >
-            <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
+            <div className="h-3.5 w-[1px] bg-[#e4e2dd] dark:bg-[#333333]" />
             <button
               type="button"
               onClick={handleOpenDocument}
-              className="p-1 text-[#68594d] hover:bg-[#f0eee9] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-medium"
+              className="p-1 text-[#68594d] hover:bg-[#f0eee9] dark:text-[#d6c4b5] dark:hover:bg-[#24201d] dark:hover:text-[#fffaf5] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-medium"
               title="Abrir PDF em uma aba do Anotado"
               aria-label="Abrir PDF em uma aba do Anotado"
             >
@@ -324,20 +324,20 @@ export function DocumentNodeView(props: NodeViewProps) {
         )}
 
         {/* Card do Documento */}
-        <div className="flex items-center gap-3.5 p-3.5 bg-[#f5f3ee] hover:bg-[#eae8e3] border border-[#e4e2dd] rounded-2xl transition-all w-full text-[#1b1c19]">
+        <div className="flex items-center gap-3.5 p-3.5 bg-[#f5f3ee] hover:bg-[#eae8e3] dark:bg-[#080808] dark:hover:bg-[#141414] border border-[#e4e2dd] dark:border-[#292929] rounded-2xl transition-all w-full text-[#1b1c19] dark:text-[#f5f5f5]">
           <div
             className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-xs uppercase shrink-0 shadow-2xs ${
-              isPdf ? 'bg-[#ba1a1a]/10 text-[#ba1a1a]' : 'bg-[#68594d]/10 text-[#68594d]'
+              isPdf ? 'bg-[#ba1a1a]/10 text-[#ba1a1a] dark:bg-[#3a1111] dark:text-[#ff8585]' : 'bg-[#68594d]/10 text-[#68594d] dark:bg-[#211d1a] dark:text-[#d6c4b5]'
             }`}
           >
             {isPdf ? 'PDF' : <FileText className="w-5 h-5" />}
           </div>
 
           <div className="flex-1 min-w-0 pr-2">
-            <p className="text-sm font-semibold truncate text-[#1b1c19] m-0 leading-tight font-sans-ui">
+            <p className="text-sm font-semibold truncate text-[#1b1c19] dark:text-[#f5f5f5] m-0 leading-tight font-sans-ui">
               {name}
             </p>
-            <span className="text-xs text-[#7f756e] font-sans-ui mt-1 block">
+            <span className="text-xs text-[#7f756e] dark:text-[#a3a3a3] font-sans-ui mt-1 block">
               {displaySize}
             </span>
           </div>
@@ -346,7 +346,7 @@ export function DocumentNodeView(props: NodeViewProps) {
           <button
             type="button"
             onClick={handleOpenDocument}
-            className="text-xs text-[#68594d] font-sans-ui font-medium px-3 py-1.5 bg-white hover:bg-[#68594d] hover:text-white border border-[#d1c4bc] rounded-xl transition-colors shrink-0 cursor-pointer shadow-2xs"
+            className="text-xs text-[#68594d] font-sans-ui font-medium px-3 py-1.5 bg-white hover:bg-[#68594d] hover:text-white dark:text-[#f0e5dc] dark:bg-[#171717] dark:hover:bg-[#352b25] dark:hover:text-white border border-[#d1c4bc] dark:border-[#51463e] rounded-xl transition-colors shrink-0 cursor-pointer shadow-2xs"
             title={isPdf ? "Abrir PDF no Anotado" : "Abrir documento"}
           >
             Abrir
