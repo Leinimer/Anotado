@@ -880,7 +880,14 @@ export function PdfCanvasPage({
         <svg
           className="absolute inset-0 w-full h-full pointer-events-none overflow-visible"
           viewBox={`0 0 ${pageDimensions.pdfWidth} ${pageDimensions.pdfHeight}`}
-          style={{ width: `${pageDimensions.width}px`, height: `${pageDimensions.height}px`, position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none' }}
+          style={{
+            width: `${pageDimensions.width}px`,
+            height: `${pageDimensions.height}px`,
+            position: 'absolute',
+            inset: 0,
+            zIndex: mode === 'select' ? 5 : 3,
+            pointerEvents: mode === 'select' || mode === 'eraser' ? 'auto' : 'none',
+          }}
         >
           {/* Anotações existentes na página */}
           {pageAnnotations
@@ -900,14 +907,35 @@ export function PdfCanvasPage({
                   data-pdf-annotation="true"
                   data-pdf-annotation-id={ann.id}
                   data-pdf-annotation-type="crop"
-                  className="pointer-events-auto"
+                  style={{ pointerEvents: mode === 'select' || mode === 'eraser' ? 'all' : 'none' }}
+                  className={mode === 'select' || mode === 'eraser' ? 'cursor-pointer' : ''}
+                  onPointerDown={(event) => {
+                    if (mode !== 'select' && mode !== 'eraser') return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (mode === 'select') onSelectAnnotation(ann.id);
+                  }}
                   onClick={(event) => {
-                    if (mode === 'hand') return;
+                    if (mode !== 'select' && mode !== 'eraser') return;
+                    event.preventDefault();
                     event.stopPropagation();
                     if (mode === 'eraser') onDeleteAnnotation(ann.id);
                     else onSelectAnnotation(ann.id);
                   }}
                 >
+                  {/* Área de clique ampliada, invisível: facilita selecionar uma borda fina. */}
+                  <rect
+                    x={r.x}
+                    y={r.y}
+                    width={r.width}
+                    height={r.height}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={14 / Math.max(0.1, (pageDimensions?.scaleX || 1.333333) * zoom)}
+                    pointerEvents="stroke"
+                    className="cursor-pointer"
+                  />
+                  {/* Borda visível fina; sua aparência não muda ao ampliar a área clicável. */}
                   <rect
                     x={r.x}
                     y={r.y}
@@ -916,8 +944,7 @@ export function PdfCanvasPage({
                     fill="none"
                     stroke={isSelected ? '#2563eb' : '#b39b86'}
                     strokeWidth={1 / Math.max(0.1, (pageDimensions?.scaleX || 1.333333) * zoom)}
-                    pointerEvents="stroke"
-                    className="cursor-pointer"
+                    pointerEvents="none"
                   />
                   {isSelected && (
                     <rect
