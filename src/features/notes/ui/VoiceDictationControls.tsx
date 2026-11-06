@@ -74,14 +74,22 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
 
     const from = Math.max(1, Math.min(range.from, editor.state.doc.content.size));
     const to = Math.max(from, Math.min(range.from + range.length, editor.state.doc.content.size));
+    const previousCharacter = range.length === 0 && from > 1
+      ? editor.state.doc.textBetween(from - 1, from, '', '')
+      : '';
+    const textToInsert = previousCharacter &&
+      !/\\s/.test(previousCharacter) &&
+      !/^[,.;:!?)]/.test(text)
+      ? ` ${text}`
+      : text;
 
     try {
-      const tr = editor.state.tr.insertText(text, from, to);
-      const cursorPosition = Math.min(from + text.length, tr.doc.content.size);
+      const tr = editor.state.tr.insertText(textToInsert, from, to);
+      const cursorPosition = Math.min(from + textToInsert.length, tr.doc.content.size);
       tr.setSelection(TextSelection.near(tr.doc.resolve(cursorPosition), 1));
       editor.view.dispatch(tr);
-      rangeRef.current = { from, length: text.length };
-      if (mountedRef.current) setInterimText(text);
+      rangeRef.current = { from, length: textToInsert.length };
+      if (mountedRef.current) setInterimText(textToInsert);
     } catch (cause) {
       console.warn('[VoiceDictation] Não foi possível inserir a transcrição no editor:', cause);
     }
@@ -182,7 +190,7 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
       return true;
     } catch (cause) {
       console.warn('[VoiceDictation] Falha ao iniciar reconhecimento:', cause);
-      updateMode('paused');
+      updateMode('idle');
       setError('Não foi possível iniciar o microfone. Tente novamente.');
       return false;
     }
@@ -203,7 +211,9 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
-    recognitionRef.current?.stop();
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
   }, [updateMode]);
 
   const handleResume = useCallback(() => {
@@ -222,12 +232,22 @@ export function VoiceDictationControls({ editor, activeNoteId }: VoiceDictationC
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
-    recognitionRef.current?.stop();
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
     recognitionRef.current = null;
     rangeRef.current = null;
     setInterimText('');
     setError('');
   }, [updateMode]);
+
+  useEffect(() => {
+    // Cada editor/nota possui uma sessão de ditado independente.
+    setError('');
+    setInterimText('');
+    rangeRef.current = null;
+    updateMode('idle');
+  }, [editor, activeNoteId, updateMode]);
 
   useEffect(() => {
     mountedRef.current = true;
