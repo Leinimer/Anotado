@@ -116,6 +116,18 @@ export function PdfEditorToolbar({
   const highlightPopoverRef = useRef<HTMLDivElement>(null);
   const [highlightPopoverCoords, setHighlightPopoverCoords] = useState<{ bottom: number; left: number } | null>(null);
 
+  const penButtonRef = useRef<HTMLButtonElement>(null);
+  const penPopoverRef = useRef<HTMLDivElement>(null);
+  const [penPopoverCoords, setPenPopoverCoords] = useState<{ bottom: number; left: number } | null>(null);
+
+  const shapeButtonRef = useRef<HTMLButtonElement>(null);
+  const shapePopoverRef = useRef<HTMLDivElement>(null);
+  const [shapePopoverCoords, setShapePopoverCoords] = useState<{ bottom: number; left: number } | null>(null);
+
+  const zoomButtonRef = useRef<HTMLButtonElement>(null);
+  const zoomPopoverRef = useRef<HTMLDivElement>(null);
+  const [zoomPopoverCoords, setZoomPopoverCoords] = useState<{ bottom: number; left: number } | null>(null);
+
   const closeAllMenus = () => {
     setShowPenMenu(false);
     setShowHighlightMenu(false);
@@ -144,16 +156,22 @@ export function PdfEditorToolbar({
   };
 
   useEffect(() => {
-    if (!showHighlightMenu) return;
+    const hasOpenMenu = showHighlightMenu || showPenMenu || showShapeMenu || showZoomMenu;
+    if (!hasOpenMenu) return;
 
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (highlightPopoverRef.current?.contains(target) || highlightButtonRef.current?.contains(target)) return;
-      setShowHighlightMenu(false);
+      const clickedInsidePopupOrTrigger =
+        (showHighlightMenu && (highlightPopoverRef.current?.contains(target) || highlightButtonRef.current?.contains(target))) ||
+        (showPenMenu && (penPopoverRef.current?.contains(target) || penButtonRef.current?.contains(target))) ||
+        (showShapeMenu && (shapePopoverRef.current?.contains(target) || shapeButtonRef.current?.contains(target))) ||
+        (showZoomMenu && (zoomPopoverRef.current?.contains(target) || zoomButtonRef.current?.contains(target)));
+
+      if (!clickedInsidePopupOrTrigger) closeAllMenus();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setShowHighlightMenu(false);
+      if (event.key === 'Escape') closeAllMenus();
     };
 
     document.addEventListener('mousedown', handlePointerDown);
@@ -162,7 +180,7 @@ export function PdfEditorToolbar({
       document.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [showHighlightMenu]);
+  }, [showHighlightMenu, showPenMenu, showShapeMenu, showZoomMenu]);
 
   const getShapeIcon = (shape: ShapeType) => {
     switch (shape) {
@@ -221,9 +239,224 @@ export function PdfEditorToolbar({
         )
       : null;
 
+  const penMenuPortal =
+    showPenMenu && penPopoverCoords && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={penPopoverRef}
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{
+              position: 'fixed',
+              bottom: penPopoverCoords.bottom,
+              left: penPopoverCoords.left,
+              transform: 'translateX(-50%)',
+              zIndex: 99999,
+            }}
+            className="bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2.5 shadow-xl space-y-2 min-w-[170px]"
+            role="dialog"
+            aria-label="Configurações da caneta"
+          >
+            <div>
+              <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">Cores</span>
+              <div className="flex items-center gap-1.5">
+                {PEN_COLORS.map((color) => (
+                  <button
+                    key={color.hex}
+                    type="button"
+                    onClick={() => onSetPenColor(color.hex)}
+                    className={`w-5 h-5 rounded-full border transition-transform cursor-pointer ${
+                      penColor === color.hex
+                        ? 'ring-2 ring-[#68594d] border-transparent scale-110'
+                        : 'border-black/20'
+                    }`}
+                    style={{ backgroundColor: color.hex }}
+                    title={color.label}
+                    aria-label={`Cor ${color.label}`}
+                    aria-pressed={penColor === color.hex}
+                  />
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">Espessura</span>
+              <div className="flex items-center gap-1">
+                {PEN_WIDTHS.map((width) => (
+                  <button
+                    key={width}
+                    type="button"
+                    onClick={() => {
+                      onSetPenWidth(width);
+                      setShowPenMenu(false);
+                    }}
+                    className={`px-2 py-0.5 text-xs rounded-md transition-colors cursor-pointer ${
+                      penWidth === width
+                        ? 'bg-[#68594d] text-white'
+                        : 'bg-[#eae7e0] dark:bg-[#2c2a28] text-[#1b1c19] dark:text-[#ededed]'
+                    }`}
+                    aria-pressed={penWidth === width}
+                  >
+                    {width}px
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
+  const shapeMenuPortal =
+    showShapeMenu && shapePopoverCoords && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={shapePopoverRef}
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{
+              position: 'fixed',
+              bottom: shapePopoverCoords.bottom,
+              left: shapePopoverCoords.left,
+              transform: 'translateX(-50%)',
+              zIndex: 99999,
+            }}
+            className="bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2.5 shadow-xl min-w-[240px] space-y-2"
+            role="dialog"
+            aria-label="Configurações das formas"
+          >
+            <div>
+              <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">Tipo de forma</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onSetShape('rectangle')}
+                  className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${currentShape === 'rectangle' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''}`}
+                  title="Retângulo"
+                  aria-pressed={currentShape === 'rectangle'}
+                >
+                  <Square className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSetShape('circle')}
+                  className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${currentShape === 'circle' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''}`}
+                  title="Círculo / Elipse"
+                  aria-pressed={currentShape === 'circle'}
+                >
+                  <Circle className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSetShape('line')}
+                  className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${currentShape === 'line' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''}`}
+                  title="Linha reta"
+                  aria-pressed={currentShape === 'line'}
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSetShape('arrow')}
+                  className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${currentShape === 'arrow' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''}`}
+                  title="Seta"
+                  aria-pressed={currentShape === 'arrow'}
+                >
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="border-t border-[#e4e2dd] dark:border-[#383633] pt-2">
+              <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">Cor do contorno</span>
+              <div className="flex items-center gap-1.5">
+                {PEN_COLORS.map((color) => (
+                  <button
+                    key={color.hex}
+                    type="button"
+                    onClick={() => onSetPenColor(color.hex)}
+                    className={`w-5 h-5 rounded-full border transition-transform cursor-pointer hover:scale-110 ${
+                      penColor === color.hex
+                        ? 'ring-2 ring-[#68594d] dark:ring-[#d4c8bc] border-transparent scale-110'
+                        : 'border-black/20'
+                    }`}
+                    style={{ backgroundColor: color.hex }}
+                    title={color.label}
+                    aria-label={`Cor ${color.label}`}
+                    aria-pressed={penColor === color.hex}
+                  />
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">Espessura</span>
+              <div className="flex items-center gap-1">
+                {PEN_WIDTHS.map((width) => (
+                  <button
+                    key={width}
+                    type="button"
+                    onClick={() => onSetPenWidth(width)}
+                    className={`px-2 py-0.5 text-xs rounded-md transition-colors cursor-pointer ${
+                      penWidth === width
+                        ? 'bg-[#68594d] text-white'
+                        : 'bg-[#eae7e0] dark:bg-[#2c2a28] text-[#1b1c19] dark:text-[#ededed]'
+                    }`}
+                    aria-pressed={penWidth === width}
+                  >
+                    {width}px
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
+  const zoomMenuPortal =
+    showZoomMenu && zoomPopoverCoords && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={zoomPopoverRef}
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{
+              position: 'fixed',
+              bottom: zoomPopoverCoords.bottom,
+              left: zoomPopoverCoords.left,
+              transform: 'translateX(-50%)',
+              zIndex: 99999,
+            }}
+            className="bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-1.5 shadow-xl flex flex-col gap-1 min-w-[120px] text-xs font-sans-ui"
+            role="dialog"
+            aria-label="Ajustar zoom"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                onFitWidth();
+                setShowZoomMenu(false);
+              }}
+              className="px-2.5 py-1.5 rounded-lg text-left hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer"
+            >
+              Ajustar à largura
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onFitPage();
+                setShowZoomMenu(false);
+              }}
+              className="px-2.5 py-1.5 rounded-lg text-left hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer"
+            >
+              Página inteira
+            </button>
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <>
     {highlightMenuPortal}
+    {penMenuPortal}
+    {shapeMenuPortal}
+    {zoomMenuPortal}
     <footer data-pdf-editor-toolbar="true" className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 w-max max-w-[96vw]">
       <div className="bg-[#fbf9f4]/95 dark:bg-[#252422]/95 border border-[#e4e2dd] dark:border-[#383633] backdrop-blur-md rounded-2xl shadow-xl px-2.5 py-1.5 flex flex-nowrap items-center justify-center gap-1 overflow-x-auto max-w-full whitespace-nowrap text-[#1b1c19] dark:text-[#ededed] select-none">
         {/* Ferramenta Selecionar */}
@@ -351,11 +584,16 @@ export function PdfEditorToolbar({
             <div className="relative">
               <button
                 type="button"
+                ref={penButtonRef}
                 onClick={() => {
                   const shouldOpen = !showPenMenu;
                   closeAllMenus();
                   onSetMode('pen');
-                  setShowPenMenu(shouldOpen);
+                  if (shouldOpen && penButtonRef.current) {
+                    const rect = penButtonRef.current.getBoundingClientRect();
+                    setPenPopoverCoords({ bottom: window.innerHeight - rect.top + 8, left: rect.left + rect.width / 2 });
+                    setShowPenMenu(true);
+                  }
                 }}
                 className={`p-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-0.5 ${
                   currentMode === 'pen'
@@ -373,59 +611,9 @@ export function PdfEditorToolbar({
                 <ChevronDown className="w-2.5 h-2.5 opacity-60" />
               </button>
 
-              {showPenMenu && (
-                <div
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="absolute bottom-full mb-2 left-0 bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2.5 shadow-xl space-y-2 z-[100] min-w-[170px]"
-                >
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">
-                      Cores
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      {PEN_COLORS.map((c) => (
-                        <button
-                          key={c.hex}
-                          type="button"
-                          onClick={() => onSetPenColor(c.hex)}
-                          className={`w-5 h-5 rounded-full border transition-transform cursor-pointer ${
-                            penColor === c.hex
-                              ? 'ring-2 ring-[#68594d] border-transparent scale-110'
-                              : 'border-black/20'
-                          }`}
-                          style={{ backgroundColor: c.hex }}
-                          title={c.label}
-                        />
-                      ))}
-                    </div>
-                  </div>
+            </div>
 
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">
-                      Espessura
-                    </span>
-                    <div className="flex items-center gap-1">
-                      {PEN_WIDTHS.map((w) => (
-                        <button
-                          key={w}
-                          type="button"
-                          onClick={() => {
-                            onSetPenWidth(w);
-                            setShowPenMenu(false);
-                          }}
-                          className={`px-2 py-0.5 text-xs rounded-md transition-colors cursor-pointer ${
-                            penWidth === w
-                              ? 'bg-[#68594d] text-white'
-                              : 'bg-[#eae7e0] dark:bg-[#2c2a28] text-[#1b1c19] dark:text-[#ededed]'
-                          }`}
-                        >
-                          {w}px
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
+            {/* Borracha */}
             </div>
 
             {/* Borracha */}
@@ -468,11 +656,16 @@ export function PdfEditorToolbar({
             <div className="relative">
               <button
                 type="button"
+                ref={shapeButtonRef}
                 onClick={() => {
                   const shouldOpen = !showShapeMenu;
                   closeAllMenus();
                   onSetMode('shape');
-                  setShowShapeMenu(shouldOpen);
+                  if (shouldOpen && shapeButtonRef.current) {
+                    const rect = shapeButtonRef.current.getBoundingClientRect();
+                    setShapePopoverCoords({ bottom: window.innerHeight - rect.top + 8, left: rect.left + rect.width / 2 });
+                    setShowShapeMenu(true);
+                  }
                 }}
                 className={`p-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-0.5 ${
                   currentMode === 'shape'
@@ -486,111 +679,9 @@ export function PdfEditorToolbar({
                 <ChevronDown className="w-2.5 h-2.5 opacity-60" />
               </button>
 
-              {showShapeMenu && (
-                <div
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="absolute bottom-full mb-2 left-0 bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-2.5 shadow-xl z-[100] min-w-[240px] space-y-2"
-                >
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">
-                      Tipo de forma
-                    </span>
-                    <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSetShape('rectangle');
-                    }}
-                    className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${
-                      currentShape === 'rectangle' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''
-                    }`}
-                    title="Retângulo"
-                  >
-                    <Square className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSetShape('circle');
-                    }}
-                    className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${
-                      currentShape === 'circle' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''
-                    }`}
-                    title="Círculo / Elipse"
-                  >
-                    <Circle className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSetShape('line');
-                    }}
-                    className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${
-                      currentShape === 'line' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''
-                    }`}
-                    title="Linha reta"
-                  >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSetShape('arrow');
-                    }}
-                    className={`p-1.5 rounded-lg hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer ${
-                      currentShape === 'arrow' ? 'bg-[#e8e4db] dark:bg-[#383633]' : ''
-                    }`}
-                    title="Seta"
-                  >
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                    </div>
-                  </div>
-                  <div className="border-t border-[#e4e2dd] dark:border-[#383633] pt-2">
-                    <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">
-                      Cor do contorno
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      {PEN_COLORS.map((c) => (
-                        <button
-                          key={c.hex}
-                          type="button"
-                          onClick={() => onSetPenColor(c.hex)}
-                          className={`w-5 h-5 rounded-full border transition-transform cursor-pointer hover:scale-110 ${
-                            penColor === c.hex
-                              ? 'ring-2 ring-[#68594d] dark:ring-[#d4c8bc] border-transparent scale-110'
-                              : 'border-black/20'
-                          }`}
-                          style={{ backgroundColor: c.hex }}
-                          title={c.label}
-                          aria-label={`Cor ${c.label}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-[#7f756e] dark:text-[#a89f97] block mb-1">
-                      Espessura
-                    </span>
-                    <div className="flex items-center gap-1">
-                      {PEN_WIDTHS.map((w) => (
-                        <button
-                          key={w}
-                          type="button"
-                          onClick={() => onSetPenWidth(w)}
-                          className={`px-2 py-0.5 text-xs rounded-md transition-colors cursor-pointer ${
-                            penWidth === w
-                              ? 'bg-[#68594d] text-white'
-                              : 'bg-[#eae7e0] dark:bg-[#2c2a28] text-[#1b1c19] dark:text-[#ededed]'
-                          }`}
-                        >
-                          {w}px
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
+            </div>
+
+            {/* Nota Adesiva / Comentário */}
             </div>
 
             {/* Nota Adesiva / Comentário */}
@@ -677,8 +768,17 @@ export function PdfEditorToolbar({
 
         <div className="relative">
           <button
+            ref={zoomButtonRef}
             type="button"
-            onClick={() => setShowZoomMenu(!showZoomMenu)}
+            onClick={() => {
+              const shouldOpen = !showZoomMenu;
+              closeAllMenus();
+              if (shouldOpen && zoomButtonRef.current) {
+                const rect = zoomButtonRef.current.getBoundingClientRect();
+                setZoomPopoverCoords({ bottom: window.innerHeight - rect.top + 8, left: rect.left + rect.width / 2 });
+                setShowZoomMenu(true);
+              }
+            }}
             className="text-xs font-mono font-medium px-2 py-1 rounded-lg hover:bg-[#efebe2] dark:hover:bg-[#2c2a28] text-[#68594d] dark:text-[#d4c8bc] cursor-pointer flex items-center gap-1"
             title="Ajustar zoom"
           >
@@ -686,30 +786,11 @@ export function PdfEditorToolbar({
             <ChevronDown className="w-2.5 h-2.5 opacity-60" />
           </button>
 
-          {showZoomMenu && (
-            <div className="absolute bottom-full mb-2 right-0 bg-[#fbf9f4] dark:bg-[#22211f] border border-[#e4e2dd] dark:border-[#383633] rounded-xl p-1.5 shadow-xl flex flex-col gap-1 z-50 min-w-[120px] text-xs font-sans-ui">
-              <button
-                type="button"
-                onClick={() => {
-                  onFitWidth();
-                  setShowZoomMenu(false);
-                }}
-                className="px-2.5 py-1.5 rounded-lg text-left hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer"
-              >
-                Ajustar à largura
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onFitPage();
-                  setShowZoomMenu(false);
-                }}
-                className="px-2.5 py-1.5 rounded-lg text-left hover:bg-[#eae7e0] dark:hover:bg-[#2c2a28] cursor-pointer"
-              >
-                Página inteira
-              </button>
-            </div>
-          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={onZoomIn}
         </div>
 
         <button
