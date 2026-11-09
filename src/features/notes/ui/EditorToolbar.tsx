@@ -354,6 +354,10 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       setShowHighlightPicker(popoverKey === 'highlight');
       setShowListMenu(popoverKey === 'list');
       setShowAddFileMenu(popoverKey === 'addFile');
+      setShowTablePicker(popoverKey === 'table');
+      setColumnMenu(null);
+      setShowColumnTonePicker(false);
+      if (popoverKey === 'table') setTableHoveredSize({ rows: 1, cols: 1 });
       if (popoverKey !== 'color') setShowCustomTextColor(false);
       if (popoverKey !== 'highlight') setShowCustomHighlight(false);
     } else {
@@ -367,6 +371,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       }
       if (popoverKey === 'list') setShowListMenu(false);
       if (popoverKey === 'addFile') setShowAddFileMenu(false);
+      if (popoverKey === 'table') setShowTablePicker(false);
     }
   };
 
