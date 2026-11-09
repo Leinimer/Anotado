@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Editor } from '@tiptap/react';
+import { TextSelection } from '@tiptap/pm/state';
 import {
   Bold,
   Italic,
@@ -26,6 +27,8 @@ import {
   X,
   Loader2,
   FileSymlink,
+  Table as TableIcon,
+  GripVertical,
 } from 'lucide-react';
 import { uploadNoteFile } from '../api/storage-api';
 import { createClient } from '@/src/features/auth/api/supabase-client';
@@ -66,6 +69,21 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showListMenu, setShowListMenu] = useState(false);
   const [showAddFileMenu, setShowAddFileMenu] = useState(false);
+  const [showTablePicker, setShowTablePicker] = useState(false);
+  const [tableHoveredSize, setTableHoveredSize] = useState({ rows: 1, cols: 1 });
+  const [activeTableControl, setActiveTableControl] = useState<{
+    tablePos: number;
+    left: number;
+    top: number;
+  } | null>(null);
+  const [columnMenu, setColumnMenu] = useState<{
+    tablePos: number;
+    columnIndex: number;
+    columnCount: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [showColumnTonePicker, setShowColumnTonePicker] = useState(false);
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -97,11 +115,14 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const highlightBtnRef = useRef<HTMLButtonElement>(null);
   const listBtnRef = useRef<HTMLButtonElement>(null);
   const addFileBtnRef = useRef<HTMLButtonElement>(null);
+  const tableBtnRef = useRef<HTMLButtonElement>(null);
 
   const colorPopoverRef = useRef<HTMLDivElement>(null);
   const highlightPopoverRef = useRef<HTMLDivElement>(null);
   const listPopoverRef = useRef<HTMLDivElement>(null);
   const addFilePopoverRef = useRef<HTMLDivElement>(null);
+  const tablePopoverRef = useRef<HTMLDivElement>(null);
+  const columnMenuRef = useRef<HTMLDivElement>(null);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -146,6 +167,91 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     };
   }, [editor]);
 
+  // Mantém o puxador da tabela preso ao canto superior esquerdo enquanto o cursor estiver em uma célula.
+  useEffect(() => {
+    if (!editor) return;
+
+    let frame = 0;
+    const refreshActiveTable = () => {
+      if (!editor.isEditable) {
+        setActiveTableControl(null);
+        return;
+      }
+
+      const $from = editor.state.selection.$from;
+      let tableDepth = -1;
+      for (let depth = $from.depth; depth > 0; depth--) {
+        if ($from.node(depth).type.name === 'table') {
+          tableDepth = depth;
+          break;
+        }
+      }
+
+      if (tableDepth < 0) {
+        setActiveTableControl(null);
+        return;
+      }
+
+      const tablePos = $from.before(tableDepth);
+      const nodeDom = editor.view.nodeDOM(tablePos) as HTMLElement | null;
+      const tableElement = nodeDom?.matches('table')
+        ? nodeDom
+        : nodeDom?.querySelector('table');
+
+      if (!tableElement) {
+        setActiveTableControl(null);
+        return;
+      }
+
+      const rect = tableElement.getBoundingClientRect();
+      setActiveTableControl({
+        tablePos,
+        left: Math.max(8, rect.left - 25),
+        top: Math.max(8, rect.top - 10),
+      });
+    };
+
+    const scheduleRefresh = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(refreshActiveTable);
+    };
+
+    const handleColumnContextMenu = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        tablePos: number;
+        columnIndex: number;
+        columnCount: number;
+        x: number;
+        y: number;
+      }>;
+      if (!customEvent.detail) return;
+
+      setShowTablePicker(false);
+      setShowListMenu(false);
+      setShowAddFileMenu(false);
+      setShowColorPicker(false);
+      setShowHighlightPicker(false);
+      setShowColumnTonePicker(false);
+      setColumnMenu(customEvent.detail);
+    };
+
+    editor.on('selectionUpdate', scheduleRefresh);
+    editor.on('transaction', scheduleRefresh);
+    window.addEventListener('resize', scheduleRefresh);
+    document.addEventListener('scroll', scheduleRefresh, true);
+    window.addEventListener('anotado:table-column-contextmenu', handleColumnContextMenu as EventListener);
+    scheduleRefresh();
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      editor.off('selectionUpdate', scheduleRefresh);
+      editor.off('transaction', scheduleRefresh);
+      window.removeEventListener('resize', scheduleRefresh);
+      document.removeEventListener('scroll', scheduleRefresh, true);
+      window.removeEventListener('anotado:table-column-contextmenu', handleColumnContextMenu as EventListener);
+    };
+  }, [editor]);
+
   // Evita sobreposição visual e fecha menus auxiliares quando o usuário clica de volta no canvas ou em outro controle
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -163,6 +269,11 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       }
       if (isOutside(listPopoverRef.current, listBtnRef.current)) setShowListMenu(false);
       if (isOutside(addFilePopoverRef.current, addFileBtnRef.current)) setShowAddFileMenu(false);
+      if (isOutside(tablePopoverRef.current, tableBtnRef.current)) setShowTablePicker(false);
+      if (columnMenuRef.current && !columnMenuRef.current.contains(target)) {
+        setColumnMenu(null);
+        setShowColumnTonePicker(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -228,7 +339,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const togglePopover = (
     currentIsOpen: boolean,
     btnRef: React.RefObject<HTMLButtonElement | null>,
-    popoverKey: 'color' | 'highlight' | 'list' | 'addFile'
+    popoverKey: 'color' | 'highlight' | 'list' | 'addFile' | 'table'
   ) => {
     if (!currentIsOpen && btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
@@ -293,6 +404,64 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   };
   const toggleListMenu = () => togglePopover(showListMenu, listBtnRef, 'list');
   const toggleAddFileMenu = () => togglePopover(showAddFileMenu, addFileBtnRef, 'addFile');
+  const toggleTablePicker = () => togglePopover(showTablePicker, tableBtnRef, 'table');
+
+  const insertPickedTable = (rows: number, cols: number) => {
+    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+    setShowTablePicker(false);
+    setColumnMenu(null);
+  };
+
+  const focusTableColumn = (tablePos: number, columnIndex: number) => {
+    const table = editor.state.doc.nodeAt(tablePos);
+    if (!table || table.type.name !== 'table' || !table.firstChild) return false;
+
+    const firstRow = table.firstChild;
+    let cellOffset = 0;
+    let targetCellPos: number | null = null;
+
+    firstRow.forEach((cell, _offset, currentColumn) => {
+      if (currentColumn === columnIndex) {
+        targetCellPos = tablePos + 2 + cellOffset;
+      }
+      cellOffset += cell.nodeSize;
+    });
+
+    if (targetCellPos === null) return false;
+    const cursorPos = Math.min(targetCellPos + 2, editor.state.doc.content.size);
+    try {
+      const tr = editor.state.tr.setSelection(
+        TextSelection.near(editor.state.doc.resolve(cursorPos), 1)
+      );
+      editor.view.dispatch(tr);
+      editor.commands.focus();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const runColumnAction = (action: 'before' | 'after' | 'delete') => {
+    if (!columnMenu) return;
+    if (!focusTableColumn(columnMenu.tablePos, columnMenu.columnIndex)) return;
+
+    if (action === 'before') editor.chain().focus().addColumnBefore().run();
+    if (action === 'after') editor.chain().focus().addColumnAfter().run();
+    if (action === 'delete') editor.chain().focus().deleteColumn().run();
+    setColumnMenu(null);
+    setShowColumnTonePicker(false);
+  };
+
+  const applyColumnTone = (tone: string | null) => {
+    if (!columnMenu) return;
+    (editor.commands as any).setTableColumnTone({
+      tablePos: columnMenu.tablePos,
+      columnIndex: columnMenu.columnIndex,
+      tone,
+    });
+    setColumnMenu(null);
+    setShowColumnTonePicker(false);
+  };
 
   // Escala de Tamanho de Fonte Progressiva
   const handleIncreaseFontSize = () => {
@@ -793,6 +962,20 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
               />
             </svg>
           </button>
+
+          {/* Inserir tabela com seletor visual de dimensões 10x10 */}
+          <button
+            ref={tableBtnRef}
+            id="toolbar-insert-table"
+            type="button"
+            onClick={toggleTablePicker}
+            className={`${neutralBtnClass} ${showTablePicker ? 'bg-[#f0eee9] text-[#1b1c19]' : ''}`}
+            title="Inserir tabela"
+            aria-label="Inserir tabela"
+            aria-expanded={showTablePicker}
+          >
+            <TableIcon className="w-4.5 h-4.5" />
+          </button>
         </div>
 
         <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />
@@ -1164,6 +1347,183 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             </span>
             <span className="text-xs sm:text-sm font-medium">Lista de traços</span>
           </button>
+        </div>
+      )}
+
+      {/* Seletor 10x10 de dimensões da tabela */}
+      {showTablePicker && popoverCoords && (
+        <div
+          ref={tablePopoverRef}
+          id="toolbar-table-grid-picker"
+          role="dialog"
+          aria-label="Escolher dimensões da tabela"
+          onMouseDown={(event) => event.stopPropagation()}
+          style={{
+            position: 'fixed',
+            bottom: `${popoverCoords.bottom}px`,
+            left: `clamp(132px, ${popoverCoords.left}px, calc(100vw - 132px))`,
+            transform: 'translateX(-50%)',
+            zIndex: 100,
+          }}
+          className="w-[258px] rounded-2xl border border-[#e4e2dd] bg-white p-3 shadow-2xl animate-in fade-in zoom-in-95 font-sans-ui dark:border-[#403a35] dark:bg-[#171513]"
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-semibold text-[#352d27] dark:text-[#f2e9e1]">Inserir tabela</span>
+            <span className="rounded-md bg-[#f0eee9] px-2 py-1 text-[11px] font-semibold tabular-nums text-[#68594d] dark:bg-[#302923] dark:text-[#e1cbb8]">
+              {tableHoveredSize.rows} × {tableHoveredSize.cols}
+            </span>
+          </div>
+          <div className="grid grid-cols-10 gap-1" role="grid" aria-label="Grade de 10 linhas por 10 colunas">
+            {Array.from({ length: 10 }, (_, rowIndex) =>
+              Array.from({ length: 10 }, (_, columnIndex) => {
+                const rows = rowIndex + 1;
+                const cols = columnIndex + 1;
+                const isActive = rows <= tableHoveredSize.rows && cols <= tableHoveredSize.cols;
+                return (
+                  <button
+                    key={`${rows}-${cols}`}
+                    type="button"
+                    role="gridcell"
+                    aria-label={`${rows} linhas e ${cols} colunas`}
+                    onMouseEnter={() => setTableHoveredSize({ rows, cols })}
+                    onFocus={() => setTableHoveredSize({ rows, cols })}
+                    onClick={() => insertPickedTable(rows, cols)}
+                    className={`h-[18px] w-[18px] rounded-[4px] border transition-colors cursor-pointer ${
+                      isActive
+                        ? 'border-[#68594d] bg-[#b9a797] dark:border-[#d7bda8] dark:bg-[#806a58]'
+                        : 'border-[#d8d2cb] bg-[#faf9f7] hover:border-[#9d8979] dark:border-[#514941] dark:bg-[#24211e] dark:hover:border-[#b99b81]'
+                    }`}
+                  />
+                );
+              })
+            )}
+          </div>
+          <p className="mt-2 text-[10px] text-[#83786e] dark:text-[#aaa098]">
+            Passe o mouse para selecionar linhas e colunas; clique para inserir.
+          </p>
+        </div>
+      )}
+
+      {/* Puxador externo: só aparece quando o cursor está dentro de uma célula da tabela. Arraste para mover. */}
+      {activeTableControl && editor.isEditable && (
+        <button
+          type="button"
+          draggable
+          onClick={() => editor.chain().focus().setNodeSelection(activeTableControl.tablePos).run()}
+          onDragStart={(event) => {
+            event.dataTransfer.setData('application/x-anotado-table', String(activeTableControl.tablePos));
+            event.dataTransfer.effectAllowed = 'move';
+            event.stopPropagation();
+          }}
+          onDragEnd={() => {
+            window.setTimeout(() => {
+              if (!editor.isDestroyed) {
+                const selection = editor.state.selection;
+                const insideTable = (() => {
+                  for (let depth = selection.$from.depth; depth > 0; depth--) {
+                    if (selection.$from.node(depth).type.name === 'table') return true;
+                  }
+                  return false;
+                })();
+                if (!insideTable) setActiveTableControl(null);
+              }
+            }, 0);
+          }}
+          title="Arraste para reposicionar a tabela"
+          aria-label="Arrastar para reposicionar a tabela"
+          style={{
+            position: 'fixed',
+            left: activeTableControl.left,
+            top: activeTableControl.top,
+            zIndex: 90,
+          }}
+          className="flex h-7 w-6 cursor-grab items-center justify-center rounded-md border border-[#d8d0c8] bg-[#fbf9f4] text-[#78695c] shadow-sm transition-colors hover:bg-[#eee8e0] active:cursor-grabbing dark:border-[#48413b] dark:bg-[#1b1917] dark:text-[#d8c4b3] dark:hover:bg-[#302923]"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      )}
+
+      {/* Menu de contexto da coluna: botão direito no topo da coluna */}
+      {columnMenu && (
+        <div
+          ref={columnMenuRef}
+          role="menu"
+          aria-label={`Opções da coluna ${columnMenu.columnIndex + 1}`}
+          onMouseDown={(event) => event.stopPropagation()}
+          style={{
+            position: 'fixed',
+            left: Math.max(8, Math.min(columnMenu.x, window.innerWidth - 244)),
+            top: Math.max(8, Math.min(columnMenu.y, window.innerHeight - 280)),
+            zIndex: 120,
+          }}
+          className="w-[236px] rounded-xl border border-[#e4e2dd] bg-white p-1.5 shadow-2xl font-sans-ui dark:border-[#48413b] dark:bg-[#1b1917]"
+        >
+          <div className="px-2.5 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-wide text-[#8a7e72] dark:text-[#b7a99d]">
+            Coluna {columnMenu.columnIndex + 1}
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => runColumnAction('before')}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
+          >
+            <span className="w-4 text-center text-sm leading-none">＋</span>
+            Inserir coluna à esquerda
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => runColumnAction('after')}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
+          >
+            <span className="w-4 text-center text-sm leading-none">＋</span>
+            Inserir coluna à direita
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={columnMenu.columnCount <= 1}
+            onClick={() => runColumnAction('delete')}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#a32626] transition-colors hover:bg-[#faeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#ff9b9b] dark:hover:bg-[#351d1d]"
+          >
+            <span className="w-4 text-center text-sm leading-none">＋</span>
+            Excluir coluna
+          </button>
+          <div className="my-1 border-t border-[#eee9e3] dark:border-[#3d3630]" />
+          <button
+            type="button"
+            onClick={() => setShowColumnTonePicker((open) => !open)}
+            className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
+          >
+            <span>Colorir coluna</span>
+            <span className="text-[#8a7e72] dark:text-[#b7a99d]">{showColumnTonePicker ? '−' : '+'}</span>
+          </button>
+          {showColumnTonePicker && (
+            <div className="grid grid-cols-4 gap-2 px-2.5 pb-2 pt-1">
+              {[
+                { label: 'Sem cor', tone: null, swatch: 'bg-white dark:bg-[#090909] border-[#bdb5ad] dark:border-[#66605a]' },
+                { label: 'Areia', tone: 'warm', swatch: 'bg-[#f4e6d4] dark:bg-[#493522] border-[#d7b99c] dark:border-[#765738]' },
+                { label: 'Azul', tone: 'blue', swatch: 'bg-[#dbeafe] dark:bg-[#1e3454] border-[#93c5fd] dark:border-[#355986]' },
+                { label: 'Verde', tone: 'green', swatch: 'bg-[#dcfce7] dark:bg-[#1c3b2a] border-[#86c99a] dark:border-[#326746]' },
+                { label: 'Amarelo', tone: 'yellow', swatch: 'bg-[#fef3c7] dark:bg-[#4a3b17] border-[#e8c86e] dark:border-[#7a6427]' },
+                { label: 'Rosa', tone: 'rose', swatch: 'bg-[#fce7f3] dark:bg-[#4a2638] border-[#e9a9c8] dark:border-[#78425b]' },
+                { label: 'Lilás', tone: 'violet', swatch: 'bg-[#ede9fe] dark:bg-[#34294f] border-[#b7a5ec] dark:border-[#59477f]' },
+                { label: 'Cinza', tone: 'slate', swatch: 'bg-[#e7e5e4] dark:bg-[#303030] border-[#b0aaa5] dark:border-[#555555]' },
+              ].map((color) => (
+                <button
+                  key={color.tone || 'none'}
+                  type="button"
+                  onClick={() => applyColumnTone(color.tone)}
+                  title={color.label}
+                  aria-label={color.label}
+                  className={`h-8 rounded-lg border shadow-sm transition-transform hover:scale-105 ${color.swatch}`}
+                />
+              ))}
+            </div>
+          )}
+          <div className="mt-1 border-t border-[#eee9e3] px-2.5 pt-2 text-[10px] text-[#8a7e72] dark:border-[#3d3630] dark:text-[#aaa098]">
+            Clique com o botão direito no cabeçalho de outra coluna para editá-la.
+          </div>
         </div>
       )}
 
