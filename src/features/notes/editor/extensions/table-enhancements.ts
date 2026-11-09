@@ -294,13 +294,13 @@ function getTableRowResizeTarget(
       if (cellRect.right - clientX <= 5) continue;
     }
 
-    Array.from(tableElement.rows).forEach((row) => {
+    for (const row of Array.from(tableElement.rows)) {
       const rect = row.getBoundingClientRect();
       const distance = Math.abs(rect.bottom - clientY);
-      if (distance > 8 || (best && distance >= best.distance)) return;
+      if (distance > 8 || (best !== null && distance >= best.distance)) continue;
 
       const rowPos = findRowPosition(view, row);
-      if (rowPos === null) return;
+      if (rowPos === null) continue;
 
       best = {
         rowElement: row,
@@ -308,7 +308,7 @@ function getTableRowResizeTarget(
         rowHeight: Math.max(40, Math.round(rect.height)),
         distance,
       };
-    });
+    }
   }
 
   return best
