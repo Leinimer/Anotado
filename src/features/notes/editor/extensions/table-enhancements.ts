@@ -631,7 +631,12 @@ export const AnotadoTableInteractions = Extension.create({
               const relatedTarget = (event as MouseEvent).relatedTarget as Element | null;
               // O indicador é um botão flutuante fora do DOM do editor. Não o esconda
               // quando o ponteiro sair da célula diretamente para a própria seta.
-              if (relatedTarget?.closest('.anotado-table-edge-control')) return false;
+              if (relatedTarget?.closest('.anotado-table-edge-control')) {
+                // A seta está fora do DOM do ProseMirror; libera a próxima
+                // passagem do ponteiro para republicar o mesmo índice/posição.
+                lastEdgeHoverKey = '';
+                return false;
+              }
 
               publishEdgeHover(view, null);
               view.dom.style.cursor = '';
