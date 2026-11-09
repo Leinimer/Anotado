@@ -450,9 +450,54 @@ export async function fetchNoteContent(
         return { content: note.content, tags: noteTags };
       }
 
-      // 2. Se o conteúdo local for ausente ou vazio sem pendência, busca do Supabase Storage (.md) e de public.notes
+      // 2. public.notes é a fonte canônica do conteúdo. O arquivo .md no Storage
+      // é um espelho/exportação; consultar o Storage primeiro podia reabrir uma
+      // versão antiga quando o upload do .md falhava, mesmo com notes.content atualizado.
       const isOnline = networkMonitor.getState().isBackendReachable && !networkMonitor.getIsQuotaExceeded();
       if (isOnline && isSupabaseConfigured()) {
+        try {
+          const supabase = createClient();
+          const { data: canonicalNote, error: canonicalError } = await supabase
+            .from('notes')
+            .select('content, tags, revision')
+            .eq('id', note.id)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (!canonicalError && canonicalNote?.content !== undefined && canonicalNote?.content !== null &&
+              canonicalNote.content.trim() !== '') {
+            const rawTags = canonicalNote.tags;
+            let canonicalTags: string[] = [];
+            if (Array.isArray(rawTags)) {
+              canonicalTags = normalizeTags(rawTags);
+            } else if (typeof rawTags === 'string') {
+              try {
+                canonicalTags = normalizeTags(JSON.parse(rawTags));
+              } catch {
+                canonicalTags = normalizeTags(rawTags.split(','));
+              }
+            } else {
+              canonicalTags = localTags || (Array.isArray(note.tags) ? note.tags : []);
+            }
+
+            await indexedDBStorage.putNote(userId, {
+              ...(localNoteRecord || note),
+              content: canonicalNote.content,
+              tags: canonicalTags,
+              revision: Math.max(canonicalNote.revision || 0, localNoteRecord?.revision || 0),
+              syncRequired: false,
+              syncStatus: 'synced',
+              sync_status: 'synced',
+              needs_sync: false,
+            }).catch(() => undefined);
+
+            return { content: canonicalNote.content, tags: canonicalTags };
+          }
+        } catch (canonicalReadError) {
+          console.warn('[NotesAPI] Erro ao consultar conteúdo canônico em public.notes:', canonicalReadError);
+        }
+
+        // 2.1 Compatibilidade com notas legadas que ainda só possuem arquivo .md no Storage.
         try {
           const storageContent = await readNoteMarkdown(userId, note.id);
           if (storageContent !== null && storageContent.trim() !== '') {
@@ -479,7 +524,7 @@ export async function fetchNoteContent(
           console.warn('[NotesAPI] Erro ao buscar .md no Storage:', storageErr);
         }
 
-        // 2.1 Fallback direto na tabela public.notes (caso o arquivo .md ainda não tenha sido gerado ou a escrita tenha ido direto ao DB)
+        // 2.2 Último fallback na tabela public.notes caso a leitura canônica acima tenha falhado por erro transitório.
         try {
           const supabase = createClient();
           const { data: dbNote, error: dbErr } = await supabase
