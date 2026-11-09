@@ -33,7 +33,6 @@ import {
   ArrowRightToLine,
   ArrowUp,
   ArrowDown,
-  ArrowRight,
   Trash2,
 } from 'lucide-react';
 import { uploadNoteFile } from '../api/storage-api';
@@ -77,19 +76,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const [showAddFileMenu, setShowAddFileMenu] = useState(false);
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [tableHoveredSize, setTableHoveredSize] = useState({ rows: 1, cols: 1 });
-  const [tableEdgeHover, setTableEdgeHover] = useState<{
-    tablePos: number;
-    area: 'row' | 'column';
-    rowIndex: number;
-    columnIndex: number;
-    rowCount: number;
-    columnCount: number;
-    viewDom: HTMLElement;
-    left: number;
-    top: number;
-    x: number;
-    y: number;
-  } | null>(null);
   const [activeTableControl, setActiveTableControl] = useState<{
     tablePos: number;
     left: number;
@@ -296,26 +282,11 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       openTableAreaContextMenu(customEvent.detail);
     };
 
-    const handleTableEdgeHover = (event: Event) => {
-      const customEvent = event as CustomEvent<any>;
-      const detail = customEvent.detail;
-      if (!detail) {
-        setTableEdgeHover((current) =>
-          current?.viewDom === editor.view.dom ? null : current
-        );
-        return;
-      }
-      if (detail.viewDom === editor.view.dom) {
-        setTableEdgeHover(detail);
-      }
-    };
-
     editor.on('selectionUpdate', scheduleRefresh);
     editor.on('transaction', scheduleRefresh);
     window.addEventListener('resize', scheduleRefresh);
     document.addEventListener('scroll', scheduleRefresh, true);
     window.addEventListener('anotado:table-column-contextmenu', handleColumnContextMenu as EventListener);
-    window.addEventListener('anotado:table-edge-hover', handleTableEdgeHover as EventListener);
     scheduleRefresh();
 
     return () => {
@@ -325,7 +296,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       window.removeEventListener('resize', scheduleRefresh);
       document.removeEventListener('scroll', scheduleRefresh, true);
       window.removeEventListener('anotado:table-column-contextmenu', handleColumnContextMenu as EventListener);
-      window.removeEventListener('anotado:table-edge-hover', handleTableEdgeHover as EventListener);
     };
   }, [editor]);
 
@@ -1562,52 +1532,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
           className="flex h-7 w-6 cursor-grab items-center justify-center rounded-md border border-[#d8d0c8] bg-[#fbf9f4] text-[#78695c] shadow-sm transition-colors hover:bg-[#eee8e0] active:cursor-grabbing dark:border-[#48413b] dark:bg-[#1b1917] dark:text-[#d8c4b3] dark:hover:bg-[#302923]"
         >
           <GripVertical className="h-4 w-4" />
-        </button>
-      )}
-
-      {/* Indicadores nas bordas: seta direita para linha e seta para baixo para coluna. */}
-      {tableEdgeHover && editor.isEditable && tableEdgeHover.viewDom === editor.view.dom && (
-        <button
-          type="button"
-          aria-label={
-            tableEdgeHover.area === 'row'
-              ? `Opções da linha ${tableEdgeHover.rowIndex + 1}`
-              : `Opções da coluna ${tableEdgeHover.columnIndex + 1}`
-          }
-          title={
-            tableEdgeHover.area === 'row'
-              ? 'Botão direito: selecionar e configurar esta linha'
-              : 'Botão direito: selecionar e configurar esta coluna'
-          }
-          onClick={(event) => {
-            event.preventDefault();
-            openTableAreaContextMenu(tableEdgeHover);
-          }}
-          onMouseLeave={() => {
-            setTableEdgeHover((current) =>
-              current?.viewDom === editor.view.dom ? null : current
-            );
-          }}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            openTableAreaContextMenu({
-              ...tableEdgeHover,
-              x: event.clientX,
-              y: event.clientY,
-            });
-          }}
-          style={{
-            position: 'fixed',
-            left: tableEdgeHover.left,
-            top: tableEdgeHover.top,
-            zIndex: 115,
-          }}
-          className="anotado-table-edge-control flex h-[22px] w-[22px] items-center justify-center rounded-md border border-[#c9b9aa] bg-[#fffdf9] text-[#745d4a] shadow-md transition-transform hover:scale-110 hover:bg-[#efe5da] dark:border-[#806b59] dark:bg-[#24201c] dark:text-[#f0d6bd] dark:hover:bg-[#40352c]"
-        >
-          {tableEdgeHover.area === 'row'
-            ? <ArrowRight className="h-4 w-4" strokeWidth={2.6} />
-            : <ArrowDown className="h-4 w-4" strokeWidth={2.6} />}
         </button>
       )}
 
