@@ -19,24 +19,116 @@ function escapeHtmlAttribute(value: unknown): string {
     .replace(/>/g, '&gt;');
 }
 
-function renderTableCellContent(cell: any, helpers: any): string {
-  const blocks = Array.isArray(cell.content) ? cell.content : [];
-  return blocks
-    .map((block: any) => {
-      if (block.type === 'paragraph') {
-        const inline = helpers.renderChildren(block.content || []);
-        return `<p>${inline || ''}</p>`;
+function renderInlineNodeToHtml(node: any): string {
+  if (node.type === 'text') {
+    let html = escapeHtmlAttribute(node.text || '');
+    for (const mark of node.marks || []) {
+      const attrs = mark.attrs || {};
+      switch (mark.type) {
+        case 'bold':
+        case 'strong':
+          html = `<strong>${html}</strong>`;
+          break;
+        case 'italic':
+          html = `<em>${html}</em>`;
+          break;
+        case 'underline':
+          html = `<u>${html}</u>`;
+          break;
+        case 'strike':
+        case 'strikethrough':
+          html = `<s>${html}</s>`;
+          break;
+        case 'code':
+          html = `<code>${html}</code>`;
+          break;
+        case 'link':
+          html = `<a href="${escapeHtmlAttribute(attrs.href)}"${attrs.title ? ` title="${escapeHtmlAttribute(attrs.title)}"` : ''}>${html}</a>`;
+          break;
+        case 'highlight':
+        case 'customHighlight': {
+          const color = attrs.color ? ` style="background-color: ${escapeHtmlAttribute(attrs.color)}"` : '';
+          html = `<mark${color}>${html}</mark>`;
+          break;
+        }
+        case 'subscript':
+          html = `<sub>${html}</sub>`;
+          break;
+        case 'superscript':
+          html = `<sup>${html}</sup>`;
+          break;
+        case 'textStyle': {
+          const styles: string[] = [];
+          if (attrs.color) styles.push(`color: ${escapeHtmlAttribute(attrs.color)}`);
+          if (attrs.fontSize) styles.push(`font-size: ${escapeHtmlAttribute(attrs.fontSize)}`);
+          if (attrs.fontFamily) styles.push(`font-family: ${escapeHtmlAttribute(attrs.fontFamily)}`);
+          if (styles.length) html = `<span style="${styles.join('; ')}">${html}</span>`;
+          break;
+        }
+        default:
+          break;
       }
-      return helpers.renderChildren([block]);
-    })
-    .join('');
+    }
+    return html;
+  }
+
+  if (node.type === 'hardBreak') return '<br>';
+  if (node.type === 'image') {
+    return `<img src="${escapeHtmlAttribute(node.attrs?.src)}" alt="${escapeHtmlAttribute(node.attrs?.alt)}">`;
+  }
+  if (Array.isArray(node.content)) {
+    return node.content.map(renderInlineNodeToHtml).join('');
+  }
+  return '';
+}
+
+function renderTableBlockToHtml(block: any): string {
+  const children = Array.isArray(block.content) ? block.content : [];
+  switch (block.type) {
+    case 'paragraph':
+      return `<p>${children.map(renderInlineNodeToHtml).join('')}</p>`;
+    case 'heading': {
+      const level = Math.max(1, Math.min(6, Number(block.attrs?.level || 2)));
+      return `<h${level}>${children.map(renderInlineNodeToHtml).join('')}</h${level}>`;
+    }
+    case 'blockquote':
+      return `<blockquote>${children.map(renderTableBlockToHtml).join('')}</blockquote>`;
+    case 'bulletList':
+      return `<ul>${children.map(renderTableBlockToHtml).join('')}</ul>`;
+    case 'orderedList':
+      return `<ol>${children.map(renderTableBlockToHtml).join('')}</ol>`;
+    case 'listItem':
+      return `<li>${children.map(renderTableBlockToHtml).join('')}</li>`;
+    case 'taskList':
+      return `<ul data-type="taskList">${children.map(renderTableBlockToHtml).join('')}</ul>`;
+    case 'taskItem':
+      return `<li data-type="taskItem" data-checked="${block.attrs?.checked ? 'true' : 'false'}">${children.map(renderTableBlockToHtml).join('')}</li>`;
+    case 'horizontalRule':
+      return '<hr>';
+    default:
+      return children.map(renderTableBlockToHtml).join('');
+  }
+}
+
+function renderTableCellContent(cell: any): string {
+  const blocks = Array.isArray(cell.content) ? cell.content : [];
+  return blocks.map(renderTableBlockToHtml).join('');
 }
 
 export const AnotadoTable = Table.extend({
-  renderMarkdown(node, helpers) {
-    // Serializa como HTML quando a nota contém larguras, cores ou alturas
-    // personalizadas, para que essas configurações sobrevivam ao autosave.
-    const rows = (node.content || []).map((row: any) => {
+  renderMarkdown(node) {
+    // Serializa como HTML para conservar larguras, alturas, cores e formatação
+    // inline das células no autosave em Markdown.
+    const tableRows = Array.isArray(node.content) ? node.content : [];
+    const firstRowCells = tableRows[0]?.content || [];
+    const colgroup = firstRowCells
+      .map((cell: any) => {
+        const width = Array.isArray(cell.attrs?.colwidth) ? Number(cell.attrs.colwidth[0]) : 0;
+        return width > 0 ? `<col style="width: ${width}px">` : '<col>';
+      })
+      .join('');
+
+    const rows = tableRows.map((row: any) => {
       const rowHeight = Number(row.attrs?.rowHeight || 0);
       const rowStyle = rowHeight > 0 ? ` style="height: ${rowHeight}px"` : '';
       const cells = (row.content || []).map((cell: any) => {
@@ -44,15 +136,13 @@ export const AnotadoTable = Table.extend({
         const tone = cell.attrs?.cellTone
           ? ` data-cell-tone="${escapeHtmlAttribute(cell.attrs.cellTone)}"`
           : '';
-        const width = Array.isArray(cell.attrs?.colwidth) ? Number(cell.attrs.colwidth[0]) : 0;
-        const widthStyle = width > 0 ? ` style="width: ${width}px"` : '';
-        const inner = renderTableCellContent(cell, helpers);
-        return `<${tag}${tone}${widthStyle}>${inner}</${tag}>`;
+        const inner = renderTableCellContent(cell);
+        return `<${tag}${tone}>${inner}</${tag}>`;
       }).join('');
       return `<tr${rowStyle}>${cells}</tr>`;
     }).join('');
 
-    return `<table class="anotado-table"><tbody>${rows}</tbody></table>\n\n`;
+    return `<table class="anotado-table"><colgroup>${colgroup}</colgroup><tbody>${rows}</tbody></table>\n\n`;
   },
 }).configure({
   resizable: true,
@@ -152,22 +242,6 @@ function findNodePositionFromDOM(
   });
 
   return found;
-}
-
-function findAncestorPosition(view: any, pos: number, nodeName: string): number | null {
-  const safePos = Math.max(0, Math.min(pos, view.state.doc.content.size));
-  const candidates = [safePos, Math.max(0, safePos - 1), Math.min(view.state.doc.content.size, safePos + 1)];
-
-  for (const candidate of candidates) {
-    const $pos = view.state.doc.resolve(candidate);
-    for (let depth = $pos.depth; depth > 0; depth--) {
-      if ($pos.node(depth).type.name === nodeName) {
-        return $pos.before(depth);
-      }
-    }
-  }
-
-  return null;
 }
 
 function findRowPosition(view: any, rowElement: HTMLTableRowElement): number | null {
