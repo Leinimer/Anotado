@@ -627,7 +627,12 @@ export const AnotadoTableInteractions = Extension.create({
               return false;
             },
 
-            mouseleave: (view) => {
+            mouseleave: (view, event) => {
+              const relatedTarget = (event as MouseEvent).relatedTarget as Element | null;
+              // O indicador é um botão flutuante fora do DOM do editor. Não o esconda
+              // quando o ponteiro sair da célula diretamente para a própria seta.
+              if (relatedTarget?.closest('.anotado-table-edge-control')) return false;
+
               publishEdgeHover(view, null);
               view.dom.style.cursor = '';
               return false;
