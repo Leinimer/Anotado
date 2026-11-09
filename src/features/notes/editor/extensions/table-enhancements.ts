@@ -320,6 +320,7 @@ export const AnotadoTableInteractions = Extension.create({
                     tablePos,
                     columnIndex,
                     columnCount: row.cells.length,
+                    viewDom: view.dom,
                     x: mouseEvent.clientX,
                     y: mouseEvent.clientY,
                   },
