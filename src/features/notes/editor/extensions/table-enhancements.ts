@@ -220,6 +220,12 @@ declare module '@tiptap/core' {
         columnIndex: number;
         tone: string | null;
       }) => ReturnType;
+      setTableAreaTone: (options: {
+        tablePos: number;
+        area: 'row' | 'column';
+        index: number;
+        tone: string | null;
+      }) => ReturnType;
     };
   }
 }
@@ -252,44 +258,58 @@ export const AnotadoTableInteractions = Extension.create({
   name: 'anotadoTableInteractions',
 
   addCommands() {
+    const applyAreaTone = (
+      options: { tablePos: number; area: 'row' | 'column'; index: number; tone: string | null }
+    ) => ({ tr, dispatch }: any) => {
+      const { tablePos, area, index, tone } = options;
+      const table = tr.doc.nodeAt(tablePos);
+      if (!table || table.type.name !== 'table' || index < 0) return false;
+
+      const targetPositions: number[] = [];
+      let rowOffset = 0;
+
+      table.forEach((row: any, _rowOffset: number, rowIndex: number) => {
+        let cellOffset = 0;
+        row.forEach((cell: any, _offset: number, columnIndex: number) => {
+          const isTarget =
+            (area === 'row' && rowIndex === index) ||
+            (area === 'column' && columnIndex === index);
+
+          if (isTarget) {
+            targetPositions.push(tablePos + 2 + rowOffset + cellOffset);
+          }
+          cellOffset += cell.nodeSize;
+        });
+        rowOffset += row.nodeSize;
+      });
+
+      if (targetPositions.length === 0) return false;
+      if (!dispatch) return true;
+
+      for (const position of targetPositions) {
+        const cell = tr.doc.nodeAt(position);
+        if (!cell || (cell.type.name !== 'tableCell' && cell.type.name !== 'tableHeader')) {
+          continue;
+        }
+        tr.setNodeMarkup(position, undefined, {
+          ...cell.attrs,
+          cellTone: tone,
+        });
+      }
+
+      dispatch(tr);
+      return true;
+    };
+
     return {
       setTableColumnTone:
         ({ tablePos, columnIndex, tone }) =>
-        ({ tr, dispatch }) => {
-          const table = tr.doc.nodeAt(tablePos);
-          if (!table || table.type.name !== 'table' || columnIndex < 0) return false;
-
-          const targetPositions: number[] = [];
-          let rowOffset = 0;
-
-          table.forEach((row: any) => {
-            let cellOffset = 0;
-            row.forEach((cell: any, _offset: number, currentColumn: number) => {
-              if (currentColumn === columnIndex) {
-                targetPositions.push(tablePos + 2 + rowOffset + cellOffset);
-              }
-              cellOffset += cell.nodeSize;
-            });
-            rowOffset += row.nodeSize;
-          });
-
-          if (targetPositions.length === 0) return false;
-          if (!dispatch) return true;
-
-          for (const position of targetPositions) {
-            const cell = tr.doc.nodeAt(position);
-            if (!cell || (cell.type.name !== 'tableCell' && cell.type.name !== 'tableHeader')) {
-              continue;
-            }
-            tr.setNodeMarkup(position, undefined, {
-              ...cell.attrs,
-              cellTone: tone,
-            });
-          }
-
-          dispatch(tr);
-          return true;
-        },
+        (context: any) =>
+          applyAreaTone({ tablePos, area: 'column', index: columnIndex, tone })(context),
+      setTableAreaTone:
+        ({ tablePos, area, index, tone }) =>
+        (context: any) =>
+          applyAreaTone({ tablePos, area, index, tone })(context),
     };
   },
 
@@ -301,25 +321,82 @@ export const AnotadoTableInteractions = Extension.create({
             contextmenu: (view, event) => {
               const mouseEvent = event as MouseEvent;
               const target = mouseEvent.target as HTMLElement | null;
+              let tableElement = target?.closest('table') as HTMLTableElement | null;
+              let targetRow: HTMLTableRowElement | null = null;
+              let area: 'row' | 'column' | null = null;
+              let rowIndex = -1;
+              let columnIndex = -1;
+
+              // Clique com botão direito dentro de uma célula: seleciona a coluna inteira.
               const cell = target?.closest('td, th') as HTMLTableCellElement | null;
-              if (!cell) return false;
+              if (cell && tableElement) {
+                targetRow = cell.parentElement as HTMLTableRowElement | null;
+                if (targetRow) {
+                  rowIndex = Array.from(tableElement.rows).indexOf(targetRow);
+                  columnIndex = cell.cellIndex;
+                  area = 'column';
+                }
+              } else {
+                // Área de contexto da linha: margem de 30 px à esquerda do início
+                // visível do contêiner horizontal. Funciona mesmo após rolar colunas.
+                const tables = Array.from(view.dom.querySelectorAll('table')) as HTMLTableElement[];
+                for (const candidate of tables) {
+                  const wrapper = candidate.closest('.tableWrapper') as HTMLElement | null;
+                  const visibleRect = (wrapper || candidate).getBoundingClientRect();
+                  const inRowGutter =
+                    mouseEvent.clientX >= visibleRect.left - 32 &&
+                    mouseEvent.clientX <= visibleRect.left + 3 &&
+                    mouseEvent.clientY >= visibleRect.top &&
+                    mouseEvent.clientY <= visibleRect.bottom;
 
-              const row = cell.parentElement as HTMLTableRowElement | null;
-              const tableElement = cell.closest('table') as HTMLTableElement | null;
-              if (!row || !tableElement || tableElement.rows[0] !== row) return false;
+                  if (!inRowGutter) continue;
 
+                  const row = Array.from(candidate.rows).find((item) => {
+                    const rect = item.getBoundingClientRect();
+                    return mouseEvent.clientY >= rect.top && mouseEvent.clientY <= rect.bottom;
+                  });
+
+                  if (row) {
+                    tableElement = candidate;
+                    targetRow = row;
+                    rowIndex = Array.from(candidate.rows).indexOf(row);
+                    area = 'row';
+                    break;
+                  }
+                }
+              }
+
+              if (!tableElement || !targetRow || !area) return false;
               const tablePos = findNodePositionFromDOM(view, tableElement, 'table');
               if (tablePos === null) return false;
 
+              // Marca visualmente todas as células da linha/coluna antes de abrir o menu.
+              view.dom.querySelectorAll('.anotado-table-context-selected').forEach((node) => {
+                node.classList.remove('anotado-table-context-selected');
+              });
+
+              Array.from(tableElement.rows).forEach((row, currentRowIndex) => {
+                Array.from(row.cells).forEach((currentCell, currentColumnIndex) => {
+                  const isSelected =
+                    (area === 'row' && currentRowIndex === rowIndex) ||
+                    (area === 'column' && currentColumnIndex === columnIndex);
+                  if (isSelected) currentCell.classList.add('anotado-table-context-selected');
+                });
+              });
+
               mouseEvent.preventDefault();
-              const columnIndex = cell.cellIndex;
+              mouseEvent.stopPropagation();
+
               const browserWindow = view.dom.ownerDocument.defaultView;
               browserWindow?.dispatchEvent(
                 new CustomEvent('anotado:table-column-contextmenu', {
                   detail: {
                     tablePos,
+                    area,
+                    rowIndex,
                     columnIndex,
-                    columnCount: row.cells.length,
+                    rowCount: tableElement.rows.length,
+                    columnCount: targetRow.cells.length,
                     viewDom: view.dom,
                     x: mouseEvent.clientX,
                     y: mouseEvent.clientY,
@@ -327,6 +404,18 @@ export const AnotadoTableInteractions = Extension.create({
                 })
               );
               return true;
+            },
+
+            mousedown: (view, event) => {
+              const mouseEvent = event as MouseEvent;
+              if (mouseEvent.button !== 0) return false;
+              const target = mouseEvent.target as HTMLElement | null;
+              if (target?.closest('.anotado-table-context-selected')) return false;
+
+              view.dom.querySelectorAll('.anotado-table-context-selected').forEach((node) => {
+                node.classList.remove('anotado-table-context-selected');
+              });
+              return false;
             },
 
             pointerdown: (view, event) => {
