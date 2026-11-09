@@ -255,10 +255,70 @@ function findRowPosition(view: any, rowElement: HTMLTableRowElement): number | n
 }
 
 const ROW_SELECT_CURSOR =
-  'url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22 viewBox=%220 0 24 24%22%3E%3Cpath d=%22M3 12h18m-7-7 7 7-7 7%22 fill=%22none%22 stroke=%22%23745d4a%22 stroke-width=%222.5%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E") 12 12, pointer';
+  'url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2218%22 height=%2218%22 viewBox=%220 0 18 18%22%3E%3Cpath d=%22M2 9h13m-5-5 5 5-5 5%22 fill=%22none%22 stroke=%22%23745d4a%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E") 9 9, pointer';
 
 const COLUMN_SELECT_CURSOR =
-  'url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22 viewBox=%220 0 24 24%22%3E%3Cpath d=%22M12 3v18m-7-7 7 7 7-7%22 fill=%22none%22 stroke=%22%23745d4a%22 stroke-width=%222.5%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E") 12 12, pointer';
+  'url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2218%22 height=%2218%22 viewBox=%220 0 18 18%22%3E%3Cpath d=%22M9 2v13m-5-5 5 5 5-5%22 fill=%22none%22 stroke=%22%23745d4a%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E") 9 9, pointer';
+
+function getTableRowResizeTarget(
+  view: any,
+  clientX: number,
+  clientY: number
+): { rowElement: HTMLTableRowElement; rowPos: number; rowHeight: number } | null {
+  const tables = Array.from(view.dom.querySelectorAll('table')) as HTMLTableElement[];
+  let best: {
+    rowElement: HTMLTableRowElement;
+    rowPos: number;
+    rowHeight: number;
+    distance: number;
+  } | null = null;
+
+  for (const tableElement of tables) {
+    const tableRect = tableElement.getBoundingClientRect();
+    if (
+      clientX < tableRect.left - 2 ||
+      clientX > tableRect.right + 2 ||
+      clientY < tableRect.top - 9 ||
+      clientY > tableRect.bottom + 9
+    ) continue;
+
+    const cells = Array.from(tableElement.rows).flatMap((row) => Array.from(row.cells));
+    const cellAtPointer = cells.find((cell) => {
+      const rect = cell.getBoundingClientRect();
+      return clientX >= rect.left - 2 && clientX <= rect.right + 2 &&
+        clientY >= rect.top - 2 && clientY <= rect.bottom + 2;
+    });
+    // Preserva a prioridade do redimensionador vertical de coluna.
+    if (cellAtPointer) {
+      const cellRect = cellAtPointer.getBoundingClientRect();
+      if (cellRect.right - clientX <= 5) continue;
+    }
+
+    Array.from(tableElement.rows).forEach((row) => {
+      const rect = row.getBoundingClientRect();
+      const distance = Math.abs(rect.bottom - clientY);
+      if (distance > 8 || (best && distance >= best.distance)) return;
+
+      const rowPos = findRowPosition(view, row);
+      if (rowPos === null) return;
+
+      best = {
+        rowElement: row,
+        rowPos,
+        rowHeight: Math.max(40, Math.round(rect.height)),
+        distance,
+      };
+    });
+  }
+
+  return best
+    ? {
+        rowElement: best.rowElement,
+        rowPos: best.rowPos,
+        rowHeight: best.rowHeight,
+      }
+    : null;
+}
 
 function getTableEdgeTarget(view: any, clientX: number, clientY: number): any | null {
   const tables = Array.from(view.dom.querySelectorAll('table')) as HTMLTableElement[];
@@ -520,29 +580,23 @@ export const AnotadoTableInteractions = Extension.create({
               if (pointerEvent.button !== 0) return false;
 
               const target = pointerEvent.target as HTMLElement | null;
-              // A borda inferior-direita pertence ao redimensionador nativo de coluna.
-              // Não interceptar esse gesto para que os dois redimensionamentos coexistam.
               if (target?.closest('.column-resize-handle')) return false;
-              const cellElement = target?.closest('td, th') as HTMLTableCellElement | null;
-              const rowElement = target?.closest('tr') as HTMLTableRowElement | null;
-              if (!rowElement || !rowElement.closest('table')) return false;
 
-              if (cellElement) {
-                const cellRect = cellElement.getBoundingClientRect();
-                if (cellRect.right - pointerEvent.clientX <= 9) return false;
-              }
+              // Localiza a linha pela coordenada do ponteiro, não pelo elemento
+              // que o navegador escolheu na borda compartilhada entre duas linhas.
+              const resizeTarget = getTableRowResizeTarget(
+                view,
+                pointerEvent.clientX,
+                pointerEvent.clientY
+              );
+              if (!resizeTarget) return false;
 
-              const rect = rowElement.getBoundingClientRect();
-              const distanceFromBottom = rect.bottom - pointerEvent.clientY;
-              if (distanceFromBottom < -1 || distanceFromBottom > 7) return false;
-
-              const rowPos = findRowPosition(view, rowElement);
-              if (rowPos === null) return false;
+              const { rowElement, rowPos, rowHeight: startHeight } = resizeTarget;
               const rowNode = view.state.doc.nodeAt(rowPos);
               if (!rowNode || rowNode.type.name !== 'tableRow') return false;
 
               const startY = pointerEvent.clientY;
-              const startHeight = Math.max(36, Math.round(rect.height));
+              let currentHeight = startHeight;
               const pointerId = pointerEvent.pointerId;
               const ownerDocument = view.dom.ownerDocument;
               const ownerWindow = ownerDocument.defaultView;
@@ -564,20 +618,30 @@ export const AnotadoTableInteractions = Extension.create({
               const handleMove = (moveEvent: PointerEvent) => {
                 if (moveEvent.pointerId !== pointerId) return;
                 moveEvent.preventDefault();
-                const nextHeight = Math.max(
-                  36,
+                currentHeight = Math.max(
+                  40,
                   Math.min(720, startHeight + moveEvent.clientY - startY)
                 );
-                rowElement.style.height = `${Math.round(nextHeight)}px`;
+                const heightPx = `${Math.round(currentHeight)}px`;
+                rowElement.style.height = heightPx;
+                rowElement.style.minHeight = heightPx;
+                Array.from(rowElement.cells).forEach((cell) => {
+                  cell.style.setProperty('height', heightPx, 'important');
+                  cell.style.setProperty('min-height', '0px', 'important');
+                });
               };
 
               const handleUp = (upEvent: PointerEvent) => {
                 if (upEvent.pointerId !== pointerId) return;
-                const finalHeight = Math.max(
-                  36,
-                  Math.min(720, Math.round(rowElement.getBoundingClientRect().height))
-                );
+                const finalHeight = Math.max(40, Math.min(720, Math.round(currentHeight)));
                 cleanup();
+
+                Array.from(rowElement.cells).forEach((cell) => {
+                  cell.style.removeProperty('height');
+                  cell.style.removeProperty('min-height');
+                });
+                rowElement.style.height = `${finalHeight}px`;
+                rowElement.style.minHeight = '';
 
                 const currentRow = view.state.doc.nodeAt(rowPos);
                 if (!currentRow || currentRow.type.name !== 'tableRow') return;
@@ -592,9 +656,14 @@ export const AnotadoTableInteractions = Extension.create({
               const handleCancel = (cancelEvent: PointerEvent) => {
                 if (cancelEvent.pointerId !== pointerId) return;
                 cleanup();
+                Array.from(rowElement.cells).forEach((cell) => {
+                  cell.style.removeProperty('height');
+                  cell.style.removeProperty('min-height');
+                });
                 rowElement.style.height = rowNode.attrs.rowHeight
                   ? `${rowNode.attrs.rowHeight}px`
                   : '';
+                rowElement.style.minHeight = '';
               };
 
               ownerWindow.addEventListener('pointermove', handleMove);
@@ -606,9 +675,18 @@ export const AnotadoTableInteractions = Extension.create({
 
             mousemove: (view, event) => {
               const mouseEvent = event as MouseEvent;
-              const edgeTarget = getTableEdgeTarget(view, mouseEvent.clientX, mouseEvent.clientY);
 
-              // O ponteiro nativo vira a seta correspondente; não há botões flutuantes.
+              const rowResizeTarget = getTableRowResizeTarget(
+                view,
+                mouseEvent.clientX,
+                mouseEvent.clientY
+              );
+              if (rowResizeTarget) {
+                view.dom.style.cursor = 'row-resize';
+                return false;
+              }
+
+              const edgeTarget = getTableEdgeTarget(view, mouseEvent.clientX, mouseEvent.clientY);
               if (edgeTarget?.area === 'row') {
                 view.dom.style.cursor = ROW_SELECT_CURSOR;
                 return false;
@@ -618,21 +696,7 @@ export const AnotadoTableInteractions = Extension.create({
                 return false;
               }
 
-              // Mantém o redimensionamento de altura ao passar pela borda inferior da linha.
-              const target = mouseEvent.target as HTMLElement | null;
-              const rowElement = target?.closest('tr') as HTMLTableRowElement | null;
-              const cellElement = target?.closest('td, th') as HTMLTableCellElement | null;
-              const rect = rowElement?.getBoundingClientRect();
-              const distanceFromBottom = rect ? rect.bottom - mouseEvent.clientY : Infinity;
-              const nearColumnEdge = cellElement
-                ? cellElement.getBoundingClientRect().right - mouseEvent.clientX <= 9
-                : false;
-
-              view.dom.style.cursor =
-                !nearColumnEdge && distanceFromBottom >= 0 && distanceFromBottom <= 6
-                  ? 'row-resize'
-                  : '';
-
+              view.dom.style.cursor = '';
               return false;
             },
 
