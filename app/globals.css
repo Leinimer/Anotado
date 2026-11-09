@@ -1801,3 +1801,99 @@ html.dark {
 .dark .ProseMirror.resize-cursor .column-resize-handle {
   background: #d1ad8e !important;
 }
+
+
+/* As cores de linha/coluna têm prioridade inclusive sobre os estilos específicos
+   do cabeçalho (th). Isso garante a pintura da célula superior esquerda. */
+.ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="warm"],
+.ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="warm"],
+.ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="warm"],
+.ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="warm"] {
+  background-color: #f4e6d4 !important;
+}
+.ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="blue"],
+.ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="blue"],
+.ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="blue"],
+.ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="blue"] {
+  background-color: #dbeafe !important;
+}
+.ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="green"],
+.ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="green"],
+.ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="green"],
+.ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="green"] {
+  background-color: #dcfce7 !important;
+}
+.ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="yellow"],
+.ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="yellow"],
+.ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="yellow"],
+.ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="yellow"] {
+  background-color: #fef3c7 !important;
+}
+.ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="rose"],
+.ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="rose"],
+.ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="rose"],
+.ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="rose"] {
+  background-color: #fce7f3 !important;
+}
+.ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="violet"],
+.ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="violet"],
+.ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="violet"],
+.ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="violet"] {
+  background-color: #ede9fe !important;
+}
+.ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="slate"],
+.ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="slate"],
+.ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="slate"],
+.ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="slate"] {
+  background-color: #e7e5e4 !important;
+}
+
+.dark .ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="warm"],
+.dark .ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="warm"],
+.dark .ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="warm"],
+.dark .ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="warm"] {
+  background-color: #493522 !important;
+  color: #fff2df !important;
+}
+.dark .ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="blue"],
+.dark .ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="blue"],
+.dark .ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="blue"],
+.dark .ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="blue"] {
+  background-color: #1e3454 !important;
+  color: #e9f2ff !important;
+}
+.dark .ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="green"],
+.dark .ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="green"],
+.dark .ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="green"],
+.dark .ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="green"] {
+  background-color: #1c3b2a !important;
+  color: #e7ffef !important;
+}
+.dark .ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="yellow"],
+.dark .ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="yellow"],
+.dark .ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="yellow"],
+.dark .ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="yellow"] {
+  background-color: #4a3b17 !important;
+  color: #fff6d9 !important;
+}
+.dark .ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="rose"],
+.dark .ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="rose"],
+.dark .ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="rose"],
+.dark .ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="rose"] {
+  background-color: #4a2638 !important;
+  color: #ffedf5 !important;
+}
+.dark .ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="violet"],
+.dark .ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="violet"],
+.dark .ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="violet"],
+.dark .ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="violet"] {
+  background-color: #34294f !important;
+  color: #f1eaff !important;
+}
+.dark .ProseMirror .tableWrapper > table > tbody > tr > th[data-cell-tone="slate"],
+.dark .ProseMirror .tableWrapper > table > tbody > tr > td[data-cell-tone="slate"],
+.dark .ProseMirror table.anotado-table > tbody > tr > th[data-cell-tone="slate"],
+.dark .ProseMirror table.anotado-table > tbody > tr > td[data-cell-tone="slate"] {
+  background-color: #303030 !important;
+  color: #f3f3f3 !important;
+}
