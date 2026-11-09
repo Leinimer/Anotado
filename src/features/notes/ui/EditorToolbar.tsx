@@ -31,6 +31,9 @@ import {
   GripVertical,
   ArrowLeftToLine,
   ArrowRightToLine,
+  ArrowUp,
+  ArrowDown,
+  ArrowRight,
   Trash2,
 } from 'lucide-react';
 import { uploadNoteFile } from '../api/storage-api';
@@ -74,6 +77,19 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const [showAddFileMenu, setShowAddFileMenu] = useState(false);
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [tableHoveredSize, setTableHoveredSize] = useState({ rows: 1, cols: 1 });
+  const [tableEdgeHover, setTableEdgeHover] = useState<{
+    tablePos: number;
+    area: 'row' | 'column';
+    rowIndex: number;
+    columnIndex: number;
+    rowCount: number;
+    columnCount: number;
+    viewDom: HTMLElement;
+    left: number;
+    top: number;
+    x: number;
+    y: number;
+  } | null>(null);
   const [activeTableControl, setActiveTableControl] = useState<{
     tablePos: number;
     left: number;
@@ -175,6 +191,49 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     };
   }, [editor]);
 
+  const openTableAreaContextMenu = (detail: {
+    tablePos: number;
+    area: 'row' | 'column';
+    rowIndex: number;
+    columnIndex: number;
+    rowCount: number;
+    columnCount: number;
+    viewDom: HTMLElement;
+    x: number;
+    y: number;
+  }) => {
+    if (!editor || detail.viewDom !== editor.view.dom) return;
+
+    const nodeDom = editor.view.nodeDOM(detail.tablePos) as HTMLElement | null;
+    const tableElement = nodeDom?.matches('table')
+      ? (nodeDom as HTMLTableElement)
+      : (nodeDom?.querySelector('table') as HTMLTableElement | null);
+
+    if (!tableElement) return;
+
+    detail.viewDom.querySelectorAll('.anotado-table-context-selected').forEach((node) => {
+      node.classList.remove('anotado-table-context-selected');
+    });
+
+    Array.from(tableElement.rows).forEach((row, currentRowIndex) => {
+      Array.from(row.cells).forEach((cell, currentColumnIndex) => {
+        const isSelected =
+          (detail.area === 'row' && currentRowIndex === detail.rowIndex) ||
+          (detail.area === 'column' && currentColumnIndex === detail.columnIndex);
+        if (isSelected) cell.classList.add('anotado-table-context-selected');
+      });
+    });
+
+    selectedTableViewRef.current = detail.viewDom;
+    setShowTablePicker(false);
+    setShowListMenu(false);
+    setShowAddFileMenu(false);
+    setShowColorPicker(false);
+    setShowHighlightPicker(false);
+    setShowColumnTonePicker(false);
+    setColumnMenu(detail);
+  };
+
   // Mantém o puxador da tabela preso ao canto superior esquerdo enquanto o cursor estiver em uma célula.
   useEffect(() => {
     if (!editor) return;
@@ -231,27 +290,23 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     };
 
     const handleColumnContextMenu = (event: Event) => {
-      const customEvent = event as CustomEvent<{
-        tablePos: number;
-        area: 'row' | 'column';
-        rowIndex: number;
-        columnIndex: number;
-        rowCount: number;
-        columnCount: number;
-        viewDom: HTMLElement;
-        x: number;
-        y: number;
-      }>;
+      const customEvent = event as CustomEvent<any>;
       if (!customEvent.detail || customEvent.detail.viewDom !== editor.view.dom) return;
+      openTableAreaContextMenu(customEvent.detail);
+    };
 
-      selectedTableViewRef.current = customEvent.detail.viewDom;
-      setShowTablePicker(false);
-      setShowListMenu(false);
-      setShowAddFileMenu(false);
-      setShowColorPicker(false);
-      setShowHighlightPicker(false);
-      setShowColumnTonePicker(false);
-      setColumnMenu(customEvent.detail);
+    const handleTableEdgeHover = (event: Event) => {
+      const customEvent = event as CustomEvent<any>;
+      const detail = customEvent.detail;
+      if (!detail) {
+        setTableEdgeHover((current) =>
+          current?.viewDom === editor.view.dom ? null : current
+        );
+        return;
+      }
+      if (detail.viewDom === editor.view.dom) {
+        setTableEdgeHover(detail);
+      }
     };
 
     editor.on('selectionUpdate', scheduleRefresh);
@@ -259,6 +314,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     window.addEventListener('resize', scheduleRefresh);
     document.addEventListener('scroll', scheduleRefresh, true);
     window.addEventListener('anotado:table-column-contextmenu', handleColumnContextMenu as EventListener);
+    window.addEventListener('anotado:table-edge-hover', handleTableEdgeHover as EventListener);
     scheduleRefresh();
 
     return () => {
@@ -268,6 +324,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       window.removeEventListener('resize', scheduleRefresh);
       document.removeEventListener('scroll', scheduleRefresh, true);
       window.removeEventListener('anotado:table-column-contextmenu', handleColumnContextMenu as EventListener);
+      window.removeEventListener('anotado:table-edge-hover', handleTableEdgeHover as EventListener);
     };
   }, [editor]);
 
@@ -452,19 +509,24 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     setColumnMenu(null);
   };
 
-  const focusTableColumn = (tablePos: number, columnIndex: number) => {
+  const focusTableArea = (tablePos: number, area: 'row' | 'column', index: number) => {
     const table = editor.state.doc.nodeAt(tablePos);
-    if (!table || table.type.name !== 'table' || !table.firstChild) return false;
+    if (!table || table.type.name !== 'table' || index < 0) return false;
 
-    const firstRow = table.firstChild;
-    let cellOffset = 0;
+    let rowOffset = 0;
     let targetCellPos: number | null = null;
 
-    firstRow.forEach((cell, _offset, currentColumn) => {
-      if (currentColumn === columnIndex) {
-        targetCellPos = tablePos + 2 + cellOffset;
-      }
-      cellOffset += cell.nodeSize;
+    table.forEach((row, _offset, rowIndex) => {
+      let cellOffset = 0;
+      row.forEach((cell, _cellOffset, columnIndex) => {
+        const isTarget =
+          (area === 'row' && rowIndex === index && columnIndex === 0) ||
+          (area === 'column' && rowIndex === 0 && columnIndex === index);
+
+        if (isTarget) targetCellPos = tablePos + 2 + rowOffset + cellOffset;
+        cellOffset += cell.nodeSize;
+      });
+      rowOffset += row.nodeSize;
     });
 
     if (targetCellPos === null) return false;
@@ -494,13 +556,20 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     clearTableContextSelection();
   };
 
-  const runColumnAction = (action: 'before' | 'after' | 'delete') => {
-    if (!columnMenu || columnMenu.area !== 'column') return;
-    if (!focusTableColumn(columnMenu.tablePos, columnMenu.columnIndex)) return;
+  const runTableAreaAction = (action: 'before' | 'after' | 'delete') => {
+    if (!columnMenu) return;
+    const index = columnMenu.area === 'row' ? columnMenu.rowIndex : columnMenu.columnIndex;
+    if (!focusTableArea(columnMenu.tablePos, columnMenu.area, index)) return;
 
-    if (action === 'before') editor.chain().focus().addColumnBefore().run();
-    if (action === 'after') editor.chain().focus().addColumnAfter().run();
-    if (action === 'delete') editor.chain().focus().deleteColumn().run();
+    if (columnMenu.area === 'row') {
+      if (action === 'before') editor.chain().focus().addRowBefore().run();
+      if (action === 'after') editor.chain().focus().addRowAfter().run();
+      if (action === 'delete') editor.chain().focus().deleteRow().run();
+    } else {
+      if (action === 'before') editor.chain().focus().addColumnBefore().run();
+      if (action === 'after') editor.chain().focus().addColumnAfter().run();
+      if (action === 'delete') editor.chain().focus().deleteColumn().run();
+    }
     closeTableContextMenu();
   };
 
@@ -1495,7 +1564,48 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
         </button>
       )}
 
-      {/* Menu de contexto da coluna: botão direito no topo da coluna */}
+      {/* Indicadores nas bordas: seta direita para linha e seta para baixo para coluna. */}
+      {tableEdgeHover && tableEdgeHover.viewDom === editor.view.dom && (
+        <button
+          type="button"
+          aria-label={
+            tableEdgeHover.area === 'row'
+              ? `Opções da linha ${tableEdgeHover.rowIndex + 1}`
+              : `Opções da coluna ${tableEdgeHover.columnIndex + 1}`
+          }
+          title={
+            tableEdgeHover.area === 'row'
+              ? 'Botão direito: selecionar e configurar esta linha'
+              : 'Botão direito: selecionar e configurar esta coluna'
+          }
+          onClick={(event) => {
+            event.preventDefault();
+            openTableAreaContextMenu(tableEdgeHover);
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openTableAreaContextMenu({
+              ...tableEdgeHover,
+              x: event.clientX,
+              y: event.clientY,
+            });
+          }}
+          style={{
+            position: 'fixed',
+            left: tableEdgeHover.left,
+            top: tableEdgeHover.top,
+            zIndex: 115,
+          }}
+          className="anotado-table-edge-control flex h-[22px] w-[22px] items-center justify-center rounded-md border border-[#c9b9aa] bg-[#fffdf9] text-[#745d4a] shadow-md transition-transform hover:scale-110 hover:bg-[#efe5da] dark:border-[#806b59] dark:bg-[#24201c] dark:text-[#f0d6bd] dark:hover:bg-[#40352c]"
+        >
+          {tableEdgeHover.area === 'row'
+            ? <ArrowRight className="h-4 w-4" strokeWidth={2.6} />
+            : <ArrowDown className="h-4 w-4" strokeWidth={2.6} />}
+        </button>
+      )}
+
+      {/* Menu de contexto da linha ou coluna selecionada. */}
       {columnMenu && (
         <div
           ref={columnMenuRef}
@@ -1513,12 +1623,44 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
           <div className="px-2.5 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-wide text-[#8a7e72] dark:text-[#b7a99d]">
             {columnMenu.area === 'row' ? `Linha ${columnMenu.rowIndex + 1}` : `Coluna ${columnMenu.columnIndex + 1}`}
           </div>
+          {columnMenu.area === 'row' && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => runTableAreaAction('before')}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
+              >
+                <ArrowUp className="h-4 w-4" />
+                Inserir linha acima
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => runTableAreaAction('after')}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
+              >
+                <ArrowDown className="h-4 w-4" />
+                Inserir linha abaixo
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={columnMenu.rowCount <= 1}
+                onClick={() => runTableAreaAction('delete')}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#a32626] transition-colors hover:bg-[#faeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#ff9b9b] dark:hover:bg-[#351d1d]"
+              >
+                <Trash2 className="h-4 w-4" />
+                Excluir linha
+              </button>
+            </>
+          )}
           {columnMenu.area === 'column' && (
             <>
             <button
               type="button"
               role="menuitem"
-              onClick={() => runColumnAction('before')}
+              onClick={() => runTableAreaAction('before')}
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
             >
               <ArrowLeftToLine className="h-4 w-4" />
@@ -1527,7 +1669,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             <button
               type="button"
               role="menuitem"
-              onClick={() => runColumnAction('after')}
+              onClick={() => runTableAreaAction('after')}
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
             >
               <ArrowRightToLine className="h-4 w-4" />
@@ -1537,7 +1679,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
               type="button"
               role="menuitem"
               disabled={columnMenu.columnCount <= 1}
-              onClick={() => runColumnAction('delete')}
+              onClick={() => runTableAreaAction('delete')}
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#a32626] transition-colors hover:bg-[#faeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#ff9b9b] dark:hover:bg-[#351d1d]"
             >
               <Trash2 className="h-4 w-4" />
