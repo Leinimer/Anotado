@@ -217,7 +217,6 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     setShowColorPicker(false);
     setShowHighlightPicker(false);
     setShowColumnTonePicker(false);
-    setTableEdgeHover(null);
     setColumnMenu(detail);
   };
 
