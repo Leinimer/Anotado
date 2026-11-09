@@ -1567,14 +1567,13 @@ class SyncEngine {
 
         // 5. Marca a nota como sincronizada APENAS se não houver anexos pendentes e houver confirmação remota
         if (!hasPendingAttachments) {
-          // 4. Grava .md canônico no Supabase Storage se o conteúdo final estiver disponível
-          if (contentToSend) {
-            try {
-              const fullMarkdown = serializeMarkdownWithTags(contentToSend, noteTags);
-              await writeNoteMarkdown(userId, noteId, fullMarkdown);
-            } catch (storageErr) {
-              console.warn(`[SyncEngine] Aviso ao gravar Markdown no Storage para nota ${noteId}:`, storageErr);
-            }
+          // 4. Mantém o espelho .md do Storage alinhado ao conteúdo de public.notes.
+          // Até notas vazias gravam o arquivo vazio para não deixar uma versão antiga reaparecer.
+          const fullMarkdown = serializeMarkdownWithTags(contentToSend, noteTags);
+          const markdownSaved = await writeNoteMarkdown(userId, noteId, fullMarkdown);
+          if (!markdownSaved) {
+            console.error(`[NOTE] Storage markdown não confirmou o salvamento da nota ${noteId}; mantendo operação pendente.`);
+            return false;
           }
 
           // Confirmação explícita no public.notes antes de marcar como sincronizada
@@ -1594,6 +1593,12 @@ class SyncEngine {
           const serverContent = confirmed.content || '';
           if (!expectedEmpty && serverContent.trim() === '') {
             console.error(`[NOTE] Confirmação falhou para nota ${noteId}: conteúdo no servidor está vazio`);
+            return false;
+          }
+
+          const normalizePersistedContent = (value: string) => value.replace(/\r\n/g, '\n').trim();
+          if (!expectedEmpty && normalizePersistedContent(serverContent) !== normalizePersistedContent(contentToSend)) {
+            console.error(`[NOTE] Confirmação falhou para nota ${noteId}: o conteúdo do Supabase diverge do enviado`);
             return false;
           }
 
@@ -1922,12 +1927,16 @@ class SyncEngine {
 
         console.log(`[NOTE] PERSIST CONFIRMED ON SUPABASE noteId=${noteId} bytes=${serverContent.length}`);
 
-        // 5. Grava arquivo .md no Supabase Storage (não-bloqueante)
-        try {
-          const fullMarkdown = serializeMarkdownWithTags(preparedContent, cleanTags);
-          await writeNoteMarkdown(userId, noteId, fullMarkdown);
-        } catch (storageErr) {
-          console.warn(`[NOTE] Aviso ao gravar Markdown no Storage para nota ${noteId}:`, storageErr);
+        // 5. Atualiza o espelho .md do Storage. Não marque a nota como sincronizada
+        // se esse arquivo falhar, porque a rotina de abertura também o utiliza.
+        const fullMarkdown = serializeMarkdownWithTags(preparedContent, cleanTags);
+        const markdownSaved = await writeNoteMarkdown(userId, noteId, fullMarkdown);
+        if (!markdownSaved) {
+          const storageError = new Error(
+            `O conteúdo de public.notes foi atualizado, mas o arquivo .md da nota ${noteId} não foi confirmado no Storage.`
+          );
+          (storageError as any).stage = 'NOTE_MARKDOWN_STORAGE';
+          throw storageError;
         }
 
         try {
