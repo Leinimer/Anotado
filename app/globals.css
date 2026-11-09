@@ -1357,6 +1357,7 @@ html.dark {
 
 .ProseMirror table.anotado-table th,
 .ProseMirror table.anotado-table td {
+  position: relative;
   min-width: 80px;
   padding: 9px 11px;
   border-right: 1px solid #ded8d1;
