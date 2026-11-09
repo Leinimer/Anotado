@@ -81,11 +81,16 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   } | null>(null);
   const [columnMenu, setColumnMenu] = useState<{
     tablePos: number;
+    area: 'row' | 'column';
+    rowIndex: number;
     columnIndex: number;
+    rowCount: number;
     columnCount: number;
+    viewDom: HTMLElement;
     x: number;
     y: number;
   } | null>(null);
+  const selectedTableViewRef = useRef<HTMLElement | null>(null);
   const [showColumnTonePicker, setShowColumnTonePicker] = useState(false);
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -206,11 +211,17 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
         return;
       }
 
-      const rect = tableElement.getBoundingClientRect();
+      const wrapperElement =
+        (nodeDom?.matches('.tableWrapper') ? nodeDom : tableElement.closest('.tableWrapper')) as HTMLElement | null;
+      const visibleRect = (wrapperElement || tableElement.parentElement || tableElement).getBoundingClientRect();
+      const tableRect = tableElement.getBoundingClientRect();
+
       setActiveTableControl({
         tablePos,
-        left: Math.max(8, rect.left - 25),
-        top: Math.max(8, rect.top - 10),
+        // A posição horizontal fica presa à viewport do contêiner; o conteúdo da tabela
+        // pode rolar para a esquerda/direita sem levar o botão junto para fora da nota.
+        left: Math.max(8, visibleRect.left - 36),
+        top: Math.max(8, tableRect.top - 10),
       });
     };
 
@@ -222,7 +233,10 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     const handleColumnContextMenu = (event: Event) => {
       const customEvent = event as CustomEvent<{
         tablePos: number;
+        area: 'row' | 'column';
+        rowIndex: number;
         columnIndex: number;
+        rowCount: number;
         columnCount: number;
         viewDom: HTMLElement;
         x: number;
@@ -230,6 +244,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       }>;
       if (!customEvent.detail || customEvent.detail.viewDom !== editor.view.dom) return;
 
+      selectedTableViewRef.current = customEvent.detail.viewDom;
       setShowTablePicker(false);
       setShowListMenu(false);
       setShowAddFileMenu(false);
@@ -277,12 +292,28 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       if (columnMenuRef.current && !columnMenuRef.current.contains(target)) {
         setColumnMenu(null);
         setShowColumnTonePicker(false);
+        selectedTableViewRef.current?.querySelectorAll('.anotado-table-context-selected').forEach((node) => {
+          node.classList.remove('anotado-table-context-selected');
+        });
+        selectedTableViewRef.current = null;
       }
     };
 
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setColumnMenu(null);
+      setShowColumnTonePicker(false);
+      selectedTableViewRef.current?.querySelectorAll('.anotado-table-context-selected').forEach((node) => {
+        node.classList.remove('anotado-table-context-selected');
+      });
+      selectedTableViewRef.current = null;
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
     };
   }, []);
 
@@ -450,26 +481,38 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     }
   };
 
+  const clearTableContextSelection = () => {
+    selectedTableViewRef.current?.querySelectorAll('.anotado-table-context-selected').forEach((node) => {
+      node.classList.remove('anotado-table-context-selected');
+    });
+    selectedTableViewRef.current = null;
+  };
+
+  const closeTableContextMenu = () => {
+    setColumnMenu(null);
+    setShowColumnTonePicker(false);
+    clearTableContextSelection();
+  };
+
   const runColumnAction = (action: 'before' | 'after' | 'delete') => {
-    if (!columnMenu) return;
+    if (!columnMenu || columnMenu.area !== 'column') return;
     if (!focusTableColumn(columnMenu.tablePos, columnMenu.columnIndex)) return;
 
     if (action === 'before') editor.chain().focus().addColumnBefore().run();
     if (action === 'after') editor.chain().focus().addColumnAfter().run();
     if (action === 'delete') editor.chain().focus().deleteColumn().run();
-    setColumnMenu(null);
-    setShowColumnTonePicker(false);
+    closeTableContextMenu();
   };
 
   const applyColumnTone = (tone: string | null) => {
     if (!columnMenu) return;
-    (editor.commands as any).setTableColumnTone({
+    (editor.commands as any).setTableAreaTone({
       tablePos: columnMenu.tablePos,
-      columnIndex: columnMenu.columnIndex,
+      area: columnMenu.area,
+      index: columnMenu.area === 'row' ? columnMenu.rowIndex : columnMenu.columnIndex,
       tone,
     });
-    setColumnMenu(null);
-    setShowColumnTonePicker(false);
+    closeTableContextMenu();
   };
 
   // Escala de Tamanho de Fonte Progressiva
@@ -1457,7 +1500,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
         <div
           ref={columnMenuRef}
           role="menu"
-          aria-label={`Opções da coluna ${columnMenu.columnIndex + 1}`}
+          aria-label={columnMenu.area === 'row' ? `Opções da linha ${columnMenu.rowIndex + 1}` : `Opções da coluna ${columnMenu.columnIndex + 1}`}
           onMouseDown={(event) => event.stopPropagation()}
           style={{
             position: 'fixed',
@@ -1468,43 +1511,48 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
           className="w-[236px] rounded-xl border border-[#e4e2dd] bg-white p-1.5 shadow-2xl font-sans-ui dark:border-[#48413b] dark:bg-[#1b1917]"
         >
           <div className="px-2.5 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-wide text-[#8a7e72] dark:text-[#b7a99d]">
-            Coluna {columnMenu.columnIndex + 1}
+            {columnMenu.area === 'row' ? `Linha ${columnMenu.rowIndex + 1}` : `Coluna ${columnMenu.columnIndex + 1}`}
           </div>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => runColumnAction('before')}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
-          >
-            <ArrowLeftToLine className="h-4 w-4" />
-            Inserir coluna à esquerda
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => runColumnAction('after')}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
-          >
-            <ArrowRightToLine className="h-4 w-4" />
-            Inserir coluna à direita
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            disabled={columnMenu.columnCount <= 1}
-            onClick={() => runColumnAction('delete')}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#a32626] transition-colors hover:bg-[#faeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#ff9b9b] dark:hover:bg-[#351d1d]"
-          >
-            <Trash2 className="h-4 w-4" />
-            Excluir coluna
-          </button>
+          {columnMenu.area === 'column' && (
+            <>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => runColumnAction('before')}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
+            >
+              <ArrowLeftToLine className="h-4 w-4" />
+              Inserir coluna à esquerda
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => runColumnAction('after')}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
+            >
+              <ArrowRightToLine className="h-4 w-4" />
+              Inserir coluna à direita
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={columnMenu.columnCount <= 1}
+              onClick={() => runColumnAction('delete')}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#a32626] transition-colors hover:bg-[#faeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#ff9b9b] dark:hover:bg-[#351d1d]"
+            >
+              <Trash2 className="h-4 w-4" />
+              Excluir coluna
+            </button>
+  
+            </>
+          )}
           <div className="my-1 border-t border-[#eee9e3] dark:border-[#3d3630]" />
           <button
             type="button"
             onClick={() => setShowColumnTonePicker((open) => !open)}
             className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
           >
-            <span>Colorir coluna</span>
+            <span>{columnMenu.area === 'row' ? 'Colorir linha inteira' : 'Colorir coluna inteira'}</span>
             <span className="text-[#8a7e72] dark:text-[#b7a99d]">{showColumnTonePicker ? '−' : '+'}</span>
           </button>
           {showColumnTonePicker && (
@@ -1531,7 +1579,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             </div>
           )}
           <div className="mt-1 border-t border-[#eee9e3] px-2.5 pt-2 text-[10px] text-[#8a7e72] dark:border-[#3d3630] dark:text-[#aaa098]">
-            Clique com o botão direito no cabeçalho de outra coluna para editá-la.
+            {columnMenu.area === 'row' ? 'A cor será aplicada a todas as células desta linha.' : 'A cor será aplicada a todas as células desta coluna.'}
           </div>
         </div>
       )}
