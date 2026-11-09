@@ -333,8 +333,17 @@ export const AnotadoTableInteractions = Extension.create({
               if (pointerEvent.button !== 0) return false;
 
               const target = pointerEvent.target as HTMLElement | null;
+              // A borda inferior-direita pertence ao redimensionador nativo de coluna.
+              // Não interceptar esse gesto para que os dois redimensionamentos coexistam.
+              if (target?.closest('.column-resize-handle')) return false;
+              const cellElement = target?.closest('td, th') as HTMLTableCellElement | null;
               const rowElement = target?.closest('tr') as HTMLTableRowElement | null;
               if (!rowElement || !rowElement.closest('table')) return false;
+
+              if (cellElement) {
+                const cellRect = cellElement.getBoundingClientRect();
+                if (cellRect.right - pointerEvent.clientX <= 9) return false;
+              }
 
               const rect = rowElement.getBoundingClientRect();
               const distanceFromBottom = rect.bottom - pointerEvent.clientY;
@@ -412,6 +421,7 @@ export const AnotadoTableInteractions = Extension.create({
               const mouseEvent = event as MouseEvent;
               const target = mouseEvent.target as HTMLElement | null;
               const rowElement = target?.closest('tr') as HTMLTableRowElement | null;
+              const cellElement = target?.closest('td, th') as HTMLTableCellElement | null;
               if (!rowElement) {
                 view.dom.style.cursor = '';
                 return false;
@@ -419,8 +429,13 @@ export const AnotadoTableInteractions = Extension.create({
 
               const rect = rowElement.getBoundingClientRect();
               const distanceFromBottom = rect.bottom - mouseEvent.clientY;
+              const nearColumnEdge = cellElement
+                ? cellElement.getBoundingClientRect().right - mouseEvent.clientX <= 9
+                : false;
               view.dom.style.cursor =
-                distanceFromBottom >= 0 && distanceFromBottom <= 6 ? 'row-resize' : '';
+                !nearColumnEdge && distanceFromBottom >= 0 && distanceFromBottom <= 6
+                  ? 'row-resize'
+                  : '';
               return false;
             },
 
