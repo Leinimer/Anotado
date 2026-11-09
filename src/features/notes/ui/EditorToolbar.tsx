@@ -224,10 +224,11 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
         tablePos: number;
         columnIndex: number;
         columnCount: number;
+        viewDom: HTMLElement;
         x: number;
         y: number;
       }>;
-      if (!customEvent.detail) return;
+      if (!customEvent.detail || customEvent.detail.viewDom !== editor.view.dom) return;
 
       setShowTablePicker(false);
       setShowListMenu(false);
