@@ -275,7 +275,7 @@ function getTableEdgeTarget(view: any, clientX: number, clientY: number): any | 
     // horizontal e até 56 px para a esquerda da tabela.
     const inRowGutter =
       clientX >= wrapperRect.left - 56 &&
-      clientX <= wrapperRect.left + 14;
+      clientX <= wrapperRect.left + 2;
 
     if (inRowGutter) {
       let nearestRowIndex = -1;
