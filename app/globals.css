@@ -1611,3 +1611,111 @@ html.dark {
 .dark .ProseMirror table.anotado-table th[data-cell-tone="violet"] { background-color: #34294f !important; color: #f1eaff !important; }
 .dark .ProseMirror table.anotado-table td[data-cell-tone="slate"],
 .dark .ProseMirror table.anotado-table th[data-cell-tone="slate"] { background-color: #303030 !important; color: #f3f3f3 !important; }
+
+
+/* Fallback robusto para as tabelas reais do ProseMirror.
+   Não depende da classe anotado-table: algumas versões do Table renderizam
+   a tabela dentro de .tableWrapper sem conservar a classe customizada. */
+.ProseMirror .tableWrapper {
+  display: block !important;
+}
+
+.ProseMirror .tableWrapper > table,
+.ProseMirror .tableWrapper table,
+.ProseMirror table {
+  display: table !important;
+  width: 100% !important;
+  min-width: 240px !important;
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+  table-layout: fixed !important;
+  border: 2px solid #8a7969 !important;
+  background: #fff !important;
+}
+
+.ProseMirror .tableWrapper > table > tbody > tr > td,
+.ProseMirror .tableWrapper > table > tbody > tr > th,
+.ProseMirror .tableWrapper table td,
+.ProseMirror .tableWrapper table th,
+.ProseMirror table td,
+.ProseMirror table th {
+  display: table-cell !important;
+  min-width: 80px !important;
+  min-height: 38px !important;
+  height: auto;
+  padding: 9px 11px !important;
+  border: 2px solid #9b8877 !important;
+  vertical-align: top !important;
+  background-clip: padding-box !important;
+  color: #29231e !important;
+}
+
+.ProseMirror .tableWrapper table th,
+.ProseMirror table th {
+  background-color: #eee7df !important;
+  color: #302820 !important;
+  font-weight: 700 !important;
+}
+
+.ProseMirror .tableWrapper table td p,
+.ProseMirror .tableWrapper table th p,
+.ProseMirror table td p,
+.ProseMirror table th p {
+  min-height: 1.35em;
+  margin: 0.15rem 0 !important;
+}
+
+/* Modo escuro: contraste reforçado para todas as células, mesmo sem classe customizada. */
+.dark .ProseMirror .tableWrapper > table,
+.dark .ProseMirror .tableWrapper table,
+.dark .ProseMirror table {
+  border-color: #8c8177 !important;
+  background: #050505 !important;
+}
+
+.dark .ProseMirror .tableWrapper > table > tbody > tr > td,
+.dark .ProseMirror .tableWrapper > table > tbody > tr > th,
+.dark .ProseMirror .tableWrapper table td,
+.dark .ProseMirror .tableWrapper table th,
+.dark .ProseMirror table td,
+.dark .ProseMirror table th {
+  border-color: #81766c !important;
+  color: #f2ede7 !important;
+}
+
+.dark .ProseMirror .tableWrapper table th,
+.dark .ProseMirror table th {
+  background-color: #29231f !important;
+  color: #fff8f1 !important;
+}
+
+/* Reaplica as cores escolhidas no menu de coluna após o fallback genérico. */
+.ProseMirror table td[data-cell-tone="warm"],
+.ProseMirror table th[data-cell-tone="warm"] { background-color: #f4e6d4 !important; }
+.ProseMirror table td[data-cell-tone="blue"],
+.ProseMirror table th[data-cell-tone="blue"] { background-color: #dbeafe !important; }
+.ProseMirror table td[data-cell-tone="green"],
+.ProseMirror table th[data-cell-tone="green"] { background-color: #dcfce7 !important; }
+.ProseMirror table td[data-cell-tone="yellow"],
+.ProseMirror table th[data-cell-tone="yellow"] { background-color: #fef3c7 !important; }
+.ProseMirror table td[data-cell-tone="rose"],
+.ProseMirror table th[data-cell-tone="rose"] { background-color: #fce7f3 !important; }
+.ProseMirror table td[data-cell-tone="violet"],
+.ProseMirror table th[data-cell-tone="violet"] { background-color: #ede9fe !important; }
+.ProseMirror table td[data-cell-tone="slate"],
+.ProseMirror table th[data-cell-tone="slate"] { background-color: #e7e5e4 !important; }
+
+.dark .ProseMirror table td[data-cell-tone="warm"],
+.dark .ProseMirror table th[data-cell-tone="warm"] { background-color: #493522 !important; color: #fff2df !important; }
+.dark .ProseMirror table td[data-cell-tone="blue"],
+.dark .ProseMirror table th[data-cell-tone="blue"] { background-color: #1e3454 !important; color: #e9f2ff !important; }
+.dark .ProseMirror table td[data-cell-tone="green"],
+.dark .ProseMirror table th[data-cell-tone="green"] { background-color: #1c3b2a !important; color: #e7ffef !important; }
+.dark .ProseMirror table td[data-cell-tone="yellow"],
+.dark .ProseMirror table th[data-cell-tone="yellow"] { background-color: #4a3b17 !important; color: #fff6d9 !important; }
+.dark .ProseMirror table td[data-cell-tone="rose"],
+.dark .ProseMirror table th[data-cell-tone="rose"] { background-color: #4a2638 !important; color: #ffedf5 !important; }
+.dark .ProseMirror table td[data-cell-tone="violet"],
+.dark .ProseMirror table th[data-cell-tone="violet"] { background-color: #34294f !important; color: #f1eaff !important; }
+.dark .ProseMirror table td[data-cell-tone="slate"],
+.dark .ProseMirror table th[data-cell-tone="slate"] { background-color: #303030 !important; color: #f3f3f3 !important; }
