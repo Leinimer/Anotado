@@ -29,6 +29,9 @@ import {
   FileSymlink,
   Table as TableIcon,
   GripVertical,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  Trash2,
 } from 'lucide-react';
 import { uploadNoteFile } from '../api/storage-api';
 import { createClient } from '@/src/features/auth/api/supabase-client';
@@ -1467,7 +1470,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             onClick={() => runColumnAction('before')}
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
           >
-            <span className="w-4 text-center text-sm leading-none">＋</span>
+            <ArrowLeftToLine className="h-4 w-4" />
             Inserir coluna à esquerda
           </button>
           <button
@@ -1476,7 +1479,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             onClick={() => runColumnAction('after')}
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#3c332c] transition-colors hover:bg-[#f3f0eb] dark:text-[#eee5dd] dark:hover:bg-[#302923]"
           >
-            <span className="w-4 text-center text-sm leading-none">＋</span>
+            <ArrowRightToLine className="h-4 w-4" />
             Inserir coluna à direita
           </button>
           <button
@@ -1486,7 +1489,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             onClick={() => runColumnAction('delete')}
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#a32626] transition-colors hover:bg-[#faeeee] disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#ff9b9b] dark:hover:bg-[#351d1d]"
           >
-            <span className="w-4 text-center text-sm leading-none">＋</span>
+            <Trash2 className="h-4 w-4" />
             Excluir coluna
           </button>
           <div className="my-1 border-t border-[#eee9e3] dark:border-[#3d3630]" />
