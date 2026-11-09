@@ -1327,3 +1327,201 @@ html.dark {
 .paper-sheet:has(.ProseMirror a[href^="#pdf-citation/"]) .ProseMirror > h1:first-child {
   display: none !important;
 }
+
+
+/* ==========================================================================
+   TABELAS EDITÁVEIS — NOTAS
+   ========================================================================== */
+
+.ProseMirror .tableWrapper {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 1.1rem 0;
+  padding: 2px 2px 6px;
+}
+
+.ProseMirror table.anotado-table {
+  width: 100%;
+  min-width: 240px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  margin: 0;
+  border: 1px solid #d8d1c9;
+  border-radius: 10px;
+  overflow: visible;
+  color: #2b2520;
+  background: #ffffff;
+}
+
+.ProseMirror table.anotado-table th,
+.ProseMirror table.anotado-table td {
+  min-width: 80px;
+  padding: 9px 11px;
+  border-right: 1px solid #ded8d1;
+  border-bottom: 1px solid #ded8d1;
+  vertical-align: top;
+  text-align: left;
+  overflow-wrap: anywhere;
+  color: #2b2520;
+  background-color: #ffffff;
+  transition: background-color 120ms ease;
+}
+
+.ProseMirror table.anotado-table th {
+  font-weight: 700;
+  background-color: #f2eee8;
+  color: #3d332b;
+}
+
+.ProseMirror table.anotado-table tr:last-child > :is(td, th) {
+  border-bottom: 0;
+}
+
+.ProseMirror table.anotado-table tr > :last-child {
+  border-right: 0;
+}
+
+.ProseMirror table.anotado-table p {
+  margin: 0.15rem 0;
+}
+
+.ProseMirror table.anotado-table td:focus-within,
+.ProseMirror table.anotado-table th:focus-within {
+  outline: 2px solid #9b8068;
+  outline-offset: -2px;
+}
+
+.ProseMirror table.anotado-table td[data-cell-tone="warm"],
+.ProseMirror table.anotado-table th[data-cell-tone="warm"] {
+  background-color: #f4e6d4;
+}
+
+.ProseMirror table.anotado-table td[data-cell-tone="blue"],
+.ProseMirror table.anotado-table th[data-cell-tone="blue"] {
+  background-color: #dbeafe;
+}
+
+.ProseMirror table.anotado-table td[data-cell-tone="green"],
+.ProseMirror table.anotado-table th[data-cell-tone="green"] {
+  background-color: #dcfce7;
+}
+
+.ProseMirror table.anotado-table td[data-cell-tone="yellow"],
+.ProseMirror table.anotado-table th[data-cell-tone="yellow"] {
+  background-color: #fef3c7;
+}
+
+.ProseMirror table.anotado-table td[data-cell-tone="rose"],
+.ProseMirror table.anotado-table th[data-cell-tone="rose"] {
+  background-color: #fce7f3;
+}
+
+.ProseMirror table.anotado-table td[data-cell-tone="violet"],
+.ProseMirror table.anotado-table th[data-cell-tone="violet"] {
+  background-color: #ede9fe;
+}
+
+.ProseMirror table.anotado-table td[data-cell-tone="slate"],
+.ProseMirror table.anotado-table th[data-cell-tone="slate"] {
+  background-color: #e7e5e4;
+}
+
+/* Alças oficiais do redimensionamento horizontal de colunas do Tiptap. */
+.ProseMirror .column-resize-handle {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: -3px;
+  bottom: -1px;
+  width: 6px;
+  background: #9b8068;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.ProseMirror.resize-cursor {
+  cursor: col-resize !important;
+}
+
+/* O cursor muda para row-resize ao aproximar-se da borda inferior de uma linha. */
+.anotado-row-resize-active,
+.anotado-row-resize-active * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+
+.ProseMirror table.anotado-table tr.anotado-table-row-resizing > :is(td, th) {
+  user-select: none;
+}
+
+/* Contraste específico do modo escuro: fundo quase preto e separadores visíveis. */
+.dark .ProseMirror table.anotado-table {
+  background: #050505;
+  border-color: #3a3530;
+  color: #f3eee8;
+}
+
+.dark .ProseMirror table.anotado-table th,
+.dark .ProseMirror table.anotado-table td {
+  background-color: #080808;
+  border-color: #39332e;
+  color: #f0ece7;
+}
+
+.dark .ProseMirror table.anotado-table th {
+  background-color: #1b1816;
+  color: #fff8f1;
+}
+
+.dark .ProseMirror table.anotado-table td[data-cell-tone="warm"],
+.dark .ProseMirror table.anotado-table th[data-cell-tone="warm"] {
+  background-color: #493522;
+  color: #fff2df;
+}
+
+.dark .ProseMirror table.anotado-table td[data-cell-tone="blue"],
+.dark .ProseMirror table.anotado-table th[data-cell-tone="blue"] {
+  background-color: #1e3454;
+  color: #e9f2ff;
+}
+
+.dark .ProseMirror table.anotado-table td[data-cell-tone="green"],
+.dark .ProseMirror table.anotado-table th[data-cell-tone="green"] {
+  background-color: #1c3b2a;
+  color: #e7ffef;
+}
+
+.dark .ProseMirror table.anotado-table td[data-cell-tone="yellow"],
+.dark .ProseMirror table.anotado-table th[data-cell-tone="yellow"] {
+  background-color: #4a3b17;
+  color: #fff6d9;
+}
+
+.dark .ProseMirror table.anotado-table td[data-cell-tone="rose"],
+.dark .ProseMirror table.anotado-table th[data-cell-tone="rose"] {
+  background-color: #4a2638;
+  color: #ffedf5;
+}
+
+.dark .ProseMirror table.anotado-table td[data-cell-tone="violet"],
+.dark .ProseMirror table.anotado-table th[data-cell-tone="violet"] {
+  background-color: #34294f;
+  color: #f1eaff;
+}
+
+.dark .ProseMirror table.anotado-table td[data-cell-tone="slate"],
+.dark .ProseMirror table.anotado-table th[data-cell-tone="slate"] {
+  background-color: #303030;
+  color: #f3f3f3;
+}
+
+.dark .ProseMirror table.anotado-table td:focus-within,
+.dark .ProseMirror table.anotado-table th:focus-within {
+  outline-color: #c5a88f;
+}
+
+.dark .ProseMirror .column-resize-handle {
+  background: #c4a58a;
+}
