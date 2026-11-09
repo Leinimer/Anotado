@@ -22,6 +22,13 @@ import { SmartMediaDragDrop } from './extensions/smart-media-drag-drop';
 import { PdfDragDrop } from './extensions/pdf-drag-drop';
 import { CustomTaskItem } from './extensions/custom-task-item';
 import { InternalNoteLink } from './extensions/internal-note-link';
+import {
+  AnotadoTable,
+  AnotadoTableCell,
+  AnotadoTableHeader,
+  AnotadoTableInteractions,
+  AnotadoTableRow,
+} from './extensions/table-enhancements';
 
 export const CustomLink = Link.extend({
   inclusive: false,
@@ -346,6 +353,11 @@ export const defaultEditorExtensions = [
     nested: true,
   }),
   InternalNoteLink,
+  AnotadoTable,
+  AnotadoTableRow,
+  AnotadoTableCell,
+  AnotadoTableHeader,
+  AnotadoTableInteractions,
   CustomLink,
   CustomImage.configure({
     inline: false,
