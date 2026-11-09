@@ -231,6 +231,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     setShowColorPicker(false);
     setShowHighlightPicker(false);
     setShowColumnTonePicker(false);
+    setTableEdgeHover(null);
     setColumnMenu(detail);
   };
 
@@ -1565,7 +1566,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       )}
 
       {/* Indicadores nas bordas: seta direita para linha e seta para baixo para coluna. */}
-      {tableEdgeHover && tableEdgeHover.viewDom === editor.view.dom && (
+      {tableEdgeHover && editor.isEditable && tableEdgeHover.viewDom === editor.view.dom && (
         <button
           type="button"
           aria-label={
@@ -1581,6 +1582,11 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
           onClick={(event) => {
             event.preventDefault();
             openTableAreaContextMenu(tableEdgeHover);
+          }}
+          onMouseLeave={() => {
+            setTableEdgeHover((current) =>
+              current?.viewDom === editor.view.dom ? null : current
+            );
           }}
           onContextMenu={(event) => {
             event.preventDefault();
