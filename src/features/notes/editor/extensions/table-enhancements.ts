@@ -254,6 +254,109 @@ function findRowPosition(view: any, rowElement: HTMLTableRowElement): number | n
   return findNodePositionFromDOM(view, rowElement, 'tableRow');
 }
 
+const ROW_SELECT_CURSOR =
+  'url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22 viewBox=%220 0 24 24%22%3E%3Cpath d=%22M3 12h18m-7-7 7 7-7 7%22 fill=%22none%22 stroke=%22%23745d4a%22 stroke-width=%222.5%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E") 12 12, pointer';
+
+const COLUMN_SELECT_CURSOR =
+  'url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22 viewBox=%220 0 24 24%22%3E%3Cpath d=%22M12 3v18m-7-7 7 7 7-7%22 fill=%22none%22 stroke=%22%23745d4a%22 stroke-width=%222.5%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E") 12 12, pointer';
+
+function getTableEdgeTarget(view: any, clientX: number, clientY: number): any | null {
+  const tables = Array.from(view.dom.querySelectorAll('table')) as HTMLTableElement[];
+
+  for (const tableElement of tables) {
+    const firstRow = tableElement.rows[0];
+    if (!firstRow || firstRow.cells.length === 0) continue;
+
+    const wrapper = tableElement.closest('.tableWrapper') as HTMLElement | null;
+    const wrapperRect = (wrapper || tableElement).getBoundingClientRect();
+    const tableRect = tableElement.getBoundingClientRect();
+
+    // Faixa lateral ampla: permite errar até 14 px acima/abaixo de cada divisória
+    // horizontal e até 56 px para a esquerda da tabela.
+    const inRowGutter =
+      clientX >= wrapperRect.left - 56 &&
+      clientX <= wrapperRect.left + 14;
+
+    if (inRowGutter) {
+      let nearestRowIndex = -1;
+      let nearestRowDistance = Number.POSITIVE_INFINITY;
+
+      Array.from(tableElement.rows).forEach((row, rowIndex) => {
+        const rect = row.getBoundingClientRect();
+        const distance =
+          clientY < rect.top
+            ? rect.top - clientY
+            : clientY > rect.bottom
+              ? clientY - rect.bottom
+              : 0;
+
+        if (distance <= 14 && distance < nearestRowDistance) {
+          nearestRowDistance = distance;
+          nearestRowIndex = rowIndex;
+        }
+      });
+
+      if (nearestRowIndex >= 0) {
+        const tablePos = findNodePositionFromDOM(view, tableElement, 'table');
+        if (tablePos !== null) {
+          return {
+            tablePos,
+            area: 'row' as const,
+            rowIndex: nearestRowIndex,
+            columnIndex: 0,
+            rowCount: tableElement.rows.length,
+            columnCount: firstRow.cells.length,
+            viewDom: view.dom,
+          };
+        }
+      }
+    }
+
+    // Faixa superior ampla: permite clicar 44 px acima ou 14 px abaixo
+    // do topo da tabela. A tolerância horizontal também inclui as divisórias.
+    const inColumnGutter =
+      clientY >= tableRect.top - 44 &&
+      clientY <= tableRect.top + 14;
+
+    if (inColumnGutter) {
+      let nearestColumnIndex = -1;
+      let nearestColumnDistance = Number.POSITIVE_INFINITY;
+
+      Array.from(firstRow.cells).forEach((cell, columnIndex) => {
+        const rect = cell.getBoundingClientRect();
+        const distance =
+          clientX < rect.left
+            ? rect.left - clientX
+            : clientX > rect.right
+              ? clientX - rect.right
+              : 0;
+
+        if (distance <= 12 && distance < nearestColumnDistance) {
+          nearestColumnDistance = distance;
+          nearestColumnIndex = columnIndex;
+        }
+      });
+
+      if (nearestColumnIndex >= 0) {
+        const tablePos = findNodePositionFromDOM(view, tableElement, 'table');
+        if (tablePos !== null) {
+          return {
+            tablePos,
+            area: 'column' as const,
+            rowIndex: 0,
+            columnIndex: nearestColumnIndex,
+            rowCount: tableElement.rows.length,
+            columnCount: firstRow.cells.length,
+            viewDom: view.dom,
+          };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export const AnotadoTableInteractions = Extension.create({
   name: 'anotadoTableInteractions',
 
@@ -314,21 +417,6 @@ export const AnotadoTableInteractions = Extension.create({
   },
 
   addProseMirrorPlugins() {
-    let lastEdgeHoverKey = '';
-
-    const publishEdgeHover = (view: any, detail: any | null) => {
-      const key = detail
-        ? `${detail.tablePos}:${detail.area}:${detail.area === 'row' ? detail.rowIndex : detail.columnIndex}:${Math.round(detail.left)}:${Math.round(detail.top)}`
-        : '';
-
-      if (key === lastEdgeHoverKey) return;
-      lastEdgeHoverKey = key;
-
-      view.dom.ownerDocument.defaultView?.dispatchEvent(
-        new CustomEvent('anotado:table-edge-hover', { detail })
-      );
-    };
-
     return [
       new Plugin({
         props: {
@@ -336,65 +424,51 @@ export const AnotadoTableInteractions = Extension.create({
             contextmenu: (view, event) => {
               const mouseEvent = event as MouseEvent;
               const target = mouseEvent.target as HTMLElement | null;
-              let tableElement = target?.closest('table') as HTMLTableElement | null;
-              let targetRow: HTMLTableRowElement | null = null;
-              let area: 'row' | 'column' | null = null;
-              let rowIndex = -1;
-              let columnIndex = -1;
-
-              // Clique com botão direito dentro de uma célula: seleciona a coluna inteira.
               const cell = target?.closest('td, th') as HTMLTableCellElement | null;
-              if (cell && tableElement) {
-                targetRow = cell.parentElement as HTMLTableRowElement | null;
-                if (targetRow) {
-                  rowIndex = Array.from(tableElement.rows).indexOf(targetRow);
-                  columnIndex = cell.cellIndex;
-                  area = 'column';
-                }
-              } else {
-                // Área de contexto da linha: margem de 30 px à esquerda do início
-                // visível do contêiner horizontal. Funciona mesmo após rolar colunas.
-                const tables = Array.from(view.dom.querySelectorAll('table')) as HTMLTableElement[];
-                for (const candidate of tables) {
-                  const wrapper = candidate.closest('.tableWrapper') as HTMLElement | null;
-                  const visibleRect = (wrapper || candidate).getBoundingClientRect();
-                  const inRowGutter =
-                    mouseEvent.clientX >= visibleRect.left - 32 &&
-                    mouseEvent.clientX <= visibleRect.left + 3 &&
-                    mouseEvent.clientY >= visibleRect.top &&
-                    mouseEvent.clientY <= visibleRect.bottom;
+              const tableElement = cell?.closest('table') as HTMLTableElement | null;
 
-                  if (!inRowGutter) continue;
+              // Clique direito no corpo da tabela ainda permite escolher a coluna.
+              // Nas bordas, usa exatamente as faixas ampliadas indicadas pelo cursor.
+              let areaTarget = getTableEdgeTarget(view, mouseEvent.clientX, mouseEvent.clientY);
 
-                  const row = Array.from(candidate.rows).find((item) => {
-                    const rect = item.getBoundingClientRect();
-                    return mouseEvent.clientY >= rect.top && mouseEvent.clientY <= rect.bottom;
-                  });
-
-                  if (row) {
-                    tableElement = candidate;
-                    targetRow = row;
-                    rowIndex = Array.from(candidate.rows).indexOf(row);
-                    area = 'row';
-                    break;
+              if (!areaTarget && cell && tableElement) {
+                const row = cell.parentElement as HTMLTableRowElement | null;
+                if (row) {
+                  const tablePos = findNodePositionFromDOM(view, tableElement, 'table');
+                  if (tablePos !== null) {
+                    areaTarget = {
+                      tablePos,
+                      area: 'column' as const,
+                      rowIndex: 0,
+                      columnIndex: cell.cellIndex,
+                      rowCount: tableElement.rows.length,
+                      columnCount: tableElement.rows[0]?.cells.length || row.cells.length,
+                      viewDom: view.dom,
+                    };
                   }
                 }
               }
 
-              if (!tableElement || !targetRow || !area) return false;
-              const tablePos = findNodePositionFromDOM(view, tableElement, 'table');
-              if (tablePos === null) return false;
+              if (!areaTarget) return false;
 
-              // Marca visualmente todas as células da linha/coluna antes de abrir o menu.
+              const selectedTable =
+                view.nodeDOM(areaTarget.tablePos) as HTMLElement | null;
+              const selectedTableElement = selectedTable?.matches('table')
+                ? (selectedTable as HTMLTableElement)
+                : (selectedTable?.querySelector('table') as HTMLTableElement | null);
+
+              if (!selectedTableElement) return false;
+
+              // Seleção visual inclui TODAS as células da área, incluindo th e a primeira célula.
               view.dom.querySelectorAll('.anotado-table-context-selected').forEach((node) => {
                 node.classList.remove('anotado-table-context-selected');
               });
 
-              Array.from(tableElement.rows).forEach((row, currentRowIndex) => {
+              Array.from(selectedTableElement.rows).forEach((row, currentRowIndex) => {
                 Array.from(row.cells).forEach((currentCell, currentColumnIndex) => {
                   const isSelected =
-                    (area === 'row' && currentRowIndex === rowIndex) ||
-                    (area === 'column' && currentColumnIndex === columnIndex);
+                    (areaTarget.area === 'row' && currentRowIndex === areaTarget.rowIndex) ||
+                    (areaTarget.area === 'column' && currentColumnIndex === areaTarget.columnIndex);
                   if (isSelected) currentCell.classList.add('anotado-table-context-selected');
                 });
               });
@@ -402,17 +476,10 @@ export const AnotadoTableInteractions = Extension.create({
               mouseEvent.preventDefault();
               mouseEvent.stopPropagation();
 
-              const browserWindow = view.dom.ownerDocument.defaultView;
-              browserWindow?.dispatchEvent(
+              view.dom.ownerDocument.defaultView?.dispatchEvent(
                 new CustomEvent('anotado:table-column-contextmenu', {
                   detail: {
-                    tablePos,
-                    area,
-                    rowIndex,
-                    columnIndex,
-                    rowCount: tableElement.rows.length,
-                    columnCount: targetRow.cells.length,
-                    viewDom: view.dom,
+                    ...areaTarget,
                     x: mouseEvent.clientX,
                     y: mouseEvent.clientY,
                   },
@@ -524,91 +591,19 @@ export const AnotadoTableInteractions = Extension.create({
 
             mousemove: (view, event) => {
               const mouseEvent = event as MouseEvent;
-              const tables = Array.from(view.dom.querySelectorAll('table')) as HTMLTableElement[];
-              let edgeHover: any | null = null;
+              const edgeTarget = getTableEdgeTarget(view, mouseEvent.clientX, mouseEvent.clientY);
 
-              for (const tableElement of tables) {
-                const firstRow = tableElement.rows[0];
-                if (!firstRow || firstRow.cells.length === 0) continue;
-
-                const wrapper = tableElement.closest('.tableWrapper') as HTMLElement | null;
-                const wrapperRect = (wrapper || tableElement).getBoundingClientRect();
-                const tableRect = tableElement.getBoundingClientRect();
-                const rowGutterLeft = wrapperRect.left - 34;
-                const rowGutterRight = wrapperRect.left - 3;
-
-                // Seta para a direita: aparece na margem lateral, alinhada a cada linha.
-                if (
-                  mouseEvent.clientX >= rowGutterLeft &&
-                  mouseEvent.clientX <= rowGutterRight
-                ) {
-                  const rowIndex = Array.from(tableElement.rows).findIndex((row) => {
-                    const rect = row.getBoundingClientRect();
-                    return mouseEvent.clientY >= rect.top && mouseEvent.clientY <= rect.bottom;
-                  });
-
-                  if (rowIndex >= 0) {
-                    const rowRect = tableElement.rows[rowIndex].getBoundingClientRect();
-                    const tablePos = findNodePositionFromDOM(view, tableElement, 'table');
-                    if (tablePos !== null) {
-                      edgeHover = {
-                        tablePos,
-                        area: 'row',
-                        rowIndex,
-                        columnIndex: 0,
-                        rowCount: tableElement.rows.length,
-                        columnCount: firstRow.cells.length,
-                        viewDom: view.dom,
-                        left: wrapperRect.left - 28,
-                        top: rowRect.top + rowRect.height / 2 - 11,
-                        x: mouseEvent.clientX,
-                        y: mouseEvent.clientY,
-                      };
-                    }
-                  }
-                }
-
-                // Seta para baixo: aparece acima de cada coluna, inclusive da primeira.
-                if (!edgeHover) {
-                  const columnHeaderBandTop = tableRect.top - 30;
-                  const columnHeaderBandBottom = tableRect.top + 2;
-                  if (
-                    mouseEvent.clientY >= columnHeaderBandTop &&
-                    mouseEvent.clientY <= columnHeaderBandBottom
-                  ) {
-                    const columnIndex = Array.from(firstRow.cells).findIndex((cell) => {
-                      const rect = cell.getBoundingClientRect();
-                      return mouseEvent.clientX >= rect.left && mouseEvent.clientX <= rect.right;
-                    });
-
-                    if (columnIndex >= 0) {
-                      const cellRect = firstRow.cells[columnIndex].getBoundingClientRect();
-                      const tablePos = findNodePositionFromDOM(view, tableElement, 'table');
-                      if (tablePos !== null) {
-                        edgeHover = {
-                          tablePos,
-                          area: 'column',
-                          rowIndex: 0,
-                          columnIndex,
-                          rowCount: tableElement.rows.length,
-                          columnCount: firstRow.cells.length,
-                          viewDom: view.dom,
-                          left: cellRect.left + cellRect.width / 2 - 11,
-                          top: tableRect.top - 25,
-                          x: mouseEvent.clientX,
-                          y: mouseEvent.clientY,
-                        };
-                      }
-                    }
-                  }
-                }
-
-                if (edgeHover) break;
+              // O ponteiro nativo vira a seta correspondente; não há botões flutuantes.
+              if (edgeTarget?.area === 'row') {
+                view.dom.style.cursor = ROW_SELECT_CURSOR;
+                return false;
+              }
+              if (edgeTarget?.area === 'column') {
+                view.dom.style.cursor = COLUMN_SELECT_CURSOR;
+                return false;
               }
 
-              publishEdgeHover(view, edgeHover);
-
-              // Preserva o indicador de redimensionamento de altura de linha.
+              // Mantém o redimensionamento de altura ao passar pela borda inferior da linha.
               const target = mouseEvent.target as HTMLElement | null;
               const rowElement = target?.closest('tr') as HTMLTableRowElement | null;
               const cellElement = target?.closest('td, th') as HTMLTableCellElement | null;
@@ -618,27 +613,15 @@ export const AnotadoTableInteractions = Extension.create({
                 ? cellElement.getBoundingClientRect().right - mouseEvent.clientX <= 9
                 : false;
 
-              view.dom.style.cursor = edgeHover
-                ? 'pointer'
-                : !nearColumnEdge && distanceFromBottom >= 0 && distanceFromBottom <= 6
+              view.dom.style.cursor =
+                !nearColumnEdge && distanceFromBottom >= 0 && distanceFromBottom <= 6
                   ? 'row-resize'
                   : '';
 
               return false;
             },
 
-            mouseleave: (view, event) => {
-              const relatedTarget = (event as MouseEvent).relatedTarget as Element | null;
-              // O indicador é um botão flutuante fora do DOM do editor. Não o esconda
-              // quando o ponteiro sair da célula diretamente para a própria seta.
-              if (relatedTarget?.closest('.anotado-table-edge-control')) {
-                // A seta está fora do DOM do ProseMirror; libera a próxima
-                // passagem do ponteiro para republicar o mesmo índice/posição.
-                lastEdgeHoverKey = '';
-                return false;
-              }
-
-              publishEdgeHover(view, null);
+            mouseleave: (view) => {
               view.dom.style.cursor = '';
               return false;
             },
