@@ -371,29 +371,44 @@ export const AnotadoTableInteractions = Extension.create({
       const targetPositions: number[] = [];
       let rowOffset = 0;
 
-      table.forEach((row: any, _rowOffset: number, rowIndex: number) => {
+      // Percorre os filhos por índice explícito, sem depender dos índices
+      // fornecidos por callbacks. A primeira célula (inclusive tableHeader)
+      // recebe o mesmo tratamento de todas as demais.
+      for (let rowIndex = 0; rowIndex < table.childCount; rowIndex++) {
+        const row = table.child(rowIndex);
         let cellOffset = 0;
-        row.forEach((cell: any, _offset: number, columnIndex: number) => {
+
+        for (let columnIndex = 0; columnIndex < row.childCount; columnIndex++) {
+          const cell = row.child(columnIndex);
           const isTarget =
             (area === 'row' && rowIndex === index) ||
             (area === 'column' && columnIndex === index);
 
-          if (isTarget) {
+          if (
+            isTarget &&
+            (cell.type.name === 'tableCell' ||
+              cell.type.name === 'tableHeader' ||
+              cell.type.spec.tableRole === 'cell' ||
+              cell.type.spec.tableRole === 'header_cell')
+          ) {
+            // In ProseMirror the table content starts one position after tablePos,
+            // and a cell starts one position inside its row.
             targetPositions.push(tablePos + 2 + rowOffset + cellOffset);
           }
+
           cellOffset += cell.nodeSize;
-        });
+        }
+
         rowOffset += row.nodeSize;
-      });
+      }
 
       if (targetPositions.length === 0) return false;
       if (!dispatch) return true;
 
       for (const position of targetPositions) {
         const cell = tr.doc.nodeAt(position);
-        if (!cell || (cell.type.name !== 'tableCell' && cell.type.name !== 'tableHeader')) {
-          continue;
-        }
+        if (!cell) continue;
+
         tr.setNodeMarkup(position, undefined, {
           ...cell.attrs,
           cellTone: tone,
