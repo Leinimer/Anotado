@@ -53,6 +53,50 @@ function normalizeEditorSelection(editor: Editor) {
   }
 }
 
+/**
+ * Serializa o documento para o campo notes.content.
+ *
+ * As tabelas precisam permanecer como HTML embutido no Markdown porque o
+ * pacote "tiptap-markdown" instalado no projeto pode escolher o serializador
+ * Markdown simples (pipe table), que descarta rowHeight, colwidth e cellTone.
+ * Se a extensão de tabela não produzir HTML completo, usa editor.getHTML()
+ * como fallback seguro em vez de enviar uma tabela sem seus atributos.
+ */
+function serializeNoteEditorContent(editor: Editor): string {
+  const storageRecord = editor.storage as unknown as Record<
+    string,
+    { getMarkdown?: () => string }
+  >;
+  const markdown = storageRecord?.markdown?.getMarkdown
+    ? storageRecord.markdown.getMarkdown()
+    : editor.getHTML();
+
+  let hasTable = false;
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === 'table') {
+      hasTable = true;
+      return false;
+    }
+    return !hasTable;
+  });
+
+  if (hasTable && !/<table(?:\s|>)/i.test(markdown)) {
+    const html = editor.getHTML();
+    if (/<table(?:\s|>)/i.test(html)) {
+      console.warn(
+        '[NoteEditor] O serializador Markdown não incluiu a tabela em HTML. Usando HTML completo para preservar os dados.'
+      );
+      return html;
+    }
+
+    console.error(
+      '[NoteEditor] A nota contém uma tabela, mas nenhum serializador produziu a tag <table>. O conteúdo não deve ser considerado salvo.'
+    );
+  }
+
+  return markdown;
+}
+
 interface NoteEditorProps {
   noteId?: string;
   userId?: string | null;
@@ -282,11 +326,9 @@ export function NoteEditor({
       }
       hasUserEditedRef.current = true;
 
-      // Extrai Markdown real usando a extensão de markdown do Tiptap
-      const storageRecord = editor.storage as unknown as Record<string, { getMarkdown?: () => string }>;
-      const markdown = storageRecord?.markdown?.getMarkdown ? storageRecord.markdown.getMarkdown() : editor.getHTML();
-      lastEmittedContentRef.current = markdown;
-      onChange(markdown);
+      const serializedContent = serializeNoteEditorContent(editor);
+      lastEmittedContentRef.current = serializedContent;
+      onChange(serializedContent);
     },
   });
 
@@ -348,9 +390,8 @@ export function NoteEditor({
 
         if (hasChanges) {
           editor.view.dispatch(tr);
-          const storageRecord = editor.storage as unknown as Record<string, { getMarkdown?: () => string }>;
-          const newMarkdown = storageRecord?.markdown?.getMarkdown ? storageRecord.markdown.getMarkdown() : editor.getHTML();
-          lastEmittedContentRef.current = newMarkdown;
+          const serializedContent = serializeNoteEditorContent(editor);
+          lastEmittedContentRef.current = serializedContent;
         }
       } catch (err) {
         console.warn('[NoteEditor] Erro ao atualizar referências remotas no Tiptap:', err);
