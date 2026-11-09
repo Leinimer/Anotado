@@ -314,6 +314,21 @@ export const AnotadoTableInteractions = Extension.create({
   },
 
   addProseMirrorPlugins() {
+    let lastEdgeHoverKey = '';
+
+    const publishEdgeHover = (view: any, detail: any | null) => {
+      const key = detail
+        ? `${detail.tablePos}:${detail.area}:${detail.area === 'row' ? detail.rowIndex : detail.columnIndex}:${Math.round(detail.left)}:${Math.round(detail.top)}`
+        : '';
+
+      if (key === lastEdgeHoverKey) return;
+      lastEdgeHoverKey = key;
+
+      view.dom.ownerDocument.defaultView?.dispatchEvent(
+        new CustomEvent('anotado:table-edge-hover', { detail })
+      );
+    };
+
     return [
       new Plugin({
         props: {
@@ -509,23 +524,112 @@ export const AnotadoTableInteractions = Extension.create({
 
             mousemove: (view, event) => {
               const mouseEvent = event as MouseEvent;
+              const tables = Array.from(view.dom.querySelectorAll('table')) as HTMLTableElement[];
+              let edgeHover: any | null = null;
+
+              for (const tableElement of tables) {
+                const firstRow = tableElement.rows[0];
+                if (!firstRow || firstRow.cells.length === 0) continue;
+
+                const wrapper = tableElement.closest('.tableWrapper') as HTMLElement | null;
+                const wrapperRect = (wrapper || tableElement).getBoundingClientRect();
+                const tableRect = tableElement.getBoundingClientRect();
+                const rowGutterLeft = wrapperRect.left - 34;
+                const rowGutterRight = wrapperRect.left - 3;
+
+                // Seta para a direita: aparece na margem lateral, alinhada a cada linha.
+                if (
+                  mouseEvent.clientX >= rowGutterLeft &&
+                  mouseEvent.clientX <= rowGutterRight
+                ) {
+                  const rowIndex = Array.from(tableElement.rows).findIndex((row) => {
+                    const rect = row.getBoundingClientRect();
+                    return mouseEvent.clientY >= rect.top && mouseEvent.clientY <= rect.bottom;
+                  });
+
+                  if (rowIndex >= 0) {
+                    const rowRect = tableElement.rows[rowIndex].getBoundingClientRect();
+                    const tablePos = findNodePositionFromDOM(view, tableElement, 'table');
+                    if (tablePos !== null) {
+                      edgeHover = {
+                        tablePos,
+                        area: 'row',
+                        rowIndex,
+                        columnIndex: 0,
+                        rowCount: tableElement.rows.length,
+                        columnCount: firstRow.cells.length,
+                        viewDom: view.dom,
+                        left: wrapperRect.left - 28,
+                        top: rowRect.top + rowRect.height / 2 - 11,
+                        x: mouseEvent.clientX,
+                        y: mouseEvent.clientY,
+                      };
+                    }
+                  }
+                }
+
+                // Seta para baixo: aparece acima de cada coluna, inclusive da primeira.
+                if (!edgeHover) {
+                  const columnHeaderBandTop = tableRect.top - 30;
+                  const columnHeaderBandBottom = tableRect.top + 2;
+                  if (
+                    mouseEvent.clientY >= columnHeaderBandTop &&
+                    mouseEvent.clientY <= columnHeaderBandBottom
+                  ) {
+                    const columnIndex = Array.from(firstRow.cells).findIndex((cell) => {
+                      const rect = cell.getBoundingClientRect();
+                      return mouseEvent.clientX >= rect.left && mouseEvent.clientX <= rect.right;
+                    });
+
+                    if (columnIndex >= 0) {
+                      const cellRect = firstRow.cells[columnIndex].getBoundingClientRect();
+                      const tablePos = findNodePositionFromDOM(view, tableElement, 'table');
+                      if (tablePos !== null) {
+                        edgeHover = {
+                          tablePos,
+                          area: 'column',
+                          rowIndex: 0,
+                          columnIndex,
+                          rowCount: tableElement.rows.length,
+                          columnCount: firstRow.cells.length,
+                          viewDom: view.dom,
+                          left: cellRect.left + cellRect.width / 2 - 11,
+                          top: tableRect.top - 25,
+                          x: mouseEvent.clientX,
+                          y: mouseEvent.clientY,
+                        };
+                      }
+                    }
+                  }
+                }
+
+                if (edgeHover) break;
+              }
+
+              publishEdgeHover(view, edgeHover);
+
+              // Preserva o indicador de redimensionamento de altura de linha.
               const target = mouseEvent.target as HTMLElement | null;
               const rowElement = target?.closest('tr') as HTMLTableRowElement | null;
               const cellElement = target?.closest('td, th') as HTMLTableCellElement | null;
-              if (!rowElement) {
-                view.dom.style.cursor = '';
-                return false;
-              }
-
-              const rect = rowElement.getBoundingClientRect();
-              const distanceFromBottom = rect.bottom - mouseEvent.clientY;
+              const rect = rowElement?.getBoundingClientRect();
+              const distanceFromBottom = rect ? rect.bottom - mouseEvent.clientY : Infinity;
               const nearColumnEdge = cellElement
                 ? cellElement.getBoundingClientRect().right - mouseEvent.clientX <= 9
                 : false;
-              view.dom.style.cursor =
-                !nearColumnEdge && distanceFromBottom >= 0 && distanceFromBottom <= 6
+
+              view.dom.style.cursor = edgeHover
+                ? 'pointer'
+                : !nearColumnEdge && distanceFromBottom >= 0 && distanceFromBottom <= 6
                   ? 'row-resize'
                   : '';
+
+              return false;
+            },
+
+            mouseleave: (view) => {
+              publishEdgeHover(view, null);
+              view.dom.style.cursor = '';
               return false;
             },
 
