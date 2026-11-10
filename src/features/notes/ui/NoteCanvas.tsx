@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Menu,
   FilePlus,
   FileText,
   Minus,
@@ -398,6 +397,7 @@ export function NoteCanvas({
             onSelectTab={onSelectTab}
             onCloseTab={onCloseTab}
             onNewTab={onNewTab}
+            onOpenMobileMenu={onOpenMobileMenu}
             isSplit={isSplit}
             splitLeftTabId={splitLeftTabId}
             splitRightTabId={splitRightTabId}
@@ -456,6 +456,7 @@ export function NoteCanvas({
           onSelectTab={onSelectTab}
           onCloseTab={onCloseTab}
           onNewTab={onNewTab}
+          onOpenMobileMenu={onOpenMobileMenu}
           isSplit={isSplit}
           splitLeftTabId={splitLeftTabId}
           splitRightTabId={splitRightTabId}
