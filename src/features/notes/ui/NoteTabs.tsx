@@ -22,6 +22,7 @@ interface NoteTabsProps {
   onCloseTab: (tabId: string) => void;
   onNewTab: () => void;
   onOpenMobileMenu?: () => void;
+  isNoteOpen?: boolean;
   isSplit?: boolean;
   splitLeftTabId?: string | null;
   splitRightTabId?: string | null;
@@ -39,6 +40,7 @@ export function NoteTabs({
   onCloseTab,
   onNewTab,
   onOpenMobileMenu,
+  isNoteOpen = false,
   isSplit = false,
   splitLeftTabId = null,
   splitRightTabId = null,
@@ -70,11 +72,21 @@ export function NoteTabs({
         `[data-tab-id="${activeTabId}"]`
       ) as HTMLElement | null;
       if (activeEl) {
-        activeEl.scrollIntoView({
-          behavior: 'smooth',
-          block: 'nearest',
-          inline: 'nearest',
-        });
+        // Desloca somente a faixa interna de abas; não move a barra nem seus botões fixos.
+        const containerRect = scrollContainerRef.current.getBoundingClientRect();
+        const activeRect = activeEl.getBoundingClientRect();
+
+        if (activeRect.left < containerRect.left) {
+          scrollContainerRef.current.scrollTo({
+            left: scrollContainerRef.current.scrollLeft - (containerRect.left - activeRect.left),
+            behavior: 'smooth',
+          });
+        } else if (activeRect.right > containerRect.right) {
+          scrollContainerRef.current.scrollTo({
+            left: scrollContainerRef.current.scrollLeft + (activeRect.right - containerRect.right),
+            behavior: 'smooth',
+          });
+        }
       }
     }
   }, [activeTabId]);
@@ -113,13 +125,31 @@ export function NoteTabs({
   return (
     <div
       id="note-tabs-bar"
-      className="w-full flex items-center bg-[#f4f1ea] dark:bg-[#0d0d0d] border-b border-[#eae8e3] dark:border-[#1e1e1e] px-2 sm:px-4 py-1 select-none shrink-0 overflow-hidden relative"
+      className={`w-full flex items-center bg-[#f4f1ea] dark:bg-[#0d0d0d] border-b border-[#eae8e3] dark:border-[#1e1e1e] px-1 md:px-2 sm:px-4 py-1 select-none shrink-0 overflow-hidden relative md:static ${
+        isNoteOpen
+          ? 'sticky top-0 z-30 -mt-1 min-h-[60px] py-2.5 md:mt-0 md:min-h-0 md:py-1'
+          : ''
+      }`}
     >
-      {/* Contêiner de Abas com Rolagem Horizontal */}
+      {/* Botão fixo no extremo esquerdo: não participa da rolagem horizontal */}
+      {onOpenMobileMenu && (
+        <button
+          id="open-mobile-sidebar-btn"
+          type="button"
+          onClick={onOpenMobileMenu}
+          className="md:hidden flex items-center justify-center min-w-10 min-h-10 p-2 rounded-lg text-[#68594d] hover:bg-[#ebe7de] active:bg-[#e4e2dd] transition-colors cursor-pointer shrink-0 mr-1"
+          title="Abrir menu lateral"
+          aria-label="Abrir menu lateral"
+        >
+          <Menu className="w-5 h-5 stroke-[2]" />
+        </button>
+      )}
+
+      {/* Somente esta faixa desliza horizontalmente no celular */}
       <div
         ref={scrollContainerRef}
         onWheel={handleWheel}
-        className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 min-w-0 py-0.5"
+        className="flex items-center gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x no-scrollbar scroll-smooth flex-1 min-w-0 py-0.5"
       >
         {tabs.map((tab) => {
           const isPdfTab = tab.type === 'pdf';
@@ -218,32 +248,30 @@ export function NoteTabs({
           );
         })}
 
-        {/* Menu lateral: exibido somente em telas pequenas, à esquerda do botão + */}
-        {onOpenMobileMenu && (
-          <button
-            id="open-mobile-sidebar-btn"
-            type="button"
-            onClick={onOpenMobileMenu}
-            className="md:hidden flex items-center justify-center min-w-9 min-h-9 p-1.5 rounded-lg text-[#68594d] hover:bg-[#ebe7de] active:bg-[#e4e2dd] transition-colors cursor-pointer shrink-0"
-            title="Abrir menu lateral"
-            aria-label="Abrir menu lateral"
-          >
-            <Menu className="w-5 h-5 stroke-[2]" />
-          </button>
-        )}
-
-        {/* Botão + Adicionar Nova Aba */}
+        {/* Botão + no fluxo desktop, preservando o comportamento anterior */}
         <button
-          id="new-note-tab-btn"
+          id="new-note-tab-btn-desktop"
           type="button"
           onClick={onNewTab}
-          className="flex items-center justify-center p-1.5 rounded-lg text-[#68594d] hover:text-[#1b1c19] hover:bg-[#ebe7de] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1c1c1c] transition-colors cursor-pointer shrink-0 ml-0.5"
+          className="hidden md:flex items-center justify-center p-1.5 rounded-lg text-[#68594d] hover:text-[#1b1c19] hover:bg-[#ebe7de] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1c1c1c] transition-colors cursor-pointer shrink-0 ml-0.5"
           title="Nova aba"
           aria-label="Criar nova aba"
         >
           <Plus className="w-4 h-4 stroke-[2]" />
         </button>
       </div>
+
+      {/* Botão + fixo no extremo direito no celular */}
+      <button
+        id="new-note-tab-btn"
+        type="button"
+        onClick={onNewTab}
+        className="md:hidden flex items-center justify-center min-w-10 min-h-10 p-2 rounded-lg text-[#68594d] hover:text-[#1b1c19] hover:bg-[#ebe7de] active:bg-[#e4e2dd] transition-colors cursor-pointer shrink-0 ml-1"
+        title="Nova aba"
+        aria-label="Criar nova aba"
+      >
+        <Plus className="w-5 h-5 stroke-[2]" />
+      </button>
 
       {/* Menu de Contexto ao Clicar com Botão Direito na Aba */}
       {contextMenu && (
