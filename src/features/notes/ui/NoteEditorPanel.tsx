@@ -44,6 +44,142 @@ export function NoteEditorPanel({
   const [isEditingTitle, setIsEditingTitle] = useState(isNewNoteJustCreated && !readOnly);
   const [titleInput, setTitleInput] = useState(note?.title || '');
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const keyboardOpenRef = useRef(false);
+  const caretScrollFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const scrollContainer = document.getElementById(`note-scroll-container-${note.id}`);
+    const editorElement = document.getElementById(`tiptap-note-content-editable-${note.id}`);
+    if (!scrollContainer || !editorElement) return;
+
+    const getCaretRect = (): DOMRect | null => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || !selection.anchorNode) return null;
+      if (!editorElement.contains(selection.anchorNode)) return null;
+
+      const range = selection.getRangeAt(0).cloneRange();
+      let rect = range.getBoundingClientRect();
+
+      // Safari/iOS pode devolver retângulo vazio para uma seleção colapsada.
+      if (rect.height < 1) {
+        try {
+          const caretRange = document.createRange();
+          const maxOffset =
+            selection.anchorNode.nodeType === Node.TEXT_NODE
+              ? (selection.anchorNode.textContent || '').length
+              : selection.anchorNode.childNodes.length;
+          caretRange.setStart(selection.anchorNode, Math.min(selection.anchorOffset, maxOffset));
+          caretRange.collapse(true);
+          rect = caretRange.getBoundingClientRect();
+        } catch {
+          // Usa o retângulo do bloco de texto abaixo como último recurso.
+        }
+      }
+
+      if (rect.height < 1) {
+        const anchorElement =
+          selection.anchorNode.nodeType === Node.ELEMENT_NODE
+            ? (selection.anchorNode as Element)
+            : selection.anchorNode.parentElement;
+        const textBlock = anchorElement?.closest(
+          'p, li, h1, h2, h3, h4, td, th, blockquote, pre'
+        ) as HTMLElement | null;
+        if (textBlock) rect = textBlock.getBoundingClientRect();
+      }
+
+      return rect.height >= 1 ? rect : null;
+    };
+
+    const adjustCaretIntoVisibleArea = () => {
+      if (!keyboardOpenRef.current) return;
+      if (caretScrollFrameRef.current !== null) {
+        cancelAnimationFrame(caretScrollFrameRef.current);
+      }
+
+      caretScrollFrameRef.current = requestAnimationFrame(() => {
+        caretScrollFrameRef.current = null;
+
+        const activeElement = document.activeElement;
+        if (!activeElement || !editorElement.contains(activeElement)) return;
+
+        const toolbar = document.getElementById('editor-toolbar-footer-container');
+        const viewport = window.visualViewport;
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const toolbarRect = toolbar?.getBoundingClientRect();
+        const visualTop = viewport?.offsetTop ?? 0;
+        const visualBottom = visualTop + (viewport?.height ?? window.innerHeight);
+
+        const visibleTop = Math.max(containerRect.top, visualTop) + 8;
+        const visibleBottom = Math.min(
+          containerRect.bottom,
+          toolbarRect?.top ?? visualBottom
+        ) - 14;
+
+        if (visibleBottom <= visibleTop) return;
+
+        // Reserva espaço rolável até acima da barra e do teclado.
+        const bottomInset = Math.max(0, containerRect.bottom - visibleBottom + 16);
+        scrollContainer.style.setProperty('--mobile-keyboard-bottom-inset', `${bottomInset}px`);
+        void scrollContainer.offsetHeight;
+
+        const caretRect = getCaretRect();
+        if (!caretRect) return;
+
+        const updatedContainerRect = scrollContainer.getBoundingClientRect();
+        const updatedToolbarRect = toolbar?.getBoundingClientRect();
+        const updatedVisibleTop = Math.max(updatedContainerRect.top, visualTop) + 8;
+        const updatedVisibleBottom = Math.min(
+          updatedContainerRect.bottom,
+          updatedToolbarRect?.top ?? visualBottom
+        ) - 14;
+
+        if (caretRect.bottom > updatedVisibleBottom) {
+          scrollContainer.scrollBy({
+            top: caretRect.bottom - updatedVisibleBottom + 18,
+            behavior: 'smooth',
+          });
+        } else if (caretRect.top < updatedVisibleTop) {
+          scrollContainer.scrollBy({
+            top: caretRect.top - updatedVisibleTop - 18,
+            behavior: 'smooth',
+          });
+        }
+      });
+    };
+
+    const handleKeyboardViewport = (event: Event) => {
+      const detail = (event as CustomEvent<{ isKeyboardOpen?: boolean }>).detail;
+      keyboardOpenRef.current = Boolean(detail?.isKeyboardOpen);
+
+      if (!keyboardOpenRef.current) {
+        scrollContainer.style.removeProperty('--mobile-keyboard-bottom-inset');
+        return;
+      }
+
+      requestAnimationFrame(adjustCaretIntoVisibleArea);
+    };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      if (editorElement.contains(event.target as Node)) {
+        adjustCaretIntoVisibleArea();
+      }
+    };
+
+    window.addEventListener('anotado:mobile-keyboard-viewport', handleKeyboardViewport);
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('selectionchange', adjustCaretIntoVisibleArea);
+
+    return () => {
+      window.removeEventListener('anotado:mobile-keyboard-viewport', handleKeyboardViewport);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('selectionchange', adjustCaretIntoVisibleArea);
+      if (caretScrollFrameRef.current !== null) {
+        cancelAnimationFrame(caretScrollFrameRef.current);
+        caretScrollFrameRef.current = null;
+      }
+      scrollContainer.style.removeProperty('--mobile-keyboard-bottom-inset');
+    };
+  }, [note.id]);
 
   useEffect(() => {
     if (isEditingTitle && titleInputRef.current) {
@@ -158,6 +294,9 @@ export function NoteEditorPanel({
         className={`flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y py-3 sm:py-5 flex justify-center items-start ${
           isSplit ? 'px-2 sm:px-4 md:px-6' : 'px-3 sm:px-6 md:px-12'
         }`}
+        style={{
+          paddingBottom: 'calc(0.75rem + var(--mobile-keyboard-bottom-inset, 0px))',
+        }}
       >
         <article
           id={`note-paper-sheet-${note.id}`}

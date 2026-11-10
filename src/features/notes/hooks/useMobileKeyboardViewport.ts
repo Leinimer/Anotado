@@ -53,6 +53,15 @@ export function useMobileKeyboardViewport(
           toolbarStyle: undefined,
         };
       });
+      window.dispatchEvent(
+        new CustomEvent('anotado:mobile-keyboard-viewport', {
+          detail: {
+            isKeyboardOpen: false,
+            viewportTop: 0,
+            viewportHeight: window.innerHeight,
+          },
+        })
+      );
       return;
     }
 
@@ -123,6 +132,17 @@ export function useMobileKeyboardViewport(
         viewportTop: visualTop,
         toolbarStyle: dynamicStyle,
       });
+      requestAnimationFrame(() => {
+        window.dispatchEvent(
+          new CustomEvent('anotado:mobile-keyboard-viewport', {
+            detail: {
+              isKeyboardOpen: true,
+              viewportTop: visualTop,
+              viewportHeight: visualHeight,
+            },
+          })
+        );
+      });
     } else {
       setState({
         isMobile: true,
@@ -131,6 +151,15 @@ export function useMobileKeyboardViewport(
         viewportTop: 0,
         toolbarStyle: undefined,
       });
+      window.dispatchEvent(
+        new CustomEvent('anotado:mobile-keyboard-viewport', {
+          detail: {
+            isKeyboardOpen: false,
+            viewportTop: 0,
+            viewportHeight: visualHeight,
+          },
+        })
+      );
     }
   }, [toolbarRef]);
 
@@ -159,18 +188,20 @@ export function useMobileKeyboardViewport(
 
     window.addEventListener('resize', scheduleUpdate, { passive: true });
     window.addEventListener('scroll', scheduleUpdate, { passive: true });
-    window.addEventListener('orientationchange', () => {
+    const handleOrientationChange = () => {
       baselineHeightRef.current = 0; // redefine baseline após rotação
       setTimeout(scheduleUpdate, 100);
       setTimeout(scheduleUpdate, 300);
-    });
+    };
+    const handleFocusOut = () => {
+      setTimeout(scheduleUpdate, 80);
+      setTimeout(scheduleUpdate, 250);
+    };
+    window.addEventListener('orientationchange', handleOrientationChange);
 
     // Ouvintes de foco/desfoque para transição instantânea ao tocar no editor
     document.addEventListener('focusin', scheduleUpdate, { passive: true });
-    document.addEventListener('focusout', () => {
-      setTimeout(scheduleUpdate, 80);
-      setTimeout(scheduleUpdate, 250);
-    }, { passive: true });
+    document.addEventListener('focusout', handleFocusOut, { passive: true });
 
     return () => {
       if (rafIdRef.current !== null) {
@@ -182,7 +213,14 @@ export function useMobileKeyboardViewport(
       }
       window.removeEventListener('resize', scheduleUpdate);
       window.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('orientationchange', handleOrientationChange);
       document.removeEventListener('focusin', scheduleUpdate);
+      document.removeEventListener('focusout', handleFocusOut);
+      window.dispatchEvent(
+        new CustomEvent('anotado:mobile-keyboard-viewport', {
+          detail: { isKeyboardOpen: false, viewportTop: 0, viewportHeight: window.innerHeight },
+        })
+      );
     };
   }, [calculatePosition, scheduleUpdate]);
 
