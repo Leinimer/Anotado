@@ -125,7 +125,7 @@ export function NoteTabs({
   return (
     <div
       id="note-tabs-bar"
-      className={`w-full flex items-center bg-[#f4f1ea] dark:bg-[#0d0d0d] border-b border-[#eae8e3] dark:border-[#1e1e1e] px-1 md:px-2 sm:px-4 py-1 select-none shrink-0 overflow-hidden relative md:static ${
+      className={`w-full flex items-center bg-[#f4f1ea] dark:bg-[#0d0d0d] border-b border-[#eae8e3] dark:border-[#1e1e1e] px-1 sm:px-4 py-1 select-none shrink-0 overflow-hidden relative md:static ${
         isNoteOpen
           ? 'sticky top-0 z-30 -mt-1 min-h-[60px] py-2.5 md:mt-0 md:min-h-0 md:py-1'
           : ''
