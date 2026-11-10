@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect, useState } from 'react';
-import { X, Plus, FileText, StickyNote, Columns2, Minimize2, ArrowLeftRight } from 'lucide-react';
+import { X, Plus, Menu, FileText, StickyNote, Columns2, Minimize2, ArrowLeftRight } from 'lucide-react';
 import { Note as NoteType } from '../types';
 
 export interface NoteTabItem {
@@ -21,6 +21,7 @@ interface NoteTabsProps {
   onSelectTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onNewTab: () => void;
+  onOpenMobileMenu?: () => void;
   isSplit?: boolean;
   splitLeftTabId?: string | null;
   splitRightTabId?: string | null;
@@ -37,6 +38,7 @@ export function NoteTabs({
   onSelectTab,
   onCloseTab,
   onNewTab,
+  onOpenMobileMenu,
   isSplit = false,
   splitLeftTabId = null,
   splitRightTabId = null,
@@ -215,6 +217,20 @@ export function NoteTabs({
             </div>
           );
         })}
+
+        {/* Menu lateral: exibido somente em telas pequenas, à esquerda do botão + */}
+        {onOpenMobileMenu && (
+          <button
+            id="open-mobile-sidebar-btn"
+            type="button"
+            onClick={onOpenMobileMenu}
+            className="md:hidden flex items-center justify-center min-w-9 min-h-9 p-1.5 rounded-lg text-[#68594d] hover:bg-[#ebe7de] active:bg-[#e4e2dd] transition-colors cursor-pointer shrink-0"
+            title="Abrir menu lateral"
+            aria-label="Abrir menu lateral"
+          >
+            <Menu className="w-5 h-5 stroke-[2]" />
+          </button>
+        )}
 
         {/* Botão + Adicionar Nova Aba */}
         <button
