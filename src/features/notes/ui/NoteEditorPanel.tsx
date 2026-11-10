@@ -73,7 +73,7 @@ export function NoteEditorPanel({
     <div
       id={isSplit ? `split-panel-${paneSide}` : 'single-note-panel'}
       onClick={onFocusPane}
-      className={`flex-1 h-full flex flex-col overflow-hidden min-w-0 transition-colors duration-150 ${
+      className={`flex-1 h-full min-h-0 flex flex-col overflow-hidden min-w-0 transition-colors duration-150 ${
         isSplit
           ? paneSide === 'right'
             ? 'bg-[#faf8f3] dark:bg-[#060606]'
@@ -155,7 +155,7 @@ export function NoteEditorPanel({
       {/* Área da Folha e Editor TipTap com Rolagem Independente */}
       <div
         id={`note-scroll-container-${note.id}`}
-        className={`flex-1 overflow-y-auto py-3 sm:py-5 flex justify-center items-start ${
+        className={`flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y py-3 sm:py-5 flex justify-center items-start ${
           isSplit ? 'px-2 sm:px-4 md:px-6' : 'px-3 sm:px-6 md:px-12'
         }`}
       >

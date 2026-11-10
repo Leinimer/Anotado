@@ -1963,7 +1963,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
   }
 
   return (
-    <div className={`relative flex flex-col ${onClose ? 'h-full min-h-0 w-full min-w-0' : 'h-screen w-screen'} overflow-hidden bg-[#ebe8e1] dark:bg-[#151413] text-[#1b1c19] dark:text-[#ededed]`}>
+    <div className={`relative flex flex-col ${onClose ? 'h-full min-h-0 w-full min-w-0' : 'h-screen w-screen'} min-h-0 min-w-0 overflow-hidden bg-[#ebe8e1] dark:bg-[#151413] text-[#1b1c19] dark:text-[#ededed]`}>
       {/* Top Header */}
       <header className="h-14 border-b border-[#e4e2dd] dark:border-[#383633] bg-[#fbf9f4] dark:bg-[#201f1d] px-4 flex items-center justify-between z-30 shrink-0 select-none">
         <div className="flex items-center gap-3 min-w-0">
@@ -2047,7 +2047,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       </header>
 
       {/* Main Body */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden relative">
         {/* Thumbnails Sidebar */}
         <PdfThumbnailSidebar
           numPages={numPages}
@@ -2060,8 +2060,9 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
         {/* Scrollable Viewport */}
         <main
+          id="pdf-scroll-viewport"
           ref={scrollContainerRef}
-          className={`flex-1 overflow-auto p-4 sm:p-8 flex flex-col items-center relative ${
+          className={`flex-1 min-h-0 min-w-0 overflow-auto overscroll-y-contain touch-pan-y p-4 sm:p-8 flex flex-col items-center relative ${
             currentMode === 'hand'
               ? (isHandPanning ? 'cursor-grabbing select-none' : 'cursor-grab select-none')
               : currentMode === 'crop' ? 'cursor-crosshair' : ''

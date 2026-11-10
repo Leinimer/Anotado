@@ -385,7 +385,7 @@ export function NoteCanvas({
     return (
       <main
         id="main-note-workspace"
-        className="flex-1 flex flex-col h-full bg-[#fbf9f4] dark:bg-[#000000] select-none relative overflow-hidden"
+        className="flex-1 flex flex-col h-full min-h-0 min-w-0 bg-[#fbf9f4] dark:bg-[#000000] select-none relative overflow-hidden"
       >
 
         {/* Sistema de Abas (Visível mesmo no estado vazio se houver abas ou para criar nova via +) */}
@@ -444,7 +444,7 @@ export function NoteCanvas({
   return (
     <main
       id="main-note-workspace"
-      className="flex-1 flex flex-col h-full overflow-hidden bg-[#fbf9f4] dark:bg-[#000000] relative"
+      className="flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden bg-[#fbf9f4] dark:bg-[#000000] relative"
     >
 
       {/* Sistema de Abas (Logo abaixo da barra superior e acima do título da nota) */}

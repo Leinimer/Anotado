@@ -1897,3 +1897,56 @@ html.dark {
   background-color: #303030 !important;
   color: #f3f3f3 !important;
 }
+
+
+/* ==========================================================================
+   VIEWPORT FIXO DO APLICATIVO NO MOBILE
+   A página permanece imóvel; apenas os painéis internos recebem rolagem.
+   ========================================================================== */
+@media screen and (max-width: 767px) {
+  html.anotado-app-viewport-locked,
+  body.anotado-app-viewport-locked {
+    width: 100%;
+    height: 100%;
+    overflow: hidden !important;
+    overscroll-behavior: none;
+  }
+
+  body.anotado-app-viewport-locked {
+    position: fixed;
+    inset: 0;
+    min-height: 0 !important;
+  }
+
+  #main-app-container {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  #main-app-container > div,
+  #main-note-workspace,
+  #single-note-panel,
+  #sidebar-navigation-container {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  [id^="note-scroll-container-"],
+  #sidebar-folder-tree-area,
+  #pdf-scroll-viewport,
+  #pdf-thumbnail-sidebar-scroll {
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  #note-tabs-bar {
+    flex-shrink: 0;
+  }
+}

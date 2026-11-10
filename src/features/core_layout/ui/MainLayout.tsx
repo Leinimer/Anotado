@@ -50,6 +50,20 @@ import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
 
 export function MainLayout() {
   const router = useRouter();
+
+  // Mantém o viewport do aplicativo imóvel no celular.
+  // Nota, PDF e árvore da sidebar continuam rolando em seus próprios painéis.
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    root.classList.add('anotado-app-viewport-locked');
+    body.classList.add('anotado-app-viewport-locked');
+
+    return () => {
+      root.classList.remove('anotado-app-viewport-locked');
+      body.classList.remove('anotado-app-viewport-locked');
+    };
+  }, []);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [libraryPdfs, setLibraryPdfs] = useState<any[]>([]);
@@ -2028,10 +2042,10 @@ export function MainLayout() {
   return (
     <div
       id="main-app-container"
-      className="flex flex-col h-screen w-screen overflow-hidden bg-[#fbf9f4] font-sans-ui"
+      className="flex flex-col h-screen w-screen min-h-0 min-w-0 overflow-hidden bg-[#fbf9f4] font-sans-ui"
     >
       {/* Workspace Area: Sidebar + Canvas */}
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
         {/* Desktop Sidebar */}
         <div className="hidden md:flex shrink-0 h-full">
           <SidebarNavigation
@@ -2084,7 +2098,7 @@ export function MainLayout() {
             />
 
             {/* Slide-in Content */}
-            <div className="relative w-full h-full min-w-0 z-10 shadow-2xl">
+            <div className="relative w-full h-full min-h-0 min-w-0 z-10 shadow-2xl">
               <SidebarNavigation
                 folders={folders}
                 notes={notes}

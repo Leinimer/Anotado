@@ -77,7 +77,8 @@ export function PdfThumbnailSidebar({
 
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto p-3 space-y-3"
+        id="pdf-thumbnail-sidebar-scroll"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y p-3 space-y-3"
         onWheel={pauseAutoFollow}
         onTouchMove={pauseAutoFollow}
         onKeyDown={(event) => {

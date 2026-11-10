@@ -1921,7 +1921,7 @@ export function SidebarNavigation({
   return (
     <aside
       id="sidebar-navigation-container"
-      className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0 overflow-hidden"
+      className="w-full md:w-64 lg:w-72 h-full min-h-0 bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0 overflow-hidden"
     >
       {/* Top Header: Brand Logo Centered in Sidebar & Search Bar */}
       <div className="space-y-3">
@@ -2120,7 +2120,7 @@ export function SidebarNavigation({
           e.preventDefault();
         }}
         onDrop={handleDropOnRoot}
-        className="flex-1 min-h-0 overflow-y-auto my-1 space-y-1 py-1 pr-1 relative"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y my-1 space-y-1 py-1 pr-1 relative"
       >
         {isFiltering && (
           <div className="px-2 py-1 flex items-center justify-between text-[11px] font-sans-ui text-[#7f756e] bg-[#f0eee9]/60 rounded-lg mb-1">
