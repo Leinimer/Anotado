@@ -492,7 +492,9 @@ export function NoteEditor({
 
     const handleKeyboardViewport = (event: Event) => {
       const detail = (event as CustomEvent<{ isKeyboardOpen?: boolean }>).detail;
-      keyboardOpen = Boolean(detail?.isKeyboardOpen);
+      const nextKeyboardOpen = Boolean(detail?.isKeyboardOpen);
+      const keyboardJustOpened = nextKeyboardOpen && !keyboardOpen;
+      keyboardOpen = nextKeyboardOpen;
 
       if (!keyboardOpen) {
         spacer.style.height = '0px';
@@ -503,8 +505,10 @@ export function NoteEditor({
         return;
       }
 
-      // O hook posiciona a barra primeiro; esta rotina atua somente depois dela.
-      keepCaretVisible();
+      // Executa o reposicionamento inicial apenas na abertura do teclado.
+      // Eventos de scroll da VisualViewport também ocorrem durante gestos do usuário;
+      // eles não devem puxar a nota de volta ao cursor e desfazer a rolagem manual.
+      if (keyboardJustOpened) keepCaretVisible();
     };
 
     const handleViewportChange = () => {
@@ -515,8 +519,9 @@ export function NoteEditor({
     editor.on('selectionUpdate', keepCaretVisible);
     editor.on('update', keepCaretVisible);
     window.addEventListener('anotado:mobile-keyboard-viewport', handleKeyboardViewport);
+    // Resize é usado durante a animação de abertura/fechamento do teclado.
+    // Scroll da VisualViewport não reposiciona o cursor: pode representar rolagem manual.
     window.visualViewport?.addEventListener('resize', handleViewportChange);
-    window.visualViewport?.addEventListener('scroll', handleViewportChange);
 
     return () => {
       editor.off('focus', keepCaretVisible);
@@ -524,7 +529,6 @@ export function NoteEditor({
       editor.off('update', keepCaretVisible);
       window.removeEventListener('anotado:mobile-keyboard-viewport', handleKeyboardViewport);
       window.visualViewport?.removeEventListener('resize', handleViewportChange);
-      window.visualViewport?.removeEventListener('scroll', handleViewportChange);
       if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
       if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
       spacer.style.height = '0px';
