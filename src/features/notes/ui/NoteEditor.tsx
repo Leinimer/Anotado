@@ -408,6 +408,129 @@ export function NoteEditor({
     };
   }, [editor, noteId, noteIdentifier]);
 
+  // Mantém a posição de edição visível acima da barra fixa quando o teclado mobile abre.
+  // A rolagem é aplicada somente ao painel interno da nota; o shell e a toolbar não se movem.
+  useEffect(() => {
+    if (!editor || !noteId || !editor.isEditable) return;
+
+    const scrollContainer = document.getElementById(`note-scroll-container-${noteId}`);
+    const spacer = document.getElementById(`note-keyboard-scroll-spacer-${noteId}`);
+    if (!scrollContainer || !spacer) return;
+
+    let keyboardOpen = false;
+    let scheduledFrame: number | null = null;
+    let layoutFrame: number | null = null;
+
+    const getVisibleBounds = () => {
+      const viewport = window.visualViewport;
+      const toolbar = document.getElementById('editor-toolbar-footer-container');
+      const toolbarRect = toolbar?.getBoundingClientRect();
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const viewportTop = viewport?.offsetTop ?? 0;
+      const viewportBottom = viewportTop + (viewport?.height ?? window.innerHeight);
+      const toolbarTop = toolbarRect?.top ?? viewportBottom;
+
+      return {
+        top: Math.max(containerRect.top, viewportTop) + 10,
+        bottom: Math.min(containerRect.bottom, toolbarTop, viewportBottom) - 12,
+        containerBottom: containerRect.bottom,
+      };
+    };
+
+    const keepCaretVisible = () => {
+      if (!keyboardOpen || !editor.isFocused) return;
+
+      if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
+      if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
+
+      scheduledFrame = requestAnimationFrame(() => {
+        scheduledFrame = null;
+        if (!keyboardOpen || !editor.isFocused) return;
+
+        const bounds = getVisibleBounds();
+        if (bounds.bottom <= bounds.top) return;
+
+        // A folha recebe um prolongamento real no fim. Assim o scrollTop máximo
+        // consegue levar a última linha para cima do topo da barra de ferramentas.
+        const requiredSpacer = Math.max(
+          0,
+          Math.ceil(bounds.containerBottom - bounds.bottom + 28)
+        );
+        spacer.style.height = `${requiredSpacer}px`;
+
+        // Espera o navegador incorporar a nova altura ao scrollHeight antes de mover.
+        layoutFrame = requestAnimationFrame(() => {
+          layoutFrame = null;
+          if (!keyboardOpen || !editor.isFocused) return;
+
+          try {
+            const caret = editor.view.coordsAtPos(editor.state.selection.head);
+            const updatedBounds = getVisibleBounds();
+            if (updatedBounds.bottom <= updatedBounds.top) return;
+
+            const lowerGap = 22;
+            const upperGap = 14;
+
+            if (caret.bottom > updatedBounds.bottom - lowerGap) {
+              const delta = caret.bottom - (updatedBounds.bottom - lowerGap);
+              scrollContainer.scrollTop = Math.min(
+                scrollContainer.scrollTop + delta,
+                scrollContainer.scrollHeight - scrollContainer.clientHeight
+              );
+            } else if (caret.top < updatedBounds.top + upperGap) {
+              const delta = caret.top - (updatedBounds.top + upperGap);
+              scrollContainer.scrollTop = Math.max(0, scrollContainer.scrollTop + delta);
+            }
+          } catch (error) {
+            // Uma seleção transitória durante colagem/alteração estrutural não deve
+            // interromper a digitação; o próximo evento de seleção tenta novamente.
+            console.debug('[NoteEditor] Não foi possível medir o cursor neste frame:', error);
+          }
+        });
+      });
+    };
+
+    const handleKeyboardViewport = (event: Event) => {
+      const detail = (event as CustomEvent<{ isKeyboardOpen?: boolean }>).detail;
+      keyboardOpen = Boolean(detail?.isKeyboardOpen);
+
+      if (!keyboardOpen) {
+        spacer.style.height = '0px';
+        if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
+        if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
+        scheduledFrame = null;
+        layoutFrame = null;
+        return;
+      }
+
+      // O hook posiciona a barra primeiro; esta rotina atua somente depois dela.
+      keepCaretVisible();
+    };
+
+    const handleViewportChange = () => {
+      if (keyboardOpen) keepCaretVisible();
+    };
+
+    editor.on('focus', keepCaretVisible);
+    editor.on('selectionUpdate', keepCaretVisible);
+    editor.on('update', keepCaretVisible);
+    window.addEventListener('anotado:mobile-keyboard-viewport', handleKeyboardViewport);
+    window.visualViewport?.addEventListener('resize', handleViewportChange);
+    window.visualViewport?.addEventListener('scroll', handleViewportChange);
+
+    return () => {
+      editor.off('focus', keepCaretVisible);
+      editor.off('selectionUpdate', keepCaretVisible);
+      editor.off('update', keepCaretVisible);
+      window.removeEventListener('anotado:mobile-keyboard-viewport', handleKeyboardViewport);
+      window.visualViewport?.removeEventListener('resize', handleViewportChange);
+      window.visualViewport?.removeEventListener('scroll', handleViewportChange);
+      if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
+      if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
+      spacer.style.height = '0px';
+    };
+  }, [editor, noteId]);
+
   // Notifica o componente pai sobre a instância do editor (T3)
   useEffect(() => {
     if (onEditorReady) {
