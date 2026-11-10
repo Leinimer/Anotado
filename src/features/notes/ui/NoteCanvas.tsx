@@ -457,6 +457,7 @@ export function NoteCanvas({
           onCloseTab={onCloseTab}
           onNewTab={onNewTab}
           onOpenMobileMenu={onOpenMobileMenu}
+          isNoteOpen={Boolean(activeNote || activePdfAttachmentId)}
           isSplit={isSplit}
           splitLeftTabId={splitLeftTabId}
           splitRightTabId={splitRightTabId}
