@@ -2075,7 +2075,7 @@ export function MainLayout() {
         {mobileSidebarOpen && (
           <div
             id="mobile-sidebar-drawer"
-            className="fixed inset-0 z-50 flex md:hidden"
+            className="fixed inset-0 z-50 flex md:hidden overflow-hidden"
           >
             {/* Backdrop */}
             <div
@@ -2084,7 +2084,7 @@ export function MainLayout() {
             />
 
             {/* Slide-in Content */}
-            <div className="relative w-[280px] max-w-[80vw] h-full z-10 shadow-2xl">
+            <div className="relative w-full h-full min-w-0 z-10 shadow-2xl">
               <SidebarNavigation
                 folders={folders}
                 notes={notes}
