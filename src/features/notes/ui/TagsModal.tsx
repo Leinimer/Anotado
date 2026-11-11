@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Tag as TagIcon, X, Search, Hash } from 'lucide-react';
+import { Tag as TagIcon, X, Search } from 'lucide-react';
 
 interface TagsModalProps {
   isOpen: boolean;
@@ -131,7 +131,6 @@ export function TagsModal({
                         : 'bg-[#f0ece5] dark:bg-[#3a3531] text-[#5e4b3e] dark:text-[#e8e4df] hover:bg-[#e4dcce] dark:hover:bg-[#3e3834] hover:text-[#1b1c19] dark:hover:text-[#f5f3ee] border border-[#d7c3b0]/50 dark:border-[#5a514a]'
                     }`}
                   >
-                    <Hash className="w-3 h-3 opacity-70" />
                     <span>{tag}</span>
                   </button>
                 );
