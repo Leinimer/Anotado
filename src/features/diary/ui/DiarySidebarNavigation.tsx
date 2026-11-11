@@ -589,19 +589,19 @@ export function DiarySidebarNavigation({
     >
       {/* Top Header: Logo + Switch Discreta + Compartilhamento */}
       <div className="space-y-3 shrink-0">
-        <div className="flex items-center justify-between py-1 px-1">
-          <div className="flex items-center">
+        <div className="flex items-center py-1 px-1 gap-2">
+          <div className="flex flex-1 min-w-0 items-center justify-center">
             <img
-              src="/logo-anotado.svg"
+              src="/logo-anotado-sticky-sidebar.png"
               alt="Anotado"
-              width={935}
-              height={560}
+              width={229}
+              height={127}
               draggable={false}
-              className="w-[80px] h-auto object-contain object-left dark:brightness-0 dark:invert"
+              className="w-[116px] h-auto object-contain rounded-md"
             />
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Chavezinha / Switch Discreta e Elegante */}
             <WorkspaceSwitch currentWorkspace="diary" onToggle={onToggleWorkspace} />
 
