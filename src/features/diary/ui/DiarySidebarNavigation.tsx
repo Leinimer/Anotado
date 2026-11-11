@@ -585,11 +585,11 @@ export function DiarySidebarNavigation({
   return (
     <aside
       id="diary-sidebar-container"
-      className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] dark:bg-[#000000] border-r border-[#eae8e3] dark:border-[#1a1a1a] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0 relative"
+      className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] dark:bg-[#000000] border-r border-[#eae8e3] dark:border-[#1a1a1a] flex flex-col justify-between p-3 sm:p-4 pt-1.5 sm:pt-2 select-none shrink-0 relative"
     >
       {/* Top Header: Logo + Switch Discreta + Compartilhamento */}
-      <div className="space-y-3 shrink-0">
-        <div className="flex items-center py-1 px-1 gap-2">
+      <div className="space-y-1.5 shrink-0">
+        <div className="flex items-center py-0.5 px-1 gap-2">
           <div className="flex flex-1 min-w-0 items-center justify-center">
             <img
               src="/logo-anotado-sticky-sidebar.png"

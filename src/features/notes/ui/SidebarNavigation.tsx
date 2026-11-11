@@ -1926,11 +1926,11 @@ export function SidebarNavigation({
   return (
     <aside
       id="sidebar-navigation-container"
-      className="w-full md:w-64 lg:w-72 h-full min-h-0 bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 select-none shrink-0 overflow-hidden"
+      className="w-full md:w-64 lg:w-72 h-full min-h-0 bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 pt-1.5 sm:pt-2 select-none shrink-0 overflow-hidden"
     >
       {/* Top Header: Brand Logo Centered in Sidebar & Search Bar */}
-      <div className="space-y-3">
-        <div className="flex items-center py-1 px-1 gap-2">
+      <div className="space-y-1.5">
+        <div className="flex items-center py-0.5 px-1 gap-2">
           <div className="flex flex-1 min-w-0 items-center justify-center">
             <img
               src="/logo-anotado-sticky-sidebar.png"
