@@ -197,7 +197,8 @@ export function SidebarNavigation({
     hasChildren?: boolean;
   } | null>(null);
 
-  // Estado para modal de todas as etiquetas e limitação visual de tags
+  // Estado para o painel recolhível de etiquetas e o modal de todas as etiquetas
+  const [isTagsPanelOpen, setIsTagsPanelOpen] = useState(false);
   const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
   const tagsContainerRef = useRef<HTMLDivElement>(null);
   const [hasTagsOverflow, setHasTagsOverflow] = useState(false);
@@ -284,14 +285,18 @@ export function SidebarNavigation({
     }
   }, [editingItemId]);
 
-  // Mede overflow de tags para limitar a 4 linhas visuais
+  // Mede o overflow depois que o painel de etiquetas é aberto.
+  // Assim, o link "Ver todas" mantém o mesmo comportamento mesmo com o painel
+  // inicialmente recolhido.
   useEffect(() => {
-    if (tagsContainerRef.current) {
-      const isOverflowing =
-        tagsContainerRef.current.scrollHeight > 108 || uniqueTags.length > 8;
-      setHasTagsOverflow(isOverflowing);
-    }
-  }, [uniqueTags]);
+    if (!isTagsPanelOpen) return;
+
+    const container = tagsContainerRef.current;
+    if (!container) return;
+
+    const isOverflowing = container.scrollHeight > 108 || uniqueTags.length > 8;
+    setHasTagsOverflow(isOverflowing);
+  }, [uniqueTags, isTagsPanelOpen]);
 
   // Fecha menu de contexto e menu de busca ao clicar fora ou ao pressionar Escape
   useEffect(() => {
@@ -2191,9 +2196,12 @@ export function SidebarNavigation({
         />
       )}
 
-      {/* Tags Globais Extraídas Dinamicamente */}
-      {uniqueTags.length > 0 && !searchQuery && (
-        <div className="py-2 border-t border-[#eae8e3]">
+      {/* Painel de Etiquetas Globais — fechado por padrão */}
+      {isTagsPanelOpen && uniqueTags.length > 0 && !searchQuery && (
+        <div
+          id="sidebar-global-tags-panel"
+          className="py-2 border-t border-[#eae8e3] animate-in fade-in slide-in-from-bottom-1 duration-150"
+        >
           <div className="flex items-center justify-between px-1 mb-1.5 text-xs text-[#7f756e] font-sans-ui font-medium">
             <div className="flex items-center gap-1.5">
               <Tag className="w-3 h-3 text-[#68594d]" />
@@ -2239,14 +2247,30 @@ export function SidebarNavigation({
 
       {/* Bottom Action Footer */}
       <div className="pt-2 border-t border-[#eae8e3] space-y-2 shrink-0">
-        <div className="flex items-center justify-between px-0.5">
+        <div className="flex items-center justify-between gap-1 px-0.5">
           <SyncStatusIndicator
             userId={userId || undefined}
             onSelectNote={onSelectNote}
             onSelectFolder={onSelectFolder}
             folders={folders}
             notes={notes}
+            className="shrink-0"
           />
+
+          {uniqueTags.length > 0 && (
+            <button
+              type="button"
+              id="sidebar-tags-toggle-btn"
+              onClick={() => setIsTagsPanelOpen((open) => !open)}
+              aria-expanded={isTagsPanelOpen}
+              aria-controls="sidebar-global-tags-panel"
+              className="inline-flex items-center gap-1.5 px-2 py-1.5 border-y border-[#eae8e3] text-[11px] font-sans-ui font-medium text-[#68594d] hover:text-[#1b1c19] hover:bg-[#f0eee9] rounded-md transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+              title={isTagsPanelOpen ? 'Ocultar etiquetas' : 'Mostrar etiquetas'}
+            >
+              <Tag className="w-3.5 h-3.5 shrink-0" />
+              <span>Etiquetas ({uniqueTags.length})</span>
+            </button>
+          )}
         </div>
 
         <div className="space-y-1.5">
