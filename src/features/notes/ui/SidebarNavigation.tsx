@@ -1931,13 +1931,15 @@ export function SidebarNavigation({
       {/* Top Header: Brand Logo Centered in Sidebar & Search Bar */}
       <div className="space-y-3">
         <div className="flex items-center justify-between py-1 px-1">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#68594d] text-white flex items-center justify-center font-serif-note font-bold text-sm shadow-xs">
-              A
-            </div>
-            <span className="font-serif-note font-bold text-lg text-[#1b1c19] tracking-tight">
-              anotado!
-            </span>
+          <div className="flex items-center">
+            <img
+              src="/logo-anotado.svg"
+              alt="Anotado"
+              width={191}
+              height={113}
+              draggable={false}
+              className="w-[96px] h-auto object-contain object-left dark:brightness-0 dark:invert"
+            />
           </div>
 
           <div className="flex items-center gap-1.5">

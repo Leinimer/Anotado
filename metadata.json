@@ -1,5 +1,5 @@
 {
-  "name": "ANOTADO!",
+  "name": "Anotado",
   "description": "Um espaço para escrever.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

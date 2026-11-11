@@ -5,14 +5,14 @@ import { PwaProvider } from '@/src/features/pwa/PwaProvider';
 import { ThemeProvider } from '@/src/features/theme/theme-context';
 
 export const metadata: Metadata = {
-  title: 'ANOTADO!',
+  title: 'Anotado',
   description: 'Um espaço para escrever.',
-  applicationName: 'ANOTADO!',
+  applicationName: 'Anotado',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'ANOTADO!',
+    title: 'Anotado',
   },
   formatDetection: {
     telephone: false,
@@ -20,8 +20,7 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: '/favicon.svg', type: 'image/svg+xml' },
-      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+      { url: '/icon.svg', sizes: 'any', type: 'image/svg+xml' },
     ],
     apple: [
       { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
