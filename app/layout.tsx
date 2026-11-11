@@ -18,12 +18,13 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
+    shortcut: '/favicon.svg',
     icon: [
       { url: '/favicon.svg', type: 'image/svg+xml' },
       { url: '/icon.svg', sizes: 'any', type: 'image/svg+xml' },
     ],
     apple: [
-      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+      { url: '/icons/brand-icon?size=180&maskable=true', sizes: '180x180', type: 'image/png' },
     ],
   },
 };

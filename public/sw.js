@@ -2,7 +2,7 @@
 // Cache focado estritamente no App Shell estático
 // IndexedDB e SyncEngine são os únicos responsáveis pela persistência de dados das notas
 
-const CACHE_NAME = 'anotado-app-shell-v3';
+const CACHE_NAME = 'anotado-app-shell-v4';
 
 const STATIC_PRECACHE_URLS = [
   '/',
@@ -10,7 +10,11 @@ const STATIC_PRECACHE_URLS = [
   '/favicon.svg',
   '/icon.svg',
   '/logo-anotado.svg',
-  '/apple-touch-icon.png',
+  '/icons/brand-icon?size=192',
+  '/icons/brand-icon?size=512',
+  '/icons/brand-icon?size=192&maskable=true',
+  '/icons/brand-icon?size=512&maskable=true',
+  '/icons/brand-icon?size=180&maskable=true',
 ];
 
 // Instalação: pré-carrega o shell básico

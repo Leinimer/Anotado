@@ -15,10 +15,28 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ['productivity', 'utilities'],
     icons: [
       {
-        src: '/icon.svg',
-        sizes: 'any',
-        type: 'image/svg+xml',
+        src: '/icons/brand-icon?size=192',
+        sizes: '192x192',
+        type: 'image/png',
         purpose: 'any',
+      },
+      {
+        src: '/icons/brand-icon?size=512',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'any',
+      },
+      {
+        src: '/icons/brand-icon?size=192&maskable=true',
+        sizes: '192x192',
+        type: 'image/png',
+        purpose: 'maskable',
+      },
+      {
+        src: '/icons/brand-icon?size=512&maskable=true',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'maskable',
       },
     ],
   };

@@ -1935,10 +1935,10 @@ export function SidebarNavigation({
             <img
               src="/logo-anotado.svg"
               alt="Anotado"
-              width={191}
-              height={113}
+              width={935}
+              height={560}
               draggable={false}
-              className="w-[96px] h-auto object-contain object-left dark:brightness-0 dark:invert"
+              className="w-[80px] h-auto object-contain object-left dark:brightness-0 dark:invert"
             />
           </div>
 

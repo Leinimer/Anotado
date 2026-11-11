@@ -1,0 +1,29 @@
+import { ImageResponse } from 'next/og';
+
+const LETTER_A_PATH = "M 267 32 L 264 31 L 255 32 L 242 38 L 227 49 L 206 68 L 182 94 L 158 123 L 133 157 L 118 181 L 111 190 L 101 192 L 74 201 L 55 209 L 44 216 L 41 222 L 42 227 L 45 230 L 53 230 L 80 218 L 95 213 L 97 214 L 77 248 L 56 291 L 50 307 L 50 313 L 54 320 L 60 322 L 66 321 L 74 313 L 78 301 L 100 255 L 100 253 L 126 205 L 129 203 L 173 193 L 179 193 L 180 192 L 207 189 L 208 188 L 216 188 L 217 187 L 222 188 L 218 214 L 217 215 L 215 237 L 214 238 L 214 248 L 213 249 L 214 270 L 217 280 L 226 290 L 231 292 L 237 292 L 240 291 L 244 287 L 244 282 L 241 277 L 239 270 L 239 246 L 240 245 L 240 236 L 241 235 L 241 229 L 243 222 L 245 204 L 248 193 L 248 188 L 250 185 L 267 184 L 267 171 L 265 170 L 254 170 L 253 169 L 257 148 L 267 112 Z M 255 51 L 256 52 L 256 58 L 252 72 L 252 76 L 235 134 L 227 169 L 226 170 L 208 171 L 207 172 L 171 176 L 141 182 L 140 181 L 163 146 L 183 119 L 203 95 L 236 62 L 247 54 Z";
+
+export function createBrandIconResponse(size: number, maskable = false) {
+  const background = maskable ? (
+    <rect x={0} y={0} width={512} height={512} fill="#efd09d" />
+  ) : (
+    <rect x={0} y={0} width={512} height={512} rx={120} fill="#efd09d" />
+  );
+
+  return new ImageResponse(
+    (
+      <div style={{ display: 'flex', width: '100%', height: '100%' }}>
+        <svg xmlns="http://www.w3.org/2000/svg" width={512} height={512} viewBox="0 0 512 512">
+          {background}
+          <path d={LETTER_A_PATH} transform="translate(94 70) scale(1.05)" fill="#4c2a17" fillRule="evenodd" />
+        </svg>
+      </div>
+    ),
+    {
+      width: size,
+      height: size,
+      headers: {
+        'Cache-Control': 'public, max-age=3600',
+      },
+    }
+  );
+}
