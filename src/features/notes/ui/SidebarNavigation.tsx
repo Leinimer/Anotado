@@ -2273,36 +2273,34 @@ export function SidebarNavigation({
           )}
         </div>
 
-        <div className="space-y-1.5">
-          <div className="grid grid-cols-2 gap-1.5">
-            {/* Botão Nova Pasta (Sempre na raiz) */}
-            <button
-              id="sidebar-create-folder-btn"
-              onClick={handleTriggerCreateFolder}
-              className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#eae8e3] hover:bg-[#e0ded8] text-[#4e453f] hover:text-[#1b1c19] text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer"
-              title="Nova Pasta"
-            >
-              <FolderPlus className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
-              <span className="truncate">Pasta</span>
-            </button>
+        <div className="grid grid-cols-3 gap-1.5">
+          {/* Botão Nova Pasta */}
+          <button
+            id="sidebar-create-folder-btn"
+            onClick={handleTriggerCreateFolder}
+            className="w-full min-w-0 flex items-center justify-center gap-1 py-1.5 px-1 bg-[#eae8e3] hover:bg-[#e0ded8] text-[#4e453f] hover:text-[#1b1c19] text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer"
+            title="Nova Pasta"
+          >
+            <FolderPlus className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
+            <span className="truncate">Pasta</span>
+          </button>
 
-            {/* Botão Nova Nota (Sempre na raiz) */}
-            <button
-              id="sidebar-create-note-btn"
-              onClick={handleTriggerCreateNote}
-              className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#68594d] hover:bg-[#53463c] text-white text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer shadow-2xs"
-              title="Nova Nota"
-            >
-              <FilePlus className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">Nota</span>
-            </button>
-          </div>
+          {/* Botão Nova Nota */}
+          <button
+            id="sidebar-create-note-btn"
+            onClick={handleTriggerCreateNote}
+            className="w-full min-w-0 flex items-center justify-center gap-1 py-1.5 px-1 bg-[#68594d] hover:bg-[#53463c] text-white text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer shadow-2xs"
+            title="Nova Nota"
+          >
+            <FilePlus className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Nota</span>
+          </button>
 
-          {/* Botão Adicionar PDF (Junto de Pasta e Nota na mesma área visual) */}
+          {/* Botão Adicionar PDF — ao lado de Nota */}
           <button
             id="sidebar-add-pdf-btn"
             onClick={() => setIsAddPdfModalOpen(true)}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-[#fff1f2] hover:bg-[#ffe4e6] text-[#be123c] dark:bg-[#881337]/20 dark:hover:bg-[#881337]/35 dark:text-[#fda4af] border border-[#fecdd3] dark:border-[#9f1239]/40 text-xs font-sans-ui font-medium rounded-xl transition-colors cursor-pointer shadow-2xs group"
+            className="w-full min-w-0 flex items-center justify-center gap-1 py-1.5 px-1 bg-[#fff1f2] hover:bg-[#ffe4e6] text-[#be123c] dark:bg-[#881337]/20 dark:hover:bg-[#881337]/35 dark:text-[#fda4af] border border-[#fecdd3] dark:border-[#9f1239]/40 text-[11px] font-sans-ui font-medium rounded-xl transition-colors cursor-pointer shadow-2xs group"
             title="Adicionar PDF"
             aria-label="Adicionar PDF"
           >
@@ -2312,7 +2310,7 @@ export function SidebarNavigation({
                 PDF
               </span>
             </div>
-            <span className="truncate">Adicionar PDF</span>
+            <span className="truncate">+PDF</span>
           </button>
         </div>
 
