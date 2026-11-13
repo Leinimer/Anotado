@@ -1932,20 +1932,25 @@ export function SidebarNavigation({
       <div className="space-y-1.5">
         <div className="flex items-center py-0.5 px-1 gap-2">
           <div className="flex flex-1 min-w-0 items-center justify-center">
-            <picture>
-              <source
-                media="(prefers-color-scheme: dark)"
-                srcSet="/logo-anotado-sidebar-dark.png"
+            <>
+              <img
+                src="/logo-anotado-sidebar-light.png"
+                alt="Anotado"
+                width={232}
+                height={101}
+                draggable={false}
+                className="w-[116px] h-auto object-contain dark:hidden"
               />
               <img
-                src="/logo-anotado-sidebar-light.webp"
-                alt="Anotado"
-                width={229}
-                height={127}
+                src="/logo-anotado-sidebar-dark.png"
+                alt=""
+                aria-hidden="true"
+                width={232}
+                height={101}
                 draggable={false}
-                className="w-[116px] h-auto object-contain"
+                className="hidden w-[116px] h-auto object-contain dark:block"
               />
-            </picture>
+            </>
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
