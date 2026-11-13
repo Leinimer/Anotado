@@ -595,8 +595,8 @@ export function DiarySidebarNavigation({
               <img
                 src="/logo-anotado-sidebar-light.png"
                 alt="Anotado"
-                width={290}
-                height={193}
+                width={232}
+                height={154}
                 draggable={false}
                 className="w-[116px] h-auto object-contain dark:hidden"
               />
@@ -604,8 +604,8 @@ export function DiarySidebarNavigation({
                 src="/logo-anotado-sidebar-dark.png"
                 alt=""
                 aria-hidden="true"
-                width={290}
-                height={193}
+                width={232}
+                height={154}
                 draggable={false}
                 className="hidden w-[116px] h-auto object-contain dark:block"
               />
