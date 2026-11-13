@@ -1932,14 +1932,20 @@ export function SidebarNavigation({
       <div className="space-y-1.5">
         <div className="flex items-center py-0.5 px-1 gap-2">
           <div className="flex flex-1 min-w-0 items-center justify-center">
-            <img
-              src="/logo-anotado-sticky-sidebar.png"
-              alt="Anotado"
-              width={229}
-              height={127}
-              draggable={false}
-              className="w-[116px] h-auto object-contain rounded-md"
-            />
+            <picture>
+              <source
+                media="(prefers-color-scheme: dark)"
+                srcSet="/logo-anotado-sidebar-dark.png"
+              />
+              <img
+                src="/logo-anotado-sidebar-light.webp"
+                alt="Anotado"
+                width={229}
+                height={127}
+                draggable={false}
+                className="w-[116px] h-auto object-contain"
+              />
+            </picture>
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
@@ -2248,7 +2254,7 @@ export function SidebarNavigation({
       )}
 
       {/* Bottom Action Footer */}
-      <div className="pt-2 border-t border-[#eae8e3] space-y-2 shrink-0">
+      <div className="pt-2 border-t border-[#eae8e3] dark:border-[#1a1a1a] space-y-2 shrink-0">
         <div className="flex items-center justify-between gap-1 px-0.5">
           <SyncStatusIndicator
             userId={userId || undefined}
@@ -2266,7 +2272,7 @@ export function SidebarNavigation({
               onClick={() => setIsTagsPanelOpen((open) => !open)}
               aria-expanded={isTagsPanelOpen}
               aria-controls="sidebar-global-tags-panel"
-              className="inline-flex items-center gap-1.5 px-2 py-1.5 border-y border-[#eae8e3] text-[11px] font-sans-ui font-medium text-[#68594d] hover:text-[#1b1c19] hover:bg-[#f0eee9] rounded-md transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-2 py-1.5 border-y border-[#eae8e3] text-[11px] font-sans-ui font-medium text-[#68594d] hover:text-[#1b1c19] hover:bg-[#f0eee9] rounded-md transition-colors cursor-pointer shrink-0 whitespace-nowrap dark:border-transparent dark:text-[#e9dfd2] dark:hover:border-transparent dark:hover:text-[#fff8ef] dark:hover:bg-[#171717] data-[state=open]:dark:bg-[#171717]"
               title={isTagsPanelOpen ? 'Ocultar etiquetas' : 'Mostrar etiquetas'}
             >
               <Tag className="w-3.5 h-3.5 shrink-0" />
