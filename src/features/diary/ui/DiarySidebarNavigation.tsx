@@ -591,14 +591,20 @@ export function DiarySidebarNavigation({
       <div className="space-y-1.5 shrink-0">
         <div className="flex items-center py-0.5 px-1 gap-2">
           <div className="flex flex-1 min-w-0 items-center justify-center">
-            <img
-              src="/logo-anotado-sticky-sidebar.png"
-              alt="Anotado"
-              width={229}
-              height={127}
-              draggable={false}
-              className="w-[116px] h-auto object-contain rounded-md"
-            />
+            <picture>
+              <source
+                media="(prefers-color-scheme: dark)"
+                srcSet="/logo-anotado-sidebar-dark.png"
+              />
+              <img
+                src="/logo-anotado-sidebar-light.webp"
+                alt="Anotado"
+                width={229}
+                height={127}
+                draggable={false}
+                className="w-[116px] h-auto object-contain"
+              />
+            </picture>
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
