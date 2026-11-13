@@ -1950,3 +1950,26 @@ html.dark {
     flex-shrink: 0;
   }
 }
+
+
+/* Sidebar em tema escuro: elimina o filete claro do botão Etiquetas e
+   mantém botão e separadores integrados ao fundo preto. */
+.dark #sidebar-tags-toggle-btn,
+.dark #sidebar-tags-toggle-btn:hover,
+.dark #sidebar-tags-toggle-btn:focus-visible,
+.dark #sidebar-tags-toggle-btn:active {
+  border-top-color: transparent !important;
+  border-bottom-color: transparent !important;
+  color: #e9dfd2 !important;
+  box-shadow: none !important;
+}
+
+.dark #sidebar-tags-toggle-btn:hover {
+  background-color: #171717 !important;
+  color: #fff8ef !important;
+}
+
+.dark #sidebar-navigation-container .border-t,
+.dark #sidebar-navigation-container .border-b {
+  border-color: #1a1a1a !important;
+}
