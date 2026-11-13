@@ -593,19 +593,19 @@ export function DiarySidebarNavigation({
           <div className="flex flex-1 min-w-0 items-center justify-center">
             <>
               <img
-                src="/logo-anotado-sidebar-light.webp"
+                src="/logo-anotado-sidebar-light.png"
                 alt="Anotado"
-                width={232}
-                height={101}
+                width={290}
+                height={193}
                 draggable={false}
                 className="w-[116px] h-auto object-contain dark:hidden"
               />
               <img
-                src="/logo-anotado-sidebar-dark.webp"
+                src="/logo-anotado-sidebar-dark.png"
                 alt=""
                 aria-hidden="true"
-                width={232}
-                height={101}
+                width={290}
+                height={193}
                 draggable={false}
                 className="hidden w-[116px] h-auto object-contain dark:block"
               />
