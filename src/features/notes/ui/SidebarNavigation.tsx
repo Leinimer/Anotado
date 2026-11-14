@@ -1936,8 +1936,8 @@ export function SidebarNavigation({
               <img
                 src="/logo-anotado-sidebar-light.png"
                 alt="Anotado"
-                width={232}
-                height={154}
+                width={290}
+                height={189}
                 draggable={false}
                 className="w-[116px] h-auto object-contain dark:hidden"
               />
@@ -1945,8 +1945,8 @@ export function SidebarNavigation({
                 src="/logo-anotado-sidebar-dark.png"
                 alt=""
                 aria-hidden="true"
-                width={232}
-                height={154}
+                width={290}
+                height={189}
                 draggable={false}
                 className="hidden w-[116px] h-auto object-contain dark:block"
               />
