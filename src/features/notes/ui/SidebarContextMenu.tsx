@@ -97,10 +97,6 @@ export function SidebarContextMenu({
       className="bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[170px] font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
       onClick={(e) => e.stopPropagation()}
     >
-      <button id="context-menu-select-item-btn" type="button" onClick={() => { if (menuOpenId && menuItemType) onSelectForBatch(menuOpenId, menuItemType); onClose(); }} className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] transition-colors cursor-pointer text-left">
-        <CheckSquare className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" /><span>Selecionar</span>
-      </button>
-      <div className="h-px bg-[#eae8e3] dark:bg-[#45413d] my-0.5" />
       {/* Opção 1: Renomear */}
       <button
         id="context-menu-rename-btn"
@@ -406,6 +402,19 @@ export function SidebarContextMenu({
           </button>
         </>
       )}
+
+      <button
+        id="context-menu-select-item-btn"
+        type="button"
+        onClick={() => {
+          if (menuOpenId && menuItemType) onSelectForBatch(menuOpenId, menuItemType);
+          onClose();
+        }}
+        className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] transition-colors cursor-pointer text-left"
+      >
+        <CheckSquare className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" />
+        <span>Selecionar</span>
+      </button>
 
       <div className="h-[1px] bg-[#e4e2dd] dark:bg-[#1f1f1f] my-1" />
 
