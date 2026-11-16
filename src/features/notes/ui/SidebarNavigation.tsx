@@ -1343,7 +1343,7 @@ export function SidebarNavigation({
     };
 
     return (
-      <div key={folder.id} className="space-y-0.5 select-none relative w-full" data-tree-row="true">
+      <div key={folder.id} className="space-y-0 select-none relative w-full" data-tree-row="true">
         {/* Linha de Inserção Horizontal ANTES da Pasta */}
         {isDropBefore && !isSystemFolder && (
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
@@ -1381,7 +1381,7 @@ export function SidebarNavigation({
                 handleContextMenu(e, folder.id, 'folder');
               }
             }}
-            className={`group flex items-center justify-between gap-1.5 px-2 py-1.5 text-sm rounded-lg cursor-pointer transition-all relative w-fit max-w-[calc(100%-4px)] min-w-[130px] ${
+            className={`group flex items-center justify-between gap-1.5 px-2 py-1 text-sm rounded-lg cursor-pointer transition-all relative w-fit max-w-[calc(100%-4px)] min-w-[130px] ${
               isSelectedInMulti
                 ? 'bg-[#e8decb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
                 : isDropInside
@@ -1509,7 +1509,7 @@ export function SidebarNavigation({
 
         {/* Filhos da Pasta */}
         {isOpen && (
-          <div className="space-y-0.5">
+          <div className="space-y-0">
             {folder.subfolders.map((sub) => renderFolderNode(sub))}
             {folder.notes.map((note) => renderNoteNode(note))}
             {(folder.pdfs || []).map((pdf) => (
@@ -1592,7 +1592,7 @@ export function SidebarNavigation({
     };
 
     return (
-      <div key={note.id} className="relative space-y-0.5 select-none w-full" data-tree-row="true">
+      <div key={note.id} className="relative space-y-0 select-none w-full" data-tree-row="true">
         {/* Linha de Inserção Horizontal ANTES da Nota */}
         {isDropBefore && (
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#68594d] z-30 rounded-full pointer-events-none shadow-xs" />
@@ -1640,7 +1640,7 @@ export function SidebarNavigation({
                 e.preventDefault();
               }
             }}
-            className={`group flex items-center justify-between gap-1.5 px-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative w-fit max-w-[calc(100%-4px)] min-w-[120px] ${
+            className={`group flex items-center justify-between gap-1.5 px-2 py-1 text-sm rounded-lg cursor-pointer transition-colors relative w-fit max-w-[calc(100%-4px)] min-w-[120px] ${
               isSelectedInMulti
                 ? 'bg-[#f4dfcb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
                 : isActive
@@ -1795,7 +1795,7 @@ export function SidebarNavigation({
     };
 
     return (
-      <div key={pdf.id} className="relative space-y-0.5 select-none w-full" data-tree-row="true">
+      <div key={pdf.id} className="relative space-y-0 select-none w-full" data-tree-row="true">
         {/* Linha de Inserção Horizontal ANTES do PDF */}
         {isDropBefore && (
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#e11d48] z-30 rounded-full pointer-events-none shadow-xs" />
@@ -1838,7 +1838,7 @@ export function SidebarNavigation({
               if (e.button === 1) e.preventDefault();
             }}
             title={pdf.fileName || pdf.title}
-            className={`group flex items-center justify-between gap-1.5 px-2 py-1.5 text-sm rounded-lg cursor-pointer transition-colors relative w-fit max-w-[calc(100%-4px)] min-w-[120px] ${
+            className={`group flex items-center justify-between gap-1.5 px-2 py-1 text-sm rounded-lg cursor-pointer transition-colors relative w-fit max-w-[calc(100%-4px)] min-w-[120px] ${
               isSelectedInMulti
                 ? 'bg-[#ffe4e6] dark:bg-[#881337]/30 ring-1 ring-[#e11d48]/50 font-medium text-[#1b1c19] dark:text-[#fecdd3] shadow-2xs'
                 : isActive
@@ -2138,7 +2138,7 @@ export function SidebarNavigation({
           e.preventDefault();
         }}
         onDrop={handleDropOnRoot}
-        className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y my-1 space-y-1 py-1 pr-1 relative"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y my-1 space-y-0.5 py-1 pr-1 relative"
       >
         {isFiltering && (
           <div className="px-2 py-1 flex items-center justify-between text-[11px] font-sans-ui text-[#7f756e] bg-[#f0eee9]/60 rounded-lg mb-1">
