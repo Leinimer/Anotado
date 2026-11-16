@@ -624,7 +624,14 @@ export function SidebarNavigation({
     lastSelectedIdRef.current = { id, type };
   };
 
+  // Limpa somente os itens marcados, mantendo a ferramenta de seleção aberta.
   const handleClearBatchSelection = () => {
+    setSelectedItems(new Map());
+    lastSelectedIdRef.current = null;
+  };
+
+  // Fecha a ferramenta de seleção e limpa qualquer seleção restante.
+  const handleCloseSelectionMode = () => {
     setSelectedItems(new Map());
     lastSelectedIdRef.current = null;
     setIsSelectionMode(false);
@@ -2115,8 +2122,17 @@ export function SidebarNavigation({
           className="px-2.5 py-1.5 bg-[#eae5de] border border-[#d8d1c7] rounded-xl flex items-center justify-between shadow-xs mb-1 animate-in fade-in zoom-in-95 duration-100 font-sans-ui text-xs text-[#1b1c19]"
         >
           <div className="flex items-center gap-1.5 font-medium truncate">
-            <CheckSquare className="w-3.5 h-3.5 text-[#68594d] shrink-0" />
-            <span>{selectedItems.size} selecionado{selectedItems.size > 1 ? 's' : ''}</span>
+            <button
+              type="button"
+              id="batch-clear-btn"
+              onClick={handleClearBatchSelection}
+              className="w-6 h-6 inline-flex items-center justify-center rounded-md text-[#68594d] hover:bg-[#dcd4c8] hover:text-[#1b1c19] transition-colors cursor-pointer shrink-0"
+              title="Desmarcar todos os itens"
+              aria-label="Desmarcar todos os itens"
+            >
+              <CheckSquare className="w-3.5 h-3.5" />
+            </button>
+            <span>{selectedItems.size} selecionado{selectedItems.size !== 1 ? 's' : ''}</span>
           </div>
 
           <div className="flex items-center gap-1">
@@ -2125,7 +2141,7 @@ export function SidebarNavigation({
               id="batch-move-btn"
               onClick={() => setShowBatchMoveDialog(true)}
               disabled={selectedItems.size === 0}
-              className="px-2 py-1 hover:bg-[#dcd4c8] text-[#4e453f] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
+              className="px-2 py-1 hover:bg-[#dcd4c8] text-[#4e453f] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
               title="Mover selecionados para pasta"
             >
               <FolderInput className="w-3.5 h-3.5 text-[#68594d]" />
@@ -2137,7 +2153,7 @@ export function SidebarNavigation({
               id="batch-delete-btn"
               onClick={() => setShowBatchDeleteConfirm(true)}
               disabled={selectedItems.size === 0}
-              className="px-2 py-1 hover:bg-[#fbdad4] text-[#ba1a1a] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
+              className="px-2 py-1 hover:bg-[#fbdad4] text-[#ba1a1a] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
               title="Excluir selecionados (Del)"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -2146,12 +2162,13 @@ export function SidebarNavigation({
 
             <button
               type="button"
-              id="batch-clear-btn"
-              onClick={handleClearBatchSelection}
-              className="px-2 py-1 hover:bg-[#dcd4c8] text-[#7f756e] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer ml-0.5 text-[11px]"
-              title="Desmarcar todos"
+              id="batch-selection-close-btn"
+              onClick={handleCloseSelectionMode}
+              className="w-6 h-6 inline-flex items-center justify-center rounded-md text-[#7f756e] hover:bg-[#dcd4c8] hover:text-[#1b1c19] transition-colors cursor-pointer ml-0.5 shrink-0"
+              title="Fechar seleção"
+              aria-label="Fechar seleção"
             >
-              <span>Desmarcar todos</span>
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
