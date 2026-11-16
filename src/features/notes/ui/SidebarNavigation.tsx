@@ -219,6 +219,7 @@ export function SidebarNavigation({
 
   // Estado para Seleção Múltipla e Marquee Selection (Bloco B)
   const [selectedItems, setSelectedItems] = useState<Map<string, 'folder' | 'note' | 'pdf'>>(new Map());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
   const lastSelectedIdRef = useRef<{ id: string; type: 'folder' | 'note' | 'pdf' } | null>(null);
   const [isMarqueeActive, setIsMarqueeActive] = useState(false);
   const [marqueeRect, setMarqueeRect] = useState<{
@@ -614,6 +615,19 @@ export function SidebarNavigation({
         name: targetNote?.title || 'esta nota',
       });
     }
+  };
+
+  const handleSelectForBatch = (id: string, type: 'folder' | 'note' | 'pdf') => {
+    if (type === 'folder' && (id === SYSTEM_ARCHIVE_FOLDER_ID || id === SYSTEM_FAVORITES_FOLDER_ID)) return;
+    setIsSelectionMode(true);
+    setSelectedItems((prev) => new Map(prev).set(id, type));
+    lastSelectedIdRef.current = { id, type };
+  };
+
+  const handleClearBatchSelection = () => {
+    setSelectedItems(new Map());
+    lastSelectedIdRef.current = null;
+    setIsSelectionMode(false);
   };
 
   const handleConfirmDelete = () => {
@@ -1129,11 +1143,9 @@ export function SidebarNavigation({
   const handleBatchConfirmDelete = () => {
     if (selectedItems.size === 0) return;
     selectedItems.forEach((type, id) => {
-      if (type === 'folder') {
-        onDeleteFolder(id);
-      } else {
-        onDeleteNote(id);
-      }
+      if (type === 'folder') onDeleteFolder(id);
+      else if (type === 'pdf') { if (onDeletePdf) onDeletePdf(id); }
+      else onDeleteNote(id);
     });
     setSelectedItems(new Map());
     lastSelectedIdRef.current = null;
@@ -1148,7 +1160,8 @@ export function SidebarNavigation({
       if (type === 'folder' && wouldCreateCycle(id, targetParentId, folders)) {
         return;
       }
-      onMoveItem(type, id, targetParentId, indexOffset);
+      if (type === 'pdf' && onMovePdf) onMovePdf(id, targetParentId, indexOffset);
+      else onMoveItem(type, id, targetParentId, indexOffset);
       indexOffset += 1;
     });
     if (targetParentId) {
@@ -1277,6 +1290,11 @@ export function SidebarNavigation({
 
     const handleFolderClick = (e: React.MouseEvent) => {
       if (isEditing) return;
+      if (isSelectionMode && !isSystemFolder) {
+        e.stopPropagation();
+        setSelectedItems((prev) => { const next = new Map(prev); if (next.has(folder.id)) next.delete(folder.id); else next.set(folder.id, 'folder'); return next; });
+        lastSelectedIdRef.current = { id: folder.id, type: 'folder' }; return;
+      }
 
       // Ctrl / Cmd + Clique para selecionar/deselecionar individualmente
       if ((e.ctrlKey || e.metaKey) && !isSystemFolder) {
@@ -1539,6 +1557,11 @@ export function SidebarNavigation({
 
     const handleNoteClick = (e: React.MouseEvent) => {
       if (isEditing) return;
+      if (isSelectionMode) {
+        e.preventDefault(); e.stopPropagation();
+        setSelectedItems((prev) => { const next = new Map(prev); if (next.has(note.id)) next.delete(note.id); else next.set(note.id, 'note'); return next; });
+        lastSelectedIdRef.current = { id: note.id, type: 'note' }; return;
+      }
 
       // Atalho: Ctrl / Cmd + Clique para abrir em nova aba
       if (e.ctrlKey || e.metaKey) {
@@ -1745,6 +1768,11 @@ export function SidebarNavigation({
 
     const handlePdfClick = (e: React.MouseEvent) => {
       if (isEditing) return;
+      if (isSelectionMode) {
+        e.preventDefault(); e.stopPropagation();
+        setSelectedItems((prev) => { const next = new Map(prev); if (next.has(pdf.id)) next.delete(pdf.id); else next.set(pdf.id, 'pdf'); return next; });
+        lastSelectedIdRef.current = { id: pdf.id, type: 'pdf' }; return;
+      }
 
       // Atalho: Ctrl / Cmd + Clique para abrir em nova aba
       if (e.ctrlKey || e.metaKey) {
@@ -2079,8 +2107,8 @@ export function SidebarNavigation({
         </div>
       </div>
 
-      {/* Barra de Ações para Multi-Seleção (Bloco B) */}
-      {selectedItems.size > 0 && (
+      {/* Barra de Ações para Multi-Seleção */}
+      {(isSelectionMode || selectedItems.size > 0) && (
         <div
           id="sidebar-multi-select-bar"
           data-no-marquee="true"
@@ -2096,6 +2124,7 @@ export function SidebarNavigation({
               type="button"
               id="batch-move-btn"
               onClick={() => setShowBatchMoveDialog(true)}
+              disabled={selectedItems.size === 0}
               className="px-2 py-1 hover:bg-[#dcd4c8] text-[#4e453f] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
               title="Mover selecionados para pasta"
             >
@@ -2107,6 +2136,7 @@ export function SidebarNavigation({
               type="button"
               id="batch-delete-btn"
               onClick={() => setShowBatchDeleteConfirm(true)}
+              disabled={selectedItems.size === 0}
               className="px-2 py-1 hover:bg-[#fbdad4] text-[#ba1a1a] rounded-md transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
               title="Excluir selecionados (Del)"
             >
@@ -2117,14 +2147,11 @@ export function SidebarNavigation({
             <button
               type="button"
               id="batch-clear-btn"
-              onClick={() => {
-                setSelectedItems(new Map());
-                lastSelectedIdRef.current = null;
-              }}
-              className="p-1 hover:bg-[#dcd4c8] text-[#7f756e] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer ml-0.5"
-              title="Limpar seleção (Esc)"
+              onClick={handleClearBatchSelection}
+              className="px-2 py-1 hover:bg-[#dcd4c8] text-[#7f756e] hover:text-[#1b1c19] rounded-md transition-colors cursor-pointer ml-0.5 text-[11px]"
+              title="Desmarcar todos"
             >
-              <X className="w-3.5 h-3.5" />
+              <span>Desmarcar todos</span>
             </button>
           </div>
         </div>
@@ -2399,6 +2426,7 @@ export function SidebarNavigation({
           setSmartConfigTags(smartTags);
         }}
         onPromptDelete={promptDelete}
+        onSelectForBatch={handleSelectForBatch}
         onMouseEnterColorOption={handleMouseEnterColorOption}
         onMouseLeaveColorOption={handleMouseLeaveColorOption}
         onToggleColorSubmenu={() => {
