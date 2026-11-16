@@ -649,6 +649,30 @@ export function ImageNodeView(props: NodeViewProps) {
     }
   };
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    // O botão direito na legenda mantém o menu/contexto próprio do texto.
+    if (isCaptionInteractionTarget(e.target)) return;
+
+    // No editor editável, o botão direito seleciona a imagem e exibe
+    // a mesma barra de ferramentas usada pelo clique esquerdo.
+    if (!editor?.isEditable || isEditingCaption || wasJustResized()) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    setIsLocalSelected(true);
+
+    const pos = typeof getPos === 'function' ? getPos() : undefined;
+    if (typeof pos === 'number' && editor?.view) {
+      try {
+        const { doc } = editor.view.state;
+        const selection = NodeSelection.create(doc, pos);
+        editor.view.dispatch(editor.view.state.tr.setSelection(selection));
+      } catch (err) {
+        // Mantém a seleção visual local mesmo se a seleção do ProseMirror falhar.
+      }
+    }
+  };
+
   const handleDoubleClick = (e: React.MouseEvent) => {
     // Duplo clique na legenda é reservado à edição/seleção do texto.
     // O duplo clique na própria imagem continua abrindo o visualizador.
@@ -701,6 +725,7 @@ export function ImageNodeView(props: NodeViewProps) {
       data-pdf-citation={pdfCitation || undefined}
       className={`image-node-view-wrapper my-5 relative flex ${alignClass} max-w-full ${isEditingCaption ? 'select-text cursor-text' : 'select-none cursor-pointer'}`}
       onClick={handleClick}
+      onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
       onDragStart={handleDragStart}
       onTouchStart={handleTouchStart}
