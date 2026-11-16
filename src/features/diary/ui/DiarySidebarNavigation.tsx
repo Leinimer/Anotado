@@ -601,13 +601,13 @@ export function DiarySidebarNavigation({
                 className="w-[81.2px] h-auto object-contain dark:hidden"
               />
               <img
-                src="/logo-anotado-sidebar-dark.png"
+                src="/logo-anotado-sidebar-light.png"
                 alt=""
                 aria-hidden="true"
                 width={290}
                 height={189}
                 draggable={false}
-                className="hidden w-[81.2px] h-auto object-contain dark:block"
+                className="hidden w-[81.2px] h-auto object-contain brightness-0 invert dark:block"
               />
             </>
           </div>
