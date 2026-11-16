@@ -57,6 +57,7 @@ export function ImageNodeView(props: NodeViewProps) {
   const localBlobUrlRef = useRef<string | null>(null);
 
   const [isLocalSelected, setIsLocalSelected] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<number>(() => {
     // Se tiver dimensões no atributo
@@ -480,6 +481,28 @@ export function ImageNodeView(props: NodeViewProps) {
     }
   };
 
+  // Fecha a janela contextual ao clicar fora dela ou pressionar Escape.
+  useEffect(() => {
+    if (!contextMenuPosition) return;
+    const handleOutsidePointer = (event: MouseEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        (target.closest('[data-image-context-toolbar="true"]') || containerRef.current?.contains(target))
+      ) return;
+      setContextMenuPosition(null);
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setContextMenuPosition(null);
+    };
+    document.addEventListener('mousedown', handleOutsidePointer);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsidePointer);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [contextMenuPosition]);
+
   // Fecha a seleção ao clicar ou tocar fora
   useEffect(() => {
     const handleDocumentInteraction = (e: MouseEvent | TouchEvent) => {
@@ -660,6 +683,13 @@ export function ImageNodeView(props: NodeViewProps) {
     e.preventDefault();
     e.stopPropagation();
     setIsLocalSelected(true);
+    // Mantém a janela próxima ao ponto do clique, sem deixá-la sair da tela.
+    const menuWidth = 620;
+    const menuHeight = 64;
+    setContextMenuPosition({
+      x: Math.max(8, Math.min(e.clientX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(e.clientY, window.innerHeight - menuHeight - 8)),
+    });
 
     const pos = typeof getPos === 'function' ? getPos() : undefined;
     if (typeof pos === 'number' && editor?.view) {
@@ -744,7 +774,7 @@ export function ImageNodeView(props: NodeViewProps) {
         }}
       >
         {/* Barra Flutuante de Informação e Ações Rápidas (Aparece ao selecionar apenas se editável) */}
-        {isSelected && editor?.isEditable && (
+        {isSelected && editor?.isEditable && !contextMenuPosition && (
           <MediaFloatingToolbar
             onMove={handleMove}
             alignment={alignment}
@@ -805,6 +835,71 @@ export function ImageNodeView(props: NodeViewProps) {
             </button>
           </MediaFloatingToolbar>
         )}
+
+        {/* Menu contextual: mesmas ferramentas, aberto exatamente no ponto do botão direito. */}
+        {contextMenuPosition && editor?.isEditable && typeof document !== 'undefined' &&
+          createPortal(
+            <div
+              data-image-context-toolbar="true"
+              className="fixed z-[10000]"
+              style={{ left: contextMenuPosition.x, top: contextMenuPosition.y }}
+            >
+              <MediaFloatingToolbar
+                placement="context"
+                onMove={handleMove}
+                alignment={alignment}
+                onAlign={(align) => {
+                  updateAttributes({ alignment: align });
+                  console.log('[MEDIA-PERSIST]', { type: 'image', width: node.attrs.width, alignment: align });
+                }}
+                widthDisplay={resizingWidth ? `${Math.round(resizingWidth)}px` : initialWidthAttr || 'Auto'}
+                presets={[
+                  { label: '50%', value: '50%' },
+                  { label: '100%', value: '100%' },
+                ]}
+                onSetWidth={(val) => {
+                  updateAttributes({ width: val });
+                  console.log('[MEDIA-PERSIST]', { type: 'image', width: val, alignment });
+                }}
+                onDelete={() => deleteNode()}
+                deleteTitle="Excluir Imagem"
+              >
+                <div className="h-3.5 w-[1px] bg-[#e4e2dd] dark:bg-[#1a1a1a]" />
+                <button
+                  type="button"
+                  onClick={() => setIsEditingCaption(true)}
+                  className="flex items-center gap-1 px-2 py-0.5 text-xs font-sans-ui text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] dark:text-[#d1c4bc] dark:hover:bg-[#161616] rounded-md transition-colors cursor-pointer font-medium"
+                  title={caption ? 'Editar legenda' : 'Adicionar legenda'}
+                  aria-label={caption ? 'Editar legenda' : 'Adicionar legenda'}
+                >
+                  <Captions className="w-3.5 h-3.5 text-[#68594d]" />
+                  <span>{caption ? 'Editar legenda' : 'Adicionar legenda'}</span>
+                </button>
+                {caption && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveCaption}
+                    className="p-1 text-[#7f756e] hover:text-[#ba1a1a] hover:bg-[#ffdad6] rounded-md transition-colors cursor-pointer"
+                    title="Remover legenda"
+                    aria-label="Remover legenda"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <div className="h-3.5 w-[1px] bg-[#e4e2dd] dark:bg-[#1a1a1a]" />
+                <button
+                  type="button"
+                  onClick={() => openLightbox()}
+                  className="p-1 text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19] dark:text-[#a3a3a3] dark:hover:bg-[#161616] dark:hover:text-white rounded-md transition-colors cursor-pointer"
+                  title="Abrir visualizador"
+                  aria-label="Abrir visualizador"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                </button>
+              </MediaFloatingToolbar>
+            </div>,
+            document.body
+          )}
 
         {/* Skeleton Placeholder durante o carregamento inicial (Zero Layout Shift) */}
         {(!isImageLoaded || !isVisibleInViewport) && !imageError && !previousSrc && !displayedSrc && (

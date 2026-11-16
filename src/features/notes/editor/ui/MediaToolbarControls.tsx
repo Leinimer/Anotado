@@ -137,6 +137,7 @@ export function MediaDeleteButton({
 }
 
 export interface MediaFloatingToolbarProps {
+  placement?: 'image' | 'context';
   onMove: (direction: 'up' | 'down') => void;
   alignment?: 'left' | 'center' | 'right';
   onAlign: (alignment: 'left' | 'center' | 'right') => void;
@@ -152,6 +153,7 @@ export interface MediaFloatingToolbarProps {
 }
 
 export function MediaFloatingToolbar({
+  placement = 'image',
   onMove,
   alignment = 'center',
   onAlign,
@@ -167,7 +169,7 @@ export function MediaFloatingToolbar({
 }: MediaFloatingToolbarProps) {
   return (
     <div
-      className="absolute -top-11 left-1/2 -translate-x-1/2 bg-[#ffffff]/98 dark:bg-[#0a0a0a]/98 backdrop-blur-xs border border-[#e4e2dd] dark:border-[#1a1a1a] shadow-lg rounded-xl px-2 py-1 flex items-center gap-1.5 z-30 text-xs font-sans-ui text-[#4e453f] dark:text-[#d1c4bc] animate-in fade-in zoom-in-95 pointer-events-auto"
+      className={`${placement === 'context' ? 'relative left-0 top-0' : 'absolute -top-11 left-1/2 -translate-x-1/2'} bg-[#ffffff]/98 dark:bg-[#0a0a0a]/98 backdrop-blur-xs border border-[#e4e2dd] dark:border-[#1a1a1a] shadow-lg rounded-xl px-2 py-1 flex items-center gap-1.5 z-30 text-xs font-sans-ui text-[#4e453f] dark:text-[#d1c4bc] animate-in fade-in zoom-in-95 pointer-events-auto max-w-[calc(100vw-16px)]`}
       onClick={(e) => e.stopPropagation()}
     >
       <div
