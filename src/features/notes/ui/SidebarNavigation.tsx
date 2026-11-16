@@ -1939,7 +1939,7 @@ export function SidebarNavigation({
                 width={290}
                 height={189}
                 draggable={false}
-                className="w-[116px] h-auto object-contain dark:hidden"
+                className="w-[81.2px] h-auto object-contain dark:hidden"
               />
               <img
                 src="/logo-anotado-sidebar-dark.png"
@@ -1948,7 +1948,7 @@ export function SidebarNavigation({
                 width={290}
                 height={189}
                 draggable={false}
-                className="hidden w-[116px] h-auto object-contain dark:block"
+                className="hidden w-[81.2px] h-auto object-contain dark:block"
               />
             </>
           </div>
