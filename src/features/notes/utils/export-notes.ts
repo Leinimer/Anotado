@@ -304,8 +304,10 @@ async function makeDocx(userId: string, title: string, markdown: string): Promis
     imageIndex += 1;
     const imageName = 'image' + imageIndex + '.png';
     const relationshipId = 'rIdImage' + imageIndex;
-    const cx = Math.min(maxWidthEmu, Math.round(maxWidthEmu * prepared.width / Math.max(prepared.width, prepared.height * 1.25)));
-    const cy = Math.round(cx * prepared.height / prepared.width);
+    const maxHeightEmu = Math.round(8.2 * 914400);
+    const imageScale = Math.min(maxWidthEmu / prepared.width, maxHeightEmu / prepared.height);
+    const cx = Math.round(prepared.width * imageScale);
+    const cy = Math.round(prepared.height * imageScale);
     zip.folder('word')!.folder('media')!.file(imageName, prepared.bytes);
     contentTypes.add('<Default Extension="png" ContentType="image/png"/>');
     relationships.push('<Relationship Id="' + relationshipId + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/' + imageName + '"/>');
