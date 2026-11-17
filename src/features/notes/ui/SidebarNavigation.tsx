@@ -84,6 +84,7 @@ interface SidebarNavigationProps {
   onArchiveNote?: (noteId: string) => void;
   onUnarchiveNote?: (noteId: string) => void;
   onSplitNote?: (noteId: string) => void;
+  onDuplicateNote?: (noteId: string) => void;
   onOpenNoteInNewTab?: (noteId: string) => void;
   onDetachPdfSummary?: (noteId: string) => void;
   onToggleFavoriteNote?: (noteId: string) => void;
@@ -136,6 +137,7 @@ export function SidebarNavigation({
   onArchiveNote,
   onUnarchiveNote,
   onSplitNote,
+  onDuplicateNote,
   onOpenNoteInNewTab,
   onDetachPdfSummary,
   onToggleFavoriteNote,
@@ -2519,6 +2521,7 @@ export function SidebarNavigation({
         }}
         onStartRenaming={startRenaming}
         onSplitNote={onSplitNote}
+        onDuplicateNote={onDuplicateNote}
         onOpenNoteInNewTab={onOpenNoteInNewTab}
         onDetachPdfSummary={onDetachPdfSummary}
         onArchiveNote={onArchiveNote}

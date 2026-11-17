@@ -1644,6 +1644,59 @@ export function MainLayout() {
     return newNote.id;
   }, [userId, notes, folders, tabs.length, activeTabId, isSplit, activeSplitPane]);
 
+  // Duplica a nota completa, preservando conteúdo, tags e localização na sidebar.
+  const handleDuplicateNote = useCallback(async (noteId: string) => {
+    const original = notes.find((note) => note.id === noteId);
+    if (!original || original.is_archived) return;
+
+    try {
+      await flushNoteSaves(noteId);
+      const latest = await fetchNoteContent(userId, original);
+      const content = latest.content ?? original.content ?? '';
+      const tags = latest.tags?.length ? latest.tags : (original.tags || []);
+      const position = notes.filter((note) => note.folder_id === original.folder_id && !note.is_archived).length;
+
+      const duplicate = await createNote(userId, {
+        title: original.title.trim() ? original.title + ' (cópia)' : 'Nota (cópia)',
+        folderId: original.folder_id,
+        position,
+        content,
+        tags,
+        workspaceType: original.workspace_type || 'notes',
+        parentPdfId: original.parent_pdf_id || null,
+        entryDate: original.entry_date || undefined,
+        diaryYear: original.diary_year ?? undefined,
+        diaryMonth: original.diary_month ?? undefined,
+        diaryDay: original.diary_day ?? undefined,
+      });
+
+      setNotes((previous) => [...previous, duplicate]);
+      setActiveNoteId(duplicate.id);
+      setIsNewNoteJustCreated(false);
+
+      if (isSplit) {
+        if (activeSplitPane === 'right') setRightNoteId(duplicate.id);
+        else setLeftNoteId(duplicate.id);
+      }
+
+      const activeTabIsPdf = tabs.some((tab) => tab.id === activeTabId && tab.type === 'pdf');
+      if (!activeTabId || activeTabIsPdf) {
+        const newTabId = 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+        setTabs((previous) => [...previous, { id: newTabId, noteId: duplicate.id }]);
+        setActiveTabId(newTabId);
+      } else {
+        setTabs((previous) => previous.map((tab) =>
+          tab.id === activeTabId ? { ...tab, noteId: duplicate.id } : tab
+        ));
+      }
+      setMobileSidebarOpen(false);
+    } catch (error) {
+      console.error('[MainLayout] Erro ao duplicar nota:', error);
+      window.alert('Não foi possível duplicar a nota. Tente novamente.');
+    }
+  }, [notes, userId, isSplit, activeSplitPane, tabs, activeTabId]);
+
+
   // Cria uma nova aba via botão +
   const handleNewTab = useCallback(async () => {
     if (activeNoteId) {
@@ -2073,6 +2126,7 @@ export function MainLayout() {
             onUpdateFolderColor={handleUpdateFolderColor}
             onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
             onSplitNote={handleSplitFromSidebar}
+            onDuplicateNote={handleDuplicateNote}
             onOpenNoteInNewTab={handleOpenNoteInNewTab}
             onDetachPdfSummary={handleDetachPdfSummary}
             onMoveItem={handleMoveItem}

@@ -14,6 +14,7 @@ import {
   Plus,
   Star,
   Columns2,
+  Copy,
   ExternalLink,
   FolderPlus,
   Unlink,
@@ -38,6 +39,7 @@ interface SidebarContextMenuProps {
   onCreateNoteInFolder?: (folderId: string) => void;
   onCreateSubfolder?: (parentFolderId: string) => void;
   onSplitNote?: (noteId: string) => void;
+  onDuplicateNote?: (noteId: string) => void;
   onOpenNoteInNewTab?: (noteId: string) => void;
   onDetachPdfSummary?: (noteId: string) => void;
   onArchiveNote?: (id: string) => void;
@@ -72,6 +74,7 @@ export function SidebarContextMenu({
   onCreateNoteInFolder,
   onCreateSubfolder,
   onSplitNote,
+  onDuplicateNote,
   onOpenNoteInNewTab,
   onDetachPdfSummary,
   onArchiveNote,
@@ -188,6 +191,21 @@ export function SidebarContextMenu({
           >
             <Columns2 className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
             <span>Dividir tela</span>
+          </button>
+
+          {/* Opção: Duplicar nota */}
+          <button
+            id="context-menu-duplicate-note-btn"
+            type="button"
+            onClick={() => {
+              if (onDuplicateNote && menuOpenId) onDuplicateNote(menuOpenId);
+              onClose();
+            }}
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
+            title="Duplicar nota"
+          >
+            <Copy className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
+            <span>Duplicar</span>
           </button>
 
           {/* Opção: Favoritar / Remover dos favoritos */}
