@@ -20,7 +20,7 @@ interface AppHeaderProps {
 }
 const NAV_ITEMS = [
   { id: 'notes' as const, label: 'Notas', href: '/notes' },
-  { id: 'sticky-notes' as const, label: 'Notas adesivas', href: '/sticky-notes' },
+  { id: 'sticky-notes' as const, label: 'Stick', href: '/sticky-notes' },
   { id: 'diary' as const, label: 'Diário', href: '/diary' },
 ];
 export function AppHeader({

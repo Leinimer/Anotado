@@ -2024,3 +2024,12 @@ html.dark {
   color: #d6c9bd !important;
   opacity: .82 !important;
 }
+
+
+/* Grade infinita do quadro Stick: acompanha o zoom sem limitar o viewport. */
+.sticky-board-viewport {
+  background-image: radial-gradient(#dbd4c7 1px, transparent 1px);
+}
+.dark .sticky-board-viewport {
+  background-image: radial-gradient(#1c1c1c 1px, transparent 1px);
+}

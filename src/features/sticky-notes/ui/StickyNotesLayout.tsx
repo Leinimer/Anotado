@@ -35,6 +35,9 @@ export function StickyNotesLayout() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [referenceModalOpen, setReferenceModalOpen] = useState(false);
   const [referenceSelectedText, setReferenceSelectedText] = useState('');
+  const [canvasZoom, setCanvasZoom] = useState(1);
+  const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
 
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
@@ -224,11 +227,12 @@ export function StickyNotesLayout() {
 
     // Posiciona em cascata visível na área atualmente rolada do painel.
     const viewport = boardScrollRef.current;
-    const scrollLeft = viewport?.scrollLeft ?? 0;
-    const scrollTop = viewport?.scrollTop ?? 0;
+    const rect = viewport?.getBoundingClientRect();
     const cascade = (currentNotes.length % 7) * 28;
-    const position_x = Math.round(scrollLeft + 48 + cascade);
-    const position_y = Math.round(scrollTop + 40 + cascade);
+    const centerX = rect ? (rect.width / 2 - canvasPan.x) / canvasZoom : 320;
+    const centerY = rect ? (rect.height / 2 - canvasPan.y) / canvasZoom : 240;
+    const position_x = Math.max(12, Math.round(centerX - STICKY_DEFAULT_WIDTH / 2 + cascade));
+    const position_y = Math.max(12, Math.round(centerY - 90 + cascade));
 
     setSaveState('saving');
     setSaveError(null);
@@ -254,7 +258,7 @@ export function StickyNotesLayout() {
       setSaveState('error');
       setSaveError(message);
     }
-  }, [activeColor, getNextZIndex]);
+  }, [activeColor, getNextZIndex, canvasPan, canvasZoom]);
 
   const handleChangeTitle = useCallback(
     (noteId: string, title: string) => {
@@ -366,20 +370,6 @@ export function StickyNotesLayout() {
     [notes, selectedNoteId]
   );
 
-  // Calcula extensão dinâmica do painel para permitir distribuir notas em uma área ampla.
-  const boardDimensions = useMemo(() => {
-    let maxRight = 1400;
-    let maxBottom = 900;
-    for (const note of notes) {
-      maxRight = Math.max(maxRight, note.position_x + note.width_px + 240);
-      maxBottom = Math.max(maxBottom, note.position_y + 420);
-    }
-    return {
-      minWidth: `${maxRight}px`,
-      minHeight: `${maxBottom}px`,
-    };
-  }, [notes]);
-
   return (
     <div
       id="sticky-notes-app-container"
@@ -401,7 +391,6 @@ export function StickyNotesLayout() {
           onSelectColor={handleToolbarSelectColor}
           onFormat={handleEditorFormat}
           onInsertNoteLink={handleInsertNoteLink}
-          onDeleteSelected={() => { if (selectedNoteId) void handleDeleteNote(selectedNoteId); }}
         />}
       />
 
@@ -412,27 +401,73 @@ export function StickyNotesLayout() {
         ref={boardScrollRef}
         id="sticky-notes-board-viewport"
         onPointerDown={(event) => {
-          if (event.target === event.currentTarget || (event.target as HTMLElement).dataset.stickyCanvas === 'true') {
+          const target = event.target as HTMLElement;
+          const isBackground = target === event.currentTarget || target.dataset.stickyCanvas === 'true';
+          if (event.ctrlKey && isBackground && event.button === 0) {
+            event.preventDefault();
             setSelectedNoteId(null);
+            setIsPanning(true);
+            const startX = event.clientX;
+            const startY = event.clientY;
+            const initial = canvasPan;
+            const move = (pointer: PointerEvent) => {
+              setCanvasPan({ x: initial.x + pointer.clientX - startX, y: initial.y + pointer.clientY - startY });
+            };
+            const finish = () => {
+              setIsPanning(false);
+              window.removeEventListener('pointermove', move);
+              window.removeEventListener('pointerup', finish);
+              window.removeEventListener('pointercancel', finish);
+            };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', finish);
+            window.addEventListener('pointercancel', finish);
+            return;
           }
+          if (isBackground) setSelectedNoteId(null);
         }}
-        className="flex-1 min-h-0 min-w-0 overflow-auto relative bg-[#f7f4ed] dark:bg-[#050505]"
+        onWheel={(event) => {
+          if (!event.ctrlKey) return;
+          event.preventDefault();
+          const rect = event.currentTarget.getBoundingClientRect();
+          const pointerX = event.clientX - rect.left;
+          const pointerY = event.clientY - rect.top;
+          const nextZoom = Math.max(0.15, Math.min(2.5, canvasZoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1)));
+          const worldX = (pointerX - canvasPan.x) / canvasZoom;
+          const worldY = (pointerY - canvasPan.y) / canvasZoom;
+          setCanvasPan({ x: pointerX - worldX * nextZoom, y: pointerY - worldY * nextZoom });
+          setCanvasZoom(nextZoom);
+        }}
+        className="flex-1 min-h-0 min-w-0 overflow-hidden relative bg-[#f7f4ed] dark:bg-[#050505] sticky-board-viewport"
+        style={{
+          backgroundSize: `${24 * canvasZoom}px ${24 * canvasZoom}px`,
+          backgroundPosition: `${canvasPan.x}px ${canvasPan.y}px`,
+          cursor: isPanning ? 'grabbing' : undefined,
+        }}
       >
         <div
           data-sticky-canvas="true"
-          style={boardDimensions}
-          className="relative w-full h-full sticky-board-grid"
+          style={{
+            width: '100000px',
+            height: '100000px',
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            transform: `translate(${canvasPan.x}px, ${canvasPan.y}px) scale(${canvasZoom})`,
+            transformOrigin: '0 0',
+          }}
+          className="relative"
         >
           {isLoading ? (
             <div className="sticky inset-0 flex h-[calc(100vh-110px)] w-full items-center justify-center text-xs text-[#7f756e] dark:text-[#a1a1aa]">
               <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              <span>Carregando notas adesivas...</span>
+              <span>Carregando Stick...</span>
             </div>
           ) : loadError ? (
             <div className="sticky inset-0 flex h-[calc(100vh-110px)] w-full items-center justify-center p-6">
               <div className="max-w-md rounded-2xl border border-[#e4d5c7] dark:border-[#3d2626] bg-white dark:bg-[#141010] p-5 text-center shadow-sm space-y-2">
                 <p className="text-sm font-semibold text-[#ba1a1a] dark:text-[#fca5a5]">
-                  Não foi possível carregar as notas adesivas
+                  Não foi possível carregar o Stick
                 </p>
                 <p className="text-xs text-[#68594d] dark:text-[#a1a1aa] leading-relaxed">
                   {loadError}
@@ -449,10 +484,10 @@ export function StickyNotesLayout() {
                   <StickyNoteIcon className="w-7 h-7 stroke-[1.6]" />
                 </div>
                 <h2 className="font-serif-note font-bold text-xl text-[#1b1c19] dark:text-[#ffffff]">
-                  Quadro de notas adesivas
+                  Stick
                 </h2>
                 <p className="text-xs text-[#7f756e] dark:text-[#a1a1aa] leading-relaxed">
-                  Organize lembretes, ideias rápidas e listas visualmente. Crie sua primeira nota e arraste livremente pelo painel.
+                  Organize lembretes, ideias rápidas e listas visualmente. Crie seu primeiro Stick e arraste livremente pelo espaço.
                 </p>
                 <div className="pt-1">
                   <button
@@ -461,7 +496,7 @@ export function StickyNotesLayout() {
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#68594d] hover:bg-[#53463c] dark:bg-[#2e2620] dark:border dark:border-[#4a3b2c] dark:hover:bg-[#3d3229] text-white text-xs font-medium transition-colors cursor-pointer shadow-xs"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>Criar primeira nota adesiva</span>
+                    <span>Criar primeiro Stick</span>
                   </button>
                 </div>
               </div>
