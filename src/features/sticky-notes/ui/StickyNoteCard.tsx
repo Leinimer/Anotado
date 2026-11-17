@@ -3,7 +3,7 @@ import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {GripHorizontal,Trash2} from 'lucide-react';
 import {STICKY_MAX_WIDTH,STICKY_MIN_WIDTH,StickyNote,getStickyColorTheme} from '../types';
 export type StickyEditorAction='bold'|'italic'|'underline'|'undo'|'redo'|'bullet'|'checklist'|'outdent'|'indent';
-export interface StickyEditorActions{format:(action:StickyEditorAction)=>void;prepareNoteReference:()=>string;insertNoteLink:(id:string,title:string)=>void;}
+export interface StickyEditorActions{format:(action:StickyEditorAction)=>void;prepareNoteReference:()=>string;insertNoteLink:(id:string,title:string,type?:'note'|'sticky'|'diary')=>void;}
 interface Props{note:StickyNote;isSelected:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeLive:(id:string,width:number)=>void;onResizeEnd:(id:string,width:number)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;}
 const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const toHtml=(v:string)=>!v?'<p><br></p>':/^\s*</.test(v)?v:v.split('\n').map(x=>'<p>'+(esc(x)||'<br>')+'</p>').join('');

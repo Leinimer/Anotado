@@ -64,14 +64,22 @@ export function StickyNotesLayout() {
     setReferenceSelectedText(selectedText);
     setReferenceModalOpen(true);
   }, [selectedNoteId]);
-  const handleChooseReferencedNote = useCallback((note: ExtendedNote) => {
-    if (selectedNoteId) editorActionsRef.current.get(selectedNoteId)?.insertNoteLink(note.id, note.title || 'Sem título');
+  const handleChooseReferencedNote = useCallback((target: { id: string; title: string; type: 'note' | 'sticky' | 'diary' }) => {
+    if (selectedNoteId) editorActionsRef.current.get(selectedNoteId)?.insertNoteLink(target.id, target.title || 'Sem título', target.type);
     setReferenceModalOpen(false);
     setReferenceSelectedText('');
   }, [selectedNoteId]);
-  const handleOpenLinkedNote = useCallback((id: string) => {
-    setSelectedNoteId(id);
-    requestAnimationFrame(() => document.getElementById('sticky-note-' + id)?.scrollIntoView({behavior:'smooth',block:'center',inline:'center'}));
+  const handleOpenLinkedNote = useCallback((id: string, type: 'note' | 'sticky' | 'diary') => {
+    if (type === 'sticky') {
+      sessionStorage.setItem('anotado_active_sticky_id', id);
+      window.location.href = '/sticky-notes';
+    } else if (type === 'diary') {
+      sessionStorage.setItem('anotado_active_diary_id', id);
+      window.location.href = '/diary';
+    } else {
+      sessionStorage.setItem('anotado_active_notes_id', id);
+      window.location.href = '/notes';
+    }
   }, []);
 
   // Carrega usuário autenticado e notas adesivas do Supabase.
@@ -92,6 +100,12 @@ export function StickyNotesLayout() {
           const loaded = await fetchStickyNotes(authUser.userId);
           if (!isMounted) return;
           setNotes(loaded);
+          const linkedStickyId = sessionStorage.getItem('anotado_active_sticky_id');
+          if (linkedStickyId && loaded.some(note => note.id === linkedStickyId)) {
+            setSelectedNoteId(linkedStickyId);
+            sessionStorage.removeItem('anotado_active_sticky_id');
+            requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById('sticky-note-' + linkedStickyId)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })));
+          }
         }
       } catch (error) {
         if (!isMounted) return;
@@ -391,7 +405,7 @@ export function StickyNotesLayout() {
         />}
       />
 
-      <StickyNoteReferenceModal isOpen={referenceModalOpen} onClose={() => setReferenceModalOpen(false)} onSelectNote={handleChooseReferencedNote} userId={userId} selectedText={referenceSelectedText} />
+      <StickyNoteReferenceModal isOpen={referenceModalOpen} onClose={() => setReferenceModalOpen(false)} onSelectTarget={handleChooseReferencedNote} userId={userId} selectedText={referenceSelectedText} />
 
       {/* Área livre do quadro de post-its, sem sidebar */}
       <main
