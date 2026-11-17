@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Edit2,
   CheckSquare,
@@ -89,7 +90,12 @@ export function SidebarContextMenu({
   colorSubmenuTimerRef,
 }: SidebarContextMenuProps) {
   const [showExportSubmenu, setShowExportSubmenu] = useState(false);
-  useEffect(() => setShowExportSubmenu(false), [menuOpenId]);
+  const [exportSubmenuPosition, setExportSubmenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    setShowExportSubmenu(false);
+    setExportSubmenuPosition(null);
+  }, [menuOpenId]);
 
   if (!menuOpenId || !menuPosition) return null;
 
@@ -412,19 +418,33 @@ export function SidebarContextMenu({
 
       {/* Exportar nota ou toda a árvore de uma pasta */}
       {(menuItemType === 'note' || menuItemType === 'folder') && (
-        <div
-          className="relative"
-          onMouseEnter={() => setShowExportSubmenu(true)}
-          onMouseLeave={() => setShowExportSubmenu(false)}
-        >
+        <div className="relative">
           <button
+            ref={exportButtonRef}
             id="context-menu-export-btn"
             type="button"
             aria-haspopup="menu"
             aria-expanded={showExportSubmenu}
             onClick={(event) => {
               event.stopPropagation();
-              setShowExportSubmenu((current) => !current);
+              if (showExportSubmenu) {
+                setShowExportSubmenu(false);
+                setExportSubmenuPosition(null);
+                return;
+              }
+              const rect = exportButtonRef.current?.getBoundingClientRect();
+              if (rect) {
+                const submenuWidth = 160;
+                const submenuHeight = 116;
+                const gap = 8;
+                const openRight = rect.right + gap + submenuWidth <= window.innerWidth - 8;
+                const left = openRight
+                  ? rect.right + gap
+                  : Math.max(8, rect.left - gap - submenuWidth);
+                const top = Math.max(8, Math.min(rect.top, window.innerHeight - submenuHeight - 8));
+                setExportSubmenuPosition({ top, left });
+              }
+              setShowExportSubmenu(true);
             }}
             className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
             title="Exportar"
@@ -436,16 +456,18 @@ export function SidebarContextMenu({
             <ChevronRight className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" />
           </button>
 
-          {showExportSubmenu && (
+          {showExportSubmenu && exportSubmenuPosition && typeof document !== 'undefined' && createPortal(
             <div
               id="context-menu-export-submenu"
               role="menu"
               onClick={(event) => event.stopPropagation()}
-              className={`absolute top-0 z-[60] min-w-[140px] bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 ${
-                menuPosition && menuPosition.left + 175 + 145 > (typeof window !== 'undefined' ? window.innerWidth : 1000)
-                  ? 'right-full mr-1.5'
-                  : 'left-full ml-1.5'
-              }`}
+              style={{
+                position: 'fixed',
+                top: exportSubmenuPosition.top,
+                left: exportSubmenuPosition.left,
+                zIndex: 10000,
+              }}
+              className="min-w-[140px] bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-2xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100"
             >
               {([
                 { format: 'pdf' as const, label: 'PDF' },
@@ -461,6 +483,7 @@ export function SidebarContextMenu({
                       onExportItem(menuOpenId, menuItemType, item.format);
                     }
                     setShowExportSubmenu(false);
+                    setExportSubmenuPosition(null);
                     onClose();
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
@@ -469,7 +492,8 @@ export function SidebarContextMenu({
                   <span>{item.label}</span>
                 </button>
               ))}
-            </div>
+            </div>,
+            document.body
           )}
         </div>
       )}
