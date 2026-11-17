@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { Note } from '../types';
-import { exportNonArchivedNotesToZip, ExportProgress } from '../utils/export-notes';
+import { exportNonArchivedNotesToZip, ExportProgress, ExportFormat } from '../utils/export-notes';
 import { usePwa } from '@/src/features/pwa/PwaProvider';
 import { SettingsSharingTab } from '@/src/features/diary/ui/SettingsSharingTab';
 import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
@@ -75,6 +75,7 @@ export function SettingsModal({
   // Estados da Aba: Exportar Notas
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportFormats, setExportFormats] = useState<ExportFormat[]>(['pdf', 'docx', 'md']);
 
   // Carrega e-mail atual do Supabase caso não fornecido
   useEffect(() => {
@@ -233,40 +234,17 @@ export function SettingsModal({
     }
   };
 
-  // Handler: Exportar Notas
+  // Handler: Exportar notas nos formatos selecionados
   const handleExportNotes = async () => {
     if (isExporting) return;
-    setIsExporting(true);
-    setExportProgress({
-      current: 0,
-      total: 0,
-      status: 'fetching',
-    });
-
+    if (!exportFormats.length) { setExportProgress({ current: 0, total: 0, status: 'error', errorMessage: 'Selecione pelo menos um formato.' }); return; }
+    setIsExporting(true); setExportProgress({ current: 0, total: 0, status: 'fetching' });
     try {
-      const result = await exportNonArchivedNotesToZip(userId, notes, (progress) => {
-        setExportProgress(progress);
-      });
-
-      if (!result.success) {
-        setExportProgress({
-          current: 0,
-          total: 0,
-          status: 'error',
-          errorMessage: result.error || 'Erro ao exportar notas.',
-        });
-      }
+      const result = await exportNonArchivedNotesToZip(userId, notes, exportFormats, setExportProgress);
+      if (!result.success) setExportProgress({ current: 0, total: 0, status: 'error', errorMessage: result.error || 'Falha ao exportar notas.' });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Erro ao exportar notas.';
-      setExportProgress({
-        current: 0,
-        total: 0,
-        status: 'error',
-        errorMessage: message,
-      });
-    } finally {
-      setIsExporting(false);
-    }
+      setExportProgress({ current: 0, total: 0, status: 'error', errorMessage: err instanceof Error ? err.message : 'Erro inesperado ao exportar.' });
+    } finally { setIsExporting(false); }
   };
 
   const nonArchivedCount = notes.filter((n) => !n.is_archived && n.folder_id !== 'system-archive-folder').length;
@@ -560,103 +538,27 @@ export function SettingsModal({
           {activeTab === 'export' && (
             <div className="space-y-4">
               <div className="p-4 bg-[#fbfaf8] dark:bg-[#24211f] border border-[#e4e2dd] dark:border-[#3b3530] rounded-2xl space-y-2">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-[#68594d]" />
-                  <h3 className="font-serif-note font-bold text-sm text-[#1b1c19] dark:text-[#eee8e2]">
-                    Exportar todas as notas
-                  </h3>
-                </div>
-                <p className="text-xs text-[#7f756e] dark:text-[#a99e95] dark:text-[#b5aaa1] leading-relaxed">
-                  Baixe todas as suas notas não arquivadas em arquivos Markdown padrão (.md)
-                  empacotados em um único arquivo compactado (.zip).
-                </p>
-                <div className="text-[11px] text-[#4e453f] dark:text-[#c9beb5] dark:text-[#c9beb5] pt-1 font-medium">
-                  {nonArchivedCount === 1
-                    ? '1 nota disponível para exportação.'
-                    : `${nonArchivedCount} notas disponíveis para exportação.`}
-                </div>
+                <div className="flex items-center gap-2"><FileText className="w-4 h-4 text-[#68594d]" /><h3 className="font-serif-note font-bold text-sm text-[#1b1c19] dark:text-[#eee8e2]">Exportar documentos</h3></div>
+                <p className="text-xs text-[#7f756e] dark:text-[#b5aaa1] leading-relaxed">Selecione os formatos desejados. Um único ZIP será criado, com uma pasta para cada formato.</p>
+                <div className="text-[11px] text-[#4e453f] dark:text-[#c9beb5] pt-1 font-medium">{nonArchivedCount} documentos disponíveis para exportação.</div>
               </div>
-
-              {/* Status e Progresso da Exportação */}
-              {exportProgress && (
-                <div className="space-y-2">
-                  {exportProgress.status === 'processing' && (
-                    <div className="p-3 bg-[#f0eee9] dark:bg-[#302c28] dark:bg-[#302c28] rounded-2xl space-y-2 text-xs">
-                      <div className="flex items-center justify-between text-[#4e453f] dark:text-[#c9beb5]">
-                        <span className="flex items-center gap-1.5">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#68594d]" />
-                          Exportando notas...
-                        </span>
-                        <span className="font-mono text-[11px]">
-                          {exportProgress.current} de {exportProgress.total}
-                        </span>
-                      </div>
-                      {exportProgress.currentNoteTitle && (
-                        <div className="text-[11px] text-[#7f756e] dark:text-[#a99e95] truncate">
-                          Processando: {exportProgress.currentNoteTitle}
-                        </div>
-                      )}
-                      {/* Barra de Progresso Visual */}
-                      <div className="w-full h-1.5 bg-[#e4e2dd] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#68594d] transition-all duration-150"
-                          style={{
-                            width: `${(exportProgress.current / Math.max(exportProgress.total, 1)) * 100}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {exportProgress.status === 'zipping' && (
-                    <div className="p-3 bg-[#f0eee9] dark:bg-[#302c28] dark:bg-[#302c28] rounded-2xl flex items-center gap-2 text-xs text-[#4e453f] dark:text-[#c9beb5]">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#68594d]" />
-                      <span>Gerando arquivo compactado (.zip)...</span>
-                    </div>
-                  )}
-
-                  {exportProgress.status === 'completed' && (
-                    <div className="p-3 bg-[#eef8f2] border border-[#a3e635]/40 text-[#166534] rounded-2xl flex items-center gap-2 text-xs">
-                      <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      <span>
-                        Exportação concluída! {exportProgress.total} notas exportadas com sucesso.
-                      </span>
-                    </div>
-                  )}
-
-                  {exportProgress.status === 'error' && (
-                    <div className="p-3 bg-[#fceded] border border-[#ba1a1a]/30 text-[#ba1a1a] rounded-2xl flex items-start gap-2 text-xs">
-                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-semibold">Erro ao exportar:</div>
-                        <div>{exportProgress.errorMessage}</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="pt-2">
-                <button
-                  type="button"
-                  id="settings-export-notes-btn"
-                  onClick={handleExportNotes}
-                  disabled={isExporting || nonArchivedCount === 0}
-                  className="w-full py-2.5 px-4 bg-[#68594d] hover:bg-[#4a3728] text-white text-xs font-medium rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs"
-                >
-                  {isExporting ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Exportando notas...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-3.5 h-3.5" />
-                      Exportar notas (.zip)
-                    </>
-                  )}
-                </button>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {([{ value: 'pdf' as const, label: 'PDF', detail: 'Leitura e impressão' }, { value: 'docx' as const, label: 'Word', detail: 'Edição no Word' }, { value: 'md' as const, label: 'Markdown', detail: 'Arquivo .md original' }]).map((format) => {
+                  const selected = exportFormats.includes(format.value);
+                  return <label key={format.value} className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${selected ? 'border-[#8b7767] bg-[#f4eee8] dark:bg-[#342d28] dark:border-[#8b7767]' : 'border-[#e4e2dd] dark:border-[#403a35] bg-white dark:bg-[#1c1a18]'}`}>
+                    <input type="checkbox" checked={selected} disabled={isExporting} onChange={(event) => setExportFormats(current => event.target.checked ? [...current, format.value] : current.filter(item => item !== format.value))} className="mt-0.5 accent-[#68594d]" />
+                    <span><span className="block text-xs font-semibold text-[#1b1c19] dark:text-[#eee8e2]">{format.label}</span><span className="block text-[10px] text-[#7f756e] dark:text-[#aaa099] mt-0.5">{format.detail}</span></span>
+                  </label>;
+                })}
               </div>
+              {exportProgress && <div className="space-y-2">
+                {(exportProgress.status === 'processing' || exportProgress.status === 'zipping' || exportProgress.status === 'fetching') && <div className="p-3 bg-[#f0eee9] dark:bg-[#302c28] rounded-2xl text-xs text-[#4e453f] dark:text-[#c9beb5] flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin text-[#68594d]" /><span>{exportProgress.status === 'zipping' ? 'Compactando ZIP...' : exportProgress.status === 'fetching' ? 'Preparando exportação...' : 'Exportando: ' + (exportProgress.currentNoteTitle || 'documentos')}</span>{exportProgress.status === 'processing' && <span className="ml-auto font-mono">{exportProgress.current}/{exportProgress.total}</span>}</div>}
+                {exportProgress.status === 'completed' && <div className="p-3 bg-[#eef8f2] border border-[#a3d8b5] text-[#166534] rounded-xl text-xs flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> ZIP criado com {exportProgress.total} documentos.</div>}
+                {exportProgress.status === 'error' && <div className="p-3 bg-[#fceded] border border-[#ba1a1a]/30 text-[#ba1a1a] rounded-xl text-xs flex items-start gap-2"><AlertCircle className="w-4 h-4 shrink-0" /><span>{exportProgress.errorMessage}</span></div>}
+              </div>}
+              <button type="button" id="settings-export-notes-btn" onClick={handleExportNotes} disabled={isExporting || nonArchivedCount === 0 || exportFormats.length === 0} className="w-full py-2.5 px-4 bg-[#68594d] hover:bg-[#4a3728] text-white text-xs font-medium rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs">
+                {isExporting ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Gerando ZIP...</> : <><Download className="w-3.5 h-3.5" /> Exportar selecionados (.zip)</>}
+              </button>
             </div>
           )}
 
