@@ -1973,3 +1973,19 @@ html.dark {
 .dark #sidebar-navigation-container .border-b {
   border-color: #1a1a1a !important;
 }
+
+/* ==========================================================================
+   QUADRO DE NOTAS ADESIVAS (POST-ITS)
+   ========================================================================== */
+.sticky-board-grid {
+  background-color: #f7f4ed;
+  background-image: radial-gradient(#dbd4c7 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.dark .sticky-board-grid {
+  background-color: #050505;
+  background-image: radial-gradient(#1c1c1c 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+

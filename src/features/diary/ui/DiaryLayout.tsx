@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation';
 import { Calendar, Plus, Menu } from 'lucide-react';
 import { DiarySidebarNavigation } from './DiarySidebarNavigation';
+import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 import { NoteCanvas } from '@/src/features/notes/ui/NoteCanvas';
 import { CreateDiaryEntryModal } from '@/src/features/notes/ui/CreateDiaryEntryModal';
 import { CreateDiaryYearModal } from '@/src/features/notes/ui/CreateDiaryYearModal';
@@ -605,21 +606,38 @@ export function DiaryLayout() {
   const todayReadable = useMemo(() => formatDateReadable(getLocalDateString()), []);
 
   return (
-    <div id="diary-layout-root" className="flex h-screen w-screen overflow-hidden bg-[#faf8f5] dark:bg-[#000000]">
-      {/* Botão Hambúrguer Mobile */}
-      <div className="md:hidden fixed top-3 left-3 z-30">
-        <button
-          id="diary-mobile-menu-toggle-btn"
-          type="button"
-          onClick={() => setMobileSidebarOpen(true)}
-          className="p-2 bg-[#fbf9f4] dark:bg-[#111111] border border-[#eae8e3] dark:border-[#222222] rounded-xl shadow-xs text-[#1b1c19] dark:text-[#ffffff] hover:bg-[#eae8e3] dark:hover:bg-[#1a1a1a] transition-colors cursor-pointer"
-          aria-label="Abrir Menu do Diário"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-      </div>
+    <div
+      id="diary-layout-root"
+      className="flex flex-col h-screen w-screen min-h-0 min-w-0 overflow-hidden bg-[#faf8f5] dark:bg-[#000000]"
+    >
+      <AppHeader
+        activeSection="diary"
+        userId={userId}
+        userEmail={userEmail}
+        notes={notes}
+        onBeforeNavigate={() => {
+          void flushAllPendingSaves();
+        }}
+        onOpenShareModal={() => setIsShareModalOpen(true)}
+      />
 
-      {/* Desktop Sidebar */}
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
+        {/* Botão Hambúrguer Mobile */}
+        {activeNote && (
+          <div className="md:hidden absolute top-3 left-3 z-20">
+            <button
+              id="diary-mobile-menu-toggle-btn"
+              type="button"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="p-2 bg-[#fbf9f4] dark:bg-[#111111] border border-[#eae8e3] dark:border-[#222222] rounded-xl shadow-xs text-[#1b1c19] dark:text-[#ffffff] hover:bg-[#eae8e3] dark:hover:bg-[#1a1a1a] transition-colors cursor-pointer"
+              aria-label="Abrir Menu do Diário"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+
+        {/* Desktop Sidebar */}
       <div className="hidden md:flex shrink-0 h-full">
         <DiarySidebarNavigation
           folders={folders}
@@ -764,6 +782,7 @@ export function DiaryLayout() {
           </div>
         </main>
       )}
+      </div>
 
       {/* Modais do Diário */}
       <CreateDiaryEntryModal

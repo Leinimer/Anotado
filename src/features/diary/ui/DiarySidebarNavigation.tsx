@@ -11,7 +11,6 @@ import {
   Search,
   X,
   User,
-  Settings,
   LogOut,
   Trash2,
   Edit2,
@@ -20,9 +19,6 @@ import {
   Tag,
 } from 'lucide-react';
 import { Folder, Note } from '@/src/features/notes/types';
-import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
-import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
-import { SettingsModal } from '@/src/features/notes/ui/SettingsModal';
 import { SyncStatusIndicator } from '@/src/features/notes/ui/SyncStatusIndicator';
 import { createClient } from '@/src/features/auth/api/supabase-client';
 import { DiaryShare } from '../api/diary-sharing-api';
@@ -91,7 +87,6 @@ export function DiarySidebarNavigation({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const shareMenuRef = useRef<HTMLDivElement>(null);
   const [monthFilter, setMonthFilter] = useState<Record<string, 'all' | 'created'>>({});
@@ -587,38 +582,14 @@ export function DiarySidebarNavigation({
       id="diary-sidebar-container"
       className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] dark:bg-[#000000] border-r border-[#eae8e3] dark:border-[#1a1a1a] flex flex-col justify-between p-3 sm:p-4 pt-1.5 sm:pt-2 select-none shrink-0 relative"
     >
-      {/* Top Header: Logo + Switch Discreta + Compartilhamento */}
+      {/* Barra superior compacta da sidebar do Diário: Compartilhamento e fechamento mobile */}
       <div className="space-y-1.5 shrink-0">
-        <div className="flex items-center py-0.5 px-1 gap-2">
-          <div className="flex flex-1 min-w-0 items-center justify-center">
-            <>
-              <img
-                src="/logo-anotado-sidebar-light.png"
-                alt="Anotado"
-                width={290}
-                height={189}
-                draggable={false}
-                className="w-[81.2px] h-auto object-contain dark:hidden"
-              />
-              <img
-                src="/logo-anotado-sidebar-light.png"
-                alt=""
-                aria-hidden="true"
-                width={290}
-                height={189}
-                draggable={false}
-                className="hidden w-[81.2px] h-auto object-contain brightness-0 invert dark:block"
-              />
-            </>
-          </div>
+        <div className="flex items-center justify-between py-0.5 px-1 gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#7f756e] dark:text-[#a1a1aa]">
+            Diário
+          </span>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Chavezinha / Switch Discreta e Elegante */}
-            <WorkspaceSwitch currentWorkspace="diary" onToggle={onToggleWorkspace} />
-
-            {/* Botão de Troca de Tema (Lua/Sol) ao lado de Notas / Diário */}
-            <ThemeToggle />
-
             {/* Botão Circular de Compartilhamento do Diário */}
             <div className="relative" ref={shareMenuRef}>
               <button
@@ -690,6 +661,17 @@ export function DiarySidebarNavigation({
                 </div>
               )}
             </div>
+
+            {onCloseMobile && (
+              <button
+                type="button"
+                onClick={onCloseMobile}
+                className="p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg md:hidden cursor-pointer"
+                aria-label="Fechar Menu Lateral"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1129,24 +1111,14 @@ export function DiarySidebarNavigation({
           </button>
         </div>
 
-        {/* Rodapé do Usuário e Configurações */}
+        {/* Rodapé do Usuário e Logout */}
         <div className="flex items-center justify-between px-1 pt-1 text-xs text-[#7f756e] dark:text-[#a1a1aa]">
-          <div className="flex items-center gap-1.5 truncate max-w-[150px]" title={userEmail || ''}>
+          <div className="flex items-center gap-1.5 truncate max-w-[180px]" title={userEmail || ''}>
             <User className="w-3.5 h-3.5 shrink-0 text-[#68594d] dark:text-[#a1a1aa]" />
             <span className="truncate font-sans-ui dark:text-[#d1d5db]">{userEmail || 'Conta'}</span>
           </div>
 
           <div className="flex items-center gap-1">
-            <button
-              id="diary-settings-btn"
-              type="button"
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-1 hover:bg-[#eae8e3] dark:hover:bg-[#141414] rounded-lg transition-colors text-[#7f756e] hover:text-[#1b1c19] dark:text-[#a1a1aa] dark:hover:text-[#ffffff] cursor-pointer"
-              title="Configurações"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-
             <button
               id="diary-logout-btn"
               type="button"
@@ -1306,15 +1278,6 @@ export function DiarySidebarNavigation({
         </div>
       )}
 
-      {/* Modal de Configurações */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        userId={userId}
-        notes={notes}
-        userEmail={userEmail || ''}
-        onOpenShareModal={onOpenShareModal}
-      />
     </aside>
   );
 }

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarNavigation } from '@/src/features/notes/ui/SidebarNavigation';
 import { NoteCanvas } from '@/src/features/notes/ui/NoteCanvas';
+import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { Folder, Note } from '@/src/features/notes/types';
 import {
@@ -70,6 +71,7 @@ export function MainLayout() {
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>('');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
 
@@ -250,6 +252,9 @@ export function MainLayout() {
         const { data: sessionData } = await supabase.auth.getSession();
         if (sessionData?.session?.user?.id) {
           currentUserId = sessionData.session.user.id;
+          if (sessionData.session.user.email && isMounted) {
+            setUserEmail(sessionData.session.user.email);
+          }
         }
       } catch (e) {
         console.warn('[MainLayout] Aviso ao obter sessão local:', e);
@@ -261,6 +266,9 @@ export function MainLayout() {
           const { data: userData } = await supabase.auth.getUser();
           if (userData?.user?.id) {
             currentUserId = userData.user.id;
+            if (userData.user.email && isMounted) {
+              setUserEmail(userData.user.email);
+            }
           }
         } catch (e) {
           console.warn('[MainLayout] Aviso ao verificar usuário online:', e);
@@ -2097,6 +2105,16 @@ export function MainLayout() {
       id="main-app-container"
       className="flex flex-col h-screen w-screen min-h-0 min-w-0 overflow-hidden bg-[#fbf9f4] font-sans-ui"
     >
+      <AppHeader
+        activeSection="notes"
+        userId={userId}
+        userEmail={userEmail}
+        notes={notes}
+        onBeforeNavigate={() => {
+          void flushAllPendingSaves();
+        }}
+      />
+
       {/* Workspace Area: Sidebar + Canvas */}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
         {/* Desktop Sidebar */}

@@ -14,7 +14,6 @@ import {
   Tag,
   X,
   LogOut,
-  Settings,
   User,
   MoreHorizontal,
   Trash2,
@@ -30,7 +29,6 @@ import {
   Star,
   FileUp,
 } from 'lucide-react';
-import { SettingsModal } from './SettingsModal';
 import { TagsModal } from './TagsModal';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import { AddPdfModal } from './AddPdfModal';
@@ -51,8 +49,6 @@ import {
 import { extractAllUniqueTags, noteHasTag } from '../utils/hashtag-extractor';
 import { exportNotesFromContext, ExportFormat } from '../utils/export-notes';
 import { buildFolderTree, filterTree, wouldCreateCycle } from '../utils/tree-builder';
-import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
-import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
 import {
   SEARCH_MODES,
   DropTargetInfo,
@@ -167,7 +163,6 @@ export function SidebarNavigation({
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('demo-user');
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isAddPdfModalOpen, setIsAddPdfModalOpen] = useState(false);
   const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2', SYSTEM_FAVORITES_FOLDER_ID]));
 
@@ -2053,55 +2048,23 @@ export function SidebarNavigation({
       id="sidebar-navigation-container"
       className="w-full md:w-64 lg:w-72 h-full min-h-0 bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 pt-1.5 sm:pt-2 select-none shrink-0 overflow-hidden"
     >
-      {/* Top Header: Brand Logo Centered in Sidebar & Search Bar */}
-      <div className="space-y-1.5">
-        <div className="flex items-center py-0.5 px-1 gap-2">
-          <div className="flex flex-1 min-w-0 items-center justify-center">
-            <>
-              <img
-                src="/logo-anotado-sidebar-light.png"
-                alt="Anotado"
-                width={290}
-                height={189}
-                draggable={false}
-                className="w-[81.2px] h-auto object-contain dark:hidden"
-              />
-              <img
-                src="/logo-anotado-sidebar-light.png"
-                alt=""
-                aria-hidden="true"
-                width={290}
-                height={189}
-                draggable={false}
-                className="hidden w-[81.2px] h-auto object-contain brightness-0 invert dark:block"
-              />
-            </>
+      {/* Top Header (mobile close only) & Search Bar */}
+      <div className="space-y-1.5 pt-1">
+        {onCloseMobile && (
+          <div className="flex items-center justify-between px-1 pb-0.5 md:hidden">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#7f756e] dark:text-[#a1a1aa]">
+              Notas
+            </span>
+            <button
+              id="sidebar-close-mobile-btn"
+              onClick={onCloseMobile}
+              className="p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg cursor-pointer"
+              aria-label="Fechar Menu Lateral"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Chavezinha / Switch Discreta e Elegante ao lado da Logo */}
-            {(onToggleWorkspace || onWorkspaceChange) && (
-              <WorkspaceSwitch
-                currentWorkspace={currentWorkspace}
-                onToggle={onToggleWorkspace || (() => onWorkspaceChange && onWorkspaceChange(currentWorkspace === 'diary' ? 'notes' : 'diary'))}
-              />
-            )}
-
-            {/* Botão de Troca de Tema (Lua/Sol) ao lado do botão Notas / Diário */}
-            <ThemeToggle />
-
-            {onCloseMobile && (
-              <button
-                id="sidebar-close-mobile-btn"
-                onClick={onCloseMobile}
-                className="p-1.5 text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#eae8e3] dark:text-[#a1a1aa] dark:hover:text-white dark:hover:bg-[#1a1a1a] rounded-lg md:hidden cursor-pointer"
-                aria-label="Fechar Menu Lateral"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
+        )}
 
         {/* Search Bar with Mode Selector */}
         <div className="relative" ref={searchModeMenuRef}>
@@ -2461,25 +2424,14 @@ export function SidebarNavigation({
           </button>
         </div>
 
-        {/* User Info & Settings & Logout */}
+        {/* User Info & Logout */}
         <div className="flex items-center justify-between px-1 pt-1 text-xs text-[#7f756e]">
-          <div className="flex items-center gap-1.5 truncate max-w-[150px]" title={userEmail || ''}>
+          <div className="flex items-center gap-1.5 truncate max-w-[180px]" title={userEmail || ''}>
             <User className="w-3.5 h-3.5 shrink-0 text-[#68594d]" />
             <span className="truncate font-sans-ui">{userEmail || 'Conta'}</span>
           </div>
 
           <div className="flex items-center gap-1">
-            <button
-              id="sidebar-settings-btn"
-              type="button"
-              onClick={() => setShowSettingsModal(true)}
-              className="min-w-[44px] min-h-[44px] p-2 flex items-center justify-center hover:bg-[#eae8e3] hover:text-[#1b1c19] text-[#4e453f] rounded-xl transition-colors cursor-pointer"
-              title="Configurações"
-              aria-label="Configurações"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-
             <button
               id="sidebar-logout-btn"
               type="button"
@@ -2619,15 +2571,6 @@ export function SidebarNavigation({
         selectedItemIds={new Set(selectedItems.keys())}
         onClose={() => setShowBatchMoveDialog(false)}
         onSubmit={(targetFolderId) => handleBatchMoveSubmit(targetFolderId)}
-      />
-
-      {/* Modal de Configurações da Aplicação */}
-      <SettingsModal
-        isOpen={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
-        userId={userId}
-        notes={notes}
-        userEmail={userEmail || ''}
       />
 
       {/* Modal de Todas as Etiquetas */}

@@ -464,12 +464,14 @@ Esta seção é um mapa rápido da base. Antes de alterar um item, leia o seu c�
 - **auth-errors.ts**: validação e mensagens de auth.
 
 ### Layouts/workspaces
+- **AppHeader.tsx**: cabeçalho global com logo, navegação entre **Notas** (`/notes`), **Notas adesivas** (`/sticky-notes`) e **Diário** (`/diary`), além do alternador de tema e botão de configurações.
 - **MainLayout.tsx**: estado de Notas, carregamento, handlers CRUD e integração sidebar/editor/sync.
-- **WorkspaceSwitch.tsx**: alternância Notas/Diário.
+- **WorkspaceSwitch.tsx**: alternância Notas/Diário (legado, substituído na barra superior pelo `AppHeader`).
 - **DiaryLayout.tsx**: estado/carregamento e handlers do Diário.
 - **SharedDiaryLayout.tsx**: carregamento e eventos da visualização compartilhada.
 - **DiarySidebarNavigation.tsx**: árvore de ano/mês/dia, filtros, menus e movimento.
 - **SharedDiarySidebarNavigation.tsx**: navegação compartilhada.
+- **src/features/sticky-notes/** e **app/sticky-notes/page.tsx**: quadro independente sem sidebar para notas adesivas (post-its) persistidas na tabela `public.sticky_notes` com RLS por usuário, largura redimensionável na lateral direita, altura automática e movimentação livre por arrastar e soltar (`supabase/migrations/20261117000000_create_sticky_notes.sql`).
 
 ### Notas API e dados
 - **notes-api.ts**: operações principais de notas/pastas/tags.
