@@ -16,7 +16,7 @@ import {
   updateStickyNote,
   UpdateStickyNotePatch,
 } from '../api/sticky-notes-api';
-import { StickyNoteCard } from './StickyNoteCard';
+import { StickyNoteCard, StickyEditorActions, StickyEditorAction } from './StickyNoteCard';
 import { StickyNotesToolbar, StickySaveState } from './StickyNotesToolbar';
 
 const DEBOUNCE_MS = 450;
@@ -34,7 +34,7 @@ export function StickyNotesLayout() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const boardScrollRef = useRef<HTMLDivElement>(null);
-  const bulletActionsRef = useRef<Map<string, () => void>>(new Map());
+  const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
   const pendingPatchesRef = useRef<Map<string, UpdateStickyNotePatch>>(new Map());
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const notesRef = useRef<StickyNote[]>(notes);
@@ -48,12 +48,27 @@ export function StickyNotesLayout() {
     userIdRef.current = userId;
   }, [userId]);
 
-  const registerBulletAction = useCallback((noteId: string, action: (() => void) | null) => {
-    if (action) {
-      bulletActionsRef.current.set(noteId, action);
-    } else {
-      bulletActionsRef.current.delete(noteId);
-    }
+  const registerEditorActions = useCallback((noteId: string, actions: StickyEditorActions | null) => {
+    if (actions) editorActionsRef.current.set(noteId, actions);
+    else editorActionsRef.current.delete(noteId);
+  }, []);
+  const handleEditorFormat = useCallback((action: StickyEditorAction) => {
+    if (selectedNoteId) editorActionsRef.current.get(selectedNoteId)?.format(action);
+  }, [selectedNoteId]);
+  const handleInsertNoteLink = useCallback(() => {
+    if (!selectedNoteId) return;
+    const options = notesRef.current.filter(n => n.id !== selectedNoteId);
+    if (!options.length) { window.alert('Crie outra nota adesiva para poder referenciá-la.'); return; }
+    const choices = options.map(n => n.title?.trim() || 'Nota sem título');
+    const typed = window.prompt('Digite o título exato da nota que deseja referenciar:\n' + choices.join('\n'), choices[0]);
+    if (!typed) return;
+    const index = options.findIndex(n => (n.title || '').trim().toLowerCase() === typed.trim().toLowerCase());
+    if (index < 0) { window.alert('Não encontrei uma nota com esse título.'); return; }
+    editorActionsRef.current.get(selectedNoteId)?.insertNoteLink(options[index].id, choices[index]);
+  }, [selectedNoteId]);
+  const handleOpenLinkedNote = useCallback((id: string) => {
+    setSelectedNoteId(id);
+    requestAnimationFrame(() => document.getElementById('sticky-note-' + id)?.scrollIntoView({behavior:'smooth',block:'center',inline:'center'}));
   }, []);
 
   // Carrega usuário autenticado e notas adesivas do Supabase.
@@ -367,7 +382,7 @@ export function StickyNotesLayout() {
           errorMessage={saveError}
           onCreateNote={handleCreateNote}
           onSelectColor={handleToolbarSelectColor}
-          onToggleBullet={() => { if (selectedNoteId) bulletActionsRef.current.get(selectedNoteId)?.(); }}
+          onFormat={handleEditorFormat}\n          onInsertNoteLink={handleInsertNoteLink}
           onDeleteSelected={() => { if (selectedNoteId) void handleDeleteNote(selectedNoteId); }}
         />}
       />
@@ -447,7 +462,7 @@ export function StickyNotesLayout() {
                 onResizeLive={handleResizeLive}
                 onResizeEnd={handleResizeEnd}
                 onDelete={handleDeleteNote}
-                registerBulletAction={registerBulletAction}
+                registerEditorActions={registerEditorActions}\n                onOpenLinkedNote={handleOpenLinkedNote}
               />
             ))
           )}

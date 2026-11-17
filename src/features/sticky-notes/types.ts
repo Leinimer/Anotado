@@ -4,7 +4,9 @@ export type StickyNoteColorKey =
   | 'blue'
   | 'pink'
   | 'lilac'
-  | 'orange';
+  | 'orange'
+  | 'red'
+  | 'gray';
 
 export interface StickyNote {
   id: string;
@@ -108,6 +110,9 @@ export const STICKY_COLORS: StickyColorTheme[] = [
     textClass: 'text-[#362010] dark:text-[#ffebd6]',
     mutedTextClass: 'text-[#7d5434] dark:text-[#d6a982]',
   },
+
+  { key:'red', label:'Vermelho-claro', swatchLight:'#fecaca', swatchDark:'#7f3030', cardClass:'bg-[#fee2e2] border-[#f3b4b4] dark:bg-[#3b1c1c] dark:border-[#713434]', headerClass:'bg-[#fecaca]/80 border-[#f0b0b0]/80 dark:bg-[#482222]/90 dark:border-[#713434]', textClass:'text-[#3b1717] dark:text-[#ffe4e4]', mutedTextClass:'text-[#854444] dark:text-[#e5a0a0]' },
+  { key:'gray', label:'Cinza', swatchLight:'#d1d5db', swatchDark:'#555b65', cardClass:'bg-[#f0f1f3] border-[#cdd1d7] dark:bg-[#282b30] dark:border-[#464b54]', headerClass:'bg-[#e1e4e8]/90 border-[#cbd0d7]/80 dark:bg-[#333840]/90 dark:border-[#464b54]', textClass:'text-[#292d34] dark:text-[#eceff3]', mutedTextClass:'text-[#606873] dark:text-[#b5bdc8]' },
 ];
 
 export function getStickyColorTheme(color?: string | null): StickyColorTheme {
