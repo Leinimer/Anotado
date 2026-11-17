@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Edit2,
   CheckSquare,
@@ -16,6 +16,8 @@ import {
   ExternalLink,
   FolderPlus,
   Unlink,
+  Download,
+  FileText,
 } from 'lucide-react';
 import { Folder as FolderType, Note as NoteType } from '../types';
 import { FOLDER_PRESET_COLORS } from './sidebar-constants';
@@ -46,6 +48,7 @@ interface SidebarContextMenuProps {
   onOpenSmartConfig: (folderId: string, smartTags: string[]) => void;
   onPromptDelete: (id: string, type: 'folder' | 'note' | 'pdf') => void;
   onSelectForBatch: (id: string, type: 'folder' | 'note' | 'pdf') => void;
+  onExportItem: (id: string, type: 'folder' | 'note', format: 'pdf' | 'docx' | 'md') => void;
   onMouseEnterColorOption: () => void;
   onMouseLeaveColorOption: () => void;
   onToggleColorSubmenu: () => void;
@@ -79,11 +82,15 @@ export function SidebarContextMenu({
   onOpenSmartConfig,
   onPromptDelete,
   onSelectForBatch,
+  onExportItem,
   onMouseEnterColorOption,
   onMouseLeaveColorOption,
   onToggleColorSubmenu,
   colorSubmenuTimerRef,
 }: SidebarContextMenuProps) {
+  const [showExportSubmenu, setShowExportSubmenu] = useState(false);
+  useEffect(() => setShowExportSubmenu(false), [menuOpenId]);
+
   if (!menuOpenId || !menuPosition) return null;
 
   return (
@@ -94,7 +101,7 @@ export function SidebarContextMenu({
         top: `${menuPosition.top}px`,
         left: `${menuPosition.left}px`,
       }}
-      className="bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[170px] font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
+      className="bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 z-50 min-w-[170px] max-h-[80vh] overflow-y-auto font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
       onClick={(e) => e.stopPropagation()}
     >
       {/* Opção 1: Renomear */}
@@ -401,6 +408,70 @@ export function SidebarContextMenu({
             <span>Arquivar</span>
           </button>
         </>
+      )}
+
+      {/* Exportar nota ou toda a árvore de uma pasta */}
+      {(menuItemType === 'note' || menuItemType === 'folder') && (
+        <div
+          className="relative"
+          onMouseEnter={() => setShowExportSubmenu(true)}
+          onMouseLeave={() => setShowExportSubmenu(false)}
+        >
+          <button
+            id="context-menu-export-btn"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={showExportSubmenu}
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowExportSubmenu((current) => !current);
+            }}
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
+            title="Exportar"
+          >
+            <span className="flex items-center gap-2">
+              <Download className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
+              <span>Exportar</span>
+            </span>
+            <ChevronRight className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" />
+          </button>
+
+          {showExportSubmenu && (
+            <div
+              id="context-menu-export-submenu"
+              role="menu"
+              onClick={(event) => event.stopPropagation()}
+              className={\`absolute top-0 z-[60] min-w-[140px] bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 \${
+                menuPosition && menuPosition.left + 175 + 145 > (typeof window !== 'undefined' ? window.innerWidth : 1000)
+                  ? 'right-full mr-1.5'
+                  : 'left-full ml-1.5'
+              }\`}
+            >
+              {([
+                { format: 'pdf' as const, label: 'PDF' },
+                { format: 'docx' as const, label: 'Word' },
+                { format: 'md' as const, label: 'Markdown' },
+              ]).map((item) => (
+                <button
+                  key={item.format}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    if (menuOpenId && (menuItemType === 'note' || menuItemType === 'folder')) {
+                      onExportItem(menuOpenId, menuItemType, item.format);
+                    }
+                    setShowExportSubmenu(false);
+                    onClose();
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
+                >
+                  <FileText className="w-3.5 h-3.5 text-[#7f756e] dark:text-[#a3a3a3] shrink-0" />
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       <button
