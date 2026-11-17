@@ -279,20 +279,20 @@ export function SettingsModal({
     >
       <div
         id="settings-modal-card"
-        className="w-full max-w-lg bg-[#ffffff] border border-[#e4e2dd] shadow-2xl rounded-3xl overflow-hidden text-[#1b1c19] flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150"
+        className="w-full max-w-lg bg-[#ffffff] dark:bg-[#1c1a18] border border-[#e4e2dd] dark:border-[#39332e] shadow-2xl rounded-3xl overflow-hidden text-[#1b1c19] dark:text-[#eee8e2] flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho do Modal */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#f0eee9] bg-[#fbfaf8]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#f0eee9] dark:border-[#39332e] dark:border-[#39332e] bg-[#fbfaf8] dark:bg-[#211f1d]">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-[#f0eee9] text-[#68594d] flex items-center justify-center">
+            <div className="w-8 h-8 rounded-xl bg-[#f0eee9] dark:bg-[#302c28] text-[#68594d] flex items-center justify-center">
               <ShieldCheck className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="font-serif-note font-bold text-base text-[#1b1c19]">
+              <h2 className="font-serif-note font-bold text-base text-[#1b1c19] dark:text-[#eee8e2]">
                 CONFIGURAÇÕES
               </h2>
-              <p className="font-sans-ui text-xs text-[#7f756e]">
+              <p className="font-sans-ui text-xs text-[#7f756e] dark:text-[#a99e95]">
                 Gerenciamento de conta e dados
               </p>
             </div>
@@ -302,7 +302,7 @@ export function SettingsModal({
             type="button"
             id="settings-modal-close-btn"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-[#7f756e] hover:text-[#1b1c19] hover:bg-[#f0eee9] transition-colors cursor-pointer"
+            className="p-1.5 rounded-xl text-[#7f756e] dark:text-[#a99e95] hover:text-[#1b1c19] dark:text-[#eee8e2] dark:hover:text-[#ffffff] hover:bg-[#f0eee9] dark:bg-[#302c28] dark:hover:bg-[#34302c] transition-colors cursor-pointer"
             title="Fechar (ESC)"
             aria-label="Fechar"
           >
@@ -311,7 +311,7 @@ export function SettingsModal({
         </div>
 
         {/* Abas de Navegação */}
-        <div className="flex border-b border-[#f0eee9] bg-[#fbfaf8] px-6 gap-2">
+        <div className="flex border-b border-[#f0eee9] dark:border-[#39332e] dark:border-[#39332e] bg-[#fbfaf8] dark:bg-[#211f1d] px-6 gap-2">
           <button
             type="button"
             id="settings-tab-password"
@@ -319,7 +319,7 @@ export function SettingsModal({
             className={`flex items-center gap-1.5 py-3 px-3 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
               activeTab === 'password'
                 ? 'border-[#68594d] text-[#68594d]'
-                : 'border-transparent text-[#7f756e] hover:text-[#1b1c19]'
+                : 'border-transparent text-[#7f756e] dark:text-[#a99e95] dark:text-[#a99d93] hover:text-[#1b1c19] dark:text-[#eee8e2] dark:hover:text-[#f5eee8]'
             }`}
           >
             <Lock className="w-3.5 h-3.5" />
@@ -333,7 +333,7 @@ export function SettingsModal({
             className={`flex items-center gap-1.5 py-3 px-3 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
               activeTab === 'email'
                 ? 'border-[#68594d] text-[#68594d]'
-                : 'border-transparent text-[#7f756e] hover:text-[#1b1c19]'
+                : 'border-transparent text-[#7f756e] dark:text-[#a99e95] dark:text-[#a99d93] hover:text-[#1b1c19] dark:text-[#eee8e2] dark:hover:text-[#f5eee8]'
             }`}
           >
             <Mail className="w-3.5 h-3.5" />
@@ -347,7 +347,7 @@ export function SettingsModal({
             className={`flex items-center gap-1.5 py-3 px-3 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
               activeTab === 'export'
                 ? 'border-[#68594d] text-[#68594d]'
-                : 'border-transparent text-[#7f756e] hover:text-[#1b1c19]'
+                : 'border-transparent text-[#7f756e] dark:text-[#a99e95] dark:text-[#a99d93] hover:text-[#1b1c19] dark:text-[#eee8e2] dark:hover:text-[#f5eee8]'
             }`}
           >
             <Download className="w-3.5 h-3.5" />
@@ -361,7 +361,7 @@ export function SettingsModal({
             className={`flex items-center gap-1.5 py-3 px-3 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
               activeTab === 'pwa'
                 ? 'border-[#68594d] text-[#68594d]'
-                : 'border-transparent text-[#7f756e] hover:text-[#1b1c19]'
+                : 'border-transparent text-[#7f756e] dark:text-[#a99e95] dark:text-[#a99d93] hover:text-[#1b1c19] dark:text-[#eee8e2] dark:hover:text-[#f5eee8]'
             }`}
           >
             <Smartphone className="w-3.5 h-3.5" />
@@ -375,7 +375,7 @@ export function SettingsModal({
             className={`flex items-center gap-1.5 py-3 px-3 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
               activeTab === 'sharing'
                 ? 'border-[#68594d] text-[#68594d]'
-                : 'border-transparent text-[#7f756e] hover:text-[#1b1c19]'
+                : 'border-transparent text-[#7f756e] dark:text-[#a99e95] dark:text-[#a99d93] hover:text-[#1b1c19] dark:text-[#eee8e2] dark:hover:text-[#f5eee8]'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
@@ -389,7 +389,7 @@ export function SettingsModal({
             className={`flex items-center gap-1.5 py-3 px-3 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
               activeTab === 'appearance'
                 ? 'border-[#68594d] text-[#68594d]'
-                : 'border-transparent text-[#7f756e] hover:text-[#1b1c19]'
+                : 'border-transparent text-[#7f756e] dark:text-[#a99e95] dark:text-[#a99d93] hover:text-[#1b1c19] dark:text-[#eee8e2] dark:hover:text-[#f5eee8]'
             }`}
           >
             <Moon className="w-3.5 h-3.5" />
@@ -398,7 +398,7 @@ export function SettingsModal({
         </div>
 
         {/* Conteúdo da Aba Ativa */}
-        <div className="p-6 overflow-y-auto flex-1 font-sans-ui text-sm">
+        <div className="p-6 overflow-y-auto flex-1 font-sans-ui text-sm text-[#1b1c19] dark:text-[#eee8e2] dark:text-[#e8e0d9]">
           {/* ============================================================ */}
           {/* ABA 1: ALTERAR SENHA                                         */}
           {/* ============================================================ */}
@@ -419,7 +419,7 @@ export function SettingsModal({
               )}
 
               <div>
-                <label className="block text-xs font-medium text-[#4e453f] mb-1">
+                <label className="block text-xs font-medium text-[#4e453f] dark:text-[#c9beb5] dark:text-[#c9beb5] mb-1">
                   Senha atual (opcional)
                 </label>
                 <input
@@ -428,12 +428,12 @@ export function SettingsModal({
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   placeholder="Sua senha atual"
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-[#e4e2dd] bg-[#fbfaf8] text-[#1b1c19] focus:outline-none focus:border-[#68594d]"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-[#e4e2dd] dark:border-[#403a35] bg-[#fbfaf8] dark:bg-[#0d0d0d] text-[#1b1c19] dark:text-[#eee8e2] dark:text-[#f0ebe6] placeholder:text-[#8a817a] dark:placeholder:text-[#89817b] focus:outline-none focus:border-[#68594d] dark:focus:border-[#a58f7d]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#4e453f] mb-1">
+                <label className="block text-xs font-medium text-[#4e453f] dark:text-[#c9beb5] dark:text-[#c9beb5] mb-1">
                   Nova senha
                 </label>
                 <input
@@ -443,12 +443,12 @@ export function SettingsModal({
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Mínimo 6 caracteres"
                   required
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-[#e4e2dd] bg-[#fbfaf8] text-[#1b1c19] focus:outline-none focus:border-[#68594d]"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-[#e4e2dd] dark:border-[#403a35] bg-[#fbfaf8] dark:bg-[#0d0d0d] text-[#1b1c19] dark:text-[#eee8e2] dark:text-[#f0ebe6] placeholder:text-[#8a817a] dark:placeholder:text-[#89817b] focus:outline-none focus:border-[#68594d] dark:focus:border-[#a58f7d]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#4e453f] mb-1">
+                <label className="block text-xs font-medium text-[#4e453f] dark:text-[#c9beb5] dark:text-[#c9beb5] mb-1">
                   Confirmar nova senha
                 </label>
                 <input
@@ -458,7 +458,7 @@ export function SettingsModal({
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Repita a nova senha"
                   required
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-[#e4e2dd] bg-[#fbfaf8] text-[#1b1c19] focus:outline-none focus:border-[#68594d]"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-[#e4e2dd] dark:border-[#403a35] bg-[#fbfaf8] dark:bg-[#0d0d0d] text-[#1b1c19] dark:text-[#eee8e2] dark:text-[#f0ebe6] placeholder:text-[#8a817a] dark:placeholder:text-[#89817b] focus:outline-none focus:border-[#68594d] dark:focus:border-[#a58f7d]"
                 />
               </div>
 
@@ -505,16 +505,16 @@ export function SettingsModal({
               )}
 
               <div>
-                <label className="block text-xs font-medium text-[#7f756e] mb-1">
+                <label className="block text-xs font-medium text-[#7f756e] dark:text-[#a99e95] dark:text-[#b5aaa1] mb-1">
                   E-mail atual
                 </label>
-                <div className="px-3.5 py-2 text-xs rounded-xl border border-[#e4e2dd] bg-[#f0eee9]/60 text-[#4e453f] font-mono">
+                <div className="px-3.5 py-2 text-xs rounded-xl border border-[#e4e2dd] bg-[#f0eee9] dark:bg-[#302c28]/60 dark:bg-[#302c28] text-[#4e453f] dark:text-[#d6ccc4] dark:text-[#c9beb5] font-mono">
                   {userEmail || 'Não identificado'}
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#4e453f] mb-1">
+                <label className="block text-xs font-medium text-[#4e453f] dark:text-[#c9beb5] dark:text-[#c9beb5] mb-1">
                   Novo e-mail
                 </label>
                 <input
@@ -524,9 +524,9 @@ export function SettingsModal({
                   onChange={(e) => setNewEmail(e.target.value)}
                   placeholder="novo.email@exemplo.com"
                   required
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-[#e4e2dd] bg-[#fbfaf8] text-[#1b1c19] focus:outline-none focus:border-[#68594d]"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-[#e4e2dd] dark:border-[#403a35] bg-[#fbfaf8] dark:bg-[#0d0d0d] text-[#1b1c19] dark:text-[#eee8e2] dark:text-[#f0ebe6] placeholder:text-[#8a817a] dark:placeholder:text-[#89817b] focus:outline-none focus:border-[#68594d] dark:focus:border-[#a58f7d]"
                 />
-                <p className="mt-1 text-[11px] text-[#7f756e]">
+                <p className="mt-1 text-[11px] text-[#7f756e] dark:text-[#a99e95]">
                   O Supabase enviará um link de confirmação para validar a alteração.
                 </p>
               </div>
@@ -559,18 +559,18 @@ export function SettingsModal({
           {/* ============================================================ */}
           {activeTab === 'export' && (
             <div className="space-y-4">
-              <div className="p-4 bg-[#fbfaf8] border border-[#e4e2dd] rounded-2xl space-y-2">
+              <div className="p-4 bg-[#fbfaf8] dark:bg-[#24211f] border border-[#e4e2dd] dark:border-[#3b3530] rounded-2xl space-y-2">
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-[#68594d]" />
-                  <h3 className="font-serif-note font-bold text-sm text-[#1b1c19]">
+                  <h3 className="font-serif-note font-bold text-sm text-[#1b1c19] dark:text-[#eee8e2]">
                     Exportar todas as notas
                   </h3>
                 </div>
-                <p className="text-xs text-[#7f756e] leading-relaxed">
+                <p className="text-xs text-[#7f756e] dark:text-[#a99e95] dark:text-[#b5aaa1] leading-relaxed">
                   Baixe todas as suas notas não arquivadas em arquivos Markdown padrão (.md)
                   empacotados em um único arquivo compactado (.zip).
                 </p>
-                <div className="text-[11px] text-[#4e453f] pt-1 font-medium">
+                <div className="text-[11px] text-[#4e453f] dark:text-[#c9beb5] dark:text-[#c9beb5] pt-1 font-medium">
                   {nonArchivedCount === 1
                     ? '1 nota disponível para exportação.'
                     : `${nonArchivedCount} notas disponíveis para exportação.`}
@@ -581,8 +581,8 @@ export function SettingsModal({
               {exportProgress && (
                 <div className="space-y-2">
                   {exportProgress.status === 'processing' && (
-                    <div className="p-3 bg-[#f0eee9] rounded-2xl space-y-2 text-xs">
-                      <div className="flex items-center justify-between text-[#4e453f]">
+                    <div className="p-3 bg-[#f0eee9] dark:bg-[#302c28] dark:bg-[#302c28] rounded-2xl space-y-2 text-xs">
+                      <div className="flex items-center justify-between text-[#4e453f] dark:text-[#c9beb5]">
                         <span className="flex items-center gap-1.5">
                           <Loader2 className="w-3.5 h-3.5 animate-spin text-[#68594d]" />
                           Exportando notas...
@@ -592,7 +592,7 @@ export function SettingsModal({
                         </span>
                       </div>
                       {exportProgress.currentNoteTitle && (
-                        <div className="text-[11px] text-[#7f756e] truncate">
+                        <div className="text-[11px] text-[#7f756e] dark:text-[#a99e95] truncate">
                           Processando: {exportProgress.currentNoteTitle}
                         </div>
                       )}
@@ -609,7 +609,7 @@ export function SettingsModal({
                   )}
 
                   {exportProgress.status === 'zipping' && (
-                    <div className="p-3 bg-[#f0eee9] rounded-2xl flex items-center gap-2 text-xs text-[#4e453f]">
+                    <div className="p-3 bg-[#f0eee9] dark:bg-[#302c28] dark:bg-[#302c28] rounded-2xl flex items-center gap-2 text-xs text-[#4e453f] dark:text-[#c9beb5]">
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-[#68594d]" />
                       <span>Gerando arquivo compactado (.zip)...</span>
                     </div>
@@ -665,17 +665,17 @@ export function SettingsModal({
           {/* ============================================================ */}
           {activeTab === 'pwa' && (
             <div className="space-y-4">
-              <div className="p-4 bg-[#fbfaf8] border border-[#f0eee9] rounded-2xl space-y-3">
+              <div className="p-4 bg-[#fbfaf8] border border-[#f0eee9] dark:border-[#39332e] rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded-xl bg-[#68594d] text-white flex items-center justify-center font-serif-note font-bold text-sm shadow-xs">
                       A!
                     </div>
                     <div>
-                      <h3 className="font-serif-note font-bold text-sm text-[#1b1c19]">
+                      <h3 className="font-serif-note font-bold text-sm text-[#1b1c19] dark:text-[#eee8e2]">
                         ANOTADO!
                       </h3>
-                      <p className="font-sans-ui text-xs text-[#7f756e]">
+                      <p className="font-sans-ui text-xs text-[#7f756e] dark:text-[#a99e95]">
                         Um espaço para escrever.
                       </p>
                     </div>
@@ -702,7 +702,7 @@ export function SettingsModal({
                   </span>
                 </div>
 
-                <p className="text-xs text-[#4e453f] leading-relaxed">
+                <p className="text-xs text-[#4e453f] dark:text-[#c9beb5] leading-relaxed">
                   O ANOTADO! funciona como um aplicativo completo e instalável com suporte total a funcionamento offline, persistência via IndexedDB e sincronização automática em nuvem.
                 </p>
               </div>
@@ -721,22 +721,22 @@ export function SettingsModal({
                   </div>
                 </div>
               ) : isIos ? (
-                <div className="p-4 bg-white border border-[#eae8e3] rounded-2xl space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-[#1b1c19]">
+                <div className="p-4 bg-white dark:bg-[#24211f] border border-[#eae8e3] dark:border-[#3b3530] rounded-2xl space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[#1b1c19] dark:text-[#eee8e2]">
                     <Smartphone className="w-4 h-4 text-[#68594d]" />
                     <span>Como instalar no iPhone ou iPad:</span>
                   </div>
 
-                  <div className="space-y-2 text-xs text-[#4e453f]">
-                    <div className="flex items-start gap-2.5 p-2 bg-[#fbfaf8] rounded-xl border border-[#f0eee9]">
+                  <div className="space-y-2 text-xs text-[#4e453f] dark:text-[#c9beb5]">
+                    <div className="flex items-start gap-2.5 p-2 bg-[#fbfaf8] dark:bg-[#302c28] rounded-xl border border-[#f0eee9] dark:border-[#39332e] dark:border-[#403a35]">
                       <Share className="w-3.5 h-3.5 text-[#68594d] shrink-0 mt-0.5" />
                       <span>1. No Safari, toque no botão <strong>Compartilhar</strong> (ícone com seta para cima).</span>
                     </div>
-                    <div className="flex items-start gap-2.5 p-2 bg-[#fbfaf8] rounded-xl border border-[#f0eee9]">
+                    <div className="flex items-start gap-2.5 p-2 bg-[#fbfaf8] dark:bg-[#302c28] rounded-xl border border-[#f0eee9] dark:border-[#39332e] dark:border-[#403a35]">
                       <PlusSquare className="w-3.5 h-3.5 text-[#68594d] shrink-0 mt-0.5" />
                       <span>2. Selecione a opção <strong>&quot;Adicionar à Tela de Início&quot;</strong>.</span>
                     </div>
-                    <div className="flex items-start gap-2.5 p-2 bg-[#fbfaf8] rounded-xl border border-[#f0eee9]">
+                    <div className="flex items-start gap-2.5 p-2 bg-[#fbfaf8] dark:bg-[#302c28] rounded-xl border border-[#f0eee9] dark:border-[#39332e] dark:border-[#403a35]">
                       <CheckCircle2 className="w-3.5 h-3.5 text-[#68594d] shrink-0 mt-0.5" />
                       <span>3. Toque em <strong>&quot;Adicionar&quot;</strong> no canto superior direito.</span>
                     </div>
@@ -744,11 +744,11 @@ export function SettingsModal({
                 </div>
               ) : canInstall ? (
                 <div className="space-y-3">
-                  <div className="p-4 bg-white border border-[#eae8e3] rounded-2xl space-y-2">
-                    <h4 className="text-xs font-semibold text-[#1b1c19]">
+                  <div className="p-4 bg-white dark:bg-[#24211f] border border-[#eae8e3] dark:border-[#3b3530] rounded-2xl space-y-2">
+                    <h4 className="text-xs font-semibold text-[#1b1c19] dark:text-[#eee8e2]">
                       Instalar no seu dispositivo
                     </h4>
-                    <p className="text-xs text-[#4e453f] leading-relaxed">
+                    <p className="text-xs text-[#4e453f] dark:text-[#c9beb5] leading-relaxed">
                       Clique no botão abaixo para instalar o ANOTADO! diretamente no Android, Chrome, Edge ou Windows.
                     </p>
                   </div>
@@ -764,8 +764,8 @@ export function SettingsModal({
                   </button>
                 </div>
               ) : (
-                <div className="p-4 bg-white border border-[#eae8e3] rounded-2xl space-y-2 text-xs text-[#4e453f]">
-                  <h4 className="font-semibold text-[#1b1c19]">
+                <div className="p-4 bg-white dark:bg-[#24211f] border border-[#eae8e3] dark:border-[#3b3530] rounded-2xl space-y-2 text-xs text-[#4e453f] dark:text-[#c9beb5]">
+                  <h4 className="font-semibold text-[#1b1c19] dark:text-[#eee8e2]">
                     Instalação manual no navegador
                   </h4>
                   <p className="leading-relaxed">
@@ -775,8 +775,8 @@ export function SettingsModal({
               )}
 
               {/* Informações Técnicas de Offline e Storage */}
-              <div className="p-3.5 bg-[#fbfaf8] border border-[#f0eee9] rounded-2xl space-y-1.5 text-[11px] text-[#7f756e]">
-                <div className="font-medium text-[#4e453f]">Arquitetura Offline-First & PWA:</div>
+              <div className="p-3.5 bg-[#fbfaf8] border border-[#f0eee9] dark:border-[#39332e] rounded-2xl space-y-1.5 text-[11px] text-[#7f756e] dark:text-[#a99e95]">
+                <div className="font-medium text-[#4e453f] dark:text-[#c9beb5]">Arquitetura Offline-First & PWA:</div>
                 <div className="flex items-center gap-1.5 text-[#68594d]">
                   <Sparkles className="w-3 h-3" />
                   <span>IndexedDB ativo + Service Worker para App Shell</span>
@@ -811,22 +811,22 @@ export function SettingsModal({
           {activeTab === 'appearance' && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-sm font-semibold text-[#1b1c19] dark:text-white">
+                <h3 className="text-sm font-semibold text-[#1b1c19] dark:text-[#eee8e2] dark:text-white">
                   Modo de Visualização
                 </h3>
-                <p className="text-xs text-[#7f756e] dark:text-[#a3a3a3] mt-1">
+                <p className="text-xs text-[#7f756e] dark:text-[#a99e95] dark:text-[#a3a3a3] mt-1">
                   Escolha entre o modo claro de papel natural ou o modo dark com preto absoluto (#000000) e alto contraste.
                 </p>
               </div>
 
-              <div className="p-4 bg-[#fbfaf8] dark:bg-[#111111] border border-[#f0eee9] dark:border-[#222222] rounded-2xl space-y-4">
-                <div className="text-xs font-medium text-[#4e453f] dark:text-[#d1c4bc]">
+              <div className="p-4 bg-[#fbfaf8] dark:bg-[#111111] border border-[#f0eee9] dark:border-[#39332e] dark:border-[#222222] rounded-2xl space-y-4">
+                <div className="text-xs font-medium text-[#4e453f] dark:text-[#c9beb5] dark:text-[#d1c4bc]">
                   Alternar Tema:
                 </div>
                 <ThemeToggle className="w-full max-w-xs" variant="segmented" />
-                <div className="grid grid-cols-2 gap-3 pt-2 text-[11px] text-[#7f756e] dark:text-[#a3a3a3]">
+                <div className="grid grid-cols-2 gap-3 pt-2 text-[11px] text-[#7f756e] dark:text-[#a99e95] dark:text-[#a3a3a3]">
                   <div className="p-2.5 rounded-xl border border-[#e4e2dd] dark:border-[#222222] bg-white dark:bg-[#050505]">
-                    <div className="font-semibold text-[#1b1c19] dark:text-white mb-0.5">☀ Claro</div>
+                    <div className="font-semibold text-[#1b1c19] dark:text-[#eee8e2] dark:text-white mb-0.5">☀ Claro</div>
                     <div>Papel natural & tinta editorial. Padrão original do ANOTADO!</div>
                   </div>
                   <div className="p-2.5 rounded-xl border border-[#e4e2dd] dark:border-[#222222] bg-black text-white">
