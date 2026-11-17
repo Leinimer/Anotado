@@ -19,7 +19,6 @@ import {
 import { StickyNoteCard, StickyEditorActions, StickyEditorAction } from './StickyNoteCard';
 import { StickyNotesToolbar, StickySaveState } from './StickyNotesToolbar';
 import { StickyNoteReferenceModal } from './StickyNoteReferenceModal';
-import { ExtendedNote } from '@/src/features/notes/db/indexed-db';
 
 const DEBOUNCE_MS = 450;
 

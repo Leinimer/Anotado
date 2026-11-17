@@ -2012,3 +2012,15 @@ html.dark {
 .sticky-rich-editor ul[data-sticky-checklist] li > div p { margin: 0 !important; line-height: 1.45 !important; }
 .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div,
 .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div span { text-decoration: line-through; opacity: .48; }
+
+/* Checklist concluído: texto riscado mais escuro e legível. */
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div,
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div span {
+  color: #514438 !important;
+  opacity: .82 !important;
+}
+.dark .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div,
+.dark .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div span {
+  color: #d6c9bd !important;
+  opacity: .82 !important;
+}
