@@ -1495,12 +1495,12 @@ export function SidebarNavigation({
               }
             }}
             className={`group flex items-center justify-between gap-1.5 px-2 py-1 text-sm rounded-lg cursor-pointer transition-all relative w-fit max-w-[calc(100%-4px)] min-w-[130px] ${
-              isSelectedInMulti
-                ? 'bg-[#e8decb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
+              isMenuOpenForThisFolder
+                ? 'bg-[#e4e2dd]/90 text-[#1b1c19] dark:bg-[#55463b] dark:text-[#fff3e8] dark:ring-1 dark:ring-[#9b806b]/70'
+                : isSelectedInMulti
+                ? 'bg-[#e8decb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs dark:bg-[#55463b] dark:ring-[#9b806b]/70 dark:text-[#fff3e8]'
                 : isDropInside
-                ? 'bg-[#d7c3b0]/70 border-2 border-dashed border-[#68594d]'
-                : isMenuOpenForThisFolder
-                ? 'bg-[#e4e2dd]/90 text-[#1b1c19]'
+                ? 'bg-[#d7c3b0]/70 border-2 border-dashed border-[#68594d] dark:bg-[#55463b]/70 dark:border-[#b49a84]'
                 : isSystemFavorites
                 ? 'text-amber-900 dark:text-amber-200 hover:bg-amber-50/80 dark:hover:bg-amber-950/30'
                 : isSystemArchive
@@ -1759,12 +1759,12 @@ export function SidebarNavigation({
               }
             }}
             className={`group flex items-center justify-between gap-1.5 px-2 py-1 text-sm rounded-lg cursor-pointer transition-colors relative w-fit max-w-[calc(100%-4px)] min-w-[120px] ${
-              isSelectedInMulti
+              isMenuOpenForThisNote
+                ? 'bg-[#e4e2dd]/80 text-[#1b1c19] dark:bg-[#55463b] dark:text-[#fff3e8] dark:ring-1 dark:ring-[#9b806b]/70'
+                : isSelectedInMulti
                 ? 'bg-[#f4dfcb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs dark:bg-[#51463d] dark:ring-[#a88f79]/60 dark:text-[#f5eee7]'
                 : isActive
                 ? 'bg-[#f4dfcb] text-[#1b1c19] font-medium shadow-2xs dark:bg-[#423a33] dark:text-[#f5eee7] dark:ring-1 dark:ring-[#8d7968]/50'
-                : isMenuOpenForThisNote
-                ? 'bg-[#e4e2dd]/80 text-[#1b1c19] dark:bg-[#302c28] dark:text-[#e8ddd3]'
                 : 'text-[#4e453f] hover:bg-[#e4e2dd]/60 dark:text-[#c9c0b8] dark:hover:bg-[#292623]'
             }`}
           >

@@ -467,7 +467,7 @@ export function SidebarContextMenu({
                 left: exportSubmenuPosition.left,
                 zIndex: 10000,
               }}
-              className="min-w-[140px] bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-2xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100"
+              className="min-w-[140px] bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-2xl p-1.5 flex flex-col gap-0.5 font-sans-ui text-xs animate-in fade-in zoom-in-95 duration-100"
             >
               {([
                 { format: 'pdf' as const, label: 'PDF' },
