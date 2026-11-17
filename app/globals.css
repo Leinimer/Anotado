@@ -2002,3 +2002,13 @@ html.dark {
 .sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked::before { content: "✓"; color: #fff; font: 800 .75rem/1 system-ui,sans-serif; }
 .sticky-rich-editor ul[data-sticky-checklist] li > label [data-sticky-check-text] { flex: 1; min-width: 0; }
 .sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked + [data-sticky-check-text] { text-decoration: line-through; opacity: .48; }
+
+/* Checklist dos post-its: estrutura idêntica à task list do editor principal. */
+.sticky-rich-editor ul[data-sticky-checklist] li > label { width: 1.125rem; height: 1.125rem; flex: 0 0 1.125rem; margin-top: .15rem; display: inline-flex; align-items: center; justify-content: center; }
+.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"] { width: 1.125rem; height: 1.125rem; border-radius: 9999px; border: 1.5px solid #8d8076; appearance: none; background: transparent; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-sizing: border-box; }
+.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked { border-color: #E7B515; background: #E7B515; }
+.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked::before { content: "✓"; color: #fff; font: 800 .75rem/1 system-ui,sans-serif; }
+.sticky-rich-editor ul[data-sticky-checklist] li > div { flex: 1; min-width: 0; }
+.sticky-rich-editor ul[data-sticky-checklist] li > div p { margin: 0 !important; line-height: 1.45 !important; }
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div,
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div span { text-decoration: line-through; opacity: .48; }
