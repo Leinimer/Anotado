@@ -77,7 +77,7 @@ export function StickyNotesLayout() {
       sessionStorage.setItem('anotado_active_diary_id', id);
       window.location.href = '/diary';
     } else {
-      sessionStorage.setItem('anotado_active_notes_id', id);
+      sessionStorage.setItem('anotado_reference_notes_id', id);
       window.location.href = '/notes';
     }
   }, []);

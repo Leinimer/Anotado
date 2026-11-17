@@ -320,14 +320,19 @@ export function MainLayout() {
           console.warn('[MainLayout] Aviso ao carregar PDFs da biblioteca:', pdfErr);
         }
 
+        const referenceTargetId =
+          typeof window !== 'undefined'
+            ? sessionStorage.getItem('anotado_reference_notes_id')
+            : null;
         const savedActiveId =
           typeof window !== 'undefined'
-            ? sessionStorage.getItem('anotado_active_notes_id')
+            ? referenceTargetId || sessionStorage.getItem('anotado_active_notes_id')
             : null;
 
         // O workspace inicia vazio quando não existe uma seleção válida salva.
         // A nota só é aberta após clique explícito na árvore ou em um link.
         if (savedActiveId && fetchedNotes.some((n) => n.id === savedActiveId)) {
+          if (referenceTargetId) sessionStorage.removeItem('anotado_reference_notes_id');
           setActiveNoteId(savedActiveId);
           const initialTabId = `tab-${savedActiveId}`;
           setTabs([{ id: initialTabId, noteId: savedActiveId }]);
