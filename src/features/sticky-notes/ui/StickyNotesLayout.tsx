@@ -382,7 +382,8 @@ export function StickyNotesLayout() {
           errorMessage={saveError}
           onCreateNote={handleCreateNote}
           onSelectColor={handleToolbarSelectColor}
-          onFormat={handleEditorFormat}\n          onInsertNoteLink={handleInsertNoteLink}
+          onFormat={handleEditorFormat}
+          onInsertNoteLink={handleInsertNoteLink}
           onDeleteSelected={() => { if (selectedNoteId) void handleDeleteNote(selectedNoteId); }}
         />}
       />
@@ -462,7 +463,8 @@ export function StickyNotesLayout() {
                 onResizeLive={handleResizeLive}
                 onResizeEnd={handleResizeEnd}
                 onDelete={handleDeleteNote}
-                registerEditorActions={registerEditorActions}\n                onOpenLinkedNote={handleOpenLinkedNote}
+                registerEditorActions={registerEditorActions}
+                onOpenLinkedNote={handleOpenLinkedNote}
               />
             ))
           )}
