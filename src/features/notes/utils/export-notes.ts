@@ -16,13 +16,38 @@ const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 function lines(md: string): string[] {
   return md.replace(/\r/g, '').split('\n').map(s => s.trim().replace(/^#{1,6}\s+/, '').replace(/^>\s?/, '').replace(/^[-*+]\s+/, '• ').replace(/^\d+\.\s+/, '• ').replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/\*\*(.*?)\*\*/g, '$1').replace(/__(.*?)__/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/_(.*?)_/g, '$1').replace(/~~(.*?)~~/g, '$1'));
 }
+// Helvetica/WinAnsi não suporta todos os caracteres Unicode. Convertemos
+// setas e símbolos comuns para equivalentes ASCII e substituímos apenas
+// caracteres que a fonte realmente não consegue codificar.
+function safePdfText(value: string, font: { encodeText: (text: string) => unknown }): string {
+  const substitutions: Record<string, string> = {
+    '→': '->', '➜': '->', '➝': '->', '⟶': '->', '⟹': '=>', '⇒': '=>',
+    '←': '<-', '⇐': '<=', '↔': '<->', '↕': '^',
+    '↗': '/', '↘': '\\', '↙': '\\', '↖': '/',
+    '✓': '[x]', '✔': '[x]', '✗': '[ ]', '✘': '[ ]',
+    '★': '*', '☆': '*', '⚠': '!', 'ℹ': 'i',
+    '…': '...', '−': '-', '‐': '-', '‑': '-', '‒': '-', '–': '-', '—': '-',
+    '\u00a0': ' ',
+  };
+  return Array.from(value).map((character) => {
+    if (Object.prototype.hasOwnProperty.call(substitutions, character)) return substitutions[character];
+    try {
+      font.encodeText(character);
+      return character;
+    } catch {
+      return '?';
+    }
+  }).join('');
+}
+
 async function makePdf(title: string, md: string): Promise<Uint8Array> {
   const pdf = await PDFDocument.create(), regular = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const margin = 50, width = 595.28, height = 841.89;
   let page = pdf.addPage([width, height]), y = height - margin;
   const draw = (value: string, size: number, strong = false) => {
     const font = strong ? bold : regular, max = width - margin * 2; let current = ''; const wrapped: string[] = [];
-    for (const word of value.split(/\s+/)) { const next = current ? current + ' ' + word : word; if (font.widthOfTextAtSize(next, size) > max && current) { wrapped.push(current); current = word; } else current = next; }
+    const compatibleValue = safePdfText(value, font);
+    for (const word of compatibleValue.split(/\s+/)) { const next = current ? current + ' ' + word : word; if (font.widthOfTextAtSize(next, size) > max && current) { wrapped.push(current); current = word; } else current = next; }
     if (current) wrapped.push(current);
     for (const part of wrapped) { if (y < margin + size + 4) { page = pdf.addPage([width, height]); y = height - margin; } page.drawText(part, { x: margin, y, size, font, color: rgb(0.12, 0.11, 0.10) }); y -= size + 5; }
   };
