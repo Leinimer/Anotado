@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Search, StickyNote, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Search, StickyNote, X } from 'lucide-react';
 import { indexedDBStorage, ExtendedFolder, ExtendedNote } from '@/src/features/notes/db/indexed-db';
 import { fetchStickyNotes } from '../api/sticky-notes-api';
 import { StickyNote as StickyNoteRecord } from '../types';
@@ -27,6 +27,7 @@ export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, user
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [selectedTarget, setSelectedTarget] = useState<ReferenceTarget | null>(null);
 
   useEffect(() => {
     if (!isOpen || !userId || userId === 'demo-user') return;
@@ -51,7 +52,7 @@ export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, user
   }, [isOpen, userId]);
 
   useEffect(() => {
-    if (isOpen) { setType('note'); setQuery(''); setExpanded(new Set()); }
+    if (isOpen) { setType('note'); setQuery(''); setExpanded(new Set()); setSelectedTarget(null); }
   }, [isOpen]);
 
   const visibleFolders = useMemo(() => folders.filter(folder =>
@@ -71,13 +72,13 @@ export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, user
     return next;
   });
 
-  const chooseNote = (note: ExtendedNote) => onSelectTarget({
+  const chooseNote = (note: ExtendedNote) => setSelectedTarget({
     id: note.id,
     title: note.title || (note.entry_date ? formatDateReadable(note.entry_date) : 'Sem título'),
     type,
   });
   const renderNote = (note: ExtendedNote) => matchesNote(note) ? (
-    <button key={note.id} type="button" onClick={() => chooseNote(note)} className="w-full flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[#39332e] dark:text-[#e8e4df] hover:bg-[#f4dfcb]/60 dark:hover:bg-[#51463e]">
+    <button key={note.id} type="button" onClick={() => chooseNote(note)} className={'w-full flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ' + (selectedTarget?.id===note.id?'bg-[#f1e5d9] text-[#4d392b] dark:bg-[#514237] dark:text-[#f4e9df]':'text-[#39332e] dark:text-[#e8e4df] hover:bg-[#f4dfcb]/60 dark:hover:bg-[#51463e]')}>
       <FileText className="w-4 h-4 shrink-0 text-[#8a7768]" />
       <span className="truncate">{note.title || (note.entry_date ? formatDateReadable(note.entry_date) : 'Sem título')}</span>
     </button>
@@ -116,17 +117,17 @@ export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, user
           {id:'note' as const,label:'Nota',icon:<FileText className="w-4 h-4"/>},
           {id:'sticky' as const,label:'Nota adesiva',icon:<StickyNote className="w-4 h-4"/>},
           {id:'diary' as const,label:'Diário',icon:<CalendarDays className="w-4 h-4"/>},
-        ].map(item=><button key={item.id} type="button" onClick={()=>{setType(item.id);setQuery('');setExpanded(new Set());}} className={'flex items-center justify-center gap-2 rounded-xl border px-2 py-2.5 text-xs sm:text-sm font-medium transition-colors ' + (type===item.id?'border-[#92745e] bg-[#f1e5d9] text-[#4d392b] dark:bg-[#514237] dark:text-[#f4e9df]':'border-[#e7dfd7] text-[#74675d] hover:bg-[#f7f3ef] dark:border-[#51463e] dark:text-[#c5b8ad] dark:hover:bg-[#39322d]')}>{item.icon}{item.label}</button>)}
+        ].map(item=><button key={item.id} type="button" onClick={()=>{setType(item.id);setQuery('');setExpanded(new Set());setSelectedTarget(null);}} className={'flex items-center justify-center gap-2 rounded-xl border px-2 py-2.5 text-xs sm:text-sm font-medium transition-colors ' + (type===item.id?'border-[#92745e] bg-[#f1e5d9] text-[#4d392b] dark:bg-[#514237] dark:text-[#f4e9df]':'border-[#e7dfd7] text-[#74675d] hover:bg-[#f7f3ef] dark:border-[#51463e] dark:text-[#c5b8ad] dark:hover:bg-[#39322d]')}>{item.icon}{item.label}</button>)}
       </div>
       <div className="p-3 border-b border-[#eee8e1] dark:border-[#51463e]"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94877d]"/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder={type==='sticky'?'Buscar nota adesiva...':type==='diary'?'Buscar no diário...':'Buscar nota...'} className="w-full rounded-xl border border-[#e5ddd4] dark:border-[#51463e] bg-[#faf8f5] dark:bg-[#342e29] pl-9 pr-3 py-2 text-sm outline-none focus:border-[#9b806b]"/></div></div>
       <div className="overflow-y-auto p-3 min-h-[240px]">
-        {loading ? <p className="py-10 text-center text-sm text-[#82766d]">Carregando itens...</p> : loadError ? <p className="py-10 text-center text-sm text-red-600">{loadError}</p> : type==='sticky' ? visibleSticky.map(note=><button key={note.id} type="button" onClick={()=>onSelectTarget({id:note.id,title:note.title||'Nota adesiva sem título',type:'sticky'})} className="w-full flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[#39332e] dark:text-[#e8e4df] hover:bg-[#f4dfcb]/60 dark:hover:bg-[#51463e]"><StickyNote className="w-4 h-4 text-[#8a7768]"/><span className="truncate">{note.title||'Nota adesiva sem título'}</span></button>) : <>
+        {loading ? <p className="py-10 text-center text-sm text-[#82766d]">Carregando itens...</p> : loadError ? <p className="py-10 text-center text-sm text-red-600">{loadError}</p> : type==='sticky' ? visibleSticky.map(note=><button key={note.id} type="button" onClick={()=>setSelectedTarget({id:note.id,title:note.title||'Nota adesiva sem título',type:'sticky'})} className={'w-full flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ' + (selectedTarget?.id===note.id?'bg-[#f1e5d9] text-[#4d392b] dark:bg-[#514237] dark:text-[#f4e9df]':'text-[#39332e] dark:text-[#e8e4df] hover:bg-[#f4dfcb]/60 dark:hover:bg-[#51463e]')}><StickyNote className="w-4 h-4 text-[#8a7768]"/><span className="truncate">{note.title||'Nota adesiva sem título'}</span></button>) : <>
           {rootNotes.map(renderNote)}
           {folderChildren(null).map(folder=>renderFolder(folder))}
           {noItems && <p className="py-8 text-center text-sm text-[#82766d]">Nenhum item encontrado.</p>}
         </>}
       </div>
-      <div className="px-4 py-3 border-t border-[#eee8e1] dark:border-[#51463e] text-[11px] text-[#91857b] dark:text-[#a99d93]">As pastas começam recolhidas. Use Ctrl + clique no texto referenciado para abrir o documento.</div>
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-[#eee8e1] dark:border-[#51463e]"><span className="text-[11px] text-[#91857b] dark:text-[#a99d93]">{selectedTarget ? 'Referência selecionada. Confirme para aplicar.' : 'Selecione um item e aplique a referência.'}</span><button type="button" disabled={!selectedTarget} onClick={()=>selectedTarget&&onSelectTarget(selectedTarget)} className="inline-flex items-center gap-2 rounded-xl bg-[#80634f] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#6e5544]"><Check className="w-4 h-4"/>Aplicar referência</button></div>
     </div>
   </div>;
 }
