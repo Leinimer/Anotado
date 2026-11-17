@@ -568,7 +568,7 @@ export function SidebarNavigation({
     e.stopPropagation();
 
     const menuWidth = 175;
-    const menuHeight = type === 'folder' ? 260 : 172;
+    const menuHeight = type === 'folder' ? 460 : type === 'note' ? 360 : 210;
     const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
     const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
 
