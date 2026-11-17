@@ -450,11 +450,8 @@ export function ImageNodeView(props: NodeViewProps) {
     const onPointerUp = () => {
       if (!cropDragRef.current) return;
       cropDragRef.current = null;
-      setCropDraft((finalCrop) => {
-        updateAttributes({ crop: finalCrop.width >= 0.999 && finalCrop.height >= 0.999 && finalCrop.x <= 0.001 && finalCrop.y <= 0.001 ? null : finalCrop });
-        setIsCropping(false);
-        return finalCrop;
-      });
+      updateAttributes({ crop: cropDraft.width >= 0.999 && cropDraft.height >= 0.999 && cropDraft.x <= 0.001 && cropDraft.y <= 0.001 ? null : cropDraft });
+      setIsCropping(false);
     };
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
@@ -464,7 +461,7 @@ export function ImageNodeView(props: NodeViewProps) {
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
     };
-  }, [isCropping, updateAttributes]);
+  }, [isCropping, cropDraft, updateAttributes]);
 
   const beginCropping = useCallback(() => {
     setCropDraft(persistedCrop ? { ...persistedCrop } : { x: 0, y: 0, width: 1, height: 1 });
