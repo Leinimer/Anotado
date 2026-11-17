@@ -9,6 +9,7 @@ import {
   X,
   Captions,
   Maximize2,
+  Crop,
   ZoomIn,
   ZoomOut,
   RotateCcw,
@@ -59,6 +60,9 @@ export function ImageNodeView(props: NodeViewProps) {
   const [isLocalSelected, setIsLocalSelected] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [isCropping, setIsCropping] = useState(false);
+  const [cropDraft, setCropDraft] = useState<{ x: number; y: number; width: number; height: number }>(() => node.attrs.crop || { x: 0, y: 0, width: 1, height: 1 });
+  const cropDragRef = useRef<{ edge: string; startX: number; startY: number; startCrop: { x: number; y: number; width: number; height: number }; bounds: DOMRect } | null>(null);
   const [aspectRatio, setAspectRatio] = useState<number>(() => {
     // Se tiver dimensões no atributo
     if (node.attrs.height && node.attrs.width && Number(node.attrs.height) > 0) {
@@ -412,6 +416,72 @@ export function ImageNodeView(props: NodeViewProps) {
   });
 
   const isSelected = isLocalSelected || isResizing;
+  const persistedCrop = node.attrs.crop as { x: number; y: number; width: number; height: number } | null;
+  const startCropDrag = useCallback((event: React.PointerEvent, edge: string) => {
+    if (!isCropping || !imgRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    cropDragRef.current = {
+      edge, startX: event.clientX, startY: event.clientY,
+      startCrop: { ...cropDraft }, bounds: imgRef.current.getBoundingClientRect(),
+    };
+  }, [isCropping, cropDraft]);
+
+  useEffect(() => {
+    if (!isCropping) return;
+    const onPointerMove = (event: PointerEvent) => {
+      const drag = cropDragRef.current;
+      if (!drag) return;
+      const dx = (event.clientX - drag.startX) / drag.bounds.width;
+      const dy = (event.clientY - drag.startY) / drag.bounds.height;
+      const minSize = 0.04;
+      let { x, y, width, height } = drag.startCrop;
+      if (drag.edge === 'move') {
+        x = Math.max(0, Math.min(1 - width, x + dx));
+        y = Math.max(0, Math.min(1 - height, y + dy));
+      } else {
+        if (drag.edge.includes('w')) { const right = x + width; x = Math.max(0, Math.min(right - minSize, x + dx)); width = right - x; }
+        if (drag.edge.includes('e')) width = Math.max(minSize, Math.min(1 - x, width + dx));
+        if (drag.edge.includes('n')) { const bottom = y + height; y = Math.max(0, Math.min(bottom - minSize, y + dy)); height = bottom - y; }
+        if (drag.edge.includes('s')) height = Math.max(minSize, Math.min(1 - y, height + dy));
+      }
+      setCropDraft({ x, y, width, height });
+    };
+    const onPointerUp = () => {
+      if (!cropDragRef.current) return;
+      cropDragRef.current = null;
+      setCropDraft((finalCrop) => {
+        updateAttributes({ crop: finalCrop.width >= 0.999 && finalCrop.height >= 0.999 && finalCrop.x <= 0.001 && finalCrop.y <= 0.001 ? null : finalCrop });
+        setIsCropping(false);
+        return finalCrop;
+      });
+    };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [isCropping, updateAttributes]);
+
+  const beginCropping = useCallback(() => {
+    setCropDraft(persistedCrop ? { ...persistedCrop } : { x: 0, y: 0, width: 1, height: 1 });
+    setIsCropping(true);
+    setIsLocalSelected(true);
+  }, [persistedCrop]);
+
+  const cancelCropping = useCallback(() => {
+    setCropDraft(persistedCrop ? { ...persistedCrop } : { x: 0, y: 0, width: 1, height: 1 });
+    setIsCropping(false);
+  }, [persistedCrop]);
+
+  const displayCrop = !isCropping ? persistedCrop : null;
+  const cropRatio = displayCrop && imgRef.current?.naturalWidth && imgRef.current?.naturalHeight
+    ? (imgRef.current.naturalWidth * displayCrop.width) / (imgRef.current.naturalHeight * displayCrop.height)
+    : aspectRatio;
+
   const alignClass = getMediaAlignmentClass(alignment);
 
   // Largura exibida: durante o arraste usa a largura em tempo real, caso contrário usa o atributo persistido
@@ -771,6 +841,8 @@ export function ImageNodeView(props: NodeViewProps) {
         style={{
           width: currentDisplayWidth,
           maxWidth: '100%',
+          ...(displayCrop ? { aspectRatio: String(cropRatio), overflow: 'hidden' as const } : {}),
+          ...(isCropping ? { aspectRatio: String(aspectRatio) } : {}),
         }}
       >
         {/* Barra Flutuante de Informação e Ações Rápidas (Aparece ao selecionar apenas se editável) */}
@@ -795,6 +867,16 @@ export function ImageNodeView(props: NodeViewProps) {
             deleteTitle="Excluir Imagem"
           >
             <div className="h-3.5 w-[1px] bg-[#e4e2dd]" />
+
+            <button
+              type="button"
+              onClick={beginCropping}
+              className="p-1 text-[#4e453f] hover:bg-[#f0eee9] dark:text-[#a3a3a3] dark:hover:bg-[#161616] rounded-md transition-colors cursor-pointer"
+              title="Recortar imagem"
+              aria-label="Recortar imagem"
+            >
+              <Crop className="w-3.5 h-3.5" />
+            </button>
 
             {/* Botão Adicionar / Editar Legenda */}
             <button
@@ -865,6 +947,9 @@ export function ImageNodeView(props: NodeViewProps) {
                 deleteTitle="Excluir Imagem"
               >
                 <div className="h-3.5 w-[1px] bg-[#e4e2dd] dark:bg-[#1a1a1a]" />
+                <button type="button" onClick={beginCropping} className="p-1 text-[#4e453f] hover:bg-[#f0eee9] dark:text-[#a3a3a3] dark:hover:bg-[#161616] rounded-md cursor-pointer" title="Recortar imagem" aria-label="Recortar imagem">
+                  <Crop className="w-3.5 h-3.5" />
+                </button>
                 <button
                   type="button"
                   onClick={() => setIsEditingCaption(true)}
@@ -948,14 +1033,44 @@ export function ImageNodeView(props: NodeViewProps) {
             onLoad={handleImageLoad}
             onError={handleImageError}
             draggable={false}
+            style={displayCrop ? {
+              position: 'absolute',
+              width: `${100 / displayCrop.width}%`,
+              maxWidth: 'none',
+              left: `${(-displayCrop.x / displayCrop.width) * 100}%`,
+              top: `${(-displayCrop.y / displayCrop.height) * 100}%`,
+            } : undefined}
             className={`rounded-xl block w-full h-auto object-contain border border-[#e4e2dd] shadow-xs pointer-events-auto relative z-1 transition-opacity duration-150 ${
               isImageLoaded ? 'opacity-100' : previousSrc ? 'opacity-0' : 'opacity-0 absolute top-0 left-0 pointer-events-none'
             }`}
           />
         )}
 
+        {isCropping && imgRef.current && (
+          <div className="absolute inset-0 z-20" data-image-crop-overlay="true">
+            <div
+              className="absolute border-2 border-white box-border cursor-move"
+              style={{ left: `${cropDraft.x * 100}%`, top: `${cropDraft.y * 100}%`, width: `${cropDraft.width * 100}%`, height: `${cropDraft.height * 100}%`, boxShadow: '0 0 0 9999px rgba(0,0,0,.48)' }}
+              onPointerDown={(event) => startCropDrag(event, 'move')}
+            >
+              {['nw','n','ne','e','se','s','sw','w'].map((edge) => {
+                const positions: Record<string, React.CSSProperties> = {
+                  nw: { left: -5, top: -5, cursor: 'nwse-resize' }, n: { left: '50%', top: -5, transform: 'translateX(-50%)', cursor: 'ns-resize' }, ne: { right: -5, top: -5, cursor: 'nesw-resize' },
+                  e: { right: -5, top: '50%', transform: 'translateY(-50%)', cursor: 'ew-resize' }, se: { right: -5, bottom: -5, cursor: 'nwse-resize' }, s: { left: '50%', bottom: -5, transform: 'translateX(-50%)', cursor: 'ns-resize' },
+                  sw: { left: -5, bottom: -5, cursor: 'nesw-resize' }, w: { left: -5, top: '50%', transform: 'translateY(-50%)', cursor: 'ew-resize' },
+                };
+                return <span key={edge} onPointerDown={(event) => startCropDrag(event, edge)} style={positions[edge]} className="absolute w-3 h-3 rounded-sm bg-white border border-[#68594d] shadow-sm touch-none" />;
+              })}
+            </div>
+            <div className="absolute top-2 right-2 flex gap-1.5">
+              <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={cancelCropping} className="px-2 py-1 rounded-md bg-black/70 text-white text-[11px]">Cancelar</button>
+              <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={() => { updateAttributes({ crop: cropDraft.width >= 0.999 && cropDraft.height >= 0.999 && cropDraft.x <= 0.001 && cropDraft.y <= 0.001 ? null : cropDraft }); setIsCropping(false); }} className="px-2 py-1 rounded-md bg-white text-[#302820] text-[11px] font-semibold">Concluir</button>
+            </div>
+          </div>
+        )}
+
         {/* Handles de Redimensionamento Interativos (Visíveis ao Selecionar apenas se editável) */}
-        {isSelected && editor?.isEditable && (
+        {isSelected && editor?.isEditable && !isCropping && (
           <MediaResizeHandles
             onResizeStart={handleResizeStart}
             showTopHandles={true}

@@ -104,6 +104,11 @@ export const CustomImage = Node.create<CustomImageOptions>({
           };
         },
       },
+      crop: {
+        default: null,
+        parseHTML: (element) => { const value = element.getAttribute('data-crop'); if (!value) return null; try { return JSON.parse(value); } catch { return null; } },
+        renderHTML: (attributes) => attributes.crop ? { 'data-crop': JSON.stringify(attributes.crop) } : {},
+      },
       caption: {
         default: null,
         parseHTML: (element) =>
@@ -149,6 +154,7 @@ export const CustomImage = Node.create<CustomImageOptions>({
               element.getAttribute('data-caption') ||
               element.getAttribute('caption') ||
               null,
+            crop: (() => { try { return JSON.parse(element.getAttribute('data-crop') || 'null'); } catch { return null; } })(),
           };
         },
       },
@@ -202,6 +208,7 @@ export const CustomImage = Node.create<CustomImageOptions>({
           if (node.attrs.src) attrs.push(`src="${node.attrs.src}"`);
           if (node.attrs.alt) attrs.push(`alt="${node.attrs.alt}"`);
           if (node.attrs.title) attrs.push(`title="${node.attrs.title}"`);
+          if (node.attrs.crop) attrs.push(`data-crop="${JSON.stringify(node.attrs.crop).replace(/"/g, '&quot;')}"`);
           if (node.attrs.caption) {
             const escaped = String(node.attrs.caption).replace(/"/g, '&quot;');
             attrs.push(`data-caption="${escaped}"`);
