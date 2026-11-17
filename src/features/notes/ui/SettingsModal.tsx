@@ -75,7 +75,7 @@ export function SettingsModal({
   // Estados da Aba: Exportar Notas
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportFormats, setExportFormats] = useState<ExportFormat[]>(['pdf', 'docx', 'md']);
+  const [exportFormats, setExportFormats] = useState<ExportFormat[]>(['md']);
 
   // Carrega e-mail atual do Supabase caso não fornecido
   useEffect(() => {
