@@ -1760,12 +1760,12 @@ export function SidebarNavigation({
             }}
             className={`group flex items-center justify-between gap-1.5 px-2 py-1 text-sm rounded-lg cursor-pointer transition-colors relative w-fit max-w-[calc(100%-4px)] min-w-[120px] ${
               isSelectedInMulti
-                ? 'bg-[#f4dfcb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs'
+                ? 'bg-[#f4dfcb] ring-1 ring-[#68594d]/50 font-medium text-[#1b1c19] shadow-2xs dark:bg-[#51463d] dark:ring-[#a88f79]/60 dark:text-[#f5eee7]'
                 : isActive
-                ? 'bg-[#f4dfcb] text-[#1b1c19] font-medium shadow-2xs'
+                ? 'bg-[#f4dfcb] text-[#1b1c19] font-medium shadow-2xs dark:bg-[#423a33] dark:text-[#f5eee7] dark:ring-1 dark:ring-[#8d7968]/50'
                 : isMenuOpenForThisNote
-                ? 'bg-[#e4e2dd]/80 text-[#1b1c19]'
-                : 'text-[#4e453f] hover:bg-[#e4e2dd]/60'
+                ? 'bg-[#e4e2dd]/80 text-[#1b1c19] dark:bg-[#302c28] dark:text-[#e8ddd3]'
+                : 'text-[#4e453f] hover:bg-[#e4e2dd]/60 dark:text-[#c9c0b8] dark:hover:bg-[#292623]'
             }`}
           >
             <div className="flex items-center gap-2 min-w-0 flex-1">
