@@ -2105,16 +2105,6 @@ export function MainLayout() {
       id="main-app-container"
       className="flex flex-col h-screen w-screen min-h-0 min-w-0 overflow-hidden bg-[#fbf9f4] font-sans-ui"
     >
-      <AppHeader
-        activeSection="notes"
-        userId={userId}
-        userEmail={userEmail}
-        notes={notes}
-        onBeforeNavigate={() => {
-          void flushAllPendingSaves();
-        }}
-      />
-
       {/* Workspace Area: Sidebar + Canvas */}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
         {/* Desktop Sidebar */}

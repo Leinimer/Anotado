@@ -358,27 +358,18 @@ export function StickyNotesLayout() {
         userId={userId}
         userEmail={userEmail}
         onBeforeNavigate={flushPendingPatches}
-      />
-
-      <StickyNotesToolbar
-        activeColor={activeColor}
-        selectedNoteColor={selectedNote?.color}
-        hasSelectedNote={Boolean(selectedNote)}
-        notesCount={notes.length}
-        saveState={saveState}
-        errorMessage={saveError}
-        onCreateNote={handleCreateNote}
-        onSelectColor={handleToolbarSelectColor}
-        onToggleBullet={() => {
-          if (selectedNoteId) {
-            bulletActionsRef.current.get(selectedNoteId)?.();
-          }
-        }}
-        onDeleteSelected={() => {
-          if (selectedNoteId) {
-            void handleDeleteNote(selectedNoteId);
-          }
-        }}
+        toolbar={<StickyNotesToolbar
+          activeColor={activeColor}
+          selectedNoteColor={selectedNote?.color}
+          hasSelectedNote={Boolean(selectedNote)}
+          notesCount={notes.length}
+          saveState={saveState}
+          errorMessage={saveError}
+          onCreateNote={handleCreateNote}
+          onSelectColor={handleToolbarSelectColor}
+          onToggleBullet={() => { if (selectedNoteId) bulletActionsRef.current.get(selectedNoteId)?.(); }}
+          onDeleteSelected={() => { if (selectedNoteId) void handleDeleteNote(selectedNoteId); }}
+        />}
       />
 
       {/* Área livre do quadro de post-its, sem sidebar */}

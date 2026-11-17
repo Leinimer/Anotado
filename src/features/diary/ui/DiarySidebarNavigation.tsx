@@ -36,6 +36,10 @@ import {
   isDiaryNote,
 } from '@/src/features/notes/utils/diary-hierarchy';
 import { extractAllUniqueTags, isAutomaticDiaryTag } from '@/src/features/notes/utils/hashtag-extractor';
+import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
+import { SettingsModal } from '@/src/features/notes/ui/SettingsModal';
+import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
+import { Settings } from 'lucide-react';
 
 interface DiarySidebarNavigationProps {
   folders: Folder[];
@@ -87,6 +91,7 @@ export function DiarySidebarNavigation({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const shareMenuRef = useRef<HTMLDivElement>(null);
   const [monthFilter, setMonthFilter] = useState<Record<string, 'all' | 'created'>>({});
@@ -582,6 +587,7 @@ export function DiarySidebarNavigation({
       id="diary-sidebar-container"
       className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] dark:bg-[#000000] border-r border-[#eae8e3] dark:border-[#1a1a1a] flex flex-col justify-between p-3 sm:p-4 pt-1.5 sm:pt-2 select-none shrink-0 relative"
     >
+      <AppHeader variant="sidebar" activeSection="diary" userId={userId} userEmail={userEmail || ""} notes={notes} onOpenShareModal={onOpenShareModal} />
       {/* Barra superior compacta da sidebar do Diário: Compartilhamento e fechamento mobile */}
       <div className="space-y-1.5 shrink-0">
         <div className="flex items-center justify-between py-0.5 px-1 gap-2">
@@ -1119,6 +1125,8 @@ export function DiarySidebarNavigation({
           </div>
 
           <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <button type="button" onClick={() => setIsSettingsOpen(true)} className="w-8 h-8 rounded-full flex items-center justify-center border border-[#ded9cf] bg-[#f0eee9] text-[#5e534b] dark:bg-[#111111] dark:border-[#222222] dark:text-[#a1a1aa]" title="Configurações" aria-label="Configurações"><Settings className="w-4 h-4" /></button>
             <button
               id="diary-logout-btn"
               type="button"
@@ -1278,6 +1286,7 @@ export function DiarySidebarNavigation({
         </div>
       )}
 
-    </aside>
+          <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} userId={userId} notes={notes} userEmail={userEmail || ""} onOpenShareModal={onOpenShareModal} />
+      </aside>
   );
 }

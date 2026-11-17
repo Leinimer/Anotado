@@ -610,17 +610,6 @@ export function DiaryLayout() {
       id="diary-layout-root"
       className="flex flex-col h-screen w-screen min-h-0 min-w-0 overflow-hidden bg-[#faf8f5] dark:bg-[#000000]"
     >
-      <AppHeader
-        activeSection="diary"
-        userId={userId}
-        userEmail={userEmail}
-        notes={notes}
-        onBeforeNavigate={() => {
-          void flushAllPendingSaves();
-        }}
-        onOpenShareModal={() => setIsShareModalOpen(true)}
-      />
-
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
         {/* Botão Hambúrguer Mobile */}
         {activeNote && (

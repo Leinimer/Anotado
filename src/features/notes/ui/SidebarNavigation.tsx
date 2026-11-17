@@ -58,10 +58,13 @@ import { SmartFolderModal } from './SmartFolderModal';
 import { ConfirmDeleteModal, BatchDeleteConfirmModal } from './SidebarDeleteModals';
 import { BatchMoveModal } from './BatchMoveModal';
 import { FolderCustomColorModal } from './FolderCustomColorModal';
+import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 
 interface SidebarNavigationProps {
   folders: FolderType[];
   notes: NoteType[];
+  appUserId?: string;
+  appUserEmail?: string;
   libraryPdfs?: any[];
   activeNoteId: string | null;
   activeFolderId: string | null;
@@ -115,6 +118,8 @@ interface SidebarNavigationProps {
 export function SidebarNavigation({
   folders,
   notes,
+  appUserId = '',
+  appUserEmail = '',
   libraryPdfs = [],
   activeNoteId,
   activeFolderId,
@@ -2048,6 +2053,7 @@ export function SidebarNavigation({
       id="sidebar-navigation-container"
       className="w-full md:w-64 lg:w-72 h-full min-h-0 bg-[#fbf9f4] border-r border-[#eae8e3] flex flex-col justify-between p-3 sm:p-4 pt-1.5 sm:pt-2 select-none shrink-0 overflow-hidden"
     >
+      <AppHeader variant="sidebar" activeSection="notes" userId={appUserId} userEmail={appUserEmail} notes={notes} />
       {/* Top Header (mobile close only) & Search Bar */}
       <div className="space-y-1.5 pt-1">
         {onCloseMobile && (
@@ -2432,6 +2438,7 @@ export function SidebarNavigation({
           </div>
 
           <div className="flex items-center gap-1">
+            <AppHeader variant="footer" activeSection="notes" userId={appUserId || userId} userEmail={userEmail || appUserEmail} notes={notes} />
             <button
               id="sidebar-logout-btn"
               type="button"
