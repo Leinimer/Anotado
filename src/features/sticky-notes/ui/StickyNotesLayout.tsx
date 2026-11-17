@@ -113,7 +113,7 @@ export function StickyNotesLayout() {
       } catch (error) {
         if (!isMounted) return;
         const message =
-          error instanceof Error ? error.message : 'Erro ao carregar notas adesivas.';
+          error instanceof Error ? error.message : 'Erro ao carregar Stick.';
         setLoadError(message);
       } finally {
         if (isMounted) setIsLoading(false);
@@ -254,7 +254,7 @@ export function StickyNotesLayout() {
       setNewlyCreatedId(created.id);
       setSaveState(uid !== 'demo-user' ? 'saved' : 'idle');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao criar nota adesiva.';
+      const message = error instanceof Error ? error.message : 'Erro ao criar Stick.';
       setSaveState('error');
       setSaveError(message);
     }
@@ -358,7 +358,7 @@ export function StickyNotesLayout() {
       await deleteStickyNote(uid, noteId);
       setSaveState('saved');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao excluir nota adesiva.';
+      const message = error instanceof Error ? error.message : 'Erro ao excluir Stick.';
       setNotes(snapshot);
       setSaveState('error');
       setSaveError(message);
