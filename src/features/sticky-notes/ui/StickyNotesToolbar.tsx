@@ -39,7 +39,7 @@ export function StickyNotesToolbar({
   return (
     <div
       id="sticky-notes-toolbar"
-      className="w-full shrink-0 bg-[#fbf9f4]/95 dark:bg-[#0a0a0a]/95 backdrop-blur-xs border-b border-[#eae8e3] dark:border-[#1c1c1c] px-3 sm:px-5 py-2 flex flex-wrap items-center justify-between gap-2 select-none z-20"
+      className="w-full min-w-0 shrink-0 flex flex-wrap items-center justify-between gap-2 select-none"
     >
       {/* Ações principais */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">

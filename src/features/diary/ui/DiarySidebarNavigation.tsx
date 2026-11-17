@@ -62,6 +62,7 @@ interface DiarySidebarNavigationProps {
     targetPosition: number
   ) => void;
   onToggleWorkspace: () => void;
+  onBeforeNavigate?: () => void;
   onCloseMobile?: () => void;
   onOpenShareModal?: () => void;
   acceptedSharedDiaries?: DiaryShare[];
@@ -83,6 +84,7 @@ export function DiarySidebarNavigation({
   onRenameFolder,
   onMoveItem,
   onToggleWorkspace,
+  onBeforeNavigate,
   onCloseMobile,
   onOpenShareModal,
   acceptedSharedDiaries = [],
@@ -587,7 +589,7 @@ export function DiarySidebarNavigation({
       id="diary-sidebar-container"
       className="w-full md:w-64 lg:w-72 h-full bg-[#fbf9f4] dark:bg-[#000000] border-r border-[#eae8e3] dark:border-[#1a1a1a] flex flex-col justify-between p-3 sm:p-4 pt-1.5 sm:pt-2 select-none shrink-0 relative"
     >
-      <AppHeader variant="sidebar" activeSection="diary" userId={userId} userEmail={userEmail || ""} notes={notes} onOpenShareModal={onOpenShareModal} />
+      <AppHeader variant="sidebar" activeSection="diary" userId={userId} userEmail={userEmail || ""} notes={notes} onBeforeNavigate={onBeforeNavigate} onOpenShareModal={onOpenShareModal} />
       {/* Barra superior compacta da sidebar do Diário: Compartilhamento e fechamento mobile */}
       <div className="space-y-1.5 shrink-0">
         <div className="flex items-center justify-between py-0.5 px-1 gap-2">

@@ -644,6 +644,7 @@ export function DiaryLayout() {
           onRenameFolder={handleRenameFolder}
           onMoveItem={handleMoveItem}
           onToggleWorkspace={handleToggleWorkspace}
+          onBeforeNavigate={() => { void flushAllPendingSaves(); }}
           onOpenShareModal={() => setIsShareModalOpen(true)}
           acceptedSharedDiaries={acceptedIncomingShares}
         />
@@ -688,6 +689,7 @@ export function DiaryLayout() {
               onRenameFolder={handleRenameFolder}
               onMoveItem={handleMoveItem}
               onToggleWorkspace={handleToggleWorkspace}
+              onBeforeNavigate={() => { void flushAllPendingSaves(); }}
               onCloseMobile={() => setMobileSidebarOpen(false)}
               onOpenShareModal={() => {
                 setIsShareModalOpen(true);
