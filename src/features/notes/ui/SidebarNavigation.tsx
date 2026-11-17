@@ -1592,7 +1592,7 @@ export function SidebarNavigation({
                     </span>
                   )}
                   {isSystemArchive && folder.notes.length > 0 && (
-                    <span className="text-[10px] text-[#8c6b4f] bg-[#e8ded3] px-1.5 py-0.2 rounded-full font-medium">
+                    <span className="text-[10px] text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 px-1.5 py-0.2 rounded-full font-medium">
                       {folder.notes.length}
                     </span>
                   )}
