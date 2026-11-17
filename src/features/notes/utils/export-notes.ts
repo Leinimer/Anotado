@@ -334,15 +334,113 @@ async function makeDocx(userId: string, title: string, markdown: string): Promis
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
 }
 
-function download(blob: Blob) {
+function download(blob: Blob, fileName = 'anotado-exportacao.zip') {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'anotado-exportacao.zip';
+  a.download = fileName;
   document.body.appendChild(a);
   a.click();
   a.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+/**
+ * Exporta a seleção da sidebar. Notas individuais baixam no próprio formato;
+ * exportações de pastas são agrupadas em ZIP, mesmo quando contêm apenas uma nota.
+ */
+export async function exportNotesFromContext(
+  userId: string,
+  selectedNotes: Note[],
+  format: ExportFormat,
+  zipOutput: boolean,
+  archiveName = 'anotado',
+  onProgress?: (progress: ExportProgress) => void
+): Promise<{ success: boolean; count: number; error?: string }> {
+  imageBlobCache.clear();
+  try {
+    if (!selectedNotes.length) throw new Error('Não há notas para exportar.');
+    onProgress?.({ current: 0, total: selectedNotes.length, status: 'fetching' });
+    const zip = zipOutput ? new JSZip() : null;
+    const usedNames = new Map<string, number>();
+    const extension = format === 'docx' ? 'docx' : format;
+    const mimeType = format === 'pdf'
+      ? 'application/pdf'
+      : format === 'docx'
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : 'text/markdown;charset=utf-8';
+
+    for (let index = 0; index < selectedNotes.length; index++) {
+      const note = selectedNotes[index];
+      onProgress?.({
+        current: index + 1,
+        total: selectedNotes.length,
+        currentNoteTitle: note.title,
+        status: 'processing',
+      });
+
+      let markdown = note.content || '';
+      try {
+        const stored = await readNoteMarkdown(userId, note.id);
+        if (stored !== null && stored !== undefined) markdown = stored;
+      } catch (error) {
+        console.warn('[Export] Não foi possível ler o Markdown da nota; usando o conteúdo carregado.', error);
+      }
+
+      if (note.tags?.length) {
+        const existingTags = new Set(extractHashtagsFromText(markdown).map((tag) => tag.toLowerCase()));
+        const missingTags = note.tags.filter((tag) => !existingTags.has(tag.toLowerCase().replace(/^#+/, '')));
+        if (missingTags.length) {
+          markdown = [markdown.trim(), missingTags.map((tag) => tag.startsWith('#') ? tag : '#' + tag).join(' ')].filter(Boolean).join('\n\n');
+        }
+      }
+
+      const baseName = sanitizeFileName(note.title);
+      const key = baseName.toLowerCase();
+      const occurrence = (usedNames.get(key) || 0) + 1;
+      usedNames.set(key, occurrence);
+      const fileName = (occurrence === 1 ? baseName : baseName + ' (' + occurrence + ')') + '.' + extension;
+
+      let fileContent: Blob | Uint8Array | string;
+      if (format === 'pdf') {
+        fileContent = await makePdf(userId, note.title, markdown);
+      } else if (format === 'docx') {
+        fileContent = await makeDocx(userId, note.title, markdown);
+      } else {
+        fileContent = markdown;
+      }
+
+      if (zip) {
+        zip.file(fileName, fileContent);
+      } else {
+        const fileBlob = fileContent instanceof Blob
+          ? fileContent
+          : new Blob([fileContent as BlobPart], { type: mimeType });
+        download(fileBlob, fileName);
+      }
+    }
+
+    if (zip) {
+      onProgress?.({ current: selectedNotes.length, total: selectedNotes.length, status: 'zipping' });
+      const archive = await zip.generateAsync({
+        type: 'blob',
+        mimeType: 'application/zip',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      });
+      download(archive, sanitizeFileName(archiveName) + '-' + format + '.zip');
+    }
+
+    onProgress?.({ current: selectedNotes.length, total: selectedNotes.length, status: 'completed' });
+    return { success: true, count: selectedNotes.length };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Erro desconhecido ao exportar.';
+    console.error('[Export] Falha na exportação da seleção:', error);
+    onProgress?.({ current: 0, total: selectedNotes.length, status: 'error', errorMessage: message });
+    return { success: false, count: 0, error: message };
+  } finally {
+    imageBlobCache.clear();
+  }
 }
 
 export async function exportNonArchivedNotesToZip(
