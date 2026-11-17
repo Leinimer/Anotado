@@ -18,6 +18,8 @@ import {
 } from '../api/sticky-notes-api';
 import { StickyNoteCard, StickyEditorActions, StickyEditorAction } from './StickyNoteCard';
 import { StickyNotesToolbar, StickySaveState } from './StickyNotesToolbar';
+import { StickyNoteReferenceModal } from './StickyNoteReferenceModal';
+import { ExtendedNote } from '@/src/features/notes/db/indexed-db';
 
 const DEBOUNCE_MS = 450;
 
@@ -32,6 +34,8 @@ export function StickyNotesLayout() {
   const [newlyCreatedId, setNewlyCreatedId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<StickySaveState>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [referenceModalOpen, setReferenceModalOpen] = useState(false);
+  const [referenceSelectedText, setReferenceSelectedText] = useState('');
 
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
@@ -57,14 +61,14 @@ export function StickyNotesLayout() {
   }, [selectedNoteId]);
   const handleInsertNoteLink = useCallback(() => {
     if (!selectedNoteId) return;
-    const options = notesRef.current.filter(n => n.id !== selectedNoteId);
-    if (!options.length) { window.alert('Crie outra nota adesiva para poder referenciá-la.'); return; }
-    const choices = options.map(n => n.title?.trim() || 'Nota sem título');
-    const typed = window.prompt('Digite o título exato da nota que deseja referenciar:\n' + choices.join('\n'), choices[0]);
-    if (!typed) return;
-    const index = options.findIndex(n => (n.title || '').trim().toLowerCase() === typed.trim().toLowerCase());
-    if (index < 0) { window.alert('Não encontrei uma nota com esse título.'); return; }
-    editorActionsRef.current.get(selectedNoteId)?.insertNoteLink(options[index].id, choices[index]);
+    const selectedText = editorActionsRef.current.get(selectedNoteId)?.prepareNoteReference() || '';
+    setReferenceSelectedText(selectedText);
+    setReferenceModalOpen(true);
+  }, [selectedNoteId]);
+  const handleChooseReferencedNote = useCallback((note: ExtendedNote) => {
+    if (selectedNoteId) editorActionsRef.current.get(selectedNoteId)?.insertNoteLink(note.id, note.title || 'Sem título');
+    setReferenceModalOpen(false);
+    setReferenceSelectedText('');
   }, [selectedNoteId]);
   const handleOpenLinkedNote = useCallback((id: string) => {
     setSelectedNoteId(id);
@@ -387,6 +391,8 @@ export function StickyNotesLayout() {
           onDeleteSelected={() => { if (selectedNoteId) void handleDeleteNote(selectedNoteId); }}
         />}
       />
+
+      <StickyNoteReferenceModal isOpen={referenceModalOpen} onClose={() => setReferenceModalOpen(false)} onSelectNote={handleChooseReferencedNote} userId={userId} selectedText={referenceSelectedText} />
 
       {/* Área livre do quadro de post-its, sem sidebar */}
       <main

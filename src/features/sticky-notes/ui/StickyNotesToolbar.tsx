@@ -1,6 +1,6 @@
 'use client';
 import React from 'react';
-import {AlertCircle,Bold,Check,CircleCheck,Italic,Link2,List,Loader2,Plus,Redo2,Trash2,Underline,Undo2} from 'lucide-react';
+import {AlertCircle,Bold,Check,CheckSquare,Italic,Link2,List,Loader2,Plus,Redo2,Trash2,Underline,Undo2} from 'lucide-react';
 import {useTheme} from '@/src/features/theme/theme-context';
 import {STICKY_COLORS,StickyNoteColorKey} from '../types';
 import {StickyEditorAction} from './StickyNoteCard';
@@ -14,8 +14,8 @@ export function StickyNotesToolbar({activeColor,selectedNoteColor,hasSelectedNot
  <div className="h-6 w-px bg-[#e4e2dd] dark:bg-[#303030] mx-1"/>
  <div className="flex items-center gap-0.5">
  {btn('Negrito',<Bold className="w-4 h-4"/>,()=>onFormat?.('bold'),!hasSelectedNote)}{btn('Itálico',<Italic className="w-4 h-4"/>,()=>onFormat?.('italic'),!hasSelectedNote)}{btn('Sublinhado',<Underline className="w-4 h-4"/>,()=>onFormat?.('underline'),!hasSelectedNote)}
- <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] mx-1"/>{btn('Marcadores',<List className="w-4 h-4"/>,()=>onFormat?.('bullet'),!hasSelectedNote)}{btn('Checklist',<CircleCheck className="w-4 h-4"/>,()=>onFormat?.('checklist'),!hasSelectedNote)}
- <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] mx-1"/>{btn('Diminuir nível (Shift+Tab)',<span className="text-xs font-bold">⇤</span>,()=>onFormat?.('outdent'),!hasSelectedNote)}{btn('Aumentar nível (Tab)',<span className="text-xs font-bold">⇥</span>,()=>onFormat?.('indent'),!hasSelectedNote)}
+ <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] mx-1"/>{btn('Marcadores',<List className="w-4 h-4"/>,()=>onFormat?.('bullet'),!hasSelectedNote)}{btn('Checklist',<CheckSquare className="w-4 h-4"/>,()=>onFormat?.('checklist'),!hasSelectedNote)}
+
  <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] mx-1"/>{btn('Desfazer',<Undo2 className="w-4 h-4"/>,()=>onFormat?.('undo'),!hasSelectedNote)}{btn('Refazer',<Redo2 className="w-4 h-4"/>,()=>onFormat?.('redo'),!hasSelectedNote)}{btn('Referenciar nota',<Link2 className="w-4 h-4"/>,()=>onInsertNoteLink?.(),!hasSelectedNote)}{hasSelectedNote&&btn('Excluir nota',<Trash2 className="w-4 h-4"/>,()=>onDeleteSelected?.())}
  </div>
  <div className="ml-auto flex items-center gap-2 text-[11px] text-[#7f756e] dark:text-[#a1a1aa]">{saveState==='saving'&&<span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin"/>Salvando</span>}{saveState==='saved'&&<span className="inline-flex items-center gap-1 text-[#5f6f52]"><Check className="w-3 h-3"/>Salvo</span>}{saveState==='error'&&<span title={errorMessage||'Erro ao salvar'} className="inline-flex items-center gap-1 text-red-600"><AlertCircle className="w-3 h-3"/>Erro ao salvar</span>}<span className="hidden sm:inline">{notesCount} {notesCount===1?'nota':'notas'}</span></div></div>;
