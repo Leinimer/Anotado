@@ -48,7 +48,8 @@ import {
   TreePdfItem,
   WorkspaceType,
 } from '../types';
-import { extractAllUniqueTags } from '../utils/hashtag-extractor';
+import { extractAllUniqueTags, noteHasTag } from '../utils/hashtag-extractor';
+import { exportNotesFromContext, ExportFormat } from '../utils/export-notes';
 import { buildFolderTree, filterTree, wouldCreateCycle } from '../utils/tree-builder';
 import { WorkspaceSwitch } from '@/src/features/core_layout/ui/WorkspaceSwitch';
 import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
@@ -541,7 +542,7 @@ export function SidebarNavigation({
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const menuWidth = 175;
-    const menuHeight = type === 'folder' ? 260 : 172;
+    const menuHeight = type === 'folder' ? 460 : type === 'note' ? 360 : 210;
     const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
     const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
 
@@ -623,6 +624,93 @@ export function SidebarNavigation({
     setSelectedItems((prev) => new Map(prev).set(id, type));
     lastSelectedIdRef.current = { id, type };
   };
+
+  // Exporta uma nota isolada ou todas as notas de uma pasta e suas subpastas.
+  const handleExportItem = async (
+    itemId: string,
+    itemType: 'folder' | 'note',
+    format: ExportFormat
+  ) => {
+    setMenuOpenId(null);
+    setMenuPosition(null);
+    setShowColorSubmenu(false);
+
+    let notesToExport: NoteType[] = [];
+    let zipOutput = itemType === 'folder';
+    let archiveName = 'anotado';
+
+    if (itemType === 'note') {
+      const selectedNote = notes.find((note) => note.id === itemId);
+      if (selectedNote) {
+        notesToExport = [selectedNote];
+        archiveName = selectedNote.title;
+      }
+    } else if (itemId === SYSTEM_ARCHIVE_FOLDER_ID) {
+      notesToExport = notes.filter((note) => Boolean(note.is_archived));
+      archiveName = 'Notas arquivadas';
+    } else if (itemId === SYSTEM_FAVORITES_FOLDER_ID) {
+      notesToExport = notes.filter((note) => Boolean(note.is_favorite) && !note.is_archived);
+      archiveName = 'Favoritos';
+    } else {
+      const targetFolder = folders.find((folder) => folder.id === itemId);
+      archiveName = targetFolder?.name || 'Pasta';
+
+      // Resolve toda a descendência usando a lista plana de pastas, sem depender
+      // de quais ramos estão abertos/visíveis na sidebar.
+      const folderIds = new Set<string>([itemId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const folder of folders) {
+          if (folder.parent_id && folderIds.has(folder.parent_id) && !folderIds.has(folder.id)) {
+            folderIds.add(folder.id);
+            changed = true;
+          }
+        }
+      }
+
+      const selectedById = new Map<string, NoteType>();
+      for (const note of notes) {
+        if (!note.is_archived && note.folder_id && folderIds.has(note.folder_id)) {
+          selectedById.set(note.id, note);
+        }
+      }
+
+      // Pastas inteligentes mostram notas por etiquetas, mesmo quando elas
+      // estão fisicamente armazenadas em outra pasta.
+      if (targetFolder?.is_smart && targetFolder.smart_tags?.length) {
+        for (const note of notes) {
+          if (!note.is_archived && targetFolder.smart_tags.some((tag) => noteHasTag(note, tag))) {
+            selectedById.set(note.id, note);
+          }
+        }
+      }
+
+      notesToExport = Array.from(selectedById.values()).sort((a, b) =>
+        a.title.localeCompare(b.title, 'pt-BR', { sensitivity: 'base' })
+      );
+    }
+
+    if (!notesToExport.length) {
+      window.alert(itemType === 'folder'
+        ? 'Esta pasta não contém notas para exportar.'
+        : 'Não foi possível localizar a nota selecionada.');
+      return;
+    }
+
+    const result = await exportNotesFromContext(
+      userId,
+      notesToExport,
+      format,
+      zipOutput,
+      archiveName
+    );
+
+    if (!result.success) {
+      window.alert(result.error || 'Não foi possível exportar os documentos selecionados.');
+    }
+  };
+
 
   // Limpa somente os itens marcados, mantendo a ferramenta de seleção aberta.
   const handleClearBatchSelection = () => {
@@ -2444,6 +2532,7 @@ export function SidebarNavigation({
         }}
         onPromptDelete={promptDelete}
         onSelectForBatch={handleSelectForBatch}
+        onExportItem={handleExportItem}
         onMouseEnterColorOption={handleMouseEnterColorOption}
         onMouseLeaveColorOption={handleMouseLeaveColorOption}
         onToggleColorSubmenu={() => {
