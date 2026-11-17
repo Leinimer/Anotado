@@ -1,7 +1,6 @@
 'use client';
 import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {GripHorizontal,Trash2} from 'lucide-react';
-import {useTheme} from '@/src/features/theme/theme-context';
 import {STICKY_MAX_WIDTH,STICKY_MIN_WIDTH,StickyNote,getStickyColorTheme} from '../types';
 export type StickyEditorAction='bold'|'italic'|'underline'|'undo'|'redo'|'bullet'|'checklist'|'outdent'|'indent';
 export interface StickyEditorActions{format:(action:StickyEditorAction)=>void;insertNoteLink:(id:string,title:string)=>void;}
@@ -9,7 +8,7 @@ interface Props{note:StickyNote;isSelected:boolean;autoFocus?:boolean;onSelect:(
 const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const toHtml=(v:string)=>!v?'<p><br></p>':/^\s*</.test(v)?v:v.split('\n').map(x=>'<p>'+(esc(x)||'<br>')+'</p>').join('');
 export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote}:Props){
- const {theme,isMounted}=useTheme();const colors=getStickyColorTheme(note.color);const editor=useRef<HTMLDivElement>(null);const [drag,setDrag]=useState(false);const [resize,setResize]=useState(false);
+ const colors=getStickyColorTheme(note.color);const editor=useRef<HTMLDivElement>(null);const [drag,setDrag]=useState(false);const [resize,setResize]=useState(false);
  useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');if(el.innerHTML!==html)el.innerHTML=html;}},[note.content]);
  useEffect(()=>{if(autoFocus)editor.current?.focus();},[autoFocus]);
  const save=()=>{if(editor.current)onChangeContent(note.id,editor.current.innerHTML);};
