@@ -441,11 +441,11 @@ export function SidebarContextMenu({
               id="context-menu-export-submenu"
               role="menu"
               onClick={(event) => event.stopPropagation()}
-              className={\`absolute top-0 z-[60] min-w-[140px] bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 \${
+              className={`absolute top-0 z-[60] min-w-[140px] bg-white dark:bg-[#2a2826] border border-[#e4e2dd] dark:border-[#5a514a] rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 ${
                 menuPosition && menuPosition.left + 175 + 145 > (typeof window !== 'undefined' ? window.innerWidth : 1000)
                   ? 'right-full mr-1.5'
                   : 'left-full ml-1.5'
-              }\`}
+              }`}
             >
               {([
                 { format: 'pdf' as const, label: 'PDF' },
