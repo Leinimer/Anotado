@@ -345,6 +345,13 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     tail.collapse(false);
    }
    const trailing=tail.extractContents();
+   const followingBlocks:Node[]=[];
+   if(splitBlock!==textHost){
+    while(splitBlock.nextSibling){
+     const sibling=splitBlock.nextSibling;
+     followingBlocks.push(sibling);
+    }
+   }
 
    const next=makeListItem(kind);
    const nextHost=kind==='checklist'?(next.querySelector(':scope > div') as HTMLElement|null):next;
@@ -354,6 +361,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
      nextParagraph.replaceChildren();
      if(trailing.childNodes.length)nextParagraph.appendChild(trailing);
      else nextParagraph.innerHTML='<br>';
+     followingBlocks.forEach(node=>nextHost!.appendChild(node));
     }
    }
    list.insertBefore(next,item.nextSibling);
