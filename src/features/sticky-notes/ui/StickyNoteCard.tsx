@@ -33,6 +33,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const save=()=>{if(editor.current){styleChecklist(editor.current);onChangeContent(note.id,editor.current.innerHTML);}};
  const command=(cmd:string)=>{if(!editor.current)return;editor.current.focus();document.execCommand(cmd,false);save();};
  const placeCaret=(target:HTMLElement)=>{const range=document.createRange();range.selectNodeContents(target);range.collapse(false);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);};
+ const placeCaretStart=(target:HTMLElement)=>{const range=document.createRange();range.selectNodeContents(target);range.collapse(true);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);};
  const makeChecklistItem=()=>{
   const li=document.createElement('li');
   li.innerHTML='<label><input type="checkbox" aria-label="Marcar item como concluído"></label><div><p><span data-sticky-check-text="true"><br></span></p></div>';
@@ -110,9 +111,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   const caret=document.createRange();caret.selectNodeContents(textHost);caret.setEnd(range.startContainer,range.startOffset);
   const before=caret.toString();
   const afterRange=document.createRange();afterRange.setStart(range.startContainer,range.startOffset);afterRange.setEnd(textHost,textHost.childNodes.length);
-  const after=afterRange.toString();
   const atStart=before.length===0;
-  const atEnd=after.length===0;
   const empty=!(textHost.textContent||'').trim();
   if(e.key==='Backspace'&&atStart){
    e.preventDefault();
@@ -125,7 +124,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    if(!paragraph.childNodes.length)paragraph.innerHTML='<br>';
    item.replaceWith(paragraph);
    if(!list.querySelector('li'))list.remove();
-   placeCaret(paragraph);
+   placeCaretStart(paragraph);
    save();return;
   }
   if(e.key==='Enter'){
@@ -141,7 +140,10 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    const nextHost=kind==='checklist'?(next.querySelector('[data-sticky-check-text]') as HTMLElement|null):next;
    if(nextHost){nextHost.innerHTML='';nextHost.appendChild(extracted);if(!nextHost.childNodes.length)nextHost.innerHTML='<br>';}
    item.insertAdjacentElement('afterend',next);
-   styleChecklist(el);setCaretInItem(next,kind);save();
+   styleChecklist(el);
+   const nextCaret=kind==='checklist'?(next.querySelector('[data-sticky-check-text]') as HTMLElement|null):next;
+   if(nextCaret)placeCaretStart(nextCaret);
+   save();
   }
  };
  const click=(e:React.MouseEvent<HTMLDivElement>)=>{const t=e.target as HTMLElement;if(t instanceof HTMLInputElement&&t.type==='checkbox'){const checked=t.checked;t.toggleAttribute('checked',checked);t.checked=checked;const item=t.closest('li');if(item){item.dataset.checked=String(checked);const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');if(text)Object.assign(text.style,{textDecorationLine:'none',textDecoration:'none',opacity:'1'});}requestAnimationFrame(save);}const a=t.closest('a[data-sticky-reference-id]') as HTMLAnchorElement|null;if(a&&e.ctrlKey){e.preventDefault();const id=a.dataset.stickyReferenceId;const type=(a.dataset.stickyReferenceType||'note') as 'note'|'sticky'|'diary';if(id)onOpenLinkedNote?.(id,type);}};
