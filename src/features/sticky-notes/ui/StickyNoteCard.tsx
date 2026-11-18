@@ -149,7 +149,15 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    const ctx=getListContext();
    if(ctx?.item&&ctx.kind&&ctx.list instanceof HTMLUListElement){
     e.preventDefault();
+    // Keep a live range bookmark inside the text node while the LI is moved
+    // between nested UL elements; restore it so the caret stays in place.
+    const selection=window.getSelection();
+    const caretRange=selection?.rangeCount?selection.getRangeAt(0).cloneRange():null;
     changeListLevel(ctx.item,ctx.list,ctx.kind,e.shiftKey?'out':'in');
+    if(caretRange&&selection){
+     selection.removeAllRanges();
+     selection.addRange(caretRange);
+    }
     styleChecklist(ctx.el);save();return;
    }
    e.preventDefault();command(e.shiftKey?'outdent':'indent');return;
