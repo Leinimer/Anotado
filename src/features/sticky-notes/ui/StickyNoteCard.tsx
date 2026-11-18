@@ -51,7 +51,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   const node=range.startContainer;const anchor=node instanceof Element?node:node.parentElement;
   const item=anchor?.closest('li');
   const list=item?.parentElement;
-  const kind=list?.matches('ul[data-sticky-checklist]')?'checklist':list?.matches('ul.sticky-bullet-list')?'bullet':null;
+  const kind:'bullet'|'checklist'|null=list?.matches('ul[data-sticky-checklist]')?'checklist':list?.matches('ul.sticky-bullet-list')?'bullet':null;
   return {el,selection,range,anchor,item,list,kind};
  };
  const setCaretInItem=(item:HTMLLIElement,kind:'bullet'|'checklist')=>{
