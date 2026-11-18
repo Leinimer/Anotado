@@ -60,7 +60,7 @@ const styleChecklist=(editor:HTMLElement)=>{
    const paragraph=content.querySelector<HTMLElement>(':scope > p');
    if(paragraph&&!paragraph.childNodes.length)paragraph.innerHTML='<br>';
 
-   const nested=Array.from(item.children).filter(el=>el instanceof HTMLUListElement);
+   const nested=Array.from(content.children).filter(el=>el instanceof HTMLUListElement);
    Object.assign(item.style,{display:'flex',alignItems:'flex-start',gap:'0.45rem',fontSize:'14px',listStyle:'none',margin:'0 0 0.075rem',padding:'0',lineHeight:'1.45'});
    Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 14px',width:'14px',height:'14px',margin:'0.15rem 0 0',padding:'0',lineHeight:'1',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation'});
    Object.assign(checkbox.style,{appearance:'none',width:'14px',height:'14px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 14px',accentColor:'#eab308',borderRadius:'9999px'});
@@ -70,7 +70,7 @@ const styleChecklist=(editor:HTMLElement)=>{
    checkbox.checked=checked;
    if(checked){checkbox.setAttribute('checked','');item.dataset.checked='true';}
    else{checkbox.removeAttribute('checked');item.dataset.checked='false';}
-   nested.forEach(list=>Object.assign((list as HTMLElement).style,{flex:'0 0 100%',marginLeft:'1.8rem'}));
+   nested.forEach(list=>Object.assign((list as HTMLElement).style,{display:'block',margin:'0.05rem 0 0 0',paddingLeft:'0'}));
   });
  });
  editor.querySelectorAll<HTMLParagraphElement>('p[data-sticky-after-checklist]').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.2',minHeight:'0',height:'auto'}));
@@ -158,7 +158,11 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    // sibling at its current level cannot be indented.
    const previous=item.previousElementSibling as HTMLLIElement|null;
    if(!previous||previous.parentElement!==list)return;
-   let nested=Array.from(previous.children).find(child=>child instanceof HTMLUListElement&&(
+   const previousContent=kind==='checklist'
+    ?previous.querySelector<HTMLElement>(':scope > div')
+    :previous;
+   if(!previousContent)return;
+   let nested=Array.from(previousContent.children).find(child=>child instanceof HTMLUListElement&&(
     kind==='checklist'?child.matches('ul[data-sticky-checklist]'):child.matches('ul.sticky-bullet-list')
    )) as HTMLUListElement|undefined;
    if(!nested){
@@ -170,11 +174,12 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
      nested.className='sticky-bullet-list';
      nested.style.cssText='list-style-type:disc;padding-left:1.5em;margin:0.15em 0';
     }
-    previous.appendChild(nested);
+    previousContent.appendChild(nested);
    }
    nested.appendChild(item);
   }else{
-   const parentItem=list.parentElement;
+   const parentContent=list.parentElement;
+   const parentItem=parentContent instanceof HTMLDivElement?parentContent.parentElement:parentContent;
    const outerList=parentItem?.parentElement;
    if(!(parentItem instanceof HTMLLIElement)||!(outerList instanceof HTMLUListElement))return;
    parentItem.insertAdjacentElement('afterend',item);
@@ -303,7 +308,9 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    e.preventDefault();
    const paragraph=document.createElement('p');
    paragraph.style.cssText='margin:0;padding:0;line-height:1.45';
-   const nestedList=Array.from(item.children).find(child=>child instanceof HTMLUListElement) as HTMLUListElement|undefined;
+   const nestedList=kind==='checklist'
+    ?item.querySelector<HTMLUListElement>(':scope > div > ul[data-sticky-checklist]')||undefined
+    :Array.from(item.children).find(child=>child instanceof HTMLUListElement) as HTMLUListElement|undefined;
    if(kind==='checklist'){
     const content=item.querySelector<HTMLElement>(':scope > div');
     if(content){while(content.firstChild)paragraph.appendChild(content.firstChild);}
@@ -321,7 +328,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    if(empty){
     // Match the Notes editor: Enter on an empty nested task lifts it one level;
     // an empty top-level task exits the checklist into a normal paragraph.
-    if(kind==='checklist'&&list.parentElement instanceof HTMLLIElement){
+    if(kind==='checklist'&&list.parentElement instanceof HTMLDivElement&&list.parentElement.parentElement instanceof HTMLLIElement){
      changeListLevel(item,list,kind,'out');
      const content=item.querySelector<HTMLElement>(':scope > div > p');
      if(content)placeCaretStart(content);
