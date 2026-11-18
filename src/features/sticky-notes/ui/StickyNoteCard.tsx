@@ -313,7 +313,16 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     :Array.from(item.children).find(child=>child instanceof HTMLUListElement) as HTMLUListElement|undefined;
    if(kind==='checklist'){
     const content=item.querySelector<HTMLElement>(':scope > div');
-    if(content){while(content.firstChild)paragraph.appendChild(content.firstChild);}
+    if(content){
+     Array.from(content.childNodes).forEach(node=>{
+      if(node===nestedList)return;
+      if(node instanceof HTMLParagraphElement){
+       while(node.firstChild)paragraph.appendChild(node.firstChild);
+      }else{
+       paragraph.appendChild(node);
+      }
+     });
+    }
    }else{
     Array.from(item.childNodes).forEach(node=>{if(node!==nestedList)paragraph.appendChild(node);});
    }
