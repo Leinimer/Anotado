@@ -1,5 +1,6 @@
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
-import { StickyNote, UpdateStickyNotePatch, updateStickyNote, deleteStickyNote } from './sticky-notes-api';
+import { StickyNote } from '../types';
+import { UpdateStickyNotePatch, updateStickyNote, deleteStickyNote } from './sticky-notes-api';
 
 export const STICKY_REMINDER_OFFSETS = [
   { days: 0, label: 'Na data escolhida' },
