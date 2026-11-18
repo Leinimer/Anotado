@@ -145,36 +145,51 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   }
  };
  const paste=(e:React.ClipboardEvent<HTMLDivElement>)=>{
-  const ctx=getListContext();
-  if(!ctx?.item||ctx.kind!=='checklist')return;
-  const host=ctx.item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]');
-  if(!host)return;
-  const html=e.clipboardData.getData('text/html');
-  if(!html)return;
+  const el=editor.current;
+  if(!el)return;
+  // Always paste plain text in Sticky Notes. Ignore clipboard HTML so copied
+  // background colors, font styles, paragraph wrappers and list markup do
+  // not leak from the source Stick into the destination Stick.
   e.preventDefault();
-  const parsed=new DOMParser().parseFromString(html,'text/html');
-  const listItems=Array.from(parsed.body.querySelectorAll('li'));
-  const lines=listItems.length
-   ?listItems.map(li=>(li.textContent||'').replace(/\\s+/g,' ').trim()).filter(Boolean)
-   :[(parsed.body.textContent||'').replace(/\\s+/g,' ').trim()].filter(Boolean);
-  const text=lines.join('\\n');
-  if(!text)return;
+  const plain=e.clipboardData.getData('text/plain');
+  const html=e.clipboardData.getData('text/html');
+  const fallback=html
+   ?new DOMParser().parseFromString(html,'text/html').body.textContent||''
+   :'';
+  const value=(plain||fallback).replace(/\\r\\n?/g,'\\n');
+  if(!value)return;
+
+  const ctx=getListContext();
+  const host=ctx?.kind==='checklist'&&ctx.item
+   ?ctx.item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]')
+   :null;
   const selection=window.getSelection();
   let range=selection?.rangeCount?selection.getRangeAt(0):null;
-  if(!range||!host.contains(range.startContainer)){
-   range=document.createRange();range.selectNodeContents(host);range.collapse(false);
+  if(host&&(!range||!host.contains(range.startContainer))){
+   range=document.createRange();
+   range.selectNodeContents(host);
+   range.collapse(false);
+  }else if(!range||!el.contains(range.commonAncestorContainer)){
+   range=document.createRange();
+   range.selectNodeContents(el);
+   range.collapse(false);
   }
+  if(!range)return;
+
   range.deleteContents();
   const fragment=document.createDocumentFragment();
-  text.split('\\n').forEach((line,index)=>{
+  const lines=value.split('\\n');
+  lines.forEach((line,index)=>{
    if(index)fragment.appendChild(document.createElement('br'));
-   fragment.appendChild(document.createTextNode(line));
+   if(line)fragment.appendChild(document.createTextNode(line));
   });
   const last=fragment.lastChild;
   range.insertNode(fragment);
   if(last){
-   range.setStartAfter(last);range.collapse(true);
-   selection?.removeAllRanges();selection?.addRange(range);
+   range.setStartAfter(last);
+   range.collapse(true);
+   selection?.removeAllRanges();
+   selection?.addRange(range);
   }
   save();
  };
