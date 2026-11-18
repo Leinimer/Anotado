@@ -385,9 +385,21 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     const nextParagraph=kind==='checklist'?(nextHost.querySelector(':scope > p') as HTMLElement|null):nextHost;
     if(nextParagraph){
      nextParagraph.replaceChildren();
-     if(trailing.childNodes.length)nextParagraph.appendChild(trailing);
-     else nextParagraph.innerHTML='<br>';
-     followingBlocks.forEach(node=>nextHost!.appendChild(node));
+     // Keep all text after the cursor inside the new item's paragraph.
+     // Moving later P/DIV elements as siblings of the paragraph makes the
+     // text render underneath the checkbox instead of beside it.
+     const appendContent=(source:ParentNode)=>{
+      Array.from(source.childNodes).forEach(node=>{
+       if(node instanceof HTMLParagraphElement||node instanceof HTMLDivElement){
+        while(node.firstChild)nextParagraph.appendChild(node.firstChild);
+       }else{
+        nextParagraph.appendChild(node);
+       }
+      });
+     };
+     appendContent(trailing);
+     followingBlocks.forEach(node=>appendContent(node));
+     if(!nextParagraph.childNodes.length)nextParagraph.innerHTML='<br>';
     }
    }
    list.insertBefore(next,item.nextSibling);
