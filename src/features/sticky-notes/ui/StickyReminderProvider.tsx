@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AlarmClock, Check, Loader2, Pencil, Trash2, X } from 'lucide-react';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
-import { getStickyColorTheme, StickyNote } from '../types';
+import { getStickyColorTheme } from '../types';
 import {
   StickyReminderAlert,
   acknowledgeStickyReminderAlert,
@@ -20,7 +20,7 @@ interface ReminderContextValue {
 const ReminderContext = createContext<ReminderContextValue>({ refresh: async () => {} });
 export const useStickyReminders = () => useContext(ReminderContext);
 
-function getStick(alert: StickyReminderAlert): AlertWithStick['sticky_notes'] {
+function getStick(alert: StickyReminderAlert): StickyReminderAlert['sticky_notes'] {
   const value = (alert as any).sticky_notes;
   return Array.isArray(value) ? (value[0] || null) : (value || null);
 }
