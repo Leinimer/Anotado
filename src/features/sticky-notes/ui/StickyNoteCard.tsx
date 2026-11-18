@@ -116,8 +116,11 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  useEffect(()=>{registerEditorActions?.(note.id,actions);return()=>registerEditorActions?.(note.id,null);});
  const changeListLevel=(item:HTMLLIElement,list:HTMLUListElement,kind:'bullet'|'checklist',direction:'in'|'out')=>{
   if(direction==='in'){
+   // Sticky lists support a single nested level only. If this item is
+   // already inside a list nested under another LI, another Tab is a no-op.
+   if(list.parentElement instanceof HTMLLIElement)return;
    const previous=item.previousElementSibling as HTMLLIElement|null;
-   if(!previous)return;
+   if(!previous||previous.parentElement!==list)return;
    let nested=Array.from(previous.children).find(child=>child instanceof HTMLUListElement&&(
     kind==='checklist'?child.matches('ul[data-sticky-checklist]'):child.matches('ul.sticky-bullet-list')
    )) as HTMLUListElement|undefined;
