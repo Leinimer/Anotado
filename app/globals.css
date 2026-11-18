@@ -1991,40 +1991,24 @@ html.dark {
 
 
 
-/* Editor rico dos post-its: listas com o mesmo desenho do editor principal. */
-.sticky-rich-editor ul:not([data-sticky-checklist]) { list-style: disc; padding-left: 1.25rem; margin: .1rem 0 .25rem; }
-.sticky-rich-editor ul:not([data-sticky-checklist]) ul:not([data-sticky-checklist]) { list-style: circle; padding-left: 1.25rem; }
-.sticky-rich-editor ul[data-sticky-checklist] { list-style: none; padding: 0; margin: .1rem 0 .25rem; }
-.sticky-rich-editor ul[data-sticky-checklist] li { display: flex; align-items: flex-start; gap: .45rem; margin-bottom: .075rem; line-height: 1.45; }
-.sticky-rich-editor ul[data-sticky-checklist] li > label { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 1.125rem; width: 1.125rem; height: 1.125rem; margin-top: .15rem; cursor: pointer; user-select: none; }
-.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"] { appearance: none; width: 1.125rem; height: 1.125rem; margin: 0; padding: 0; border: 1.5px solid #8d8076; border-radius: 9999px; background: transparent; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-sizing: border-box; transition: all .15s ease; }
-.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked { border-color: #E7B515; background: #E7B515; }
-.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked::before { content: "✓"; color: #fff; font: 800 .75rem/1 system-ui,sans-serif; }
-.sticky-rich-editor ul[data-sticky-checklist] li > label [data-sticky-check-text] { flex: 1; min-width: 0; }
-.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked + [data-sticky-check-text] { text-decoration: line-through; opacity: .48; }
-
-/* Checklist dos post-its: estrutura idêntica à task list do editor principal. */
-.sticky-rich-editor ul[data-sticky-checklist] li > label { width: 1.125rem; height: 1.125rem; flex: 0 0 1.125rem; margin-top: .15rem; display: inline-flex; align-items: center; justify-content: center; }
-.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"] { width: 1.125rem; height: 1.125rem; border-radius: 9999px; border: 1.5px solid #8d8076; appearance: none; background: transparent; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-sizing: border-box; }
-.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked { border-color: #E7B515; background: #E7B515; }
-.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked::before { content: "✓"; color: #fff; font: 800 .75rem/1 system-ui,sans-serif; }
-.sticky-rich-editor ul[data-sticky-checklist] li > div { flex: 1; min-width: 0; }
-.sticky-rich-editor ul[data-sticky-checklist] li > div p { margin: 0 !important; line-height: 1.45 !important; }
+/* Editor de texto dos Sticky Notes: checklist compacta, alinhada e sem espaço extra. */
+.sticky-rich-editor ul[data-sticky-checklist] { list-style:none !important; padding:0 !important; margin:0 !important; }
+.sticky-rich-editor ul[data-sticky-checklist] li { display:flex !important; align-items:center !important; gap:6px !important; margin:0 !important; padding:0 !important; line-height:1.45 !important; font-size:13px !important; }
+.sticky-rich-editor ul[data-sticky-checklist] li > label { display:inline-flex !important; align-items:center !important; justify-content:center !important; flex:0 0 13px !important; width:13px !important; height:13px !important; margin:0 !important; padding:0 !important; cursor:pointer; }
+.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"] { appearance:none; width:13px !important; height:13px !important; flex:0 0 13px !important; margin:0 !important; padding:0 !important; border:1.5px solid #8d8076; border-radius:50%; background:transparent; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; box-sizing:border-box; }
+.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked { border-color:#E7B515; background:#E7B515; }
+.sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked::before { content:"✓"; color:#fff; font:800 9px/1 system-ui,sans-serif; }
+.sticky-rich-editor ul[data-sticky-checklist] li > div { flex:1 1 auto; min-width:0; margin:0 !important; padding:0 !important; line-height:1.45 !important; font-size:13px !important; }
+.sticky-rich-editor ul[data-sticky-checklist] li > div p { margin:0 !important; padding:0 !important; line-height:1.45 !important; font-size:inherit !important; }
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"],
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] *,
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"]::before,
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"]::after { text-decoration:none !important; text-decoration-line:none !important; text-decoration-thickness:0 !important; }
 .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div,
-.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div span { text-decoration: line-through; opacity: .48; }
-
-/* Checklist concluído: texto riscado mais escuro e legível. */
-.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div,
-.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div span {
-  color: #514438 !important;
-  opacity: .82 !important;
-}
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div * { color:color-mix(in srgb, currentColor 78%, white 22%) !important; opacity:1 !important; }
 .dark .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div,
-.dark .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div span {
-  color: #d6c9bd !important;
-  opacity: .82 !important;
-}
-
+.dark .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div * { color:color-mix(in srgb, currentColor 78%, black 22%) !important; opacity:1 !important; }
+.sticky-rich-editor p[data-sticky-after-checklist] { margin:0 !important; padding:0 !important; line-height:1.2 !important; min-height:0 !important; }
 
 /* Grade infinita do quadro Stick: acompanha o zoom sem limitar o viewport. */
 .sticky-board-viewport {
