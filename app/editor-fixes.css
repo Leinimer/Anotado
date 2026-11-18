@@ -230,11 +230,8 @@
   color-scheme: dark;
 }
 
-
 /* ==========================================================================
    CHECKLIST DO EDITOR PRINCIPAL — alinhamento, tipografia e continuidade.
-   Estas regras ficam no arquivo carregado após globals.css para prevalecer
-   sobre os estilos legados sem alterar a estrutura/serialização do documento.
    ========================================================================== */
 
 /* Fonte ligeiramente menor e linha com a mesma proporção visual do texto normal. */
@@ -263,8 +260,7 @@
   height: 1.05rem !important;
 }
 
-/* Não deixa margem residual criar um vão antes do texto escrito após a lista.
-   O parágrafo continua existindo e editável; apenas removemos o espaço visual. */
+/* Remove o vão visual após a checklist sem alterar sua estrutura editável. */
 .ProseMirror ul[data-type="taskList"] {
   margin-bottom: 0 !important;
 }
@@ -273,11 +269,12 @@
   margin-top: 0 !important;
 }
 
-/* Checklist marcado: mantém o texto sem tachado e com legibilidade integral. */
+/* Item concluído: sem tachado; apenas um tom discretamente mais claro.
+   A mistura com branco funciona nos temas claro e escuro sem reduzir opacidade. */
 .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div,
 .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div > p,
 .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div span {
   text-decoration: none !important;
+  color: color-mix(in srgb, currentColor 78%, white 22%) !important;
   opacity: 1 !important;
-  color: inherit !important;
 }
