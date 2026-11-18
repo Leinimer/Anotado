@@ -661,6 +661,26 @@ export function StickyNotesLayout() {
         onPointerDown={(event) => {
           const target = event.target as HTMLElement;
           const isBackground = target === event.currentTarget || target.dataset.stickyCanvas === 'true';
+          if (event.button === 1) {
+            event.preventDefault();
+            setIsPanning(true);
+            const startX = event.clientX;
+            const startY = event.clientY;
+            const initial = canvasPan;
+            const move = (pointer: PointerEvent) => {
+              setCanvasPan({ x: initial.x + pointer.clientX - startX, y: initial.y + pointer.clientY - startY });
+            };
+            const finish = () => {
+              setIsPanning(false);
+              window.removeEventListener('pointermove', move);
+              window.removeEventListener('pointerup', finish);
+              window.removeEventListener('pointercancel', finish);
+            };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', finish);
+            window.addEventListener('pointercancel', finish);
+            return;
+          }
           if (spacePressedRef.current && isBackground && event.button === 0) {
             event.preventDefault();
             setSelectedNoteId(null);
