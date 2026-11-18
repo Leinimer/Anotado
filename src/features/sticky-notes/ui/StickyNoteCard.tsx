@@ -362,53 +362,51 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    const currentBlock=(workingRange.startContainer instanceof Element?workingRange.startContainer:workingRange.startContainer.parentElement)?.closest('p');
    const splitBlock=currentBlock&&textHost.contains(currentBlock)?currentBlock:textHost;
    const tail=document.createRange();
-   try{
-    tail.setStart(workingRange.startContainer,workingRange.startOffset);
-    tail.setEnd(splitBlock,splitBlock.childNodes.length);
-   }catch{
-    tail.selectNodeContents(splitBlock);
-    tail.collapse(false);
-   }
+   tail.setStart(workingRange.startContainer,workingRange.startOffset);
+   tail.setEnd(splitBlock,splitBlock.childNodes.length);
    const trailing=tail.extractContents();
+
+   // Move every later paragraph in the current checklist item's content area
+   // into the next item's paragraph, preserving the checkbox/text structure.
    const followingBlocks:Node[]=[];
-   if(splitBlock!==textHost){
-    while(splitBlock.nextSibling){
-     const sibling=splitBlock.nextSibling;
-     followingBlocks.push(sibling);
-     sibling.remove();
-    }
+   let sibling=splitBlock.nextSibling;
+   while(sibling){
+    const nextSibling=sibling.nextSibling;
+    followingBlocks.push(sibling);
+    sibling=nextSibling;
    }
+   followingBlocks.forEach(node=>node.remove());
 
    const next=makeListItem(kind);
-   const nextHost=kind==='checklist'?(next.querySelector(':scope > div') as HTMLElement|null):next;
-   if(nextHost){
-    const nextParagraph=kind==='checklist'?(nextHost.querySelector(':scope > p') as HTMLElement|null):nextHost;
-    if(nextParagraph){
-     nextParagraph.replaceChildren();
-     // Keep all text after the cursor inside the new item's paragraph.
-     // Moving later P/DIV elements as siblings of the paragraph makes the
-     // text render underneath the checkbox instead of beside it.
-     const appendContent=(source:ParentNode)=>{
-      Array.from(source.childNodes).forEach(node=>{
-       if(node instanceof HTMLParagraphElement||node instanceof HTMLDivElement){
-        while(node.firstChild)nextParagraph.appendChild(node.firstChild);
-       }else{
-        nextParagraph.appendChild(node);
-       }
-      });
-     };
-     appendContent(trailing);
-     followingBlocks.forEach(node=>appendContent(node));
-     if(!nextParagraph.childNodes.length)nextParagraph.innerHTML='<br>';
-    }
+   const nextParagraph=kind==='checklist'
+    ?(next.querySelector(':scope > div > p') as HTMLElement|null)
+    :next;
+   if(nextParagraph){
+    nextParagraph.replaceChildren();
+    const appendInline=(source:ParentNode)=>{
+     Array.from(source.childNodes).forEach(node=>{
+      if(node instanceof HTMLParagraphElement||node instanceof HTMLDivElement){
+       while(node.firstChild)nextParagraph.appendChild(node.firstChild);
+      }else nextParagraph.appendChild(node);
+     });
+    };
+    appendInline(trailing);
+    followingBlocks.forEach(node=>appendInline(node));
+    if(!nextParagraph.childNodes.length)nextParagraph.innerHTML='<br>';
    }
+
+   // Insert immediately after the current LI, then put the caret at the end
+   // of the new item's own paragraph so typing starts beside its checkbox.
    list.insertBefore(next,item.nextSibling);
    styleChecklist(el);
-   const caretTarget=kind==='checklist'?(next.querySelector(':scope > div > p') as HTMLElement|null):next;
-   if(caretTarget)placeCaretStart(caretTarget);
-   activeSelection?.removeAllRanges();
+   const caretTarget=kind==='checklist'
+    ?(next.querySelector(':scope > div > p') as HTMLElement|null)
+    :next;
    if(caretTarget){
-    const nextRange=document.createRange();nextRange.selectNodeContents(caretTarget);nextRange.collapse(true);
+    const nextRange=document.createRange();
+    nextRange.selectNodeContents(caretTarget);
+    nextRange.collapse(false);
+    activeSelection?.removeAllRanges();
     activeSelection?.addRange(nextRange);
    }
    save();
