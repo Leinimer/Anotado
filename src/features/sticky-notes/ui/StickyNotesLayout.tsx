@@ -58,6 +58,34 @@ export function StickyNotesLayout() {
     userIdRef.current = userId;
   }, [userId]);
 
+  useEffect(() => {
+    const handleDeleted = (event: Event) => {
+      const detail = (event as CustomEvent<{ noteId?: string }>).detail;
+      if (!detail?.noteId) return;
+      setNotes(previous => previous.filter(note => note.id !== detail.noteId));
+      setSelectedNoteId(previous => previous === detail.noteId ? null : previous);
+      setReminderNoteIds(previous => {
+        const next = new Set(previous);
+        next.delete(detail.noteId!);
+        return next;
+      });
+    };
+    const handleUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ noteId?: string; title?: string; content?: string }>).detail;
+      if (!detail?.noteId) return;
+      setNotes(previous => previous.map(note => note.id === detail.noteId
+        ? { ...note, title: detail.title ?? note.title, content: detail.content ?? note.content }
+        : note
+      ));
+    };
+    window.addEventListener('anotado:sticky-note-deleted', handleDeleted);
+    window.addEventListener('anotado:sticky-note-updated', handleUpdated);
+    return () => {
+      window.removeEventListener('anotado:sticky-note-deleted', handleDeleted);
+      window.removeEventListener('anotado:sticky-note-updated', handleUpdated);
+    };
+  }, []);
+
   const registerEditorActions = useCallback((noteId: string, actions: StickyEditorActions | null) => {
     if (actions) editorActionsRef.current.set(noteId, actions);
     else editorActionsRef.current.delete(noteId);

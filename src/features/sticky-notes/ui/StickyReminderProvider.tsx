@@ -128,17 +128,24 @@ export function StickyReminderProvider({ children }: { children: React.ReactNode
 
   const acknowledge = () => currentAlert && runAction(() => acknowledgeStickyReminderAlert(userId, currentAlert.id));
   const removeAlert = () => currentAlert && runAction(() => deleteStickyReminderAlert(userId, currentAlert.id));
-  const removeStick = () => currentAlert && currentStick && runAction(() => deleteReminderPopupStick(userId, currentStick.id));
+  const removeStick = () => currentAlert && currentStick && runAction(async () => {
+    await deleteReminderPopupStick(userId, currentStick.id);
+    window.dispatchEvent(new CustomEvent('anotado:sticky-note-deleted', { detail: { noteId: currentStick.id } }));
+  });
 
   const saveEdit = async () => {
     if (!currentAlert || !currentStick) return;
     setSavingEdit(true);
     setActionError('');
     try {
+      const updatedContent = editorRef.current?.innerHTML || '';
       await saveReminderPopupStick(userId, currentStick.id, {
         title: titleDraft,
-        content: editorRef.current?.innerHTML || '',
+        content: updatedContent,
       });
+      window.dispatchEvent(new CustomEvent('anotado:sticky-note-updated', {
+        detail: { noteId: currentStick.id, title: titleDraft, content: updatedContent },
+      }));
       setEditing(false);
       await refresh();
     } catch (error) {
