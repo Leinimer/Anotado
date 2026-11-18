@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Plus, StickyNote as StickyNoteIcon } from 'lucide-react';
 import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 import {
@@ -34,6 +34,7 @@ export function StickyNotesLayout() {
   const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
   const [notes, setNotes] = useState<StickyNote[]>([]);
+  const [noteHeights, setNoteHeights] = useState<Record<string, number>>({});
   const [groups, setGroups] = useState<StickyNoteGroup[]>([]);
   const [contextMenu, setContextMenu] = useState<{kind:'note'|'group';id:string;x:number;y:number}|null>(null);
   const [editingGroupTitleId, setEditingGroupTitleId] = useState<string | null>(null);
@@ -82,6 +83,31 @@ export function StickyNotesLayout() {
       window.removeEventListener('blur', handleWindowBlur);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    if (isLoading || typeof ResizeObserver === 'undefined') return;
+
+    const elements = notes
+      .map(note => document.getElementById('sticky-note-' + note.id))
+      .filter((element): element is HTMLElement => Boolean(element));
+
+    const updateHeight = (element: HTMLElement) => {
+      const noteId = element.dataset.stickyNoteId;
+      if (!noteId) return;
+      const height = Math.ceil(element.getBoundingClientRect().height);
+      setNoteHeights(previous => previous[noteId] === height
+        ? previous
+        : { ...previous, [noteId]: height });
+    };
+
+    elements.forEach(updateHeight);
+    const observer = new ResizeObserver(entries => {
+      entries.forEach(entry => updateHeight(entry.target as HTMLElement));
+    });
+    elements.forEach(element => observer.observe(element));
+
+    return () => observer.disconnect();
+  }, [notes, isLoading]);
 
   useEffect(() => {
     notesRef.current = notes;
@@ -577,7 +603,7 @@ export function StickyNotesLayout() {
     const right = Math.max(...members.map(note => note.position_x + note.width_px));
     const bottom = Math.max(...members.map(note => {
       const element = typeof document !== 'undefined' ? document.getElementById('sticky-note-' + note.id) : null;
-      const height = element?.offsetHeight || 280;
+      const height = noteHeights[note.id] || element?.offsetHeight || 280;
       return note.position_y + height;
     }));
     return { group, left: left - 22, top: top - 42, width: right - left + 44, height: bottom - top + 66 };
