@@ -114,8 +114,43 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const prepareNoteReference=()=>{const el=editor.current;const selection=window.getSelection();referenceRange.current=null;if(!el||!selection||!selection.rangeCount)return '';const range=selection.getRangeAt(0);if(!el.contains(range.commonAncestorContainer))return '';referenceRange.current=range.cloneRange();return selection.toString().trim();};
  const actions:StickyEditorActions={format:(a)=>{if(a==='bold')command('bold');else if(a==='italic')command('italic');else if(a==='underline')command('underline');else if(a==='undo')command('undo');else if(a==='redo')command('redo');else if(a==='bullet')insertBullet();else if(a==='indent')command('indent');else if(a==='outdent')command('outdent');else if(a==='checklist')insertChecklist();},prepareNoteReference,insertNoteLink:(id,title,type='note')=>{const el=editor.current;if(!el)return;const safe=title.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]||c));const range=referenceRange.current;const selectedText=range?.toString()||'';const anchor=document.createElement('a');anchor.href='#anotado-reference-'+type+'-'+id;anchor.dataset.stickyReferenceId=id;anchor.dataset.stickyReferenceType=type;anchor.textContent=selectedText||title;anchor.style.cssText='color:#80634f;text-decoration:underline;text-decoration-color:#b69b83;cursor:pointer';el.focus();if(range&&el.contains(range.commonAncestorContainer)){range.deleteContents();range.insertNode(anchor);range.setStartAfter(anchor);range.collapse(true);const sel=window.getSelection();sel?.removeAllRanges();sel?.addRange(range);}else{document.execCommand('insertHTML',false,`<a href="#anotado-reference-${type}-${id}" data-sticky-reference-id="${id}" data-sticky-reference-type="${type}" style="color:#80634f;text-decoration:underline;text-decoration-color:#b69b83;cursor:pointer">${safe}</a>`);}referenceRange.current=null;save();}};
  useEffect(()=>{registerEditorActions?.(note.id,actions);return()=>registerEditorActions?.(note.id,null);});
+ const changeListLevel=(item:HTMLLIElement,list:HTMLUListElement,kind:'bullet'|'checklist',direction:'in'|'out')=>{
+  if(direction==='in'){
+   const previous=item.previousElementSibling as HTMLLIElement|null;
+   if(!previous)return;
+   let nested=Array.from(previous.children).find(child=>child instanceof HTMLUListElement&&(
+    kind==='checklist'?child.matches('ul[data-sticky-checklist]'):child.matches('ul.sticky-bullet-list')
+   )) as HTMLUListElement|undefined;
+   if(!nested){
+    nested=document.createElement('ul');
+    if(kind==='checklist'){
+     nested.setAttribute('data-sticky-checklist','true');
+     nested.style.cssText='list-style:none;padding-left:0;margin:0';
+    }else{
+     nested.className='sticky-bullet-list';
+     nested.style.cssText='list-style-type:disc;padding-left:1.5em;margin:0.15em 0';
+    }
+    previous.appendChild(nested);
+   }
+   nested.appendChild(item);
+  }else{
+   const parentItem=list.parentElement;
+   const outerList=parentItem?.parentElement;
+   if(!(parentItem instanceof HTMLLIElement)||!(outerList instanceof HTMLUListElement))return;
+   parentItem.insertAdjacentElement('afterend',item);
+   if(!list.querySelector(':scope > li'))list.remove();
+  }
+ };
  const keyDown=(e:React.KeyboardEvent<HTMLDivElement>)=>{
-  if(e.key==='Tab'){e.preventDefault();command(e.shiftKey?'outdent':'indent');return;}
+  if(e.key==='Tab'){
+   const ctx=getListContext();
+   if(ctx?.item&&ctx.kind&&ctx.list instanceof HTMLUListElement){
+    e.preventDefault();
+    changeListLevel(ctx.item,ctx.list,ctx.kind,e.shiftKey?'out':'in');
+    styleChecklist(ctx.el);save();return;
+   }
+   e.preventDefault();command(e.shiftKey?'outdent':'indent');return;
+  }
   if(e.key!=='Enter'&&e.key!=='Backspace')return;
   const ctx=getListContext();if(!ctx?.item||!ctx.kind||!ctx.list)return;
   const {el,range,item,list,kind}=ctx;
