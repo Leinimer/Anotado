@@ -149,16 +149,37 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    const ctx=getListContext();
    if(ctx?.item&&ctx.kind&&ctx.list instanceof HTMLUListElement){
     e.preventDefault();
-    // Keep a live range bookmark inside the text node while the LI is moved
-    // between nested UL elements; restore it so the caret stays in place.
     const selection=window.getSelection();
-    const caretRange=selection?.rangeCount?selection.getRangeAt(0).cloneRange():null;
-    changeListLevel(ctx.item,ctx.list,ctx.kind,e.shiftKey?'out':'in');
-    if(caretRange&&selection){
-     selection.removeAllRanges();
-     selection.addRange(caretRange);
+    const activeRange=selection?.rangeCount?selection.getRangeAt(0):null;
+    const textHost=ctx.kind==='checklist'
+     ?(ctx.item.querySelector('[data-sticky-check-text]') as HTMLElement|null)
+     :ctx.item;
+    // Save the caret as a character offset, not a DOM Range: moving an LI
+    // detaches its nodes and can collapse a cloned Range to the previous line.
+    let caretOffset=0;
+    if(activeRange&&textHost&&textHost.contains(activeRange.startContainer)){
+     const prefix=document.createRange();
+     prefix.selectNodeContents(textHost);
+     try{prefix.setEnd(activeRange.startContainer,activeRange.startOffset);caretOffset=prefix.toString().length;}catch{caretOffset=(textHost.textContent||'').length;}
     }
-    styleChecklist(ctx.el);save();return;
+    changeListLevel(ctx.item,ctx.list,ctx.kind,e.shiftKey?'out':'in');
+    styleChecklist(ctx.el);
+    if(textHost&&selection){
+     const walker=document.createTreeWalker(textHost,NodeFilter.SHOW_TEXT);
+     let remaining=caretOffset;let textNode:Text|null=null;let node:Node|null;
+     while((node=walker.nextNode())){
+      const current=node as Text;
+      if(remaining<=current.length){textNode=current;break;}
+      remaining-=current.length;
+     }
+     const restored=document.createRange();
+     if(textNode)restored.setStart(textNode,Math.min(remaining,textNode.length));
+     else if(textHost.firstChild)restored.setStartBefore(textHost.firstChild);
+     else restored.selectNodeContents(textHost);
+     restored.collapse(true);
+     selection.removeAllRanges();selection.addRange(restored);
+    }
+    save();return;
    }
    e.preventDefault();command(e.shiftKey?'outdent':'indent');return;
   }
