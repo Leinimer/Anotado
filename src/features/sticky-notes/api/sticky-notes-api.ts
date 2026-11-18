@@ -3,6 +3,7 @@ import {
   StickyNote,
   StickyNoteColorKey,
   STICKY_DEFAULT_WIDTH,
+  StickyNoteGroup,
 } from '../types';
 
 export interface CreateStickyNoteInput {
@@ -13,6 +14,7 @@ export interface CreateStickyNoteInput {
   position_y: number;
   width_px?: number;
   z_index: number;
+  group_id?: string | null;
 }
 
 export interface UpdateStickyNotePatch {
@@ -23,6 +25,7 @@ export interface UpdateStickyNotePatch {
   position_y?: number;
   width_px?: number;
   z_index?: number;
+  group_id?: string | null;
 }
 
 function formatSupabaseStickyError(error: any, fallback: string): Error {
@@ -78,7 +81,7 @@ export async function fetchStickyNotes(userId: string): Promise<StickyNote[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('sticky_notes')
-    .select('id, user_id, title, content, color, position_x, position_y, width_px, z_index, created_at, updated_at')
+    .select('id, user_id, title, content, color, position_x, position_y, width_px, z_index, group_id, created_at, updated_at')
     .eq('user_id', userId)
     .order('z_index', { ascending: true })
     .order('created_at', { ascending: true });
@@ -112,6 +115,7 @@ export async function createStickyNote(
       position_y: Math.round(input.position_y),
       width_px: Math.round(input.width_px ?? STICKY_DEFAULT_WIDTH),
       z_index: Math.round(input.z_index),
+      group_id: input.group_id ?? null,
       created_at: now,
       updated_at: now,
     };
@@ -130,7 +134,7 @@ export async function createStickyNote(
       width_px: Math.round(input.width_px ?? STICKY_DEFAULT_WIDTH),
       z_index: Math.round(input.z_index),
     })
-    .select('id, user_id, title, content, color, position_x, position_y, width_px, z_index, created_at, updated_at')
+    .select('id, user_id, title, content, color, position_x, position_y, width_px, z_index, group_id, created_at, updated_at')
     .single();
 
   if (error || !data) {
@@ -163,6 +167,7 @@ export async function updateStickyNote(
   if (patch.position_y !== undefined) sanitizedPatch.position_y = Math.round(patch.position_y);
   if (patch.width_px !== undefined) sanitizedPatch.width_px = Math.round(patch.width_px);
   if (patch.z_index !== undefined) sanitizedPatch.z_index = Math.round(patch.z_index);
+  if (patch.group_id !== undefined) sanitizedPatch.group_id = patch.group_id;
 
   if (Object.keys(sanitizedPatch).length === 0) return null;
 
@@ -172,7 +177,7 @@ export async function updateStickyNote(
     .update(sanitizedPatch)
     .eq('id', noteId)
     .eq('user_id', userId)
-    .select('id, user_id, title, content, color, position_x, position_y, width_px, z_index, created_at, updated_at')
+    .select('id, user_id, title, content, color, position_x, position_y, width_px, z_index, group_id, created_at, updated_at')
     .single();
 
   if (error) {
@@ -205,4 +210,47 @@ export async function deleteStickyNote(userId: string, noteId: string): Promise<
   if (error) {
     throw formatSupabaseStickyError(error, 'Erro ao excluir nota adesiva.');
   }
+}
+
+
+export async function fetchStickyNoteGroups(userId: string): Promise<StickyNoteGroup[]> {
+  if (!isSupabaseConfigured()) return [];
+  const { data, error } = await createClient()
+    .from('sticky_note_groups')
+    .select('id, user_id, color, created_at, updated_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+  if (error) throw formatSupabaseStickyError(error, 'Erro ao carregar agrupamentos.');
+  return (data || []) as StickyNoteGroup[];
+}
+
+export async function createStickyNoteGroup(userId: string, color: StickyNoteColorKey): Promise<StickyNoteGroup> {
+  if (!isSupabaseConfigured()) {
+    const now = new Date().toISOString();
+    return { id: crypto.randomUUID(), user_id: userId, color, created_at: now, updated_at: now };
+  }
+  const { data, error } = await createClient()
+    .from('sticky_note_groups')
+    .insert({ user_id: userId, color })
+    .select('id, user_id, color, created_at, updated_at')
+    .single();
+  if (error || !data) throw formatSupabaseStickyError(error, 'Erro ao criar agrupamento.');
+  return data as StickyNoteGroup;
+}
+
+export async function updateStickyNoteGroup(userId: string, groupId: string, patch: { color?: StickyNoteColorKey }): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const { error } = await createClient().from('sticky_note_groups')
+    .update(patch).eq('id', groupId).eq('user_id', userId);
+  if (error) throw formatSupabaseStickyError(error, 'Erro ao atualizar agrupamento.');
+}
+
+export async function deleteStickyNoteGroup(userId: string, groupId: string): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const client = createClient();
+  const { error: detachError } = await client.from('sticky_notes')
+    .update({ group_id: null }).eq('group_id', groupId).eq('user_id', userId);
+  if (detachError) throw formatSupabaseStickyError(detachError, 'Erro ao desagrupar Sticks.');
+  const { error } = await client.from('sticky_note_groups').delete().eq('id', groupId).eq('user_id', userId);
+  if (error) throw formatSupabaseStickyError(error, 'Erro ao excluir agrupamento.');
 }

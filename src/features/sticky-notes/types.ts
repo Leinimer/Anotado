@@ -18,6 +18,7 @@ export interface StickyNote {
   position_y: number;
   width_px: number;
   z_index: number;
+  group_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -119,4 +120,12 @@ export function getStickyColorTheme(color?: string | null): StickyColorTheme {
   const normalized = (color || '').trim().toLowerCase();
   const match = STICKY_COLORS.find((c) => c.key === normalized);
   return match || STICKY_COLORS[0];
+}
+
+export interface StickyNoteGroup {
+  id: string;
+  user_id: string;
+  color: StickyNoteColorKey;
+  created_at: string;
+  updated_at: string;
 }

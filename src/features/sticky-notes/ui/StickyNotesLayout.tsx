@@ -7,6 +7,8 @@ import {
   STICKY_DEFAULT_WIDTH,
   StickyNote,
   StickyNoteColorKey,
+  StickyNoteGroup,
+  STICKY_COLORS,
 } from '../types';
 import {
   createStickyNote,
@@ -15,6 +17,10 @@ import {
   getAuthenticatedStickyUser,
   updateStickyNote,
   UpdateStickyNotePatch,
+  fetchStickyNoteGroups,
+  createStickyNoteGroup,
+  updateStickyNoteGroup,
+  deleteStickyNoteGroup,
 } from '../api/sticky-notes-api';
 import { StickyNoteCard, StickyEditorActions, StickyEditorAction } from './StickyNoteCard';
 import { StickyNotesToolbar, StickySaveState } from './StickyNotesToolbar';
@@ -28,6 +34,8 @@ export function StickyNotesLayout() {
   const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
   const [notes, setNotes] = useState<StickyNote[]>([]);
+  const [groups, setGroups] = useState<StickyNoteGroup[]>([]);
+  const [contextMenu, setContextMenu] = useState<{kind:'note'|'group';id:string;x:number;y:number}|null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeColor, setActiveColor] = useState<StickyNoteColorKey>('yellow');
@@ -135,6 +143,8 @@ export function StickyNotesLayout() {
           const loaded = await fetchStickyNotes(authUser.userId);
           if (!isMounted) return;
           setNotes(loaded);
+          const loadedGroups = await fetchStickyNoteGroups(authUser.userId);
+          if (isMounted) setGroups(loadedGroups);
           try {
             const activeReminderIds = await fetchStickyReminderNoteIds(authUser.userId);
             if (isMounted) setReminderNoteIds(new Set(activeReminderIds));
@@ -358,6 +368,30 @@ export function StickyNotesLayout() {
         position_y: y,
         z_index: target?.z_index,
       });
+
+      // Soltar um Stick sobre um agrupamento o adiciona automaticamente,
+      // mantendo a cor original do Stick e posicionando-o ao lado dos demais.
+      const noteElement = document.getElementById('sticky-note-' + noteId);
+      const noteRect = noteElement?.getBoundingClientRect();
+      if (!noteRect) return;
+      const centerX = noteRect.left + noteRect.width / 2;
+      const centerY = noteRect.top + noteRect.height / 2;
+      const hitGroup = Array.from(document.querySelectorAll<HTMLElement>('[data-sticky-group-id]'))
+        .find(element => {
+          const rect = element.getBoundingClientRect();
+          return centerX >= rect.left && centerX <= rect.right && centerY >= rect.top && centerY <= rect.bottom;
+        });
+      if (!hitGroup) return;
+      const groupId = hitGroup.dataset.stickyGroupId;
+      if (!groupId || target?.group_id === groupId) return;
+      const members = notesRef.current.filter(note => note.group_id === groupId && note.id !== noteId);
+      const maxRight = members.reduce((right, note) => Math.max(right, note.position_x + note.width_px), 0);
+      const rowY = members.length ? Math.min(...members.map(note => note.position_y)) : y;
+      const nextX = members.length ? maxRight + 18 : x;
+      setNotes(previous => previous.map(note => note.id === noteId
+        ? { ...note, group_id: groupId, position_x: nextX, position_y: rowY }
+        : note));
+      void persistPatch(noteId, { group_id: groupId, position_x: nextX, position_y: rowY });
     },
     [persistPatch]
   );
@@ -403,6 +437,68 @@ export function StickyNotesLayout() {
       setSaveError(message);
     }
   }, []);
+
+  const handleCreateGroupForNote = useCallback(async (noteId: string) => {
+    const note = notesRef.current.find(item => item.id === noteId);
+    if (!note || note.group_id) return;
+    try {
+      const created = await createStickyNoteGroup(userIdRef.current, (note.color || 'yellow') as StickyNoteColorKey);
+      setGroups(previous => [...previous, created]);
+      setNotes(previous => previous.map(item => item.id === noteId ? { ...item, group_id: created.id } : item));
+      await persistPatch(noteId, { group_id: created.id });
+    } catch (error) {
+      setSaveState('error');
+      setSaveError(error instanceof Error ? error.message : 'Não foi possível agrupar o Stick.');
+    }
+    setContextMenu(null);
+  }, [persistPatch]);
+
+  const handleDeleteGroup = useCallback(async (groupId: string) => {
+    try {
+      await deleteStickyNoteGroup(userIdRef.current, groupId);
+      setGroups(previous => previous.filter(group => group.id !== groupId));
+      setNotes(previous => previous.map(note => note.group_id === groupId ? { ...note, group_id: null } : note));
+    } catch (error) {
+      setSaveState('error');
+      setSaveError(error instanceof Error ? error.message : 'Não foi possível desagrupar.');
+    }
+    setContextMenu(null);
+  }, []);
+
+  const handleGroupColor = useCallback(async (groupId: string, color: StickyNoteColorKey) => {
+    try {
+      await updateStickyNoteGroup(userIdRef.current, groupId, { color });
+      setGroups(previous => previous.map(group => group.id === groupId ? { ...group, color } : group));
+    } catch (error) {
+      setSaveState('error');
+      setSaveError(error instanceof Error ? error.message : 'Não foi possível mudar a cor do agrupamento.');
+    }
+    setContextMenu(null);
+  }, []);
+
+  const handleNoteContextMenu = useCallback((note: StickyNote, x: number, y: number) => {
+    setContextMenu({ kind: 'note', id: note.id, x: Math.min(x, window.innerWidth - 190), y: Math.min(y, window.innerHeight - 240) });
+  }, []);
+
+  const handleGroupContextMenu = useCallback((groupId: string, event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ kind: 'group', id: groupId, x: Math.min(event.clientX, window.innerWidth - 190), y: Math.min(event.clientY, window.innerHeight - 190) });
+  }, []);
+
+  const groupBounds = useMemo(() => groups.map(group => {
+    const members = notes.filter(note => note.group_id === group.id);
+    if (!members.length) return null;
+    const left = Math.min(...members.map(note => note.position_x));
+    const top = Math.min(...members.map(note => note.position_y));
+    const right = Math.max(...members.map(note => note.position_x + note.width_px));
+    const bottom = Math.max(...members.map(note => {
+      const element = typeof document !== 'undefined' ? document.getElementById('sticky-note-' + note.id) : null;
+      const height = element?.offsetHeight || 280;
+      return note.position_y + height;
+    }));
+    return { group, left: left - 22, top: top - 42, width: right - left + 44, height: bottom - top + 66 };
+  }).filter((item): item is NonNullable<typeof item> => Boolean(item)), [groups, notes]);
 
   const selectedNote = useMemo(
     () => notes.find((n) => n.id === selectedNoteId) || null,
@@ -511,6 +607,24 @@ export function StickyNotesLayout() {
           }}
           className="relative"
         >
+          {groupBounds.map(({group,left,top,width,height}) => {
+            const palette = STICKY_COLORS.find(color => color.key === group.color) || STICKY_COLORS[0];
+            const tint = palette.swatchLight;
+            return <div
+              key={group.id}
+              data-sticky-group-id={group.id}
+              onContextMenu={event => handleGroupContextMenu(group.id, event)}
+              title="Agrupamento de Sticks — clique com o botão direito para opções"
+              style={{
+                position: 'absolute', left, top, width, height,
+                borderRadius: 22,
+                background: `color-mix(in srgb, ${tint} 34%, transparent)`,
+                border: `2px solid color-mix(in srgb, ${tint} 78%, #9a7658)`,
+                boxShadow: '0 5px 18px rgba(65,45,28,.08)',
+                zIndex: 0,
+              }}
+            />;
+          })}
           {isLoading ? (
             <div className="sticky inset-0 flex h-[calc(100vh-110px)] w-full items-center justify-center text-xs text-[#7f756e] dark:text-[#a1a1aa]">
               <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -572,12 +686,41 @@ export function StickyNotesLayout() {
                 onDelete={handleDeleteNote}
                 hasReminder={reminderNoteIds.has(note.id)}
                 onOpenReminder={(targetNote) => setReminderDialogNoteId(targetNote.id)}
+                onContextMenu={handleNoteContextMenu}
                 registerEditorActions={registerEditorActions}
                 onOpenLinkedNote={handleOpenLinkedNote}
               />
             ))
           )}
         </div>
+        {contextMenu && <div
+          className="fixed inset-0 z-[11100]"
+          onPointerDown={() => setContextMenu(null)}
+          onContextMenu={event => { event.preventDefault(); setContextMenu(null); }}
+        >
+          <div
+            className="fixed min-w-[176px] rounded-xl border border-[#e5d9cc] bg-[#fffdf9] p-1.5 shadow-[0_12px_35px_rgba(40,28,18,.22)] dark:border-[#494038] dark:bg-[#211e1b]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onPointerDown={event => event.stopPropagation()}
+          >
+            {contextMenu.kind === 'note' ? <>
+              {!notes.find(note => note.id === contextMenu.id)?.group_id && <button type="button" onClick={() => void handleCreateGroupForNote(contextMenu.id)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]">Agrupar</button>}
+              <button type="button" onClick={() => { void handleDeleteNote(contextMenu.id); setContextMenu(null); }} className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#a24e42] hover:bg-[#faeae5] dark:hover:bg-[#3d2521]">Excluir</button>
+              <div className="my-1 border-t border-[#eee5dc] dark:border-[#40372f]"/>
+              <p className="px-3 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[#988777]">Mudar cor do Stick</p>
+              <div className="flex flex-wrap gap-2 px-3 py-2">
+                {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => { handleChangeNoteColor(contextMenu.id, color.key); setContextMenu(null); }} className="h-5 w-5 rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]" style={{ backgroundColor: color.swatchLight }}/>)}
+              </div>
+            </> : <>
+              <button type="button" onClick={() => void handleDeleteGroup(contextMenu.id)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]">Desagrupar</button>
+              <div className="my-1 border-t border-[#eee5dc] dark:border-[#40372f]"/>
+              <p className="px-3 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[#988777]">Mudar cor do campo</p>
+              <div className="flex flex-wrap gap-2 px-3 py-2">
+                {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => void handleGroupColor(contextMenu.id, color.key)} className="h-5 w-5 rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]" style={{ backgroundColor: color.swatchLight }}/>)}
+              </div>
+            </>}
+          </div>
+        </div>}
       </main>
     </div>
   );
