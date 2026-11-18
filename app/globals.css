@@ -2008,9 +2008,13 @@ html.dark {
 .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"]::before,
 .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"]::after { text-decoration:none !important; text-decoration-line:none !important; text-decoration-thickness:0 !important; }
 .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div,
-.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div * { color:color-mix(in srgb, currentColor 78%, white 22%) !important; opacity:1 !important; }
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div *,
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > [data-sticky-check-text],
+.sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > [data-sticky-check-text] * { color:color-mix(in srgb, currentColor 78%, white 22%) !important; opacity:1 !important; }
 .dark .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div,
-.dark .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div * { color:color-mix(in srgb, currentColor 78%, white 22%) !important; opacity:1 !important; }
+.dark .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > div *,
+.dark .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > [data-sticky-check-text],
+.dark .sticky-rich-editor ul[data-sticky-checklist] li[data-checked="true"] > [data-sticky-check-text] * { color:color-mix(in srgb, currentColor 78%, white 22%) !important; opacity:1 !important; }
 .sticky-rich-editor p[data-sticky-after-checklist] { margin:0 !important; padding:0 !important; line-height:1.2 !important; min-height:0 !important; }
 
 /* Grade infinita do quadro Stick: acompanha o zoom sem limitar o viewport. */
