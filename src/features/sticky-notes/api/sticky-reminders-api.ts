@@ -61,6 +61,16 @@ function getScheduledAt(targetDate: string, targetTime: string, offsetDays: numb
   const [year, month, day] = targetDate.split('-').map(Number);
   const [hour, minute] = targetTime.split(':').map(Number);
   const date = new Date(year, month - 1, day, hour || 0, minute || 0, 0, 0);
+
+  if (offsetDays === 30) {
+    // "1 mês antes" significa o mesmo dia do mês anterior;
+    // se esse dia não existir, usa o último dia do mês anterior.
+    const previousMonth = new Date(year, month - 2, 1, hour || 0, minute || 0, 0, 0);
+    const lastDay = new Date(year, month - 1, 0).getDate();
+    previousMonth.setDate(Math.min(day, lastDay));
+    return previousMonth.toISOString();
+  }
+
   date.setDate(date.getDate() - offsetDays);
   return date.toISOString();
 }
