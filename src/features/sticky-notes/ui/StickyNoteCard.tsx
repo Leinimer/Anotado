@@ -33,7 +33,6 @@ const styleChecklist=(editor:HTMLElement)=>{
    if(checkbox) Object.assign(checkbox.style,{width:'14px',height:'14px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 14px',accentColor:'#eab308'});
    const content=item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]');
    if(content) Object.assign(content.style,{display:'block',flex:'1 1 auto',minWidth:'0',margin:'0',padding:'0',lineHeight:'1.45',outline:'none'});
-   const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');
    if(text) Object.assign(text.style,{textDecorationLine:'none',textDecoration:'none',opacity:'1'});
   });
  });
