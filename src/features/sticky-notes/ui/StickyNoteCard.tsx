@@ -105,7 +105,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   return {el,selection,range,anchor,item,list,kind};
  };
  const setCaretInItem=(item:HTMLLIElement,kind:'bullet'|'checklist')=>{
-  const target=kind==='checklist'?(item.querySelector(':scope > div') as HTMLElement|null):item;
+  const target=kind==='checklist'?(item.querySelector(':scope > div > p') as HTMLElement|null):item;
   if(target)placeCaret(target);
  };
  const insertList=(kind:'bullet'|'checklist')=>{
@@ -242,8 +242,14 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     e.preventDefault();
     const selection=window.getSelection();
     const activeRange=selection?.rangeCount?selection.getRangeAt(0):null;
-    const textHost=ctx.kind==='checklist'
+    const checklistContent=ctx.kind==='checklist'
      ?(ctx.item.querySelector(':scope > div') as HTMLElement|null)
+     :null;
+    const activeNode=activeRange?.startContainer;
+    const activeElement=activeNode instanceof Element?activeNode:activeNode?.parentElement;
+    const activeParagraph=activeElement?.closest('p');
+    const textHost=ctx.kind==='checklist'
+     ?(activeParagraph&&checklistContent?.contains(activeParagraph)?activeParagraph:checklistContent?.querySelector(':scope > p')||checklistContent)
      :ctx.item;
     // Save the caret as a character offset, not a DOM Range: moving an LI
     // detaches its nodes and can collapse a cloned Range to the previous line.
@@ -282,7 +288,10 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   const caret=document.createRange();caret.selectNodeContents(textHost);caret.setEnd(range.startContainer,range.startOffset);
   const before=caret.toString();
   const atStart=before.length===0;
-  const empty=!(textHost.textContent||'').trim();
+  const ownText=kind==='checklist'
+   ?Array.from(textHost.children).filter(child=>child instanceof HTMLParagraphElement).map(child=>child.textContent||'').join('')
+   :(textHost.textContent||'');
+  const empty=!ownText.trim();
   const moveItemOutOfList=(paragraph:HTMLParagraphElement)=>{
    // Replace this list item exactly where it is. Split the surrounding list
    // into before/after lists so Backspace never jumps to another line/item.
