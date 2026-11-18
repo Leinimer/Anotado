@@ -16,9 +16,8 @@ const styleChecklist=(editor:HTMLElement)=>{
    if(label) Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 14px',width:'14px',height:'14px',margin:'0',padding:'0',lineHeight:'1'});
    const checkbox=item.querySelector<HTMLInputElement>('input[type="checkbox"]');
    if(checkbox) Object.assign(checkbox.style,{width:'14px',height:'14px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 14px',accentColor:'#eab308'});
-   const content=item.querySelector<HTMLElement>(':scope > div');
-   if(content) Object.assign(content.style,{flex:'1 1 auto',minWidth:'0',margin:'0',padding:'0',lineHeight:'1.45'});
-   item.querySelectorAll<HTMLParagraphElement>('p').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.45'}));
+   const content=item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]');
+   if(content) Object.assign(content.style,{display:'block',flex:'1 1 auto',minWidth:'0',margin:'0',padding:'0',lineHeight:'1.45',outline:'none'});
    const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');
    if(text) Object.assign(text.style,{textDecorationLine:'none',textDecoration:'none',opacity:'1'});
   });
@@ -36,7 +35,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const placeCaretStart=(target:HTMLElement)=>{const range=document.createRange();range.selectNodeContents(target);range.collapse(true);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);};
  const makeChecklistItem=()=>{
   const li=document.createElement('li');
-  li.innerHTML='<label><input type="checkbox" aria-label="Marcar item como concluído"></label><div><p><span data-sticky-check-text="true"><br></span></p></div>';
+  li.innerHTML='<label><input type="checkbox" aria-label="Marcar item como concluído"></label><span data-sticky-check-text="true"><br></span>';
   return li;
  };
  const makeListItem=(kind:'bullet'|'checklist')=>{
@@ -151,27 +150,15 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     moveItemOutOfList(paragraph);placeCaret(paragraph);save();return;
    }
    const next=makeListItem(kind);
-   // Split only the editable text container. The browser may place the caret
-   // in a nested paragraph/text node, so normalize the range before extracting.
-   const tail=document.createRange();
-   const caretIsInsideText=range.startContainer===textHost||textHost.contains(range.startContainer);
-   if(caretIsInsideText){
-    tail.selectNodeContents(textHost);
-    try{tail.setStart(range.startContainer,range.startOffset);}catch{tail.collapse(false);}
-   }else{
-    tail.selectNodeContents(textHost);tail.collapse(false);
-   }
-   const extracted=tail.extractContents();
    const nextHost=kind==='checklist'?(next.querySelector('[data-sticky-check-text]') as HTMLElement|null):next;
-   if(nextHost){
-    nextHost.replaceChildren();
-    if(extracted.childNodes.length)nextHost.appendChild(extracted);
-    else nextHost.innerHTML='<br>';
-   }
+   // Keep the current text in its own checklist row. The new row starts empty;
+   // no trailing text is moved below or outside the checkbox.
+   if(nextHost)nextHost.innerHTML='<br>';
+   const caretInsideHost=textHost===range.startContainer||textHost.contains(range.startContainer);
+   if(!caretInsideHost)placeCaret(textHost);
    item.insertAdjacentElement('afterend',next);
    styleChecklist(el);
-   const nextCaret=kind==='checklist'?(next.querySelector('[data-sticky-check-text]') as HTMLElement|null):next;
-   if(nextCaret)placeCaretStart(nextCaret);
+   if(nextHost)placeCaretStart(nextHost);
    save();
   }
  };
