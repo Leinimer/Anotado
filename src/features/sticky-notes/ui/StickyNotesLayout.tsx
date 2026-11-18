@@ -36,6 +36,7 @@ export function StickyNotesLayout() {
   const [notes, setNotes] = useState<StickyNote[]>([]);
   const [groups, setGroups] = useState<StickyNoteGroup[]>([]);
   const [contextMenu, setContextMenu] = useState<{kind:'note'|'group';id:string;x:number;y:number}|null>(null);
+  const [editingGroupTitleId, setEditingGroupTitleId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeColor, setActiveColor] = useState<StickyNoteColorKey>('yellow');
@@ -465,6 +466,21 @@ export function StickyNotesLayout() {
     setContextMenu(null);
   }, []);
 
+  const handleGroupTitleChange = useCallback((groupId: string, title: string) => {
+    setGroups(previous => previous.map(group => group.id === groupId ? { ...group, title } : group));
+  }, []);
+
+  const handleSaveGroupTitle = useCallback(async (groupId: string) => {
+    const title = groups.find(group => group.id === groupId)?.title ?? '';
+    try {
+      await updateStickyNoteGroup(userIdRef.current, groupId, { title });
+    } catch (error) {
+      setSaveState('error');
+      setSaveError(error instanceof Error ? error.message : 'Não foi possível salvar o título.');
+    }
+    setEditingGroupTitleId(null);
+  }, [groups]);
+
   const handleGroupColor = useCallback(async (groupId: string, color: StickyNoteColorKey) => {
     try {
       await updateStickyNoteGroup(userIdRef.current, groupId, { color });
@@ -610,20 +626,51 @@ export function StickyNotesLayout() {
           {groupBounds.map(({group,left,top,width,height}) => {
             const palette = STICKY_COLORS.find(color => color.key === group.color) || STICKY_COLORS[0];
             const tint = palette.swatchLight;
-            return <div
-              key={group.id}
-              data-sticky-group-id={group.id}
-              onContextMenu={event => handleGroupContextMenu(group.id, event)}
-              title="Agrupamento de Sticks — clique com o botão direito para opções"
-              style={{
-                position: 'absolute', left, top, width, height,
-                borderRadius: 22,
-                background: `color-mix(in srgb, ${tint} 34%, transparent)`,
-                border: `2px solid color-mix(in srgb, ${tint} 78%, #9a7658)`,
-                boxShadow: '0 5px 18px rgba(65,45,28,.08)',
-                zIndex: 0,
-              }}
-            />;
+            return <React.Fragment key={group.id}>
+              <div
+                data-sticky-group-id={group.id}
+                onContextMenu={event => handleGroupContextMenu(group.id, event)}
+                title="Agrupamento de Sticks — clique com o botão direito para opções"
+                style={{
+                  position: 'absolute', left, top, width, height,
+                  borderRadius: 22,
+                  background: `color-mix(in srgb, ${tint} 34%, transparent)`,
+                  border: `2px solid color-mix(in srgb, ${tint} 78%, #9a7658)`,
+                  boxShadow: '0 5px 18px rgba(65,45,28,.08)',
+                  zIndex: 0,
+                }}
+              />
+              <div
+                onContextMenu={event => handleGroupContextMenu(group.id, event)}
+                style={{
+                  position: 'absolute', left: left + width / 2, top: top + 7,
+                  transform: 'translateX(-50%)', width: Math.max(120, Math.min(width - 32, 360)),
+                  zIndex: 2, textAlign: 'center', pointerEvents: 'auto',
+                }}
+              >
+                {editingGroupTitleId === group.id ? (
+                  <input
+                    autoFocus
+                    value={group.title || ''}
+                    onChange={event => handleGroupTitleChange(group.id, event.target.value)}
+                    onBlur={() => void handleSaveGroupTitle(group.id)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
+                    }}
+                    placeholder="Título do agrupamento"
+                    aria-label="Título do agrupamento"
+                    className="w-full rounded-lg border border-[#b79a7a]/60 bg-white/75 px-3 py-1 text-center text-sm font-semibold text-[#554331] shadow-sm outline-none placeholder:text-[#927f6a] focus:border-[#92704f] dark:border-[#76604b] dark:bg-[#211e1b]/90 dark:text-[#f0dfca] dark:placeholder:text-[#a99681]"
+                  />
+                ) : group.title ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditingGroupTitleId(group.id)}
+                    className="max-w-full rounded-md bg-white/45 px-3 py-0.5 text-sm font-semibold text-[#554331] hover:bg-white/70 dark:bg-black/15 dark:text-[#f0dfca] dark:hover:bg-black/25"
+                    title="Clique para editar o título"
+                  >{group.title}</button>
+                ) : null}
+              </div>
+            </React.Fragment>;
           })}
           {isLoading ? (
             <div className="sticky inset-0 flex h-[calc(100vh-110px)] w-full items-center justify-center text-xs text-[#7f756e] dark:text-[#a1a1aa]">
@@ -712,6 +759,7 @@ export function StickyNotesLayout() {
                 {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => { handleChangeNoteColor(contextMenu.id, color.key); setContextMenu(null); }} className="h-5 w-5 rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]" style={{ backgroundColor: color.swatchLight }}/>)}
               </div>
             </> : <>
+              <button type="button" onClick={() => { setEditingGroupTitleId(contextMenu.id); setContextMenu(null); }} className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]">{groups.find(group => group.id === contextMenu.id)?.title ? 'Editar título' : 'Adicionar título'}</button>
               <button type="button" onClick={() => void handleDeleteGroup(contextMenu.id)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]">Desagrupar</button>
               <div className="my-1 border-t border-[#eee5dc] dark:border-[#40372f]"/>
               <p className="px-3 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[#988777]">Mudar cor do campo</p>

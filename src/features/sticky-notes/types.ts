@@ -126,6 +126,7 @@ export interface StickyNoteGroup {
   id: string;
   user_id: string;
   color: StickyNoteColorKey;
+  title: string;
   created_at: string;
   updated_at: string;
 }
