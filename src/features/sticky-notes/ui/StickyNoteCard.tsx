@@ -126,23 +126,25 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   const atStart=before.length===0;
   const empty=!(textHost.textContent||'').trim();
   const moveItemOutOfList=(paragraph:HTMLParagraphElement)=>{
-   const parent=list.parentElement;if(!parent)return;
-   const previous=item.previousElementSibling;
-   const next=item.nextElementSibling;
-   if(previous){
-    if(next){
-     const afterList=list.cloneNode(false) as HTMLUListElement;
-     while(item.nextElementSibling)afterList.appendChild(item.nextElementSibling);
-     item.remove();
-     list.insertAdjacentElement('afterend',paragraph);
-     paragraph.insertAdjacentElement('afterend',afterList);
-    }else{
-     item.remove();list.insertAdjacentElement('afterend',paragraph);
-    }
-   }else{
-    item.remove();list.insertAdjacentElement('beforebegin',paragraph);
-   }
-   if(!list.querySelector('li'))list.remove();
+   // Replace this list item exactly where it is. Split the surrounding list
+   // into before/after lists so Backspace never jumps to another line/item.
+   const parent=list.parentNode;
+   if(!parent)return;
+   const items=Array.from(list.children);
+   const index=items.indexOf(item);
+   const beforeItems=items.slice(0,index);
+   const afterItems=items.slice(index+1);
+   const makeSiblingList=(children:Element[])=>{
+    const clone=list.cloneNode(false) as HTMLUListElement;
+    children.forEach(child=>clone.appendChild(child));
+    return clone;
+   };
+   const beforeList=beforeItems.length?makeSiblingList(beforeItems):null;
+   const afterList=afterItems.length?makeSiblingList(afterItems):null;
+   if(beforeList)parent.insertBefore(beforeList,list);
+   parent.insertBefore(paragraph,list);
+   if(afterList)parent.insertBefore(afterList,list);
+   list.remove();
   };
   if(e.key==='Backspace'&&atStart){
    e.preventDefault();
