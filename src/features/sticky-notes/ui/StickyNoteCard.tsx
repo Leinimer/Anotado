@@ -11,8 +11,23 @@ const styleChecklist=(editor:HTMLElement)=>{
  editor.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]').forEach(list=>{
   Object.assign(list.style,{listStyle:'none',paddingLeft:'0',margin:'0'});
   list.querySelectorAll<HTMLLIElement>(':scope > li').forEach(item=>{
+   // Normalize older checklist HTML to a single inline editable text span.
+   let text=item.querySelector<HTMLElement>('[data-sticky-check-text]');
+   const labelBefore=item.querySelector<HTMLElement>(':scope > label');
+   if(!text){
+    text=document.createElement('span');text.dataset.stickyCheckText='true';
+    const wrapper=item.querySelector<HTMLElement>(':scope > div');
+    if(wrapper){while(wrapper.firstChild)text.appendChild(wrapper.firstChild);wrapper.remove();}
+    else{Array.from(item.childNodes).forEach(node=>{if(node!==labelBefore)text!.appendChild(node);});}
+    if(!text.childNodes.length)text.innerHTML='<br>';
+    item.appendChild(text);
+   }else if(text.parentElement!==item){
+    const wrapper=text.parentElement;
+    item.appendChild(text);
+    if(wrapper&&wrapper!==item&&wrapper.tagName!=='LABEL'&&!wrapper.querySelector('input[type="checkbox"]'))wrapper.remove();
+   }
    Object.assign(item.style,{display:'flex',alignItems:'center',gap:'6px',fontSize:'14px',listStyle:'none',margin:'0',padding:'0',lineHeight:'1.45'});
-   const label=item.querySelector<HTMLElement>('label');
+   const label=item.querySelector<HTMLElement>(':scope > label');
    if(label) Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 14px',width:'14px',height:'14px',margin:'0',padding:'0',lineHeight:'1'});
    const checkbox=item.querySelector<HTMLInputElement>('input[type="checkbox"]');
    if(checkbox) Object.assign(checkbox.style,{width:'14px',height:'14px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 14px',accentColor:'#eab308'});
