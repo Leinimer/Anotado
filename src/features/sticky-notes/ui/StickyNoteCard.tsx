@@ -110,7 +110,6 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   if(!textHost)return;
   const caret=document.createRange();caret.selectNodeContents(textHost);caret.setEnd(range.startContainer,range.startOffset);
   const before=caret.toString();
-  const afterRange=document.createRange();afterRange.setStart(range.startContainer,range.startOffset);afterRange.setEnd(textHost,textHost.childNodes.length);
   const atStart=before.length===0;
   const empty=!(textHost.textContent||'').trim();
   if(e.key==='Backspace'&&atStart){
