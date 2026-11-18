@@ -49,6 +49,7 @@ export function StickyNotesLayout() {
   const [canvasZoom, setCanvasZoom] = useState(1);
   const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const spacePressedRef = useRef(false);
   const [reminderNoteIds, setReminderNoteIds] = useState<Set<string>>(new Set());
   const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);
 
@@ -58,6 +59,30 @@ export function StickyNotesLayout() {
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const notesRef = useRef<StickyNote[]>(notes);
   const userIdRef = useRef<string>(userId);
+
+  useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null) => {
+      const element = target as HTMLElement | null;
+      return Boolean(element?.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]'));
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || isEditableTarget(event.target)) return;
+      spacePressedRef.current = true;
+      event.preventDefault();
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.code === 'Space') spacePressedRef.current = false;
+    };
+    const handleWindowBlur = () => { spacePressedRef.current = false; };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, []);
 
   useEffect(() => {
     notesRef.current = notes;
@@ -611,7 +636,7 @@ export function StickyNotesLayout() {
         onPointerDown={(event) => {
           const target = event.target as HTMLElement;
           const isBackground = target === event.currentTarget || target.dataset.stickyCanvas === 'true';
-          if (event.ctrlKey && isBackground && event.button === 0) {
+          if (spacePressedRef.current && isBackground && event.button === 0) {
             event.preventDefault();
             setSelectedNoteId(null);
             setIsPanning(true);
@@ -635,7 +660,7 @@ export function StickyNotesLayout() {
           if (isBackground) setSelectedNoteId(null);
         }}
         onWheel={(event) => {
-          if (!event.ctrlKey) return;
+          if (!spacePressedRef.current) return;
           event.preventDefault();
           const rect = event.currentTarget.getBoundingClientRect();
           const pointerX = event.clientX - rect.left;
@@ -650,7 +675,7 @@ export function StickyNotesLayout() {
         style={{
           backgroundSize: `${24 * canvasZoom}px ${24 * canvasZoom}px`,
           backgroundPosition: `${canvasPan.x}px ${canvasPan.y}px`,
-          cursor: isPanning ? 'grabbing' : undefined,
+          cursor: isPanning ? 'grabbing' : spacePressedRef.current ? 'grab' : undefined,
         }}
       >
         <div
@@ -669,6 +694,16 @@ export function StickyNotesLayout() {
           {groupBounds.map(({group,left,top,width,height}) => {
             const palette = STICKY_COLORS.find(color => color.key === group.color) || STICKY_COLORS[0];
             const tint = palette.swatchLight;
+            const titleColorClass = ({
+              yellow: 'dark:text-[#f5df78]',
+              green: 'dark:text-[#8fd59d]',
+              blue: 'dark:text-[#8fcdf4]',
+              pink: 'dark:text-[#f3a9c9]',
+              lilac: 'dark:text-[#c4b2fa]',
+              orange: 'dark:text-[#f5bd83]',
+              red: 'dark:text-[#f4a0a0]',
+              gray: 'dark:text-[#c2c8d0]',
+            } as Record<string, string>)[group.color] || 'dark:text-[#dfeeff]';
             return <React.Fragment key={group.id}>
               <div
                 data-sticky-group-id={group.id}
@@ -705,13 +740,13 @@ export function StickyNotesLayout() {
                     }}
                     placeholder="Título do agrupamento"
                     aria-label="Título do agrupamento"
-                    className="w-full rounded-lg border border-transparent bg-transparent px-3 py-1 text-center text-base font-semibold text-[#72543d] outline-none placeholder:text-[#927f6a] focus:border-[#92704f]/40 dark:text-[#d7b995] dark:placeholder:text-[#a99681]"
+                    className={`w-full rounded-lg border border-transparent bg-transparent px-3 py-1 text-center text-base font-semibold outline-none placeholder:text-[#927f6a] focus:border-[#92704f]/40 dark:placeholder:text-[#a99681] ${titleColorClass}`} style={{ color: palette.swatchDark }}
                   />
                 ) : group.title ? (
                   <button
                     type="button"
                     onClick={() => setEditingGroupTitleId(group.id)}
-                    className="max-w-full rounded-md bg-transparent px-3 py-0.5 text-base font-semibold text-[#72543d] hover:bg-transparent dark:bg-transparent dark:text-[#d7b995] dark:hover:bg-transparent"
+                    className={`max-w-full rounded-md bg-transparent px-3 py-0.5 text-base font-semibold hover:bg-transparent dark:bg-transparent dark:hover:bg-transparent ${titleColorClass}`} style={{ color: palette.swatchDark }}
                     title="Clique para editar o título"
                   >{group.title}</button>
                 ) : null}
