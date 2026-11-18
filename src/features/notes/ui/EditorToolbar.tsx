@@ -1033,7 +1033,14 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
           <button
             id="toolbar-task-list"
             type="button"
-            onClick={() => editor.chain().focus().toggleTaskList().run()}
+            onClick={() => {
+              const chain = editor.chain().focus();
+              if (editor.isActive('taskList')) {
+                chain.splitListItem('taskItem', { checked: false }).run();
+              } else {
+                chain.toggleTaskList().run();
+              }
+            }}
             className={neutralBtnClass}
             title="Lista de Tarefas (Checklist)"
             aria-label="Lista de Tarefas"
