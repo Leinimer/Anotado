@@ -229,3 +229,65 @@
 .dark select {
   color-scheme: dark;
 }
+
+
+/* ==========================================================================
+   CHECKLIST DO EDITOR PRINCIPAL — alinhamento, tipografia e continuidade.
+   Estas regras ficam no arquivo carregado após globals.css para prevalecer
+   sobre os estilos legados sem alterar a estrutura/serialização do documento.
+   ========================================================================== */
+
+/* Fonte ligeiramente menor e linha com a mesma proporção visual do texto normal. */
+.ProseMirror ul[data-type="taskList"] li,
+.ProseMirror ul[data-type="taskList"] li > div,
+.ProseMirror ul[data-type="taskList"] li > div > p,
+.ProseMirror ul[data-type="taskList"] li p {
+  font-size: 0.95rem !important;
+  line-height: 1.5 !important;
+}
+
+/* Alinha o círculo ao centro visual da primeira linha do texto. */
+.ProseMirror ul[data-type="taskList"] li {
+  align-items: flex-start !important;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label {
+  margin-top: 0.19rem !important;
+  width: 1.05rem !important;
+  height: 1.05rem !important;
+  flex: 0 0 1.05rem !important;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+  width: 1.05rem !important;
+  height: 1.05rem !important;
+}
+
+/* Não deixa margem residual criar um vão antes do texto escrito após a lista.
+   O parágrafo continua existindo e editável; apenas removemos o espaço visual. */
+.ProseMirror ul[data-type="taskList"] {
+  margin-bottom: 0 !important;
+}
+
+.ProseMirror ul[data-type="taskList"] + p {
+  margin-top: 0 !important;
+}
+
+/* Conclusão legível: risco fino e translúcido, sem apagar nem clarear o texto. */
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div,
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div > p,
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div span {
+  text-decoration-line: line-through !important;
+  text-decoration-color: rgba(27, 28, 25, 0.38) !important;
+  text-decoration-thickness: 1px !important;
+  opacity: 1 !important;
+  color: inherit !important;
+}
+
+.dark .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div,
+.dark .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div > p,
+.dark .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div span {
+  text-decoration-color: rgba(237, 237, 237, 0.42) !important;
+  opacity: 1 !important;
+  color: inherit !important;
+}
