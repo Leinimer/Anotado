@@ -399,30 +399,28 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    list.insertBefore(next,item.nextSibling);
    styleChecklist(el);
 
-   // Persist the DOM first: save() normalizes checklist markup and can move
-   // the selection. Restore the caret only after that normalization so it
-   // visibly blinks inside the new item's text area, beside its checkbox.
+   // Save/normalize first, then restore the caret at the paragraph's
+   // first line. With an empty paragraph, placing the range after <br> makes
+   // Chromium paint the caret on a second line below the checkbox.
    save();
    const focusNewItem=()=>{
-    const caretTarget=kind==='checklist'
+    if(!el.isConnected||!next.isConnected)return;
+    const paragraph=kind==='checklist'
      ?(next.querySelector(':scope > div > p') as HTMLElement|null)
      :next;
-    if(!caretTarget||!el.isConnected)return;
+    if(!paragraph)return;
     el.focus({preventScroll:true});
-    let textNode=Array.from(caretTarget.childNodes).find(node=>node.nodeType===Node.TEXT_NODE) as Text|undefined;
-    if(!textNode){
-     caretTarget.replaceChildren(document.createTextNode(''));
-     textNode=caretTarget.firstChild as Text;
-    }
+    // Keep the <br> placeholder: it gives an empty contenteditable paragraph
+    // a first-line box. Position before it, not after it.
+    if(!paragraph.childNodes.length)paragraph.appendChild(document.createElement('br'));
     const nextRange=document.createRange();
-    nextRange.setStart(textNode,textNode.length);
+    nextRange.setStart(paragraph,0);
     nextRange.collapse(true);
     const selection=window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(nextRange);
    };
-   focusNewItem();
-   requestAnimationFrame(focusNewItem);
+   requestAnimationFrame(()=>requestAnimationFrame(focusNewItem));
   }
  };
  const click=(e:React.MouseEvent<HTMLDivElement>)=>{const t=e.target as HTMLElement;if(t instanceof HTMLInputElement&&t.type==='checkbox'){e.preventDefault();e.stopPropagation();const checked=!t.checked;t.checked=checked;t.toggleAttribute('checked',checked);const item=t.closest('li');if(item)item.dataset.checked=String(checked);requestAnimationFrame(save);return;}const a=t.closest('a[data-sticky-reference-id]') as HTMLAnchorElement|null;if(a&&e.ctrlKey){e.preventDefault();const id=a.dataset.stickyReferenceId;const type=(a.dataset.stickyReferenceType||'note') as 'note'|'sticky'|'diary';if(id)onOpenLinkedNote?.(id,type);}};
