@@ -11,11 +11,11 @@ const styleChecklist=(editor:HTMLElement)=>{
  editor.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]').forEach(list=>{
   Object.assign(list.style,{listStyle:'none',paddingLeft:'0',margin:'0'});
   list.querySelectorAll<HTMLLIElement>(':scope > li').forEach(item=>{
-   Object.assign(item.style,{display:'flex',alignItems:'center',gap:'6px',fontSize:'13px',listStyle:'none',margin:'0',padding:'0',lineHeight:'1.45'});
+   Object.assign(item.style,{display:'flex',alignItems:'center',gap:'6px',fontSize:'14px',listStyle:'none',margin:'0',padding:'0',lineHeight:'1.45'});
    const label=item.querySelector<HTMLElement>('label');
-   if(label) Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 13px',width:'13px',height:'13px',margin:'0',padding:'0',lineHeight:'1'});
+   if(label) Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 14px',width:'14px',height:'14px',margin:'0',padding:'0',lineHeight:'1'});
    const checkbox=item.querySelector<HTMLInputElement>('input[type="checkbox"]');
-   if(checkbox) Object.assign(checkbox.style,{width:'13px',height:'13px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 13px',accentColor:'#eab308'});
+   if(checkbox) Object.assign(checkbox.style,{width:'14px',height:'14px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 14px',accentColor:'#eab308'});
    const content=item.querySelector<HTMLElement>(':scope > div');
    if(content) Object.assign(content.style,{flex:'1 1 auto',minWidth:'0',margin:'0',padding:'0',lineHeight:'1.45'});
    item.querySelectorAll<HTMLParagraphElement>('p').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.45'}));
@@ -33,7 +33,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const save=()=>{if(editor.current){styleChecklist(editor.current);onChangeContent(note.id,editor.current.innerHTML);}};
  const command=(cmd:string)=>{if(!editor.current)return;editor.current.focus();document.execCommand(cmd,false);save();};
  const placeCaret=(target:HTMLElement)=>{const range=document.createRange();range.selectNodeContents(target);range.collapse(false);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);};
- const insertBullet=()=>{const el=editor.current;if(!el)return;el.focus();const selection=window.getSelection();const range=selection&&selection.rangeCount?selection.getRangeAt(0):null;const inside=!!range&&el.contains(range.commonAncestorContainer);if(!inside||!range||range.collapsed){const empty=!el.textContent?.trim()&&!el.querySelector('li');if(empty){document.execCommand('insertHTML',false,'<ul class="sticky-bullet-list"><li><br></li></ul>');const item=el.querySelector('ul.sticky-bullet-list li:last-child');if(item)placeCaret(item as HTMLElement);}else{const end=document.createRange();end.selectNodeContents(el);end.collapse(false);selection?.removeAllRanges();selection?.addRange(end);document.execCommand('insertUnorderedList',false);}}else{document.execCommand('insertUnorderedList',false);}save();};
+ const insertBullet=()=>{const el=editor.current;if(!el)return;el.focus();const selection=window.getSelection();let range=selection&&selection.rangeCount?selection.getRangeAt(0):null;const inside=!!range&&el.contains(range.commonAncestorContainer);if(!inside||!range){range=document.createRange();range.selectNodeContents(el);range.collapse(false);selection?.removeAllRanges();selection?.addRange(range);}const anchor=range.startContainer instanceof Element?range.startContainer:range.startContainer.parentElement;const currentList=anchor?.closest('ul.sticky-bullet-list');const empty=!el.textContent?.trim()&&!el.querySelector('li');if(empty){document.execCommand('insertHTML',false,'<ul class="sticky-bullet-list"><li><br></li></ul>');const item=el.querySelector('ul.sticky-bullet-list li:last-child');if(item)placeCaret(item as HTMLElement);}else{document.execCommand('insertUnorderedList',false);const active=window.getSelection();const node=active?.anchorNode;const parent=node instanceof Element?node:node?.parentElement;const list=parent?.closest('ul');if(list&&el.contains(list)){list.classList.add('sticky-bullet-list');list.style.listStyleType='disc';list.style.paddingLeft='1.5em';list.style.margin='0.15em 0';list.querySelectorAll('li').forEach(item=>{(item as HTMLElement).style.listStyleType='disc';});}else if(currentList&&el.contains(currentList)){currentList.classList.remove('sticky-bullet-list');}}save();};
  const insertChecklist=()=>{
   const el=editor.current;if(!el)return;el.focus();
   const selection=window.getSelection();
@@ -43,7 +43,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   const currentList=anchor?.closest('ul[data-sticky-checklist]');
   const makeItem=()=>{
    const li=document.createElement('li');
-   li.innerHTML='<label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 13px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:13px;height:13px;margin:0;padding:0;vertical-align:middle;flex:0 0 13px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true"><br></span></p></div>';
+   li.innerHTML='<label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 13px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:14px;height:14px;margin:0;padding:0;vertical-align:middle;flex:0 0 13px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true"><br></span></p></div>';
    return li;
   };
   if(currentList&&el.contains(currentList)){
@@ -65,7 +65,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    const end=document.createRange();end.selectNodeContents(el);end.collapse(false);
    selection?.removeAllRanges();selection?.addRange(end);
   }
-  document.execCommand('insertHTML',false,'<ul data-sticky-checklist="true" style="list-style:none;padding-left:0;margin:0"><li style="display:flex;align-items:center;gap:6px;list-style:none;margin:0;padding:0;line-height:1.45"><label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 13px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:13px;height:13px;margin:0;padding:0;vertical-align:middle;flex:0 0 13px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true"><br></span></p></div></li></ul><p data-sticky-after-checklist="true" style="margin:0;padding:0;line-height:1.2"><br></p>');
+  document.execCommand('insertHTML',false,'<ul data-sticky-checklist="true" style="list-style:none;padding-left:0;margin:0"><li style="display:flex;align-items:center;gap:6px;list-style:none;margin:0;padding:0;line-height:1.45"><label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 13px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:14px;height:14px;margin:0;padding:0;vertical-align:middle;flex:0 0 13px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true"><br></span></p></div></li></ul><p data-sticky-after-checklist="true" style="margin:0;padding:0;line-height:1.2"><br></p>');
   styleChecklist(el);
   const lists=el.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]');
   const lastList=lists[lists.length-1];
