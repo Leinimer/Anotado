@@ -58,7 +58,7 @@ export function StickyReminderProvider({ children }: { children: React.ReactNode
     if (!isSupabaseConfigured()) return;
     const client = createClient();
     client.auth.getSession().then(({ data }) => setUserId(data.session?.user?.id || ''));
-    const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = client.auth.onAuthStateChange((_event: string, session: any) => {
       setUserId(session?.user?.id || '');
     });
     return () => subscription.unsubscribe();

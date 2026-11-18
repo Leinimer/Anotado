@@ -33,7 +33,7 @@ export function StickyReminderBell() {
     if (!isSupabaseConfigured()) return;
     const client = createClient();
     getAuthenticatedStickyUser().then(user => setUserId(user?.userId || '')).catch(() => setUserId(''));
-    const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => setUserId(session?.user?.id || ''));
+    const { data: { subscription } } = client.auth.onAuthStateChange((_event: string, session: any) => setUserId(session?.user?.id || ''));
     return () => subscription.unsubscribe();
   }, []);
 
