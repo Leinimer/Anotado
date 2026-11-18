@@ -238,7 +238,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     const selection=window.getSelection();
     const activeRange=selection?.rangeCount?selection.getRangeAt(0):null;
     const textHost=ctx.kind==='checklist'
-     ?(ctx.item.querySelector('[data-sticky-check-text]') as HTMLElement|null)
+     ?(ctx.item.querySelector(':scope > div') as HTMLElement|null)
      :ctx.item;
     // Save the caret as a character offset, not a DOM Range: moving an LI
     // detaches its nodes and can collapse a cloned Range to the previous line.
@@ -303,18 +303,30 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    e.preventDefault();
    const paragraph=document.createElement('p');
    paragraph.style.cssText='margin:0;padding:0;line-height:1.45';
+   const nestedList=Array.from(item.children).find(child=>child instanceof HTMLUListElement) as HTMLUListElement|undefined;
    if(kind==='checklist'){
     const content=item.querySelector<HTMLElement>(':scope > div');
     if(content){while(content.firstChild)paragraph.appendChild(content.firstChild);}
-   }else{while(item.firstChild)paragraph.appendChild(item.firstChild);}
+   }else{
+    Array.from(item.childNodes).forEach(node=>{if(node!==nestedList)paragraph.appendChild(node);});
+   }
    if(!paragraph.childNodes.length)paragraph.innerHTML='<br>';
    moveItemOutOfList(paragraph);
+   if(nestedList)paragraph.insertAdjacentElement('afterend',nestedList);
    placeCaretStart(paragraph);
    save();return;
   }
   if(e.key==='Enter'){
    e.preventDefault();
    if(empty){
+    // Match the Notes editor: Enter on an empty nested task lifts it one level;
+    // an empty top-level task exits the checklist into a normal paragraph.
+    if(kind==='checklist'&&list.parentElement instanceof HTMLLIElement){
+     changeListLevel(item,list,kind,'out');
+     const content=item.querySelector<HTMLElement>(':scope > div > p');
+     if(content)placeCaretStart(content);
+     save();return;
+    }
     const paragraph=document.createElement('p');paragraph.innerHTML='<br>';paragraph.style.cssText='margin:0;padding:0;line-height:1.45';
     moveItemOutOfList(paragraph);placeCaret(paragraph);save();return;
    }
@@ -322,7 +334,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    const workingRange=range.cloneRange();
    if(!workingRange.collapsed)workingRange.deleteContents();
 
-   const currentBlock=(range.startContainer instanceof Element?range.startContainer:range.startContainer.parentElement)?.closest('p');
+   const currentBlock=(workingRange.startContainer instanceof Element?workingRange.startContainer:workingRange.startContainer.parentElement)?.closest('p');
    const splitBlock=currentBlock&&textHost.contains(currentBlock)?currentBlock:textHost;
    const tail=document.createRange();
    try{
