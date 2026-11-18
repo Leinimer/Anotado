@@ -3,6 +3,7 @@ import './globals.css';
 import './editor-fixes.css';
 import { PwaProvider } from '@/src/features/pwa/PwaProvider';
 import { ThemeProvider } from '@/src/features/theme/theme-context';
+import { StickyReminderProvider } from '@/src/features/sticky-notes/ui/StickyReminderProvider';
 
 export const metadata: Metadata = {
   title: 'Anotado',
@@ -52,7 +53,9 @@ export default function RootLayout({
       </head>
       <body className="bg-[#fbf9f4] dark:bg-[#000000] text-[#1b1c19] dark:text-[#ffffff] caret-[#1b1c19] dark:caret-[#ffffff] min-h-screen antialiased selection:bg-[#f4dfcb] selection:text-[#1b1c19] dark:selection:bg-[#333333] dark:selection:text-[#ffffff]">
         <ThemeProvider>
-          <PwaProvider>{children}</PwaProvider>
+          <StickyReminderProvider>
+            <PwaProvider>{children}</PwaProvider>
+          </StickyReminderProvider>
         </ThemeProvider>
       </body>
     </html>

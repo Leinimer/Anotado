@@ -6,6 +6,7 @@ import { Settings } from 'lucide-react';
 import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
 import { SettingsModal } from '@/src/features/notes/ui/SettingsModal';
 import { Note } from '@/src/features/notes/types';
+import { StickyReminderBell } from '@/src/features/sticky-notes/ui/StickyReminderBell';
 
 export type AppNavSection = 'notes' | 'sticky-notes' | 'diary';
 interface AppHeaderProps {
@@ -35,7 +36,7 @@ export function AppHeader({
     router.push(href);
   };
   const nav = (
-    <nav aria-label="Navegação principal" className={variant === 'sidebar' ? 'flex flex-wrap items-center justify-center gap-1 w-full' : 'flex items-center gap-0.5 sm:gap-1 min-w-0 overflow-x-auto no-scrollbar'}>
+    <nav aria-label="Navegação principal" className={variant === 'sidebar' ? 'flex flex-wrap items-center justify-center gap-1' : 'flex items-center gap-0.5 sm:gap-1 min-w-0 overflow-x-auto no-scrollbar'}>
       {NAV_ITEMS.map((item) => {
         const active = activeSection === item.id;
         return (
@@ -67,11 +68,11 @@ export function AppHeader({
       {variant === 'sidebar' ? (
         <div id="app-sidebar-brand-nav" className="w-full shrink-0 flex flex-col items-center gap-2 pb-3 mb-2 border-b border-[#eae8e3] dark:border-[#1a1a1a]">
           {logo}
-          {nav}
+          <div className="flex items-center justify-center gap-1 w-full">{nav}<StickyReminderBell /></div>
         </div>
       ) : variant === 'footer' ? controls : (
         <header id="app-main-header" className="w-full h-12 shrink-0 bg-[#fbf9f4] dark:bg-[#000000] border-b border-[#eae8e3] dark:border-[#1a1a1a] px-3 sm:px-4 flex items-center gap-3 select-none z-30">
-          <div className="flex items-center gap-3 shrink-0">{logo}{nav}</div>
+          <div className="flex items-center gap-3 shrink-0">{logo}{nav}<StickyReminderBell /></div>
           {toolbar && <><div className="h-7 w-px bg-[#e6e1d8] dark:bg-[#292929] shrink-0" /><div className="flex-1 min-w-0">{toolbar}</div></>}
           <div className="ml-auto">{controls}</div>
         </header>

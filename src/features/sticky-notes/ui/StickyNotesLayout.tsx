@@ -19,6 +19,8 @@ import {
 import { StickyNoteCard, StickyEditorActions, StickyEditorAction } from './StickyNoteCard';
 import { StickyNotesToolbar, StickySaveState } from './StickyNotesToolbar';
 import { StickyNoteReferenceModal } from './StickyNoteReferenceModal';
+import { StickyReminderSettingsModal } from './StickyReminderSettingsModal';
+import { fetchStickyReminderNoteIds } from '../api/sticky-reminders-api';
 
 const DEBOUNCE_MS = 450;
 
@@ -38,6 +40,8 @@ export function StickyNotesLayout() {
   const [canvasZoom, setCanvasZoom] = useState(1);
   const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const [reminderNoteIds, setReminderNoteIds] = useState<Set<string>>(new Set());
+  const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);
 
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
@@ -103,6 +107,12 @@ export function StickyNotesLayout() {
           const loaded = await fetchStickyNotes(authUser.userId);
           if (!isMounted) return;
           setNotes(loaded);
+          try {
+            const activeReminderIds = await fetchStickyReminderNoteIds(authUser.userId);
+            if (isMounted) setReminderNoteIds(new Set(activeReminderIds));
+          } catch (reminderError) {
+            console.warn('[Stick] Não foi possível carregar os indicadores de lembrete:', reminderError);
+          }
           const linkedStickyId = sessionStorage.getItem('anotado_active_sticky_id');
           if (linkedStickyId && loaded.some(note => note.id === linkedStickyId)) {
             setSelectedNoteId(linkedStickyId);
@@ -348,6 +358,7 @@ export function StickyNotesLayout() {
     const snapshot = notesRef.current;
     setNotes((prev) => prev.filter((item) => item.id !== noteId));
     setSelectedNoteId((prev) => (prev === noteId ? null : prev));
+    setReminderNoteIds((prev) => { const next = new Set(prev); next.delete(noteId); return next; });
 
     const uid = userIdRef.current;
     if (!uid || uid === 'demo-user') return;
@@ -395,6 +406,20 @@ export function StickyNotesLayout() {
       />
 
       <StickyNoteReferenceModal isOpen={referenceModalOpen} onClose={() => setReferenceModalOpen(false)} onSelectTarget={handleChooseReferencedNote} userId={userId} selectedText={referenceSelectedText} />
+      <StickyReminderSettingsModal
+        isOpen={Boolean(reminderDialogNoteId)}
+        userId={userId}
+        note={notes.find(note => note.id === reminderDialogNoteId) || null}
+        onClose={() => setReminderDialogNoteId(null)}
+        onSaved={(enabled) => setReminderNoteIds(previous => {
+          const next = new Set(previous);
+          if (reminderDialogNoteId) {
+            if (enabled) next.add(reminderDialogNoteId);
+            else next.delete(reminderDialogNoteId);
+          }
+          return next;
+        })}
+      />
 
       {/* Área livre do quadro de post-its, sem sidebar */}
       <main
@@ -517,6 +542,8 @@ export function StickyNotesLayout() {
                 onResizeLive={handleResizeLive}
                 onResizeEnd={handleResizeEnd}
                 onDelete={handleDeleteNote}
+                hasReminder={reminderNoteIds.has(note.id)}
+                onOpenReminder={(targetNote) => setReminderDialogNoteId(targetNote.id)}
                 registerEditorActions={registerEditorActions}
                 onOpenLinkedNote={handleOpenLinkedNote}
               />
