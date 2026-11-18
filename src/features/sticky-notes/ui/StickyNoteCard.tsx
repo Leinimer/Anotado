@@ -346,7 +346,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    if(empty){
     // Match the Notes editor: Enter on an empty nested task lifts it one level;
     // an empty top-level task exits the checklist into a normal paragraph.
-    if(kind==='checklist'&&list.parentElement instanceof HTMLDivElement&&list.parentElement.parentElement instanceof HTMLLIElement){
+    if(kind==='checklist'&&list instanceof HTMLUListElement&&list.parentElement instanceof HTMLDivElement&&list.parentElement.parentElement instanceof HTMLLIElement){
      changeListLevel(item,list,kind,'out');
      const content=item.querySelector<HTMLElement>(':scope > div > p');
      if(content)placeCaretStart(content);
