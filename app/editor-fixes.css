@@ -273,21 +273,11 @@
   margin-top: 0 !important;
 }
 
-/* Conclusão legível: risco fino e translúcido, sem apagar nem clarear o texto. */
+/* Checklist marcado: mantém o texto sem tachado e com legibilidade integral. */
 .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div,
 .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div > p,
 .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div span {
-  text-decoration-line: line-through !important;
-  text-decoration-color: rgba(27, 28, 25, 0.38) !important;
-  text-decoration-thickness: 1px !important;
-  opacity: 1 !important;
-  color: inherit !important;
-}
-
-.dark .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div,
-.dark .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div > p,
-.dark .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div span {
-  text-decoration-color: rgba(237, 237, 237, 0.42) !important;
+  text-decoration: none !important;
   opacity: 1 !important;
   color: inherit !important;
 }
