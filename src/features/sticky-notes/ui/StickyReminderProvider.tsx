@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AlarmClock, Check, ChevronRight, Loader2, Pencil, Trash2, X } from 'lucide-react';
+import { AlarmClock, Check, Loader2, Pencil, Trash2, X } from 'lucide-react';
 import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supabase-client';
 import { getStickyColorTheme, StickyNote } from '../types';
 import {
@@ -19,8 +19,6 @@ interface ReminderContextValue {
 }
 const ReminderContext = createContext<ReminderContextValue>({ refresh: async () => {} });
 export const useStickyReminders = () => useContext(ReminderContext);
-
-type AlertWithStick = StickyReminderAlert & { sticky_notes: Pick<StickyNote, 'id'|'title'|'content'|'color'> | null };
 
 function getStick(alert: StickyReminderAlert): AlertWithStick['sticky_notes'] {
   const value = (alert as any).sticky_notes;
@@ -164,7 +162,7 @@ export function StickyReminderProvider({ children }: { children: React.ReactNode
           <div className="text-right"><div className="text-[11px] text-[#9a8a7b] dark:text-[#a99b8e]">{alerts.length > 1 ? '1 de ' + alerts.length + ' alertas' : 'Lembrete'}</div><button type="button" onClick={acknowledge} disabled={busy} className="mt-1 rounded-md p-1.5 text-[#8c7b6d] hover:bg-[#f0e8df] dark:hover:bg-[#342a22]" aria-label="Fechar alerta"><X className="w-4 h-4"/></button></div>
         </header>
         <div className="px-5 pb-5 space-y-4">
-          <div className="rounded-2xl border shadow-[0_8px_22px_rgba(58,43,28,.13)] overflow-hidden ${theme.cardClass}">
+          <div className={`rounded-2xl border shadow-[0_8px_22px_rgba(58,43,28,.13)] overflow-hidden ${theme.cardClass}`}>
             <div className={`flex items-center gap-2 border-b px-4 py-3 ${theme.headerClass}`}><AlarmClock className={`w-4 h-4 ${theme.textClass}`}/>{editing ? <input value={titleDraft} onChange={event=>setTitleDraft(event.target.value)} placeholder="Título do Stick" className={`w-full bg-transparent text-sm font-semibold outline-none ${theme.textClass}`}/> : <h3 className={`min-w-0 flex-1 text-sm font-semibold ${theme.textClass}`}>{currentStick.title || 'Stick sem título'}</h3>}</div>
             <div ref={editorRef} contentEditable={editing} suppressContentEditableWarning data-placeholder="Este Stick está vazio." className={`sticky-rich-editor min-h-[96px] max-h-[34vh] overflow-y-auto px-4 py-3 text-sm leading-relaxed outline-none ${theme.textClass} ${editing?'ring-1 ring-inset ring-[#a98b70]/35':''}`}/>
           </div>

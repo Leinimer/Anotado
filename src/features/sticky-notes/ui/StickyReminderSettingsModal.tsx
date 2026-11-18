@@ -24,6 +24,7 @@ export function StickyReminderSettingsModal({ isOpen, userId, note, onClose, onS
   const [targetTime, setTargetTime] = useState('09:00');
   const [selectedOffsets, setSelectedOffsets] = useState<number[]>([0]);
   const [loading, setLoading] = useState(false);
+  const [hasExistingConfig, setHasExistingConfig] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -35,6 +36,7 @@ export function StickyReminderSettingsModal({ isOpen, userId, note, onClose, onS
     fetchStickyReminderConfig(userId, note.id)
       .then(config => {
         if (!active) return;
+        setHasExistingConfig(Boolean(config.id));
         setTargetDate(config.target_date);
         setTargetTime(config.target_time);
         setSelectedOffsets(config.offset_days);
@@ -63,6 +65,7 @@ export function StickyReminderSettingsModal({ isOpen, userId, note, onClose, onS
         target_time: targetTime,
         offset_days: selectedOffsets,
       });
+      setHasExistingConfig(enabled);
       onSaved(enabled);
       onClose();
     } catch (err) {
@@ -78,6 +81,7 @@ export function StickyReminderSettingsModal({ isOpen, userId, note, onClose, onS
     setError('');
     try {
       await deleteAllStickyReminderAlerts(userId, note.id);
+      setHasExistingConfig(false);
       onSaved(false);
       onClose();
     } catch (err) {
@@ -111,7 +115,7 @@ export function StickyReminderSettingsModal({ isOpen, userId, note, onClose, onS
         </>}
       </div>
       <footer className="flex items-center justify-between gap-3 px-5 py-4 bg-[#faf7f2] dark:bg-[#211e1b] border-t border-[#eee7df] dark:border-[#39322c]">
-        {selectedOffsets.length || note ? <button type="button" onClick={handleRemove} disabled={loading||saving} className="text-xs text-[#a34b3d] hover:text-red-700 disabled:opacity-40">Remover alertas</button> : <span/>}
+        {hasExistingConfig ? <button type="button" onClick={handleRemove} disabled={loading||saving} className="text-xs text-[#a34b3d] hover:text-red-700 disabled:opacity-40">Remover alertas</button> : <span/>}
         <div className="flex items-center gap-2"><button type="button" onClick={onClose} disabled={saving} className="px-3 py-2 rounded-lg text-xs text-[#75675b] hover:bg-[#eee8e0] dark:text-[#c4b5a8] dark:hover:bg-[#342d27]">Cancelar</button><button type="button" onClick={handleSave} disabled={loading||saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#68594d] hover:bg-[#55473d] text-white text-xs font-semibold disabled:opacity-40">{saving&&<Loader2 className="w-3.5 h-3.5 animate-spin"/>}Salvar lembrete</button></div>
       </footer>
     </section>

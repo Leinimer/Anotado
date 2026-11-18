@@ -6,9 +6,9 @@ import { createClient, isSupabaseConfigured } from '@/src/features/auth/api/supa
 import {
   clearStickyReminderHistory,
   fetchStickyReminderHistory,
-  getAuthenticatedStickyUser,
   StickyReminderAlert,
 } from '../api/sticky-reminders-api';
+import { getAuthenticatedStickyUser } from '../api/sticky-notes-api';
 
 function getStickTitle(alert: StickyReminderAlert): string {
   const value = (alert as any).sticky_notes;
