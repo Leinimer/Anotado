@@ -350,6 +350,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     while(splitBlock.nextSibling){
      const sibling=splitBlock.nextSibling;
      followingBlocks.push(sibling);
+     sibling.remove();
     }
    }
 
