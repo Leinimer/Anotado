@@ -112,6 +112,25 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   const before=caret.toString();
   const atStart=before.length===0;
   const empty=!(textHost.textContent||'').trim();
+  const moveItemOutOfList=(paragraph:HTMLParagraphElement)=>{
+   const parent=list.parentElement;if(!parent)return;
+   const previous=item.previousElementSibling;
+   const next=item.nextElementSibling;
+   if(previous){
+    if(next){
+     const afterList=list.cloneNode(false) as HTMLUListElement;
+     while(item.nextElementSibling)afterList.appendChild(item.nextElementSibling);
+     item.remove();
+     list.insertAdjacentElement('afterend',paragraph);
+     paragraph.insertAdjacentElement('afterend',afterList);
+    }else{
+     item.remove();list.insertAdjacentElement('afterend',paragraph);
+    }
+   }else{
+    item.remove();list.insertAdjacentElement('beforebegin',paragraph);
+   }
+   if(!list.querySelector('li'))list.remove();
+  };
   if(e.key==='Backspace'&&atStart){
    e.preventDefault();
    const paragraph=document.createElement('p');
@@ -121,8 +140,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     if(text){while(text.firstChild)paragraph.appendChild(text.firstChild);}
    }else{while(item.firstChild)paragraph.appendChild(item.firstChild);}
    if(!paragraph.childNodes.length)paragraph.innerHTML='<br>';
-   item.replaceWith(paragraph);
-   if(!list.querySelector('li'))list.remove();
+   moveItemOutOfList(paragraph);
    placeCaretStart(paragraph);
    save();return;
   }
@@ -130,7 +148,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    e.preventDefault();
    if(empty){
     const paragraph=document.createElement('p');paragraph.innerHTML='<br>';paragraph.style.cssText='margin:0;padding:0;line-height:1.45';
-    item.replaceWith(paragraph);if(!list.querySelector('li'))list.remove();placeCaret(paragraph);save();return;
+    moveItemOutOfList(paragraph);placeCaret(paragraph);save();return;
    }
    const next=makeListItem(kind);
    // Split the current line at the caret, retaining any text after it in the new item.
