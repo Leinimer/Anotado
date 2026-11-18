@@ -11,16 +11,16 @@ const styleChecklist=(editor:HTMLElement)=>{
  editor.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]').forEach(list=>{
   Object.assign(list.style,{listStyle:'none',paddingLeft:'0',margin:'0'});
   list.querySelectorAll<HTMLLIElement>(':scope > li').forEach(item=>{
-   Object.assign(item.style,{display:'flex',alignItems:'center',gap:'6px',listStyle:'none',margin:'0',padding:'0',lineHeight:'1.45'});
+   Object.assign(item.style,{display:'flex',alignItems:'center',gap:'6px',fontSize:'13px',listStyle:'none',margin:'0',padding:'0',lineHeight:'1.45'});
    const label=item.querySelector<HTMLElement>('label');
-   if(label) Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 14px',margin:'0',padding:'0',lineHeight:'1'});
+   if(label) Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 13px',width:'13px',height:'13px',margin:'0',padding:'0',lineHeight:'1'});
    const checkbox=item.querySelector<HTMLInputElement>('input[type="checkbox"]');
    if(checkbox) Object.assign(checkbox.style,{width:'13px',height:'13px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 13px',accentColor:'#eab308'});
    const content=item.querySelector<HTMLElement>(':scope > div');
    if(content) Object.assign(content.style,{flex:'1 1 auto',minWidth:'0',margin:'0',padding:'0',lineHeight:'1.45'});
    item.querySelectorAll<HTMLParagraphElement>('p').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.45'}));
    const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');
-   if(text) Object.assign(text.style,{textDecorationLine:checkbox?.checked?'line-through':'none',textDecorationColor:'rgba(85,85,85,.32)',textDecorationThickness:'1px',opacity:'1'});
+   if(text) Object.assign(text.style,{textDecorationLine:'none',textDecoration:'none',opacity:'1'});
   });
  });
  editor.querySelectorAll<HTMLParagraphElement>('p[data-sticky-after-checklist]').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.45',minHeight:'1.45em'}));
@@ -34,12 +34,50 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const command=(cmd:string)=>{if(!editor.current)return;editor.current.focus();document.execCommand(cmd,false);save();};
  const placeCaret=(target:HTMLElement)=>{const range=document.createRange();range.selectNodeContents(target);range.collapse(false);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);};
  const insertBullet=()=>{const el=editor.current;if(!el)return;el.focus();const selection=window.getSelection();const range=selection&&selection.rangeCount?selection.getRangeAt(0):null;const inside=!!range&&el.contains(range.commonAncestorContainer);if(!inside||!range||range.collapsed){const empty=!el.textContent?.trim()&&!el.querySelector('li');if(empty){document.execCommand('insertHTML',false,'<ul class="sticky-bullet-list"><li><br></li></ul>');const item=el.querySelector('ul.sticky-bullet-list li:last-child');if(item)placeCaret(item as HTMLElement);}else{const end=document.createRange();end.selectNodeContents(el);end.collapse(false);selection?.removeAllRanges();selection?.addRange(end);document.execCommand('insertUnorderedList',false);}}else{document.execCommand('insertUnorderedList',false);}save();};
- const insertChecklist=()=>{const el=editor.current;if(!el)return;el.focus();const selection=window.getSelection();if(!selection||!selection.rangeCount||!el.contains(selection.getRangeAt(0).commonAncestorContainer)){const end=document.createRange();end.selectNodeContents(el);end.collapse(false);selection?.removeAllRanges();selection?.addRange(end);}document.execCommand('insertHTML',false,'<ul data-sticky-checklist="true" style="list-style:none;padding-left:0;margin:0"><li style="display:flex;align-items:center;gap:6px;list-style:none;margin:0;padding:0;line-height:1.45"><label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 14px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:13px;height:13px;margin:0;padding:0;vertical-align:middle;flex:0 0 13px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true">&nbsp;</span></p></div></li></ul><p data-sticky-after-checklist="true" style="margin:0;padding:0;line-height:1.45"><br></p>');styleChecklist(el);const next=el.querySelector<HTMLElement>('p[data-sticky-after-checklist]');if(next)placeCaret(next);save();};
+ const insertChecklist=()=>{
+  const el=editor.current;if(!el)return;el.focus();
+  const selection=window.getSelection();
+  const range=selection&&selection.rangeCount?selection.getRangeAt(0):null;
+  const anchor=range?.startContainer instanceof Element?range.startContainer:range?.startContainer.parentElement;
+  const currentItem=anchor?.closest('li');
+  const currentList=anchor?.closest('ul[data-sticky-checklist]');
+  const makeItem=()=>{
+   const li=document.createElement('li');
+   li.innerHTML='<label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 13px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:13px;height:13px;margin:0;padding:0;vertical-align:middle;flex:0 0 13px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true"><br></span></p></div>';
+   return li;
+  };
+  if(currentList&&el.contains(currentList)){
+   const item=makeItem();
+   if(currentItem&&currentItem.parentElement===currentList)currentItem.insertAdjacentElement('afterend',item);
+   else currentList.appendChild(item);
+   styleChecklist(el);
+   const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');if(text)placeCaret(text);
+   save();return;
+  }
+  const after=anchor?.closest('p[data-sticky-after-checklist]');
+  const previousList=after?.previousElementSibling;
+  if(previousList instanceof HTMLUListElement&&previousList.matches('ul[data-sticky-checklist]')){
+   const item=makeItem();previousList.appendChild(item);styleChecklist(el);
+   const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');if(text)placeCaret(text);
+   save();return;
+  }
+  if(!range||!el.contains(range.commonAncestorContainer)){
+   const end=document.createRange();end.selectNodeContents(el);end.collapse(false);
+   selection?.removeAllRanges();selection?.addRange(end);
+  }
+  document.execCommand('insertHTML',false,'<ul data-sticky-checklist="true" style="list-style:none;padding-left:0;margin:0"><li style="display:flex;align-items:center;gap:6px;list-style:none;margin:0;padding:0;line-height:1.45"><label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 13px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:13px;height:13px;margin:0;padding:0;vertical-align:middle;flex:0 0 13px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true"><br></span></p></div></li></ul><p data-sticky-after-checklist="true" style="margin:0;padding:0;line-height:1.2"><br></p>');
+  styleChecklist(el);
+  const lists=el.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]');
+  const lastList=lists[lists.length-1];
+  const text=lastList?.querySelector<HTMLElement>('li:last-child [data-sticky-check-text]');
+  if(text)placeCaret(text);
+  save();
+ };
  const prepareNoteReference=()=>{const el=editor.current;const selection=window.getSelection();referenceRange.current=null;if(!el||!selection||!selection.rangeCount)return '';const range=selection.getRangeAt(0);if(!el.contains(range.commonAncestorContainer))return '';referenceRange.current=range.cloneRange();return selection.toString().trim();};
  const actions:StickyEditorActions={format:(a)=>{if(a==='bold')command('bold');else if(a==='italic')command('italic');else if(a==='underline')command('underline');else if(a==='undo')command('undo');else if(a==='redo')command('redo');else if(a==='bullet')insertBullet();else if(a==='indent')command('indent');else if(a==='outdent')command('outdent');else if(a==='checklist')insertChecklist();},prepareNoteReference,insertNoteLink:(id,title,type='note')=>{const el=editor.current;if(!el)return;const safe=title.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]||c));const range=referenceRange.current;const selectedText=range?.toString()||'';const anchor=document.createElement('a');anchor.href='#anotado-reference-'+type+'-'+id;anchor.dataset.stickyReferenceId=id;anchor.dataset.stickyReferenceType=type;anchor.textContent=selectedText||title;anchor.style.cssText='color:#80634f;text-decoration:underline;text-decoration-color:#b69b83;cursor:pointer';el.focus();if(range&&el.contains(range.commonAncestorContainer)){range.deleteContents();range.insertNode(anchor);range.setStartAfter(anchor);range.collapse(true);const sel=window.getSelection();sel?.removeAllRanges();sel?.addRange(range);}else{document.execCommand('insertHTML',false,`<a href="#anotado-reference-${type}-${id}" data-sticky-reference-id="${id}" data-sticky-reference-type="${type}" style="color:#80634f;text-decoration:underline;text-decoration-color:#b69b83;cursor:pointer">${safe}</a>`);}referenceRange.current=null;save();}};
  useEffect(()=>{registerEditorActions?.(note.id,actions);return()=>registerEditorActions?.(note.id,null);});
  const keyDown=(e:React.KeyboardEvent<HTMLDivElement>)=>{if(e.key==='Tab'){e.preventDefault();command(e.shiftKey?'outdent':'indent');}};
- const click=(e:React.MouseEvent<HTMLDivElement>)=>{const t=e.target as HTMLElement;if(t instanceof HTMLInputElement&&t.type==='checkbox'){const checked=t.checked;t.toggleAttribute('checked',checked);t.checked=checked;const item=t.closest('li');if(item){item.dataset.checked=String(checked);const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');if(text)Object.assign(text.style,{textDecorationLine:checked?'line-through':'none',textDecorationColor:'rgba(85,85,85,.32)',textDecorationThickness:'1px',opacity:'1'});}requestAnimationFrame(save);}const a=t.closest('a[data-sticky-reference-id]') as HTMLAnchorElement|null;if(a&&e.ctrlKey){e.preventDefault();const id=a.dataset.stickyReferenceId;const type=(a.dataset.stickyReferenceType||'note') as 'note'|'sticky'|'diary';if(id)onOpenLinkedNote?.(id,type);}};
+ const click=(e:React.MouseEvent<HTMLDivElement>)=>{const t=e.target as HTMLElement;if(t instanceof HTMLInputElement&&t.type==='checkbox'){const checked=t.checked;t.toggleAttribute('checked',checked);t.checked=checked;const item=t.closest('li');if(item){item.dataset.checked=String(checked);const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');if(text)Object.assign(text.style,{textDecorationLine:'none',textDecoration:'none',opacity:'1'});}requestAnimationFrame(save);}const a=t.closest('a[data-sticky-reference-id]') as HTMLAnchorElement|null;if(a&&e.ctrlKey){e.preventDefault();const id=a.dataset.stickyReferenceId;const type=(a.dataset.stickyReferenceType||'note') as 'note'|'sticky'|'diary';if(id)onOpenLinkedNote?.(id,type);}};
  const dragStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.stopPropagation();onSelect(note.id);const sx=e.clientX,sy=e.clientY,px=note.position_x,py=note.position_y;let x=px,y=py,moved=false;setDrag(true);const move=(v:PointerEvent)=>{if(Math.abs(v.clientX-sx)>2||Math.abs(v.clientY-sy)>2)moved=true;x=Math.max(12,Math.round(px+v.clientX-sx));y=Math.max(12,Math.round(py+v.clientY-sy));onMoveLive(note.id,x,y);};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setDrag(false);if(moved)onMoveEnd(note.id,x,y);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
  const resizeStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.preventDefault();e.stopPropagation();onSelect(note.id);const sx=e.clientX,sw=note.width_px;let w=sw,changed=false;setResize(true);const move=(v:PointerEvent)=>{const n=Math.max(STICKY_MIN_WIDTH,Math.min(STICKY_MAX_WIDTH,Math.round(sw+v.clientX-sx)));if(n!==w){w=n;changed=true;onResizeLive(note.id,w);}};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setResize(false);if(changed)onResizeEnd(note.id,w);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
  return <div id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>onSelect(note.id)} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,zIndex:note.z_index}} className={`group rounded-xl border transition-shadow duration-150 ${colors.cardClass} ${drag||resize?'shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
