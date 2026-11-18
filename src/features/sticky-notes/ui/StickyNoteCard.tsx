@@ -23,7 +23,7 @@ const styleChecklist=(editor:HTMLElement)=>{
    if(text) Object.assign(text.style,{textDecorationLine:'none',textDecoration:'none',opacity:'1'});
   });
  });
- editor.querySelectorAll<HTMLParagraphElement>('p[data-sticky-after-checklist]').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.45',minHeight:'1.45em'}));
+ editor.querySelectorAll<HTMLParagraphElement>('p[data-sticky-after-checklist]').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.2',minHeight:'0',height:'auto'}));
 };
 
 export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
