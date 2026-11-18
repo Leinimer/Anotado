@@ -33,7 +33,35 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const save=()=>{if(editor.current){styleChecklist(editor.current);onChangeContent(note.id,editor.current.innerHTML);}};
  const command=(cmd:string)=>{if(!editor.current)return;editor.current.focus();document.execCommand(cmd,false);save();};
  const placeCaret=(target:HTMLElement)=>{const range=document.createRange();range.selectNodeContents(target);range.collapse(false);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);};
- const insertBullet=()=>{const el=editor.current;if(!el)return;el.focus();const selection=window.getSelection();let range=selection&&selection.rangeCount?selection.getRangeAt(0):null;const inside=!!range&&el.contains(range.commonAncestorContainer);if(!inside||!range){range=document.createRange();range.selectNodeContents(el);range.collapse(false);selection?.removeAllRanges();selection?.addRange(range);}const anchor=range.startContainer instanceof Element?range.startContainer:range.startContainer.parentElement;const currentList=anchor?.closest('ul.sticky-bullet-list');const empty=!el.textContent?.trim()&&!el.querySelector('li');if(empty){document.execCommand('insertHTML',false,'<ul class="sticky-bullet-list"><li><br></li></ul>');const item=el.querySelector('ul.sticky-bullet-list li:last-child');if(item)placeCaret(item as HTMLElement);}else{document.execCommand('insertUnorderedList',false);const active=window.getSelection();const node=active?.anchorNode;const parent=node instanceof Element?node:node?.parentElement;const list=parent?.closest('ul');if(list&&el.contains(list)){list.classList.add('sticky-bullet-list');list.style.listStyleType='disc';list.style.paddingLeft='1.5em';list.style.margin='0.15em 0';list.querySelectorAll('li').forEach(item=>{(item as HTMLElement).style.listStyleType='disc';});}else if(currentList&&el.contains(currentList)){currentList.classList.remove('sticky-bullet-list');}}save();};
+ const insertBullet=()=>{
+  const el=editor.current;if(!el)return;el.focus();
+  const selection=window.getSelection();
+  let range=selection&&selection.rangeCount?selection.getRangeAt(0):null;
+  if(!range||!el.contains(range.commonAncestorContainer)){
+   range=document.createRange();range.selectNodeContents(el);range.collapse(false);
+  }
+  const node=range.startContainer;
+  const anchor=node instanceof Element?node:node.parentElement;
+  const current=anchor?.closest('li');
+  const list=anchor?.closest('ul.sticky-bullet-list');
+  if(list&&el.contains(list)){
+   const item=document.createElement('li');item.innerHTML='<br>';
+   current?.parentElement===list?current.insertAdjacentElement('afterend',item):list.appendChild(item);
+   placeCaret(item);
+  }else{
+   const block=anchor?.closest('p,div');
+   const ul=document.createElement('ul');ul.className='sticky-bullet-list';
+   ul.style.cssText='list-style-type:disc;padding-left:1.5em;margin:0.15em 0';
+   const li=document.createElement('li');li.style.listStyleType='disc';li.innerHTML='<br>';ul.appendChild(li);
+   if(block&&el.contains(block)){
+    const selected=range.cloneContents();
+    if(selected.textContent?.trim()){li.textContent=selected.textContent;}
+    block.replaceWith(ul);
+   }else{range.collapse(false);range.insertNode(ul);}
+   placeCaret(li);
+  }
+  save();
+ };
  const insertChecklist=()=>{
   const el=editor.current;if(!el)return;el.focus();
   const selection=window.getSelection();
@@ -76,7 +104,28 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const prepareNoteReference=()=>{const el=editor.current;const selection=window.getSelection();referenceRange.current=null;if(!el||!selection||!selection.rangeCount)return '';const range=selection.getRangeAt(0);if(!el.contains(range.commonAncestorContainer))return '';referenceRange.current=range.cloneRange();return selection.toString().trim();};
  const actions:StickyEditorActions={format:(a)=>{if(a==='bold')command('bold');else if(a==='italic')command('italic');else if(a==='underline')command('underline');else if(a==='undo')command('undo');else if(a==='redo')command('redo');else if(a==='bullet')insertBullet();else if(a==='indent')command('indent');else if(a==='outdent')command('outdent');else if(a==='checklist')insertChecklist();},prepareNoteReference,insertNoteLink:(id,title,type='note')=>{const el=editor.current;if(!el)return;const safe=title.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]||c));const range=referenceRange.current;const selectedText=range?.toString()||'';const anchor=document.createElement('a');anchor.href='#anotado-reference-'+type+'-'+id;anchor.dataset.stickyReferenceId=id;anchor.dataset.stickyReferenceType=type;anchor.textContent=selectedText||title;anchor.style.cssText='color:#80634f;text-decoration:underline;text-decoration-color:#b69b83;cursor:pointer';el.focus();if(range&&el.contains(range.commonAncestorContainer)){range.deleteContents();range.insertNode(anchor);range.setStartAfter(anchor);range.collapse(true);const sel=window.getSelection();sel?.removeAllRanges();sel?.addRange(range);}else{document.execCommand('insertHTML',false,`<a href="#anotado-reference-${type}-${id}" data-sticky-reference-id="${id}" data-sticky-reference-type="${type}" style="color:#80634f;text-decoration:underline;text-decoration-color:#b69b83;cursor:pointer">${safe}</a>`);}referenceRange.current=null;save();}};
  useEffect(()=>{registerEditorActions?.(note.id,actions);return()=>registerEditorActions?.(note.id,null);});
- const keyDown=(e:React.KeyboardEvent<HTMLDivElement>)=>{if(e.key==='Tab'){e.preventDefault();command(e.shiftKey?'outdent':'indent');}};
+ const keyDown=(e:React.KeyboardEvent<HTMLDivElement>)=>{
+  if(e.key==='Tab'){e.preventDefault();command(e.shiftKey?'outdent':'indent');return;}
+  if(e.key!=='Enter'||e.shiftKey)return;
+  const el=editor.current;const selection=window.getSelection();
+  if(!el||!selection?.rangeCount)return;
+  const range=selection.getRangeAt(0);if(!el.contains(range.commonAncestorContainer))return;
+  const node=range.startContainer;const anchor=node instanceof Element?node:node.parentElement;
+  const item=anchor?.closest('li');if(!item)return;
+  const checklist=item.closest('ul[data-sticky-checklist]');
+  const bullets=item.closest('ul.sticky-bullet-list');
+  if(!checklist&&!bullets)return;
+  e.preventDefault();
+  const next=document.createElement('li');
+  if(checklist){
+   next.innerHTML='<label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 14px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:14px;height:14px;margin:0;padding:0;vertical-align:middle;flex:0 0 14px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true"><br></span></p></div>';
+  }else{next.innerHTML='<br>';next.style.listStyleType='disc';}
+  item.insertAdjacentElement('afterend',next);
+  styleChecklist(el);
+  const caretTarget=checklist?next.querySelector<HTMLElement>('[data-sticky-check-text]'):next;
+  if(caretTarget)placeCaret(caretTarget);
+  save();
+ };
  const click=(e:React.MouseEvent<HTMLDivElement>)=>{const t=e.target as HTMLElement;if(t instanceof HTMLInputElement&&t.type==='checkbox'){const checked=t.checked;t.toggleAttribute('checked',checked);t.checked=checked;const item=t.closest('li');if(item){item.dataset.checked=String(checked);const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');if(text)Object.assign(text.style,{textDecorationLine:'none',textDecoration:'none',opacity:'1'});}requestAnimationFrame(save);}const a=t.closest('a[data-sticky-reference-id]') as HTMLAnchorElement|null;if(a&&e.ctrlKey){e.preventDefault();const id=a.dataset.stickyReferenceId;const type=(a.dataset.stickyReferenceType||'note') as 'note'|'sticky'|'diary';if(id)onOpenLinkedNote?.(id,type);}};
  const dragStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.stopPropagation();onSelect(note.id);const sx=e.clientX,sy=e.clientY,px=note.position_x,py=note.position_y;let x=px,y=py,moved=false;setDrag(true);const move=(v:PointerEvent)=>{if(Math.abs(v.clientX-sx)>2||Math.abs(v.clientY-sy)>2)moved=true;x=Math.max(12,Math.round(px+v.clientX-sx));y=Math.max(12,Math.round(py+v.clientY-sy));onMoveLive(note.id,x,y);};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setDrag(false);if(moved)onMoveEnd(note.id,x,y);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
  const resizeStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.preventDefault();e.stopPropagation();onSelect(note.id);const sx=e.clientX,sw=note.width_px;let w=sw,changed=false;setResize(true);const move=(v:PointerEvent)=>{const n=Math.max(STICKY_MIN_WIDTH,Math.min(STICKY_MAX_WIDTH,Math.round(sw+v.clientX-sx)));if(n!==w){w=n;changed=true;onResizeLive(note.id,w);}};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setResize(false);if(changed)onResizeEnd(note.id,w);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
