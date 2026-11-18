@@ -607,7 +607,7 @@ export function StickyNotesLayout() {
       return note.position_y + height;
     }));
     return { group, left: left - 22, top: top - 42, width: right - left + 44, height: bottom - top + 66 };
-  }).filter((item): item is NonNullable<typeof item> => Boolean(item)), [groups, notes]);
+  }).filter((item): item is NonNullable<typeof item> => Boolean(item)), [groups, notes, noteHeights]);
 
   const selectedNote = useMemo(
     () => notes.find((n) => n.id === selectedNoteId) || null,
