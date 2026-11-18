@@ -355,6 +355,15 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     const paragraph=document.createElement('p');paragraph.innerHTML='<br>';paragraph.style.cssText='margin:0;padding:0;line-height:1.45';
     moveItemOutOfList(paragraph);placeCaret(paragraph);save();return;
    }
+   // For checklist Enter, deliberately reuse the exact toolbar insertion
+   // path. The toolbar already inserts the LI and places the caret correctly
+   // in LI > DIV > P; duplicating that DOM/selection logic here caused the
+   // caret to land below the checkbox.
+   if(kind==='checklist'){
+    insertList('checklist');
+    return;
+   }
+
    const activeSelection=window.getSelection();
    const workingRange=range.cloneRange();
    if(!workingRange.collapsed)workingRange.deleteContents();
