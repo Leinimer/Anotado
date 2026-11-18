@@ -54,8 +54,8 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    ul.style.cssText='list-style-type:disc;padding-left:1.5em;margin:0.15em 0';
    const li=document.createElement('li');li.style.listStyleType='disc';li.innerHTML='<br>';ul.appendChild(li);
    if(block&&el.contains(block)){
-    const selected=range.cloneContents();
-    if(selected.textContent?.trim()){li.textContent=selected.textContent;}
+    const existingText=block.textContent||'';
+    if(existingText.trim()){li.textContent=existingText;}
     block.replaceWith(ul);
    }else{range.collapse(false);range.insertNode(ul);}
    placeCaret(li);
