@@ -68,7 +68,6 @@ export function StickyNotesLayout() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || isEditableTarget(event.target)) return;
       spacePressedRef.current = true;
-      event.preventDefault();
     };
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.code === 'Space') spacePressedRef.current = false;
@@ -695,15 +694,15 @@ export function StickyNotesLayout() {
             const palette = STICKY_COLORS.find(color => color.key === group.color) || STICKY_COLORS[0];
             const tint = palette.swatchLight;
             const titleColorClass = ({
-              yellow: 'dark:text-[#f5df78]',
-              green: 'dark:text-[#8fd59d]',
-              blue: 'dark:text-[#8fcdf4]',
-              pink: 'dark:text-[#f3a9c9]',
-              lilac: 'dark:text-[#c4b2fa]',
-              orange: 'dark:text-[#f5bd83]',
-              red: 'dark:text-[#f4a0a0]',
-              gray: 'dark:text-[#c2c8d0]',
-            } as Record<string, string>)[group.color] || 'dark:text-[#dfeeff]';
+              yellow: 'text-[#8a741f] dark:text-[#f5df78]',
+              green: 'text-[#39794a] dark:text-[#8fd59d]',
+              blue: 'text-[#376f9b] dark:text-[#8fcdf4]',
+              pink: 'text-[#a34d75] dark:text-[#f3a9c9]',
+              lilac: 'text-[#7055a8] dark:text-[#c4b2fa]',
+              orange: 'text-[#a5652d] dark:text-[#f5bd83]',
+              red: 'text-[#a34444] dark:text-[#f4a0a0]',
+              gray: 'text-[#59616c] dark:text-[#c2c8d0]',
+            } as Record<string, string>)[group.color] || 'text-[#376f9b] dark:text-[#8fcdf4]';
             return <React.Fragment key={group.id}>
               <div
                 data-sticky-group-id={group.id}
@@ -740,13 +739,13 @@ export function StickyNotesLayout() {
                     }}
                     placeholder="Título do agrupamento"
                     aria-label="Título do agrupamento"
-                    className={`w-full rounded-lg border border-transparent bg-transparent px-3 py-1 text-center text-base font-semibold outline-none placeholder:text-[#927f6a] focus:border-[#92704f]/40 dark:placeholder:text-[#a99681] ${titleColorClass}`} style={{ color: palette.swatchDark }}
+                    className={`w-full rounded-lg border border-transparent bg-transparent px-3 py-1 text-center text-base font-semibold outline-none placeholder:text-[#927f6a] focus:border-[#92704f]/40 dark:placeholder:text-[#a99681] ${titleColorClass}`}
                   />
                 ) : group.title ? (
                   <button
                     type="button"
                     onClick={() => setEditingGroupTitleId(group.id)}
-                    className={`max-w-full rounded-md bg-transparent px-3 py-0.5 text-base font-semibold hover:bg-transparent dark:bg-transparent dark:hover:bg-transparent ${titleColorClass}`} style={{ color: palette.swatchDark }}
+                    className={`max-w-full rounded-md bg-transparent px-3 py-0.5 text-base font-semibold hover:bg-transparent dark:bg-transparent dark:hover:bg-transparent ${titleColorClass}`}
                     title="Clique para editar o título"
                   >{group.title}</button>
                 ) : null}
