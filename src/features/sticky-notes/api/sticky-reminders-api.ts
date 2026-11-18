@@ -174,12 +174,31 @@ export async function deleteAllStickyReminderAlerts(userId: string, stickyNoteId
     .maybeSingle();
   if (error) throw error;
   if (!reminder) return;
-  const { error: removeError } = await client
-    .from('sticky_note_reminders')
+
+  const { error: removePendingError } = await client
+    .from('sticky_note_reminder_alerts')
     .delete()
-    .eq('id', reminder.id)
-    .eq('user_id', userId);
-  if (removeError) throw removeError;
+    .eq('user_id', userId)
+    .eq('reminder_id', reminder.id)
+    .is('triggered_at', null);
+  if (removePendingError) throw removePendingError;
+
+  const { count, error: historyError } = await client
+    .from('sticky_note_reminder_alerts')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('reminder_id', reminder.id)
+    .not('triggered_at', 'is', null);
+  if (historyError) throw historyError;
+
+  if (!count) {
+    const { error: removeParentError } = await client
+      .from('sticky_note_reminders')
+      .delete()
+      .eq('id', reminder.id)
+      .eq('user_id', userId);
+    if (removeParentError) throw removeParentError;
+  }
 }
 
 export async function fetchStickyReminderNoteIds(userId: string): Promise<string[]> {

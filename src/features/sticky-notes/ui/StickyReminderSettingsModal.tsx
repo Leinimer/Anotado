@@ -36,7 +36,7 @@ export function StickyReminderSettingsModal({ isOpen, userId, note, onClose, onS
     fetchStickyReminderConfig(userId, note.id)
       .then(config => {
         if (!active) return;
-        setHasExistingConfig(Boolean(config.id));
+        setHasExistingConfig(config.offset_days.length > 0);
         setTargetDate(config.target_date);
         setTargetTime(config.target_time);
         setSelectedOffsets(config.offset_days);
