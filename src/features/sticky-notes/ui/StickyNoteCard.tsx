@@ -10,30 +10,67 @@ const toHtml=(v:string)=>!v?'<p><br></p>':/^\s*</.test(v)?v:v.split('\n').map(x=
 const styleChecklist=(editor:HTMLElement)=>{
  editor.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]').forEach(list=>{
   Object.assign(list.style,{listStyle:'none',paddingLeft:'0',margin:'0'});
-  list.querySelectorAll<HTMLLIElement>(':scope > li').forEach(item=>{
-   // Normalize older checklist HTML to a single inline editable text span.
-   let text=item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]');
-   const labelBefore=item.querySelector<HTMLElement>(':scope > label');
-   if(!text){
-    text=document.createElement('span');text.dataset.stickyCheckText='true';
-    const wrapper=item.querySelector<HTMLElement>(':scope > div');
-    if(wrapper){while(wrapper.firstChild)text.appendChild(wrapper.firstChild);wrapper.remove();}
-    else{Array.from(item.childNodes).forEach(node=>{if(node!==labelBefore)text!.appendChild(node);});}
-    if(!text.childNodes.length)text.innerHTML='<br>';
-    item.appendChild(text);
-   }else if(text.parentElement!==item){
-    const wrapper=text.parentElement;
-    item.appendChild(text);
-    if(wrapper&&wrapper!==item&&wrapper.tagName!=='LABEL'&&!wrapper.querySelector('input[type="checkbox"]'))wrapper.remove();
+  Array.from(list.children).forEach(child=>{
+   if(!(child instanceof HTMLLIElement))return;
+   const item=child;
+   let label=item.querySelector<HTMLElement>(':scope > label');
+   let checkbox=label?.querySelector<HTMLInputElement>('input[type="checkbox"]')||null;
+   if(!label){
+    label=document.createElement('label');
+    checkbox=item.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    if(checkbox)checkbox.replaceWith(label);
+    item.insertBefore(label,item.firstChild);
    }
-   Object.assign(item.style,{display:'flex',alignItems:'center',gap:'6px',fontSize:'14px',listStyle:'none',margin:'0',padding:'0',lineHeight:'1.45'});
-   const label=item.querySelector<HTMLElement>(':scope > label');
-   if(label) Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 14px',width:'14px',height:'14px',margin:'0',padding:'0',lineHeight:'1'});
-   const checkbox=item.querySelector<HTMLInputElement>(':scope > label input[type="checkbox"]');
-   if(checkbox) Object.assign(checkbox.style,{width:'14px',height:'14px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 14px',accentColor:'#eab308'});
-   const content=item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]');
-   if(content) Object.assign(content.style,{display:'block',flex:'1 1 auto',minWidth:'0',margin:'0',padding:'0',lineHeight:'1.45',outline:'none'});
-   if(text) Object.assign(text.style,{textDecorationLine:'none',textDecoration:'none',opacity:'1'});
+   if(!checkbox){
+    checkbox=document.createElement('input');
+    checkbox.type='checkbox';
+    checkbox.setAttribute('aria-label','Marcar item como concluído');
+   }
+   if(checkbox.parentElement!==label)label.appendChild(checkbox);
+   label.contentEditable='false';
+   checkbox.contentEditable='false';
+   checkbox.tabIndex=-1;
+
+   // Canonical markup mirrors the Notes TaskItem node view:
+   // LI > LABEL(INPUT) + DIV(P(text)).
+   let content=item.querySelector<HTMLElement>(':scope > div');
+   if(!content){
+    content=document.createElement('div');
+    const legacyText=item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]');
+    if(legacyText){
+     const paragraph=document.createElement('p');
+     while(legacyText.firstChild)paragraph.appendChild(legacyText.firstChild);
+     legacyText.replaceWith(content);
+     content.appendChild(paragraph);
+    }else{
+     const paragraph=document.createElement('p');
+     Array.from(item.childNodes).forEach(node=>{
+      if(node===label||node instanceof HTMLUListElement)return;
+      paragraph.appendChild(node);
+     });
+     content.appendChild(paragraph);
+    }
+    item.insertBefore(content,Array.from(item.children).find(el=>el instanceof HTMLUListElement)||null);
+   }
+   if(!content.querySelector(':scope > p')){
+    const paragraph=document.createElement('p');
+    while(content.firstChild)paragraph.appendChild(content.firstChild);
+    content.appendChild(paragraph);
+   }
+   const paragraph=content.querySelector<HTMLElement>(':scope > p');
+   if(paragraph&&!paragraph.childNodes.length)paragraph.innerHTML='<br>';
+
+   const nested=Array.from(item.children).filter(el=>el instanceof HTMLUListElement);
+   Object.assign(item.style,{display:'flex',alignItems:'flex-start',gap:'0.45rem',fontSize:'14px',listStyle:'none',margin:'0 0 0.075rem',padding:'0',lineHeight:'1.45'});
+   Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 14px',width:'14px',height:'14px',margin:'0.15rem 0 0',padding:'0',lineHeight:'1',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation'});
+   Object.assign(checkbox.style,{appearance:'none',width:'14px',height:'14px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 14px',accentColor:'#eab308',borderRadius:'9999px'});
+   Object.assign(content.style,{display:'block',flex:'1 1 auto',minWidth:'0',margin:'0',padding:'0',lineHeight:'1.45',outline:'none'});
+   if(paragraph)Object.assign(paragraph.style,{margin:'0',padding:'0',lineHeight:'1.45',fontSize:'14px'});
+   const checked=checkbox.checked||checkbox.hasAttribute('checked')||item.dataset.checked==='true';
+   checkbox.checked=checked;
+   if(checked){checkbox.setAttribute('checked','');item.dataset.checked='true';}
+   else{checkbox.removeAttribute('checked');item.dataset.checked='false';}
+   nested.forEach(list=>Object.assign((list as HTMLElement).style,{flex:'0 0 100%',marginLeft:'1.8rem'}));
   });
  });
  editor.querySelectorAll<HTMLParagraphElement>('p[data-sticky-after-checklist]').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.2',minHeight:'0',height:'auto'}));
@@ -49,7 +86,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const placeCaretStart=(target:HTMLElement)=>{const range=document.createRange();range.selectNodeContents(target);range.collapse(true);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);};
  const makeChecklistItem=()=>{
   const li=document.createElement('li');
-  li.innerHTML='<label><input type="checkbox" aria-label="Marcar item como concluído"></label><span data-sticky-check-text="true"><br></span>';
+  li.innerHTML='<label contenteditable="false"><input type="checkbox" aria-label="Marcar item como concluído"></label><div><p><br></p></div>';
   return li;
  };
  const makeListItem=(kind:'bullet'|'checklist')=>{
@@ -68,7 +105,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   return {el,selection,range,anchor,item,list,kind};
  };
  const setCaretInItem=(item:HTMLLIElement,kind:'bullet'|'checklist')=>{
-  const target=kind==='checklist'?(item.querySelector(':scope > [data-sticky-check-text]') as HTMLElement|null):item;
+  const target=kind==='checklist'?(item.querySelector(':scope > div') as HTMLElement|null):item;
   if(target)placeCaret(target);
  };
  const insertList=(kind:'bullet'|'checklist')=>{
@@ -161,7 +198,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
 
   const ctx=getListContext();
   const host=ctx?.kind==='checklist'&&ctx.item
-   ?ctx.item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]')
+   ?ctx.item.querySelector<HTMLElement>(':scope > div')
    :null;
   const selection=window.getSelection();
   let range=selection?.rangeCount?selection.getRangeAt(0):null;
@@ -235,7 +272,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   if(e.key!=='Enter'&&e.key!=='Backspace')return;
   const ctx=getListContext();if(!ctx?.item||!ctx.kind||!ctx.list)return;
   const {el,range,item,list,kind}=ctx;
-  const textHost=kind==='checklist'?(item.querySelector('[data-sticky-check-text]') as HTMLElement|null):(item as HTMLElement);
+  const textHost=kind==='checklist'?(item.querySelector(':scope > div') as HTMLElement|null):(item as HTMLElement);
   if(!textHost)return;
   const caret=document.createRange();caret.selectNodeContents(textHost);caret.setEnd(range.startContainer,range.startOffset);
   const before=caret.toString();
@@ -267,8 +304,8 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    const paragraph=document.createElement('p');
    paragraph.style.cssText='margin:0;padding:0;line-height:1.45';
    if(kind==='checklist'){
-    const text=item.querySelector('[data-sticky-check-text]');
-    if(text){while(text.firstChild)paragraph.appendChild(text.firstChild);}
+    const content=item.querySelector<HTMLElement>(':scope > div');
+    if(content){while(content.firstChild)paragraph.appendChild(content.firstChild);}
    }else{while(item.firstChild)paragraph.appendChild(item.firstChild);}
    if(!paragraph.childNodes.length)paragraph.innerHTML='<br>';
    moveItemOutOfList(paragraph);
@@ -281,24 +318,49 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     const paragraph=document.createElement('p');paragraph.innerHTML='<br>';paragraph.style.cssText='margin:0;padding:0;line-height:1.45';
     moveItemOutOfList(paragraph);placeCaret(paragraph);save();return;
    }
+   const activeSelection=window.getSelection();
+   const workingRange=range.cloneRange();
+   if(!workingRange.collapsed)workingRange.deleteContents();
+
+   const currentBlock=(range.startContainer instanceof Element?range.startContainer:range.startContainer.parentElement)?.closest('p');
+   const splitBlock=currentBlock&&textHost.contains(currentBlock)?currentBlock:textHost;
+   const tail=document.createRange();
+   try{
+    tail.setStart(workingRange.startContainer,workingRange.startOffset);
+    tail.setEnd(splitBlock,splitBlock.childNodes.length);
+   }catch{
+    tail.selectNodeContents(splitBlock);
+    tail.collapse(false);
+   }
+   const trailing=tail.extractContents();
+
    const next=makeListItem(kind);
-   const nextHost=kind==='checklist'?(next.querySelector('[data-sticky-check-text]') as HTMLElement|null):next;
-   // Keep the current text in its own checklist row. The new row starts empty;
-   // no trailing text is moved below or outside the checkbox.
-   if(nextHost)nextHost.innerHTML='<br>';
-   const caretInsideHost=textHost===range.startContainer||textHost.contains(range.startContainer);
-   if(!caretInsideHost)placeCaret(textHost);
-   item.insertAdjacentElement('afterend',next);
+   const nextHost=kind==='checklist'?(next.querySelector(':scope > div') as HTMLElement|null):next;
+   if(nextHost){
+    const nextParagraph=kind==='checklist'?(nextHost.querySelector(':scope > p') as HTMLElement|null):nextHost;
+    if(nextParagraph){
+     nextParagraph.replaceChildren();
+     if(trailing.childNodes.length)nextParagraph.appendChild(trailing);
+     else nextParagraph.innerHTML='<br>';
+    }
+   }
+   list.insertBefore(next,item.nextSibling);
    styleChecklist(el);
-   if(nextHost)placeCaretStart(nextHost);
+   const caretTarget=kind==='checklist'?(next.querySelector(':scope > div > p') as HTMLElement|null):next;
+   if(caretTarget)placeCaretStart(caretTarget);
+   activeSelection?.removeAllRanges();
+   if(caretTarget){
+    const nextRange=document.createRange();nextRange.selectNodeContents(caretTarget);nextRange.collapse(true);
+    activeSelection?.addRange(nextRange);
+   }
    save();
   }
  };
- const click=(e:React.MouseEvent<HTMLDivElement>)=>{const t=e.target as HTMLElement;if(t instanceof HTMLInputElement&&t.type==='checkbox'){const checked=t.checked;t.toggleAttribute('checked',checked);t.checked=checked;const item=t.closest('li');if(item){item.dataset.checked=String(checked);const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');if(text)Object.assign(text.style,{textDecorationLine:'none',textDecoration:'none',opacity:'1'});}requestAnimationFrame(save);}const a=t.closest('a[data-sticky-reference-id]') as HTMLAnchorElement|null;if(a&&e.ctrlKey){e.preventDefault();const id=a.dataset.stickyReferenceId;const type=(a.dataset.stickyReferenceType||'note') as 'note'|'sticky'|'diary';if(id)onOpenLinkedNote?.(id,type);}};
+ const click=(e:React.MouseEvent<HTMLDivElement>)=>{const t=e.target as HTMLElement;if(t instanceof HTMLInputElement&&t.type==='checkbox'){e.preventDefault();e.stopPropagation();const checked=!t.checked;t.checked=checked;t.toggleAttribute('checked',checked);const item=t.closest('li');if(item)item.dataset.checked=String(checked);requestAnimationFrame(save);return;}const a=t.closest('a[data-sticky-reference-id]') as HTMLAnchorElement|null;if(a&&e.ctrlKey){e.preventDefault();const id=a.dataset.stickyReferenceId;const type=(a.dataset.stickyReferenceType||'note') as 'note'|'sticky'|'diary';if(id)onOpenLinkedNote?.(id,type);}};
  const dragStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.stopPropagation();onSelect(note.id);const sx=e.clientX,sy=e.clientY,px=note.position_x,py=note.position_y;let x=px,y=py,moved=false;setDrag(true);const move=(v:PointerEvent)=>{if(Math.abs(v.clientX-sx)>2||Math.abs(v.clientY-sy)>2)moved=true;x=Math.max(12,Math.round(px+v.clientX-sx));y=Math.max(12,Math.round(py+v.clientY-sy));onMoveLive(note.id,x,y);};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setDrag(false);if(moved)onMoveEnd(note.id,x,y);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
  const resizeStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.preventDefault();e.stopPropagation();onSelect(note.id);const sx=e.clientX,sw=note.width_px;let w=sw,changed=false;setResize(true);const move=(v:PointerEvent)=>{const n=Math.max(STICKY_MIN_WIDTH,Math.min(STICKY_MAX_WIDTH,Math.round(sw+v.clientX-sx)));if(n!==w){w=n;changed=true;onResizeLive(note.id,w);}};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setResize(false);if(changed)onResizeEnd(note.id,w);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
  return <div id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>onSelect(note.id)} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,zIndex:note.z_index}} className={`group rounded-xl border transition-shadow duration-150 ${colors.cardClass} ${drag||resize?'shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
  <div onPointerDown={dragStart} className={`flex items-center gap-1.5 px-2.5 py-1.5 border-b rounded-t-xl cursor-grab active:cursor-grabbing touch-none select-none ${colors.headerClass}`}><GripHorizontal className={`w-3.5 h-3.5 shrink-0 opacity-45 ${colors.textClass}`}/><input value={note.title} onPointerDown={e=>{e.stopPropagation();onSelect(note.id);}} onChange={e=>onChangeTitle(note.id,e.target.value)} placeholder="Título..." aria-label="Título do Stick" className={`flex-1 min-w-0 bg-transparent text-[15px] font-semibold focus:outline-none placeholder:opacity-50 ${colors.textClass}`}/><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onOpenReminder?.(note);}} className={`relative p-1 rounded-md opacity-35 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-[#8d725d]/10 ${hasReminder?'opacity-100 text-[#b4533c] dark:text-[#f08a72]':colors.mutedTextClass}`} title={hasReminder?'Gerenciar lembretes deste Stick':'Configurar lembrete'} aria-label="Configurar lembrete"><AlarmClock className="w-3.5 h-3.5"/>{hasReminder&&<span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-[#c34f3c] ring-1 ring-white dark:ring-[#222]"/>}</button><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onDelete(note.id);}} className={`p-1 rounded-md opacity-25 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-500/15 ${colors.mutedTextClass}`} title="Excluir Stick" aria-label="Excluir Stick"><Trash2 className="w-3.5 h-3.5"/></button></div>
- <div className="px-3 py-2.5"><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={save} onKeyDown={keyDown} onPaste={paste} onClick={click} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
+ <div className="px-3 py-2.5"><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={save} onKeyDown={keyDown} onPaste={paste} onClick={click} onMouseDown={e=>{const target=e.target as HTMLElement;if(target instanceof HTMLInputElement&&target.type==='checkbox'){e.preventDefault();e.stopPropagation();}}} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
  <div onPointerDown={resizeStart} role="separator" aria-orientation="vertical" aria-label="Ajustar largura da nota adesiva" title="Arraste para ajustar a largura" className="absolute top-2 bottom-2 -right-1.5 w-3 cursor-ew-resize touch-none flex items-center justify-center group/resize z-10"><span className={`w-1 h-8 rounded-full transition-opacity ${resize?'opacity-100 bg-[#68594d]':'opacity-0 group-hover:opacity-60 group-hover/resize:opacity-100 bg-black/25'}`}/></div></div>;
 }
