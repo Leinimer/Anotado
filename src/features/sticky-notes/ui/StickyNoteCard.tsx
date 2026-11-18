@@ -33,98 +33,116 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const save=()=>{if(editor.current){styleChecklist(editor.current);onChangeContent(note.id,editor.current.innerHTML);}};
  const command=(cmd:string)=>{if(!editor.current)return;editor.current.focus();document.execCommand(cmd,false);save();};
  const placeCaret=(target:HTMLElement)=>{const range=document.createRange();range.selectNodeContents(target);range.collapse(false);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);};
- const insertBullet=()=>{
+ const makeChecklistItem=()=>{
+  const li=document.createElement('li');
+  li.innerHTML='<label><input type="checkbox" aria-label="Marcar item como concluído"></label><div><p><span data-sticky-check-text="true"><br></span></p></div>';
+  return li;
+ };
+ const makeListItem=(kind:'bullet'|'checklist')=>{
+  if(kind==='checklist')return makeChecklistItem();
+  const li=document.createElement('li');li.innerHTML='<br>';li.style.listStyleType='disc';return li;
+ };
+ const getListContext=()=>{
+  const el=editor.current;const selection=window.getSelection();
+  if(!el||!selection?.rangeCount)return null;
+  const range=selection.getRangeAt(0);
+  if(!el.contains(range.commonAncestorContainer))return null;
+  const node=range.startContainer;const anchor=node instanceof Element?node:node.parentElement;
+  const item=anchor?.closest('li');
+  const list=item?.parentElement;
+  const kind=list?.matches('ul[data-sticky-checklist]')?'checklist':list?.matches('ul.sticky-bullet-list')?'bullet':null;
+  return {el,selection,range,anchor,item,list,kind};
+ };
+ const setCaretInItem=(item:HTMLLIElement,kind:'bullet'|'checklist')=>{
+  const target=kind==='checklist'?(item.querySelector('[data-sticky-check-text]') as HTMLElement|null):item;
+  if(target)placeCaret(target);
+ };
+ const insertList=(kind:'bullet'|'checklist')=>{
   const el=editor.current;if(!el)return;el.focus();
   const selection=window.getSelection();
   let range=selection&&selection.rangeCount?selection.getRangeAt(0):null;
   if(!range||!el.contains(range.commonAncestorContainer)){
    range=document.createRange();range.selectNodeContents(el);range.collapse(false);
   }
-  const node=range.startContainer;
-  const anchor=node instanceof Element?node:node.parentElement;
-  const current=anchor?.closest('li');
-  const list=anchor?.closest('ul.sticky-bullet-list');
-  if(list&&el.contains(list)){
-   const item=document.createElement('li');item.innerHTML='<br>';
-   current?.parentElement===list?current.insertAdjacentElement('afterend',item):list.appendChild(item);
-   placeCaret(item);
+  const node=range.startContainer;const anchor=node instanceof Element?node:node.parentElement;
+  const existingItem=anchor?.closest('li');
+  const existingList=existingItem?.parentElement;
+  if(existingList&&el.contains(existingList)&&((kind==='checklist'&&existingList.matches('ul[data-sticky-checklist]'))||(kind==='bullet'&&existingList.matches('ul.sticky-bullet-list')))){
+   const item=makeListItem(kind);existingItem.insertAdjacentElement('afterend',item);
+   styleChecklist(el);setCaretInItem(item,kind);save();return;
+  }
+  // If the cursor is in a text line, split that line at the cursor and put
+  // the new list on the following line, preserving text on both sides.
+  let block=anchor?.closest('p,div');
+  if(block===el)block=null;
+  const list=document.createElement('ul');
+  if(kind==='checklist'){list.setAttribute('data-sticky-checklist','true');list.style.cssText='list-style:none;padding-left:0;margin:0';}
+  else{list.className='sticky-bullet-list';list.style.cssText='list-style-type:disc;padding-left:1.5em;margin:0.15em 0';}
+  const item=makeListItem(kind);list.appendChild(item);
+  if(block&&el.contains(block)){
+   const after=document.createRange();after.setStart(range.startContainer,range.startOffset);after.setEndAfter(block.lastChild||block);
+   const trailing=after.extractContents();
+   const trailingText=trailing.textContent||'';
+   if(trailingText.trim()||trailing.childNodes.length){
+    const nextBlock=document.createElement(block.tagName.toLowerCase()==='div'?'div':'p');
+    nextBlock.appendChild(trailing);
+    block.insertAdjacentElement('afterend',list);
+    list.insertAdjacentElement('afterend',nextBlock);
+   }else block.insertAdjacentElement('afterend',list);
+   if(!block.textContent?.trim()&&!block.querySelector('img,a'))block.remove();
   }else{
-   const block=anchor?.closest('p,div');
-   const ul=document.createElement('ul');ul.className='sticky-bullet-list';
-   ul.style.cssText='list-style-type:disc;padding-left:1.5em;margin:0.15em 0';
-   const li=document.createElement('li');li.style.listStyleType='disc';li.innerHTML='<br>';ul.appendChild(li);
-   if(block&&el.contains(block)){
-    const existingText=block.textContent||'';
-    if(existingText.trim()){li.textContent=existingText;}
-    block.replaceWith(ul);
-   }else{range.collapse(false);range.insertNode(ul);}
-   placeCaret(li);
+   range.collapse(false);range.insertNode(list);
   }
-  save();
+  styleChecklist(el);setCaretInItem(item,kind);save();
  };
- const insertChecklist=()=>{
-  const el=editor.current;if(!el)return;el.focus();
-  const selection=window.getSelection();
-  const range=selection&&selection.rangeCount?selection.getRangeAt(0):null;
-  const anchor=range?.startContainer instanceof Element?range.startContainer:range?.startContainer.parentElement;
-  const currentItem=anchor?.closest('li');
-  const currentList=anchor?.closest('ul[data-sticky-checklist]');
-  const makeItem=()=>{
-   const li=document.createElement('li');
-   li.innerHTML='<label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 13px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:14px;height:14px;margin:0;padding:0;vertical-align:middle;flex:0 0 13px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true"><br></span></p></div>';
-   return li;
-  };
-  if(currentList&&el.contains(currentList)){
-   const item=makeItem();
-   if(currentItem&&currentItem.parentElement===currentList)currentItem.insertAdjacentElement('afterend',item);
-   else currentList.appendChild(item);
-   styleChecklist(el);
-   const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');if(text)placeCaret(text);
-   save();return;
-  }
-  const after=anchor?.closest('p[data-sticky-after-checklist]');
-  const previousList=after?.previousElementSibling;
-  if(previousList instanceof HTMLUListElement&&previousList.matches('ul[data-sticky-checklist]')){
-   const item=makeItem();previousList.appendChild(item);styleChecklist(el);
-   const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');if(text)placeCaret(text);
-   save();return;
-  }
-  if(!range||!el.contains(range.commonAncestorContainer)){
-   const end=document.createRange();end.selectNodeContents(el);end.collapse(false);
-   selection?.removeAllRanges();selection?.addRange(end);
-  }
-  document.execCommand('insertHTML',false,'<ul data-sticky-checklist="true" style="list-style:none;padding-left:0;margin:0"><li style="display:flex;align-items:center;gap:6px;list-style:none;margin:0;padding:0;line-height:1.45"><label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 13px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:14px;height:14px;margin:0;padding:0;vertical-align:middle;flex:0 0 13px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true"><br></span></p></div></li></ul><p data-sticky-after-checklist="true" style="margin:0;padding:0;line-height:1.2"><br></p>');
-  styleChecklist(el);
-  const lists=el.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]');
-  const lastList=lists[lists.length-1];
-  const text=lastList?.querySelector<HTMLElement>('li:last-child [data-sticky-check-text]');
-  if(text)placeCaret(text);
-  save();
- };
+ const insertBullet=()=>insertList('bullet');
+ const insertChecklist=()=>insertList('checklist');
  const prepareNoteReference=()=>{const el=editor.current;const selection=window.getSelection();referenceRange.current=null;if(!el||!selection||!selection.rangeCount)return '';const range=selection.getRangeAt(0);if(!el.contains(range.commonAncestorContainer))return '';referenceRange.current=range.cloneRange();return selection.toString().trim();};
  const actions:StickyEditorActions={format:(a)=>{if(a==='bold')command('bold');else if(a==='italic')command('italic');else if(a==='underline')command('underline');else if(a==='undo')command('undo');else if(a==='redo')command('redo');else if(a==='bullet')insertBullet();else if(a==='indent')command('indent');else if(a==='outdent')command('outdent');else if(a==='checklist')insertChecklist();},prepareNoteReference,insertNoteLink:(id,title,type='note')=>{const el=editor.current;if(!el)return;const safe=title.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]||c));const range=referenceRange.current;const selectedText=range?.toString()||'';const anchor=document.createElement('a');anchor.href='#anotado-reference-'+type+'-'+id;anchor.dataset.stickyReferenceId=id;anchor.dataset.stickyReferenceType=type;anchor.textContent=selectedText||title;anchor.style.cssText='color:#80634f;text-decoration:underline;text-decoration-color:#b69b83;cursor:pointer';el.focus();if(range&&el.contains(range.commonAncestorContainer)){range.deleteContents();range.insertNode(anchor);range.setStartAfter(anchor);range.collapse(true);const sel=window.getSelection();sel?.removeAllRanges();sel?.addRange(range);}else{document.execCommand('insertHTML',false,`<a href="#anotado-reference-${type}-${id}" data-sticky-reference-id="${id}" data-sticky-reference-type="${type}" style="color:#80634f;text-decoration:underline;text-decoration-color:#b69b83;cursor:pointer">${safe}</a>`);}referenceRange.current=null;save();}};
  useEffect(()=>{registerEditorActions?.(note.id,actions);return()=>registerEditorActions?.(note.id,null);});
  const keyDown=(e:React.KeyboardEvent<HTMLDivElement>)=>{
   if(e.key==='Tab'){e.preventDefault();command(e.shiftKey?'outdent':'indent');return;}
-  if(e.key!=='Enter'||e.shiftKey)return;
-  const el=editor.current;const selection=window.getSelection();
-  if(!el||!selection?.rangeCount)return;
-  const range=selection.getRangeAt(0);if(!el.contains(range.commonAncestorContainer))return;
-  const node=range.startContainer;const anchor=node instanceof Element?node:node.parentElement;
-  const item=anchor?.closest('li');if(!item)return;
-  const checklist=item.closest('ul[data-sticky-checklist]');
-  const bullets=item.closest('ul.sticky-bullet-list');
-  if(!checklist&&!bullets)return;
-  e.preventDefault();
-  const next=document.createElement('li');
-  if(checklist){
-   next.innerHTML='<label style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 14px;margin:0;padding:0;line-height:1"><input type="checkbox" aria-label="Marcar item como concluído" style="width:14px;height:14px;margin:0;padding:0;vertical-align:middle;flex:0 0 14px;accent-color:#eab308"></label><div style="flex:1 1 auto;min-width:0;margin:0;padding:0;line-height:1.45"><p style="margin:0;padding:0;line-height:1.45"><span data-sticky-check-text="true"><br></span></p></div>';
-  }else{next.innerHTML='<br>';next.style.listStyleType='disc';}
-  item.insertAdjacentElement('afterend',next);
-  styleChecklist(el);
-  const caretTarget=checklist?next.querySelector<HTMLElement>('[data-sticky-check-text]'):next;
-  if(caretTarget)placeCaret(caretTarget);
-  save();
+  if(e.key!=='Enter'&&e.key!=='Backspace')return;
+  const ctx=getListContext();if(!ctx?.item||!ctx.kind||!ctx.list)return;
+  const {el,range,item,list,kind}=ctx;
+  const textHost=kind==='checklist'?(item.querySelector('[data-sticky-check-text]') as HTMLElement|null):(item as HTMLElement);
+  if(!textHost)return;
+  const caret=document.createRange();caret.selectNodeContents(textHost);caret.setEnd(range.startContainer,range.startOffset);
+  const before=caret.toString();
+  const afterRange=document.createRange();afterRange.setStart(range.startContainer,range.startOffset);afterRange.setEnd(textHost,textHost.childNodes.length);
+  const after=afterRange.toString();
+  const atStart=before.length===0;
+  const atEnd=after.length===0;
+  const empty=!(textHost.textContent||'').trim();
+  if(e.key==='Backspace'&&atStart){
+   e.preventDefault();
+   const paragraph=document.createElement('p');
+   paragraph.style.cssText='margin:0;padding:0;line-height:1.45';
+   if(kind==='checklist'){
+    const text=item.querySelector('[data-sticky-check-text]');
+    if(text){while(text.firstChild)paragraph.appendChild(text.firstChild);}
+   }else{while(item.firstChild)paragraph.appendChild(item.firstChild);}
+   if(!paragraph.childNodes.length)paragraph.innerHTML='<br>';
+   item.replaceWith(paragraph);
+   if(!list.querySelector('li'))list.remove();
+   placeCaret(paragraph);
+   save();return;
+  }
+  if(e.key==='Enter'){
+   e.preventDefault();
+   if(empty){
+    const paragraph=document.createElement('p');paragraph.innerHTML='<br>';paragraph.style.cssText='margin:0;padding:0;line-height:1.45';
+    item.replaceWith(paragraph);if(!list.querySelector('li'))list.remove();placeCaret(paragraph);save();return;
+   }
+   const next=makeListItem(kind);
+   // Split the current line at the caret, retaining any text after it in the new item.
+   const tail=document.createRange();tail.setStart(range.startContainer,range.startOffset);tail.setEnd(textHost,textHost.childNodes.length);
+   const extracted=tail.extractContents();
+   const nextHost=kind==='checklist'?(next.querySelector('[data-sticky-check-text]') as HTMLElement|null):next;
+   if(nextHost){nextHost.innerHTML='';nextHost.appendChild(extracted);if(!nextHost.childNodes.length)nextHost.innerHTML='<br>';}
+   item.insertAdjacentElement('afterend',next);
+   styleChecklist(el);setCaretInItem(next,kind);save();
+  }
  };
  const click=(e:React.MouseEvent<HTMLDivElement>)=>{const t=e.target as HTMLElement;if(t instanceof HTMLInputElement&&t.type==='checkbox'){const checked=t.checked;t.toggleAttribute('checked',checked);t.checked=checked;const item=t.closest('li');if(item){item.dataset.checked=String(checked);const text=item.querySelector<HTMLElement>('[data-sticky-check-text]');if(text)Object.assign(text.style,{textDecorationLine:'none',textDecoration:'none',opacity:'1'});}requestAnimationFrame(save);}const a=t.closest('a[data-sticky-reference-id]') as HTMLAnchorElement|null;if(a&&e.ctrlKey){e.preventDefault();const id=a.dataset.stickyReferenceId;const type=(a.dataset.stickyReferenceType||'note') as 'note'|'sticky'|'diary';if(id)onOpenLinkedNote?.(id,type);}};
  const dragStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.stopPropagation();onSelect(note.id);const sx=e.clientX,sy=e.clientY,px=note.position_x,py=note.position_y;let x=px,y=py,moved=false;setDrag(true);const move=(v:PointerEvent)=>{if(Math.abs(v.clientX-sx)>2||Math.abs(v.clientY-sy)>2)moved=true;x=Math.max(12,Math.round(px+v.clientX-sx));y=Math.max(12,Math.round(py+v.clientY-sy));onMoveLive(note.id,x,y);};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setDrag(false);if(moved)onMoveEnd(note.id,x,y);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
