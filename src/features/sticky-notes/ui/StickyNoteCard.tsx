@@ -12,7 +12,7 @@ const styleChecklist=(editor:HTMLElement)=>{
   Object.assign(list.style,{listStyle:'none',paddingLeft:'0',margin:'0'});
   list.querySelectorAll<HTMLLIElement>(':scope > li').forEach(item=>{
    // Normalize older checklist HTML to a single inline editable text span.
-   let text=item.querySelector<HTMLElement>('[data-sticky-check-text]');
+   let text=item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]');
    const labelBefore=item.querySelector<HTMLElement>(':scope > label');
    if(!text){
     text=document.createElement('span');text.dataset.stickyCheckText='true';
@@ -29,7 +29,7 @@ const styleChecklist=(editor:HTMLElement)=>{
    Object.assign(item.style,{display:'flex',alignItems:'center',gap:'6px',fontSize:'14px',listStyle:'none',margin:'0',padding:'0',lineHeight:'1.45'});
    const label=item.querySelector<HTMLElement>(':scope > label');
    if(label) Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 14px',width:'14px',height:'14px',margin:'0',padding:'0',lineHeight:'1'});
-   const checkbox=item.querySelector<HTMLInputElement>('input[type="checkbox"]');
+   const checkbox=item.querySelector<HTMLInputElement>(':scope > label input[type="checkbox"]');
    if(checkbox) Object.assign(checkbox.style,{width:'14px',height:'14px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 14px',accentColor:'#eab308'});
    const content=item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]');
    if(content) Object.assign(content.style,{display:'block',flex:'1 1 auto',minWidth:'0',margin:'0',padding:'0',lineHeight:'1.45',outline:'none'});
@@ -68,7 +68,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   return {el,selection,range,anchor,item,list,kind};
  };
  const setCaretInItem=(item:HTMLLIElement,kind:'bullet'|'checklist')=>{
-  const target=kind==='checklist'?(item.querySelector('[data-sticky-check-text]') as HTMLElement|null):item;
+  const target=kind==='checklist'?(item.querySelector(':scope > [data-sticky-check-text]') as HTMLElement|null):item;
   if(target)placeCaret(target);
  };
  const insertList=(kind:'bullet'|'checklist')=>{
@@ -143,6 +143,40 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    parentItem.insertAdjacentElement('afterend',item);
    if(!list.querySelector(':scope > li'))list.remove();
   }
+ };
+ const paste=(e:React.ClipboardEvent<HTMLDivElement>)=>{
+  const ctx=getListContext();
+  if(!ctx?.item||ctx.kind!=='checklist')return;
+  const host=ctx.item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]');
+  if(!host)return;
+  const html=e.clipboardData.getData('text/html');
+  if(!html)return;
+  e.preventDefault();
+  const parsed=new DOMParser().parseFromString(html,'text/html');
+  const listItems=Array.from(parsed.body.querySelectorAll('li'));
+  const lines=listItems.length
+   ?listItems.map(li=>(li.textContent||'').replace(/\\s+/g,' ').trim()).filter(Boolean)
+   :[(parsed.body.textContent||'').replace(/\\s+/g,' ').trim()].filter(Boolean);
+  const text=lines.join('\\n');
+  if(!text)return;
+  const selection=window.getSelection();
+  let range=selection?.rangeCount?selection.getRangeAt(0):null;
+  if(!range||!host.contains(range.startContainer)){
+   range=document.createRange();range.selectNodeContents(host);range.collapse(false);
+  }
+  range.deleteContents();
+  const fragment=document.createDocumentFragment();
+  text.split('\\n').forEach((line,index)=>{
+   if(index)fragment.appendChild(document.createElement('br'));
+   fragment.appendChild(document.createTextNode(line));
+  });
+  const last=fragment.lastChild;
+  range.insertNode(fragment);
+  if(last){
+   range.setStartAfter(last);range.collapse(true);
+   selection?.removeAllRanges();selection?.addRange(range);
+  }
+  save();
  };
  const keyDown=(e:React.KeyboardEvent<HTMLDivElement>)=>{
   if(e.key==='Tab'){
@@ -250,6 +284,6 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const resizeStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.preventDefault();e.stopPropagation();onSelect(note.id);const sx=e.clientX,sw=note.width_px;let w=sw,changed=false;setResize(true);const move=(v:PointerEvent)=>{const n=Math.max(STICKY_MIN_WIDTH,Math.min(STICKY_MAX_WIDTH,Math.round(sw+v.clientX-sx)));if(n!==w){w=n;changed=true;onResizeLive(note.id,w);}};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setResize(false);if(changed)onResizeEnd(note.id,w);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
  return <div id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>onSelect(note.id)} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,zIndex:note.z_index}} className={`group rounded-xl border transition-shadow duration-150 ${colors.cardClass} ${drag||resize?'shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
  <div onPointerDown={dragStart} className={`flex items-center gap-1.5 px-2.5 py-1.5 border-b rounded-t-xl cursor-grab active:cursor-grabbing touch-none select-none ${colors.headerClass}`}><GripHorizontal className={`w-3.5 h-3.5 shrink-0 opacity-45 ${colors.textClass}`}/><input value={note.title} onPointerDown={e=>{e.stopPropagation();onSelect(note.id);}} onChange={e=>onChangeTitle(note.id,e.target.value)} placeholder="Título..." aria-label="Título do Stick" className={`flex-1 min-w-0 bg-transparent text-[15px] font-semibold focus:outline-none placeholder:opacity-50 ${colors.textClass}`}/><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onOpenReminder?.(note);}} className={`relative p-1 rounded-md opacity-35 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-[#8d725d]/10 ${hasReminder?'opacity-100 text-[#b4533c] dark:text-[#f08a72]':colors.mutedTextClass}`} title={hasReminder?'Gerenciar lembretes deste Stick':'Configurar lembrete'} aria-label="Configurar lembrete"><AlarmClock className="w-3.5 h-3.5"/>{hasReminder&&<span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-[#c34f3c] ring-1 ring-white dark:ring-[#222]"/>}</button><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onDelete(note.id);}} className={`p-1 rounded-md opacity-25 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-500/15 ${colors.mutedTextClass}`} title="Excluir Stick" aria-label="Excluir Stick"><Trash2 className="w-3.5 h-3.5"/></button></div>
- <div className="px-3 py-2.5"><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={save} onKeyDown={keyDown} onClick={click} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
+ <div className="px-3 py-2.5"><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={save} onKeyDown={keyDown} onPaste={paste} onClick={click} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
  <div onPointerDown={resizeStart} role="separator" aria-orientation="vertical" aria-label="Ajustar largura da nota adesiva" title="Arraste para ajustar a largura" className="absolute top-2 bottom-2 -right-1.5 w-3 cursor-ew-resize touch-none flex items-center justify-center group/resize z-10"><span className={`w-1 h-8 rounded-full transition-opacity ${resize?'opacity-100 bg-[#68594d]':'opacity-0 group-hover:opacity-60 group-hover/resize:opacity-100 bg-black/25'}`}/></div></div>;
 }
