@@ -151,11 +151,23 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     moveItemOutOfList(paragraph);placeCaret(paragraph);save();return;
    }
    const next=makeListItem(kind);
-   // Split the current line at the caret, retaining any text after it in the new item.
-   const tail=document.createRange();tail.setStart(range.startContainer,range.startOffset);tail.setEnd(textHost,textHost.childNodes.length);
+   // Split only the editable text container. The browser may place the caret
+   // in a nested paragraph/text node, so normalize the range before extracting.
+   const tail=document.createRange();
+   const caretIsInsideText=range.startContainer===textHost||textHost.contains(range.startContainer);
+   if(caretIsInsideText){
+    tail.selectNodeContents(textHost);
+    try{tail.setStart(range.startContainer,range.startOffset);}catch{tail.collapse(false);}
+   }else{
+    tail.selectNodeContents(textHost);tail.collapse(false);
+   }
    const extracted=tail.extractContents();
    const nextHost=kind==='checklist'?(next.querySelector('[data-sticky-check-text]') as HTMLElement|null):next;
-   if(nextHost){nextHost.innerHTML='';nextHost.appendChild(extracted);if(!nextHost.childNodes.length)nextHost.innerHTML='<br>';}
+   if(nextHost){
+    nextHost.replaceChildren();
+    if(extracted.childNodes.length)nextHost.appendChild(extracted);
+    else nextHost.innerHTML='<br>';
+   }
    item.insertAdjacentElement('afterend',next);
    styleChecklist(el);
    const nextCaret=kind==='checklist'?(next.querySelector('[data-sticky-check-text]') as HTMLElement|null):next;
