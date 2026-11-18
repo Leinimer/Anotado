@@ -466,6 +466,49 @@ export function StickyNotesLayout() {
     setContextMenu(null);
   }, []);
 
+  const handleGroupPointerDown = useCallback((groupId: string, event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.target !== event.currentTarget) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const zoom = canvasZoom || 1;
+    const members = notesRef.current.filter(note => note.group_id === groupId).map(note => ({ ...note }));
+    if (!members.length) return;
+
+    const move = (pointer: PointerEvent) => {
+      const dx = (pointer.clientX - startX) / zoom;
+      const dy = (pointer.clientY - startY) / zoom;
+      setNotes(previous => previous.map(note => {
+        const initial = members.find(member => member.id === note.id);
+        return initial ? { ...note, position_x: initial.position_x + dx, position_y: initial.position_y + dy } : note;
+      }));
+    };
+    const cancel = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', cancel);
+    };
+    const finish = (pointer: PointerEvent) => {
+      const dx = (pointer.clientX - startX) / zoom;
+      const dy = (pointer.clientY - startY) / zoom;
+      cancel();
+      members.forEach(member => {
+        void persistPatch(member.id, {
+          position_x: Math.round(member.position_x + dx),
+          position_y: Math.round(member.position_y + dy),
+        });
+      });
+      setNotes(previous => previous.map(note => {
+        const initial = members.find(member => member.id === note.id);
+        return initial ? { ...note, position_x: Math.round(initial.position_x + dx), position_y: Math.round(initial.position_y + dy) } : note;
+      }));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', cancel);
+  }, [canvasZoom, persistPatch]);
+
   const handleGroupTitleChange = useCallback((groupId: string, title: string) => {
     setGroups(previous => previous.map(group => group.id === groupId ? { ...group, title } : group));
   }, []);
@@ -629,8 +672,9 @@ export function StickyNotesLayout() {
             return <React.Fragment key={group.id}>
               <div
                 data-sticky-group-id={group.id}
+                onPointerDown={event => handleGroupPointerDown(group.id, event)}
                 onContextMenu={event => handleGroupContextMenu(group.id, event)}
-                title="Agrupamento de Sticks — clique com o botão direito para opções"
+                title="Arraste para mover o agrupamento; clique com o botão direito para opções"
                 style={{
                   position: 'absolute', left, top, width, height,
                   borderRadius: 22,
@@ -638,6 +682,8 @@ export function StickyNotesLayout() {
                   border: `2px solid color-mix(in srgb, ${tint} 78%, #9a7658)`,
                   boxShadow: '0 5px 18px rgba(65,45,28,.08)',
                   zIndex: 0,
+                  cursor: 'grab',
+                  touchAction: 'none',
                 }}
               />
               <div
@@ -659,13 +705,13 @@ export function StickyNotesLayout() {
                     }}
                     placeholder="Título do agrupamento"
                     aria-label="Título do agrupamento"
-                    className="w-full rounded-lg border border-[#b79a7a]/60 bg-white/75 px-3 py-1 text-center text-sm font-semibold text-[#554331] shadow-sm outline-none placeholder:text-[#927f6a] focus:border-[#92704f] dark:border-[#76604b] dark:bg-[#211e1b]/90 dark:text-[#f0dfca] dark:placeholder:text-[#a99681]"
+                    className="w-full rounded-lg border border-transparent bg-transparent px-3 py-1 text-center text-base font-semibold text-[#72543d] outline-none placeholder:text-[#927f6a] focus:border-[#92704f]/40 dark:text-[#d7b995] dark:placeholder:text-[#a99681]"
                   />
                 ) : group.title ? (
                   <button
                     type="button"
                     onClick={() => setEditingGroupTitleId(group.id)}
-                    className="max-w-full rounded-md bg-white/45 px-3 py-0.5 text-sm font-semibold text-[#554331] hover:bg-white/70 dark:bg-black/15 dark:text-[#f0dfca] dark:hover:bg-black/25"
+                    className="max-w-full rounded-md bg-transparent px-3 py-0.5 text-base font-semibold text-[#72543d] hover:bg-transparent dark:bg-transparent dark:text-[#d7b995] dark:hover:bg-transparent"
                     title="Clique para editar o título"
                   >{group.title}</button>
                 ) : null}
