@@ -77,7 +77,7 @@ const styleChecklist=(editor:HTMLElement)=>{
 };
 
 export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
- const colors=getStickyColorTheme(note.color);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const [drag,setDrag]=useState(false);const [resize,setResize]=useState(false);
+ const colors=getStickyColorTheme(note.color);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);const [drag,setDrag]=useState(false);const [resize,setResize]=useState(false);
  useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');if(el.innerHTML!==html)el.innerHTML=html;styleChecklist(el);}},[note.content]);
  useEffect(()=>{if(autoFocus)editor.current?.focus();},[autoFocus]);
  const save=()=>{if(editor.current){styleChecklist(editor.current);onChangeContent(note.id,editor.current.innerHTML);}};
@@ -240,53 +240,117 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const paste=(e:React.ClipboardEvent<HTMLDivElement>)=>{
   const el=editor.current;
   if(!el)return;
-  // Always paste plain text in Sticky Notes. Ignore clipboard HTML so copied
-  // background colors, font styles, paragraph wrappers and list markup do
-  // not leak from the source Stick into the destination Stick.
   e.preventDefault();
   const plain=e.clipboardData.getData('text/plain');
   const html=e.clipboardData.getData('text/html');
-  const fallback=html
-   ?new DOMParser().parseFromString(html,'text/html').body.textContent||''
-   :'';
-  const value=(plain||fallback).replace(/\\r\\n?/g,'\\n');
-  if(!value)return;
-
+  const usePlain=pasteAsPlainText.current||!html;
+  pasteAsPlainText.current=false;
   const ctx=getListContext();
   const host=ctx?.kind==='checklist'&&ctx.item
-   ?ctx.item.querySelector<HTMLElement>(':scope > div')
+   ?ctx.item.querySelector<HTMLElement>(':scope > div > p')
    :null;
   const selection=window.getSelection();
   let range=selection?.rangeCount?selection.getRangeAt(0):null;
   if(host&&(!range||!host.contains(range.startContainer))){
-   range=document.createRange();
-   range.selectNodeContents(host);
-   range.collapse(false);
+   range=document.createRange();range.selectNodeContents(host);range.collapse(false);
   }else if(!range||!el.contains(range.commonAncestorContainer)){
-   range=document.createRange();
-   range.selectNodeContents(el);
-   range.collapse(false);
+   range=document.createRange();range.selectNodeContents(el);range.collapse(false);
   }
   if(!range)return;
 
+  let fragment:DocumentFragment;
+  if(usePlain){
+   const value=(plain||new DOMParser().parseFromString(html,'text/html').body.textContent||'').replace(/\r\n?/g,'\n');
+   if(!value)return;
+   fragment=document.createDocumentFragment();
+   value.split('\n').forEach((line,index)=>{
+    if(index)fragment.appendChild(document.createElement('br'));
+    if(line)fragment.appendChild(document.createTextNode(line));
+   });
+  }else{
+   const parsed=new DOMParser().parseFromString(html,'text/html');
+   parsed.querySelectorAll('script,style,meta,link,iframe,object,embed,form,button,input,textarea,select').forEach(node=>node.remove());
+   // Convert inline semantic styling to tags before removing all source colors,
+   // backgrounds, fonts and classes.
+   parsed.body.querySelectorAll<HTMLElement>('*').forEach(node=>{
+    const style=node.getAttribute('style')||'';
+    const weight=style.match(/font-weight\s*:\s*([^;]+)/i)?.[1]||'';
+    const fontStyle=style.match(/font-style\s*:\s*([^;]+)/i)?.[1]||'';
+    const decoration=style.match(/text-decoration(?:-line)?\s*:\s*([^;]+)/i)?.[1]||'';
+    const wrappers:string[]=[];
+    if(/bold|[6-9]00/i.test(weight))wrappers.push('strong');
+    if(/italic|oblique/i.test(fontStyle))wrappers.push('em');
+    if(/underline/i.test(decoration))wrappers.push('u');
+    if(/line-through/i.test(decoration))wrappers.push('s');
+    if(wrappers.length&&node.tagName==='SPAN'){
+     let replacement:HTMLElement=node;
+     wrappers.forEach(tag=>{
+      const wrapper=document.createElement(tag);
+      while(replacement.firstChild)wrapper.appendChild(replacement.firstChild);
+      replacement.appendChild(wrapper);
+     });
+     node.replaceWith(...Array.from(replacement.childNodes));
+    }
+   });
+   const allowed=new Set(['P','DIV','BR','STRONG','B','EM','I','U','S','STRIKE','DEL','SUB','SUP','UL','OL','LI','H1','H2','H3','H4','H5','H6','BLOCKQUOTE','PRE','CODE','A','HR']);
+   parsed.body.querySelectorAll<HTMLElement>('*').forEach(node=>{
+    if(node.tagName==='DIV'){
+     const p=document.createElement('p');
+     while(node.firstChild)p.appendChild(node.firstChild);
+     node.replaceWith(p);
+     return;
+    }
+    if(!allowed.has(node.tagName)){
+     node.replaceWith(...Array.from(node.childNodes));
+     return;
+    }
+    Array.from(node.attributes).forEach(attribute=>node.removeAttribute(attribute.name));
+    if(node.tagName==='A'){
+     const original=parsed.body.querySelector('a')?.getAttribute('href');
+     if(original&&/^(https?:|mailto:)/i.test(original))node.setAttribute('href',original);
+    }
+   });
+   // Never import checkbox widgets or their non-editable wrappers from another editor.
+   parsed.body.querySelectorAll('label').forEach(label=>label.replaceWith(...Array.from(label.childNodes)));
+   fragment=document.createDocumentFragment();
+   while(parsed.body.firstChild)fragment.appendChild(parsed.body.firstChild);
+   if(host){
+    // A checklist item has a single paragraph as its editable text host.
+    // Keep pasted block breaks inside that paragraph without disturbing its
+    // checkbox/list structure.
+    const flattened=document.createDocumentFragment();
+    const appendInline=(node:Node)=>{
+     if(node instanceof HTMLBRElement){flattened.appendChild(document.createElement('br'));return;}
+     if(node instanceof HTMLParagraphElement||node instanceof HTMLDivElement||
+        /^H[1-6]$/.test((node as Element).tagName||'')){
+      if(flattened.childNodes.length)flattened.appendChild(document.createElement('br'));
+      Array.from(node.childNodes).forEach(appendInline);
+      flattened.appendChild(document.createElement('br'));
+      return;
+     }
+     if(node instanceof HTMLUListElement||node instanceof HTMLOListElement){
+      Array.from(node.children).forEach(child=>{appendInline(child);flattened.appendChild(document.createElement('br'));});
+      return;
+     }
+     if(node instanceof HTMLLIElement){Array.from(node.childNodes).forEach(appendInline);return;}
+     flattened.appendChild(node.cloneNode(true));
+    };
+    Array.from(fragment.childNodes).forEach(appendInline);
+    while(flattened.lastChild instanceof HTMLBRElement)flattened.removeChild(flattened.lastChild);
+    fragment=flattened;
+   }
+  }
   range.deleteContents();
-  const fragment=document.createDocumentFragment();
-  const lines=value.split('\\n');
-  lines.forEach((line,index)=>{
-   if(index)fragment.appendChild(document.createElement('br'));
-   if(line)fragment.appendChild(document.createTextNode(line));
-  });
   const last=fragment.lastChild;
   range.insertNode(fragment);
   if(last){
-   range.setStartAfter(last);
-   range.collapse(true);
-   selection?.removeAllRanges();
-   selection?.addRange(range);
+   range.setStartAfter(last);range.collapse(true);
+   selection?.removeAllRanges();selection?.addRange(range);
   }
   save();
  };
  const keyDown=(e:React.KeyboardEvent<HTMLDivElement>)=>{
+  if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='v')pasteAsPlainText.current=true;
   // When a selection crosses normal text and checklist rows, the browser
   // can delete the text while leaving the non-editable checkbox behind.
   // Remove only checklist rows crossed by a multi-block selection; ordinary
@@ -527,6 +591,6 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const resizeStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.preventDefault();e.stopPropagation();onSelect(note.id);const sx=e.clientX,sw=note.width_px;let w=sw,changed=false;setResize(true);const move=(v:PointerEvent)=>{const n=Math.max(STICKY_MIN_WIDTH,Math.min(STICKY_MAX_WIDTH,Math.round(sw+v.clientX-sx)));if(n!==w){w=n;changed=true;onResizeLive(note.id,w);}};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setResize(false);if(changed)onResizeEnd(note.id,w);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
  return <div id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>onSelect(note.id)} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,zIndex:note.z_index}} className={`group rounded-xl border transition-shadow duration-150 ${colors.cardClass} ${drag||resize?'shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
  <div onPointerDown={dragStart} className={`flex items-center gap-1.5 px-2.5 py-1.5 border-b rounded-t-xl cursor-grab active:cursor-grabbing touch-none select-none ${colors.headerClass}`}><GripHorizontal className={`w-3.5 h-3.5 shrink-0 opacity-45 ${colors.textClass}`}/><input value={note.title} onPointerDown={e=>{e.stopPropagation();onSelect(note.id);}} onChange={e=>onChangeTitle(note.id,e.target.value)} placeholder="Título..." aria-label="Título do Stick" className={`flex-1 min-w-0 bg-transparent text-[15px] font-semibold focus:outline-none placeholder:opacity-50 ${colors.textClass}`}/><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onOpenReminder?.(note);}} className={`relative p-1 rounded-md opacity-35 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-[#8d725d]/10 ${hasReminder?'opacity-100 text-[#b4533c] dark:text-[#f08a72]':colors.mutedTextClass}`} title={hasReminder?'Gerenciar lembretes deste Stick':'Configurar lembrete'} aria-label="Configurar lembrete"><AlarmClock className="w-3.5 h-3.5"/>{hasReminder&&<span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-[#c34f3c] ring-1 ring-white dark:ring-[#222]"/>}</button><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onDelete(note.id);}} className={`p-1 rounded-md opacity-25 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-500/15 ${colors.mutedTextClass}`} title="Excluir Stick" aria-label="Excluir Stick"><Trash2 className="w-3.5 h-3.5"/></button></div>
- <div className="px-3 py-2.5"><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
+ <div className="px-3 py-2.5"><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onKeyUp={()=>{pasteAsPlainText.current=false;}} onBlur={()=>{pasteAsPlainText.current=false;}} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
  <div onPointerDown={resizeStart} role="separator" aria-orientation="vertical" aria-label="Ajustar largura da nota adesiva" title="Arraste para ajustar a largura" className="absolute top-2 bottom-2 -right-1.5 w-3 cursor-ew-resize touch-none flex items-center justify-center group/resize z-10"><span className={`w-1 h-8 rounded-full transition-opacity ${resize?'opacity-100 bg-[#68594d]':'opacity-0 group-hover:opacity-60 group-hover/resize:opacity-100 bg-black/25'}`}/></div></div>;
 }
