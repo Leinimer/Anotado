@@ -18,6 +18,19 @@ interface Props {
   selectedText?: string;
 }
 
+const escapeHtml = (value: string) => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+const contentAsHtml = (value?: string | null) => {
+  if (!value) return '<p class="text-stone-400 italic">Esta nota ainda não tem conteúdo.</p>';
+  return /^\s*</.test(value)
+    ? value
+    : value.split(/\r?\n/).map(line => '<p>' + (escapeHtml(line) || '<br>') + '</p>').join('');
+};
+
 export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, userId, selectedText }: Props) {
   const [type, setType] = useState<ReferenceType>('note');
   const [folders, setFolders] = useState<ExtendedFolder[]>([]);
@@ -77,8 +90,17 @@ export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, user
     title: note.title || (note.entry_date ? formatDateReadable(note.entry_date) : 'Sem título'),
     type,
   });
+  const selectedNote = selectedTarget?.type === 'sticky'
+    ? stickyNotes.find(note => note.id === selectedTarget.id) || null
+    : notes.find(note => note.id === selectedTarget?.id) || null;
+  const selectedPreviewTitle = selectedTarget?.title || 'Pré-visualização';
+  const selectedPreviewContent = selectedNote?.content || '';
+  const selectedPreviewDate = selectedTarget?.type === 'sticky'
+    ? null
+    : (selectedNote as ExtendedNote | null)?.entry_date || null;
+
   const renderNote = (note: ExtendedNote) => matchesNote(note) ? (
-    <button key={note.id} type="button" onClick={() => chooseNote(note)} className={'w-full flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ' + (selectedTarget?.id===note.id?'bg-[#f1e5d9] text-[#4d392b] dark:bg-[#514237] dark:text-[#f4e9df]':'text-[#39332e] dark:text-[#e8e4df] hover:bg-[#f4dfcb]/60 dark:hover:bg-[#51463e]')}>
+    <button key={note.id} type="button" onClick={() => chooseNote(note)} aria-pressed={selectedTarget?.id===note.id} className={'w-full flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ' + (selectedTarget?.id===note.id?'bg-[#f1e5d9] text-[#4d392b] dark:bg-[#514237] dark:text-[#f4e9df]':'text-[#39332e] dark:text-[#e8e4df] hover:bg-[#f4dfcb]/60 dark:hover:bg-[#51463e]')}>
       <FileText className="w-4 h-4 shrink-0 text-[#8a7768]" />
       <span className="truncate">{note.title || (note.entry_date ? formatDateReadable(note.entry_date) : 'Sem título')}</span>
     </button>
@@ -107,27 +129,62 @@ export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, user
 
   if (!isOpen) return null;
   return <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-3" onClick={onClose}>
-    <div role="dialog" aria-modal="true" aria-label="Selecionar referência" onClick={event => event.stopPropagation()} className="w-full max-w-xl max-h-[82vh] overflow-hidden rounded-2xl border border-[#e5ddd4] dark:border-[#51463e] bg-white dark:bg-[#26221f] shadow-2xl flex flex-col">
-      <div className="flex items-center justify-between gap-3 p-4 border-b border-[#eee8e1] dark:border-[#51463e]">
+    <div role="dialog" aria-modal="true" aria-label="Selecionar referência" onClick={event => event.stopPropagation()} className="w-full max-w-6xl h-[min(86vh,820px)] overflow-hidden rounded-2xl border border-[#e5ddd4] dark:border-[#51463e] bg-white dark:bg-[#26221f] shadow-2xl flex flex-col">
+      <div className="flex items-center justify-between gap-3 p-4 border-b border-[#eee8e1] dark:border-[#51463e] shrink-0">
         <div className="min-w-0"><h2 className="font-semibold text-base text-[#29231f] dark:text-[#f0e9e2]">Referenciar</h2><p className="text-xs text-[#82766d] dark:text-[#b6aaa0] truncate">{selectedText ? <>Vincular “{selectedText}” sem alterar o texto:</> : 'Escolha o tipo e selecione o item de destino'}</p></div>
         <button type="button" onClick={onClose} aria-label="Fechar" className="p-2 rounded-lg hover:bg-[#f1ece6] dark:hover:bg-[#403832]"><X className="w-4 h-4"/></button>
       </div>
-      <div className="grid grid-cols-3 gap-2 p-3 border-b border-[#eee8e1] dark:border-[#51463e]">
+      <div className="grid grid-cols-3 gap-2 p-3 border-b border-[#eee8e1] dark:border-[#51463e] shrink-0">
         {[
           {id:'note' as const,label:'Nota',icon:<FileText className="w-4 h-4"/>},
           {id:'sticky' as const,label:'Stick',icon:<StickyNote className="w-4 h-4"/>},
           {id:'diary' as const,label:'Diário',icon:<CalendarDays className="w-4 h-4"/>},
         ].map(item=><button key={item.id} type="button" onClick={()=>{setType(item.id);setQuery('');setExpanded(new Set());setSelectedTarget(null);}} className={'flex items-center justify-center gap-2 rounded-xl border px-2 py-2.5 text-xs sm:text-sm font-medium transition-colors ' + (type===item.id?'border-[#92745e] bg-[#f1e5d9] text-[#4d392b] dark:bg-[#514237] dark:text-[#f4e9df]':'border-[#e7dfd7] text-[#74675d] hover:bg-[#f7f3ef] dark:border-[#51463e] dark:text-[#c5b8ad] dark:hover:bg-[#39322d]')}>{item.icon}{item.label}</button>)}
       </div>
-      <div className="p-3 border-b border-[#eee8e1] dark:border-[#51463e]"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94877d]"/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder={type==='sticky'?'Buscar Stick...':type==='diary'?'Buscar no diário...':'Buscar nota...'} className="w-full rounded-xl border border-[#e5ddd4] dark:border-[#51463e] bg-[#faf8f5] dark:bg-[#342e29] pl-9 pr-3 py-2 text-sm outline-none focus:border-[#9b806b]"/></div></div>
-      <div className="overflow-y-auto p-3 min-h-[240px]">
-        {loading ? <p className="py-10 text-center text-sm text-[#82766d]">Carregando itens...</p> : loadError ? <p className="py-10 text-center text-sm text-red-600">{loadError}</p> : type==='sticky' ? visibleSticky.map(note=><button key={note.id} type="button" onClick={()=>setSelectedTarget({id:note.id,title:note.title||'Stick sem título',type:'sticky'})} className={'w-full flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ' + (selectedTarget?.id===note.id?'bg-[#f1e5d9] text-[#4d392b] dark:bg-[#514237] dark:text-[#f4e9df]':'text-[#39332e] dark:text-[#e8e4df] hover:bg-[#f4dfcb]/60 dark:hover:bg-[#51463e]')}><StickyNote className="w-4 h-4 text-[#8a7768]"/><span className="truncate">{note.title||'Nota adesiva sem título'}</span></button>) : <>
-          {rootNotes.map(renderNote)}
-          {folderChildren(null).map(folder=>renderFolder(folder))}
-          {noItems && <p className="py-8 text-center text-sm text-[#82766d]">Nenhum item encontrado.</p>}
-        </>}
+      <div className="p-3 border-b border-[#eee8e1] dark:border-[#51463e] shrink-0"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94877d]"/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder={type==='sticky'?'Buscar Stick...':type==='diary'?'Buscar no diário...':'Buscar nota...'} className="w-full rounded-xl border border-[#e5ddd4] dark:border-[#51463e] bg-[#faf8f5] dark:bg-[#342e29] pl-9 pr-3 py-2 text-sm outline-none focus:border-[#9b806b]"/></div></div>
+      <div className="flex flex-1 min-h-0">
+        <section aria-label="Lista de notas" className="w-full md:w-[42%] min-w-0 border-r border-[#eee8e1] dark:border-[#51463e] flex flex-col">
+          <div className="px-3 pt-3 pb-2 text-[11px] font-semibold uppercase tracking-wide text-[#94877d] dark:text-[#b6aaa0] shrink-0">Selecione uma nota</div>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 pt-0">
+            {loading ? <p className="py-10 text-center text-sm text-[#82766d]">Carregando itens...</p> : loadError ? <p className="py-10 text-center text-sm text-red-600">{loadError}</p> : type==='sticky' ? visibleSticky.map(note=><button key={note.id} type="button" onClick={()=>setSelectedTarget({id:note.id,title:note.title||'Stick sem título',type:'sticky'})} aria-pressed={selectedTarget?.id===note.id} className={'w-full flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ' + (selectedTarget?.id===note.id?'bg-[#f1e5d9] text-[#4d392b] dark:bg-[#514237] dark:text-[#f4e9df]':'text-[#39332e] dark:text-[#e8e4df] hover:bg-[#f4dfcb]/60 dark:hover:bg-[#51463e]')}><StickyNote className="w-4 h-4 shrink-0 text-[#8a7768]"/><span className="truncate">{note.title||'Nota adesiva sem título'}</span></button>) : <>
+              {rootNotes.map(renderNote)}
+              {folderChildren(null).map(folder=>renderFolder(folder))}
+              {noItems && <p className="py-8 text-center text-sm text-[#82766d]">Nenhum item encontrado.</p>}
+            </>}
+          </div>
+        </section>
+        <section aria-label="Pré-visualização da nota selecionada" className="hidden md:flex flex-1 min-w-0 flex-col bg-[#faf8f5] dark:bg-[#211e1b]">
+          {selectedTarget ? <>
+            <div className="px-5 py-4 border-b border-[#eee8e1] dark:border-[#51463e] shrink-0">
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-[#988777] dark:text-[#a99d93]">Visualização da nota</p>
+              <h3 className="mt-1 text-base font-semibold text-[#29231f] dark:text-[#f0e9e2] break-words">{selectedPreviewTitle}</h3>
+              {selectedPreviewDate && <p className="mt-1 text-xs text-[#82766d] dark:text-[#b6aaa0]">{formatDateReadable(selectedPreviewDate)}</p>}
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
+              <article className="sticky-reference-preview max-w-none break-words text-sm leading-7 text-[#39332e] dark:text-[#e8e4df]" dangerouslySetInnerHTML={{__html:contentAsHtml(selectedPreviewContent)}} />
+            </div>
+          </> : <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-[#988b80] dark:text-[#a99d93]"><div><FileText className="w-8 h-8 mx-auto mb-3 opacity-40"/><p>Selecione uma nota para visualizar seu conteúdo completo aqui.</p><p className="mt-1 text-xs opacity-75">A visualização permite rolar até o final da nota.</p></div></div>}
+        </section>
       </div>
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-[#eee8e1] dark:border-[#51463e]"><span className="text-[11px] text-[#91857b] dark:text-[#a99d93]">{selectedTarget ? 'Referência selecionada. Confirme para aplicar.' : 'Selecione um item e aplique a referência.'}</span><button type="button" disabled={!selectedTarget} onClick={()=>selectedTarget&&onSelectTarget(selectedTarget)} className="inline-flex items-center gap-2 rounded-xl bg-[#80634f] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#6e5544]"><Check className="w-4 h-4"/>Aplicar referência</button></div>
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-[#eee8e1] dark:border-[#51463e] shrink-0"><span className="text-[11px] text-[#91857b] dark:text-[#a99d93]">{selectedTarget ? 'Referência selecionada. Confira a visualização e confirme para aplicar.' : 'Selecione um item e aplique a referência.'}</span><button type="button" disabled={!selectedTarget} onClick={()=>selectedTarget&&onSelectTarget(selectedTarget)} className="inline-flex items-center gap-2 rounded-xl bg-[#80634f] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#6e5544]"><Check className="w-4 h-4"/>Aplicar referência</button></div>
     </div>
+    <style jsx>{`
+      .sticky-reference-preview :global(p) { margin: 0 0 .75rem; }
+      .sticky-reference-preview :global(h1),
+      .sticky-reference-preview :global(h2),
+      .sticky-reference-preview :global(h3) { font-weight: 650; line-height: 1.35; margin: 1rem 0 .5rem; }
+      .sticky-reference-preview :global(ul),
+      .sticky-reference-preview :global(ol) { padding-left: 1.5rem; margin: .5rem 0; }
+      .sticky-reference-preview :global(ul) { list-style: disc; }
+      .sticky-reference-preview :global(ol) { list-style: decimal; }
+      .sticky-reference-preview :global(li) { margin: .2rem 0; }
+      .sticky-reference-preview :global(img) { max-width: 100%; height: auto; border-radius: .5rem; }
+      .sticky-reference-preview :global(a) { color: #92745e; text-decoration: underline; }
+      .sticky-reference-preview :global(blockquote) { border-left: 3px solid #b9a18c; padding-left: .8rem; color: #82766d; }
+      .sticky-reference-preview :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+      .sticky-reference-preview :global(td),
+      .sticky-reference-preview :global(th) { border: 1px solid #d9cec3; padding: .35rem .5rem; }
+      @media (max-width: 767px) { .sticky-reference-preview { display: none; } }
+    `}</style>
   </div>;
 }
