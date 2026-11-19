@@ -24,6 +24,20 @@ const escapeHtml = (value: string) => value
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
+const decodeImageMarkup = (value: string) => {
+  // O editor pode persistir tags de imagem como HTML escapado uma ou mais vezes.
+  // Decodifica somente os delimitadores/aspas de tags <img>, sem decodificar
+  // indiscriminadamente o restante do conteúdo da nota.
+  return value.replace(/((?:(?:&amp;)*&lt;|<)\s*img\b[\s\S]*?(?:(?:&amp;)*&gt;|>))/gi, (encodedTag) =>
+    encodedTag
+      .replace(/^(?:(?:&amp;)*&lt;|<)\s*/i, '<')
+      .replace(/(?:&amp;)*&gt;$/i, '>')
+      .replace(/&quot;|&#34;|&#x22;/gi, '"')
+      .replace(/&apos;|&#39;|&#x27;/gi, "'")
+      .replace(/&amp;amp;/gi, '&amp;')
+  );
+};
+
 const safeImageHtml = (tag: string) => {
   const src = tag.match(/\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
   const url = src?.[1] || src?.[2] || src?.[3] || '';
@@ -44,19 +58,13 @@ const safeImageHtml = (tag: string) => {
 const contentAsHtml = (value?: string | null) => {
   if (!value) return '<p class="text-stone-400 italic">Esta nota ainda não tem conteúdo.</p>';
 
-  // Algumas notas armazenam a tag de imagem escapada como texto (&lt;img...&gt;).
-  // Convertemos apenas esse padrão de volta em tag antes de renderizar.
-  const normalized = value.replace(/&lt;(img\b[\s\S]*?)\/?&gt;/gi, (_match, imageTag: string) => '<' + imageTag.replace(/\/\s*$/, '') + ' />');
-
-  // Se o conteúdo já é HTML estruturado, preserva sua estrutura e substitui
-  // as imagens por versões seguras e responsivas.
-  if (/^\s*</.test(normalized)) {
-    return normalized.replace(/<img\b[\s\S]*?>/gi, (tag) => safeImageHtml(tag));
-  }
-
-  // Em conteúdo misto/Markdown, reconhece tags de imagem mesmo quando seus
-  // atributos foram quebrados em várias linhas.
+  const normalized = decodeImageMarkup(value);
   const imagePattern = /<img\b[\s\S]*?>/gi;
+
+  // Substitui imagens por marcação responsiva mesmo quando estão dentro de
+  // HTML completo ou misturadas com texto/Markdown.
+  if (/^\s*</.test(normalized) && !/<img\b/i.test(normalized)) return normalized;
+
   let html = '';
   let cursor = 0;
   let match: RegExpExecArray | null;
@@ -68,9 +76,12 @@ const contentAsHtml = (value?: string | null) => {
     html += safeImageHtml(match[0]);
     cursor = match.index + match[0].length;
   }
+
   const remainder = normalized.slice(cursor);
   if (remainder.trim()) {
-    html += remainder.split(/\r?\n/).map(line => '<p>' + (escapeHtml(line) || '<br>') + '</p>').join('');
+    // Mantém HTML existente como HTML; texto puro continua escapado.
+    if (/^\s*</.test(remainder)) html += remainder;
+    else html += remainder.split(/\r?\n/).map(line => '<p>' + (escapeHtml(line) || '<br>') + '</p>').join('');
   }
   return html || '<p><br></p>';
 };
@@ -197,15 +208,15 @@ export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, user
             </>}
           </div>
         </section>
-        <section aria-label="Pré-visualização da nota selecionada" className="hidden md:flex flex-1 min-w-0 flex-col bg-[#faf8f5] dark:bg-[#211e1b]">
+        <section aria-label="Pré-visualização da nota selecionada" className="hidden md:flex flex-1 min-w-0 flex-col bg-white">
           {selectedTarget ? <>
             <div className="px-5 py-4 border-b border-[#eee8e1] dark:border-[#51463e] shrink-0">
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-[#988777] dark:text-[#a99d93]">Visualização da nota</p>
-              <h3 className="mt-1 text-base font-semibold text-[#29231f] dark:text-[#f0e9e2] break-words">{selectedPreviewTitle}</h3>
-              {selectedPreviewDate && <p className="mt-1 text-xs text-[#82766d] dark:text-[#b6aaa0]">{formatDateReadable(selectedPreviewDate)}</p>}
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-[#988777]">Visualização da nota</p>
+              <h3 className="mt-1 text-base font-semibold text-[#29231f] break-words">{selectedPreviewTitle}</h3>
+              {selectedPreviewDate && <p className="mt-1 text-xs text-[#82766d]">{formatDateReadable(selectedPreviewDate)}</p>}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
-              <article className="sticky-reference-preview max-w-none break-words text-sm leading-7 text-[#39332e] dark:text-[#e8e4df]" dangerouslySetInnerHTML={{__html:contentAsHtml(selectedPreviewContent)}} />
+              <article className="sticky-reference-preview max-w-none break-words text-sm leading-7 text-[#39332e]" dangerouslySetInnerHTML={{__html:contentAsHtml(selectedPreviewContent)}} />
             </div>
           </> : <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-[#988b80] dark:text-[#a99d93]"><div><FileText className="w-8 h-8 mx-auto mb-3 opacity-40"/><p>Selecione uma nota para visualizar seu conteúdo completo aqui.</p><p className="mt-1 text-xs opacity-75">A visualização permite rolar até o final da nota.</p></div></div>}
         </section>
