@@ -256,41 +256,39 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   save();
  };
  const keyDown=(e:React.KeyboardEvent<HTMLDivElement>)=>{
-  // When a selection spans normal text and checklist rows, the browser may
-  // delete the text but leave the non-editable checkbox label behind. Remove
-  // checklist items whose complete text area is covered by the selection.
-  if((e.key==='Backspace'||e.key==='Delete')){
+  // When a selection crosses normal text and checklist rows, the browser
+  // can delete the text while leaving the non-editable checkbox behind.
+  // Remove only checklist rows crossed by a multi-block selection; ordinary
+  // deletion inside one checklist paragraph remains native.
+  if(e.key==='Backspace'||e.key==='Delete'){
    const selection=window.getSelection();
-   if(selection?.rangeCount){
+   const el=editor.current;
+   if(selection?.rangeCount&&el){
     const selectedRange=selection.getRangeAt(0);
-    if(!selectedRange.collapsed&&editor.current?.contains(selectedRange.commonAncestorContainer)){
-     const fullySelectedItems=Array.from(editor.current.querySelectorAll<HTMLLIElement>('ul[data-sticky-checklist] > li'))
+    if(!selectedRange.collapsed&&el.contains(selectedRange.commonAncestorContainer)){
+     const intersectedItems=Array.from(el.querySelectorAll<HTMLLIElement>('ul[data-sticky-checklist] li'))
       .filter(item=>{
-       const content=item.querySelector<HTMLElement>(':scope > div');
-       if(!content)return false;
-       const contentRange=document.createRange();
-       contentRange.selectNodeContents(content);
-       return selectedRange.compareBoundaryPoints(Range.START_TO_START,contentRange)<=0&&
-        selectedRange.compareBoundaryPoints(Range.END_TO_END,contentRange)>=0;
+       const paragraph=item.querySelector<HTMLElement>(':scope > div > p');
+       return Boolean(paragraph&&selectedRange.intersectsNode(paragraph));
       });
-     if(fullySelectedItems.length){
+     const startParagraph=(selectedRange.startContainer instanceof Element
+      ?selectedRange.startContainer
+      :selectedRange.startContainer.parentElement)?.closest('p');
+     const endParagraph=(selectedRange.endContainer instanceof Element
+      ?selectedRange.endContainer
+      :selectedRange.endContainer.parentElement)?.closest('p');
+     const selectionIsInsideOneChecklistParagraph=Boolean(
+      startParagraph&&startParagraph===endParagraph&&
+      intersectedItems.some(item=>item.querySelector(':scope > div > p')===startParagraph)
+     );
+     if(intersectedItems.length&&(!selectionIsInsideOneChecklistParagraph||intersectedItems.length>1)){
       e.preventDefault();
       const deletionRange=selectedRange.cloneRange();
       deletionRange.deleteContents();
-      fullySelectedItems.forEach(item=>item.isConnected&&item.remove());
-      editor.current.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]').forEach(list=>{
-       if(!list.querySelector(':scope > li'))list.remove();
-      });
+      intersectedItems.forEach(item=>item.isConnected&&item.remove());
       deletionRange.collapse(true);
       selection.removeAllRanges();
-      if(editor.current.contains(deletionRange.startContainer)){
-       selection.addRange(deletionRange);
-      }else{
-       const fallback=document.createRange();
-       fallback.selectNodeContents(editor.current);
-       fallback.collapse(false);
-       selection.addRange(fallback);
-      }
+      selection.addRange(deletionRange);
       save();
       return;
      }
