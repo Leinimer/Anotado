@@ -55,6 +55,106 @@ const safeImageHtml = (tag: string) => {
     '" style="display:block;width:' + safeWidth + ';max-width:100%;height:auto;object-fit:contain;border-radius:.5rem" loading="lazy" /></span>';
 };
 
+const markdownInlineToHtml = (value: string) => {
+  const placeholders: string[] = [];
+  const hold = (html: string) => {
+    const token = '@@MD' + placeholders.length + '@@';
+    placeholders.push(html);
+    return token;
+  };
+  const tick = String.fromCharCode(96);
+  let text = escapeHtml(value);
+  text = text.replace(new RegExp(tick + '([^' + tick + ']+)' + tick, 'g'), (_match, code: string) =>
+    hold('<code>' + code + '</code>')
+  );
+  text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_match, alt: string, url: string) =>
+    hold('<img src="' + escapeHtml(url) + '" alt="' + alt + '" style="max-width:100%;height:auto;border-radius:.5rem" />')
+  );
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g, (_match, label: string, url: string) =>
+    hold('<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>')
+  );
+  text = text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    .replace(/~~(.+?)~~/g, '<del>$1</del>')
+    .replace(/\*(?!\s)(.+?)(?<!\s)\*/g, '<em>$1</em>')
+    .replace(/_(?!\s)(.+?)(?<!\s)_/g, '<em>$1</em>');
+  return text.replace(/@@MD(\d+)@@/g, (_match, index: string) => placeholders[Number(index)] || '');
+};
+
+const markdownToHtml = (value: string) => {
+  const lines = value.replace(/\r\n?/g, '\n').split('\n');
+  const output: string[] = [];
+  const fence = String.fromCharCode(96).repeat(3);
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) { index++; continue; }
+
+    if (line.trimStart().startsWith(fence)) {
+      const codeLines: string[] = [];
+      index++;
+      while (index < lines.length && !lines[index].trimStart().startsWith(fence)) codeLines.push(lines[index++]);
+      if (index < lines.length) index++;
+      output.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
+      continue;
+    }
+
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      const level = heading[1].length;
+      output.push('<h' + level + '>' + markdownInlineToHtml(heading[2]) + '</h' + level + '>');
+      index++;
+      continue;
+    }
+
+    if (/^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+      output.push('<hr />');
+      index++;
+      continue;
+    }
+
+    if (/^\s*>/.test(line)) {
+      const quote: string[] = [];
+      while (index < lines.length && /^\s*>/.test(lines[index])) quote.push(lines[index++].replace(/^\s*>\s?/, ''));
+      output.push('<blockquote>' + quote.map(item => '<p>' + markdownInlineToHtml(item) + '</p>').join('') + '</blockquote>');
+      continue;
+    }
+
+    const listMatch = line.match(/^\s*(?:([-+*])|(\d+)\.)\s+(.*)$/);
+    if (listMatch) {
+      const ordered = Boolean(listMatch[2]);
+      const tag = ordered ? 'ol' : 'ul';
+      const items: string[] = [];
+      while (index < lines.length) {
+        const itemMatch = lines[index].match(/^\s*(?:([-+*])|(\d+)\.)\s+(.*)$/);
+        if (!itemMatch || Boolean(itemMatch[2]) !== ordered) break;
+        const task = itemMatch[3].match(/^\[([ xX])\]\s*(.*)$/);
+        const body = task
+          ? '<input type="checkbox" disabled ' + (task[1].toLowerCase() === 'x' ? 'checked ' : '') + 'style="vertical-align:middle;margin-right:.4rem" />' + markdownInlineToHtml(task[2])
+          : markdownInlineToHtml(itemMatch[3]);
+        items.push('<li>' + body + '</li>');
+        index++;
+      }
+      output.push('<' + tag + '>' + items.join('') + '</' + tag + '>');
+      continue;
+    }
+
+    const paragraph: string[] = [];
+    while (index < lines.length && lines[index].trim() &&
+      !/^\s{0,3}#{1,6}\s+/.test(lines[index]) &&
+      !lines[index].trimStart().startsWith(fence) &&
+      !/^\s*>/.test(lines[index]) &&
+      !/^\s*(?:[-+*]|\d+\.)\s+/.test(lines[index]) &&
+      !/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(lines[index])) {
+      paragraph.push(lines[index++]);
+    }
+    output.push('<p>' + paragraph.map(markdownInlineToHtml).join('<br />') + '</p>');
+  }
+  return output.join('') || '<p><br /></p>';
+};
+
 const contentAsHtml = (value?: string | null) => {
   if (!value) return '<p class="text-stone-400 italic">Esta nota ainda não tem conteúdo.</p>';
 
@@ -71,7 +171,7 @@ const contentAsHtml = (value?: string | null) => {
   while ((match = imagePattern.exec(normalized))) {
     const before = normalized.slice(cursor, match.index);
     if (before.trim()) {
-      html += before.split(/\r?\n/).map(line => '<p>' + (escapeHtml(line) || '<br>') + '</p>').join('');
+      html += markdownToHtml(before);
     }
     html += safeImageHtml(match[0]);
     cursor = match.index + match[0].length;
@@ -81,7 +181,7 @@ const contentAsHtml = (value?: string | null) => {
   if (remainder.trim()) {
     // Mantém HTML existente como HTML; texto puro continua escapado.
     if (/^\s*</.test(remainder)) html += remainder;
-    else html += remainder.split(/\r?\n/).map(line => '<p>' + (escapeHtml(line) || '<br>') + '</p>').join('');
+    else html += markdownToHtml(remainder);
   }
   return html || '<p><br></p>';
 };
