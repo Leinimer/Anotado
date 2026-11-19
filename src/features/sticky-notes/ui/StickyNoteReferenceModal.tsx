@@ -7,6 +7,7 @@ import { fetchStickyNotes } from '../api/sticky-notes-api';
 import { StickyNote as StickyNoteRecord } from '../types';
 import { isDiaryFolder, isDiaryNote } from '@/src/features/notes/utils/diary-hierarchy';
 import { formatDateReadable } from '@/src/features/notes/utils/diary-date';
+import { NoteEditor } from '@/src/features/notes/ui/NoteEditor';
 
 export type ReferenceType = 'note' | 'sticky' | 'diary';
 type ReferenceTarget = { id: string; title: string; type: ReferenceType };
@@ -255,7 +256,7 @@ export function StickyNoteReferencePreview({ targetId, type, userId, left, top, 
       role="dialog"
       data-sticky-reference-preview="true"
       aria-label={`Pré-visualização: ${title}`}
-      className="fixed z-[12000] flex max-h-[min(380px,70vh)] w-[min(340px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-[#ded5cb] bg-[#fffefa] shadow-[0_12px_38px_rgba(35,25,18,.24)] dark:border-[#51463e] dark:bg-[#24201d] dark:shadow-[0_12px_38px_rgba(0,0,0,.5)]"
+      className="fixed z-[12000] flex max-h-[min(494px,82vh)] w-[min(442px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-[#ded5cb] bg-[#fffefa] shadow-[0_12px_38px_rgba(35,25,18,.24)] dark:border-[#51463e] dark:bg-[#24201d] dark:shadow-[0_12px_38px_rgba(0,0,0,.5)]"
       style={{ left, top }}
       onPointerDown={event => event.stopPropagation()}
       onClick={event => event.stopPropagation()}
@@ -269,7 +270,16 @@ export function StickyNoteReferencePreview({ targetId, type, userId, left, top, 
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2.5">
         {loading ? <p className="py-6 text-center text-xs text-[#8b8178]">Carregando nota...</p> : (
-          <article className="sticky-reference-preview break-words text-[12px] leading-[1.55] text-[#39332e] dark:text-[#e8e4df]" dangerouslySetInnerHTML={{ __html: contentAsHtml(body) }} />
+          <div className="paper-sheet w-full rounded-lg px-4 py-4 text-[#1b1c19] dark:text-[#ededed] font-serif-note shadow-xs">
+            <NoteEditor
+              key={`sticky-reference-inline-${targetId}`}
+              noteId={`sticky-reference-inline-${targetId}`}
+              userId={userId}
+              content={body}
+              onChange={() => undefined}
+              editable={false}
+            />
+          </div>
         )}
       </div>
       <style jsx>{`
@@ -415,11 +425,20 @@ export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, user
           {selectedTarget ? <>
             <div className="px-5 py-4 border-b border-[#eee8e1] dark:border-[#51463e] shrink-0">
               <p className="text-[10px] uppercase tracking-wider font-semibold text-[#988777]">Visualização da nota</p>
-              <h3 className="mt-1 text-base font-semibold text-[#29231f] break-words">{selectedPreviewTitle}</h3>
+              <h3 className="mt-1 font-serif-note text-xl sm:text-2xl font-bold text-[#1b1c19] dark:text-[#f0e9e2] text-center break-words">{selectedPreviewTitle}</h3>
               {selectedPreviewDate && <p className="mt-1 text-xs text-[#82766d]">{formatDateReadable(selectedPreviewDate)}</p>}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
-              <article className="sticky-reference-preview max-w-none break-words text-sm leading-7 text-[#39332e]" dangerouslySetInnerHTML={{__html:contentAsHtml(selectedPreviewContent)}} />
+              <article className="paper-sheet w-full max-w-none rounded-xl px-4 py-5 sm:px-6 sm:py-7 text-[#1b1c19] dark:text-[#ededed] font-serif-note shadow-xs">
+                <NoteEditor
+                  key={`reference-modal-${selectedTarget.id}`}
+                  noteId={`reference-modal-${selectedTarget.id}`}
+                  userId={userId}
+                  content={selectedPreviewContent}
+                  onChange={() => undefined}
+                  editable={false}
+                />
+              </article>
             </div>
           </> : <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-[#988b80] dark:text-[#a99d93]"><div><FileText className="w-8 h-8 mx-auto mb-3 opacity-40"/><p>Selecione uma nota para visualizar seu conteúdo completo aqui.</p><p className="mt-1 text-xs opacity-75">A visualização permite rolar até o final da nota.</p></div></div>}
         </section>
