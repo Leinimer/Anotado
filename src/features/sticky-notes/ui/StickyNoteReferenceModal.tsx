@@ -8,7 +8,7 @@ import { StickyNote as StickyNoteRecord } from '../types';
 import { isDiaryFolder, isDiaryNote } from '@/src/features/notes/utils/diary-hierarchy';
 import { formatDateReadable } from '@/src/features/notes/utils/diary-date';
 
-type ReferenceType = 'note' | 'sticky' | 'diary';
+export type ReferenceType = 'note' | 'sticky' | 'diary';
 type ReferenceTarget = { id: string; title: string; type: ReferenceType };
 interface Props {
   isOpen: boolean;
@@ -169,7 +169,7 @@ const markdownToHtml = (value: string) => {
   return output.join('') || '<p><br /></p>';
 };
 
-const contentAsHtml = (value?: string | null) => {
+export const contentAsHtml = (value?: string | null) => {
   if (!value) return '<p class="text-stone-400 italic">Esta nota ainda não tem conteúdo.</p>';
 
   const normalized = decodeImageMarkup(value)
@@ -200,6 +200,93 @@ const contentAsHtml = (value?: string | null) => {
   }
   return html || '<p><br></p>';
 };
+
+
+interface InlinePreviewProps {
+  targetId: string;
+  type: ReferenceType;
+  userId: string;
+  left: number;
+  top: number;
+  onClose: () => void;
+}
+
+export function StickyNoteReferencePreview({ targetId, type, userId, left, top, onClose }: InlinePreviewProps) {
+  const [title, setTitle] = useState('Carregando...');
+  const [body, setBody] = useState('');
+  const [date, setDate] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    const load = async () => {
+      try {
+        if (type === 'sticky') {
+          const rows = await fetchStickyNotes(userId);
+          const note = rows.find(item => item.id === targetId);
+          if (active && note) {
+            setTitle(note.title || 'Stick sem título');
+            setBody(note.content || '');
+            setDate(null);
+          }
+        } else {
+          const rows = await indexedDBStorage.getAllNotes(userId);
+          const note = rows.find(item => item.id === targetId);
+          if (active && note) {
+            setTitle(note.title || (note.entry_date ? formatDateReadable(note.entry_date) : 'Sem título'));
+            setBody(note.content || '');
+            setDate(note.entry_date || null);
+          }
+        }
+      } catch (error) {
+        console.error('[StickyNoteReferencePreview] Erro ao carregar referência:', error);
+        if (active) setTitle('Não foi possível carregar a nota');
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [targetId, type, userId]);
+
+  return (
+    <div
+      role="dialog"
+      aria-label={`Pré-visualização: ${title}`}
+      className="fixed z-[12000] flex max-h-[min(380px,70vh)] w-[min(340px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-[#ded5cb] bg-[#fffefa] shadow-[0_12px_38px_rgba(35,25,18,.24)] dark:border-[#51463e] dark:bg-[#24201d] dark:shadow-[0_12px_38px_rgba(0,0,0,.5)]"
+      style={{ left, top }}
+      onPointerDown={event => event.stopPropagation()}
+      onClick={event => event.stopPropagation()}
+    >
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#eee8e1] px-3 py-2 dark:border-[#51463e]">
+        <div className="min-w-0">
+          <p className="truncate text-xs font-semibold text-[#40362f] dark:text-[#f0e9e2]">{title}</p>
+          {date && <p className="text-[10px] text-[#92857a] dark:text-[#b6aaa0]">{formatDateReadable(date)}</p>}
+        </div>
+        <button type="button" onClick={onClose} aria-label="Fechar pré-visualização" className="shrink-0 rounded-md p-1 text-[#887b70] hover:bg-[#f0e9e1] dark:text-[#c5b8ad] dark:hover:bg-[#403832]"><X className="h-3.5 w-3.5"/></button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2.5">
+        {loading ? <p className="py-6 text-center text-xs text-[#8b8178]">Carregando nota...</p> : (
+          <article className="sticky-reference-preview break-words text-[12px] leading-[1.55] text-[#39332e] dark:text-[#e8e4df]" dangerouslySetInnerHTML={{ __html: contentAsHtml(body) }} />
+        )}
+      </div>
+      <style jsx>{`
+        .sticky-reference-preview :global(p) { margin: 0 0 .55rem; }
+        .sticky-reference-preview :global(h1), .sticky-reference-preview :global(h2), .sticky-reference-preview :global(h3), .sticky-reference-preview :global(h4) { font-weight: 650; line-height: 1.3; margin: .7rem 0 .35rem; }
+        .sticky-reference-preview :global(ul), .sticky-reference-preview :global(ol) { padding-left: 1.2rem; margin: .35rem 0; }
+        .sticky-reference-preview :global(ul) { list-style: disc; }
+        .sticky-reference-preview :global(ol) { list-style: decimal; }
+        .sticky-reference-preview :global(li) { margin: .12rem 0; }
+        .sticky-reference-preview :global(img) { max-width: 100%; height: auto; border-radius: .4rem; }
+        .sticky-reference-preview :global(a) { color: #92745e; text-decoration: underline; }
+        .sticky-reference-preview :global(blockquote) { border-left: 2px solid #b9a18c; padding-left: .6rem; color: #82766d; }
+        .sticky-reference-preview :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+        .sticky-reference-preview :global(td), .sticky-reference-preview :global(th) { border: 1px solid #d9cec3; padding: .25rem .35rem; }
+      `}</style>
+    </div>
+  );
+}
 
 export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, userId, selectedText }: Props) {
   const [type, setType] = useState<ReferenceType>('note');
