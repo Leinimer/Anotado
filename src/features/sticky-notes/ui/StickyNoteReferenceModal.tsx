@@ -213,10 +213,14 @@ interface InlinePreviewProps {
 }
 
 export function StickyNoteReferencePreview({ targetId, type, userId, left, top, onClose }: InlinePreviewProps) {
+  const [position, setPosition] = useState({ left, top });
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
   const [title, setTitle] = useState('Carregando...');
   const [body, setBody] = useState('');
   const [date, setDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => setPosition({ left, top }), [left, top]);
 
   useEffect(() => {
     let active = true;
@@ -256,12 +260,31 @@ export function StickyNoteReferencePreview({ targetId, type, userId, left, top, 
       role="dialog"
       data-sticky-reference-preview="true"
       aria-label={`Pré-visualização: ${title}`}
-      className="fixed z-[12000] flex max-h-[min(494px,82vh)] w-[min(442px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-[#ded5cb] bg-[#fffefa] shadow-[0_12px_38px_rgba(35,25,18,.24)] dark:border-[#51463e] dark:bg-[#24201d] dark:shadow-[0_12px_38px_rgba(0,0,0,.5)]"
-      style={{ left, top }}
+      className="fixed z-[12000] flex max-h-[min(593px,82vh)] w-[min(530px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-[#ded5cb] bg-[#fffefa] shadow-[0_12px_38px_rgba(35,25,18,.24)] dark:border-[#51463e] dark:bg-[#24201d] dark:shadow-[0_12px_38px_rgba(0,0,0,.5)]"
+      style={{ left: position.left, top: position.top }}
       onPointerDown={event => event.stopPropagation()}
       onClick={event => event.stopPropagation()}
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#eee8e1] px-3 py-2 dark:border-[#51463e]">
+      <div
+        className="flex shrink-0 cursor-grab touch-none select-none items-center justify-between gap-2 border-b border-[#eee8e1] px-3 py-2 active:cursor-grabbing dark:border-[#51463e]"
+        onPointerDown={event => {
+          if ((event.target as HTMLElement).closest("button")) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setDragOffset({ x: event.clientX - position.left, y: event.clientY - position.top });
+        }}
+        onPointerMove={event => {
+          if (!dragOffset) return;
+          const width = Math.min(530, window.innerWidth - 24);
+          const height = Math.min(593, window.innerHeight * 0.82);
+          setPosition({
+            left: Math.max(12, Math.min(window.innerWidth - width - 12, event.clientX - dragOffset.x)),
+            top: Math.max(12, Math.min(window.innerHeight - height - 12, event.clientY - dragOffset.y)),
+          });
+        }}
+        onPointerUp={() => setDragOffset(null)}
+        onPointerCancel={() => setDragOffset(null)}
+      >
         <div className="min-w-0">
           <p className="truncate text-xs font-semibold text-[#40362f] dark:text-[#f0e9e2]">{title}</p>
           {date && <p className="text-[10px] text-[#92857a] dark:text-[#b6aaa0]">{formatDateReadable(date)}</p>}
