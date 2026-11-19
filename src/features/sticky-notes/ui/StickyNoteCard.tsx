@@ -256,6 +256,37 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   save();
  };
  const keyDown=(e:React.KeyboardEvent<HTMLDivElement>)=>{
+  // When a selection spans normal text and checklist rows, the browser may
+  // delete the text but leave the non-editable checkbox label behind. Remove
+  // checklist items whose complete text area is covered by the selection.
+  if((e.key==='Backspace'||e.key==='Delete')){
+   const selection=window.getSelection();
+   if(selection?.rangeCount){
+    const selectedRange=selection.getRangeAt(0);
+    if(!selectedRange.collapsed&&editor.current?.contains(selectedRange.commonAncestorContainer)){
+     const fullySelectedItems=Array.from(editor.current.querySelectorAll<HTMLLIElement>('ul[data-sticky-checklist] > li'))
+      .filter(item=>{
+       const content=item.querySelector<HTMLElement>(':scope > div');
+       if(!content)return false;
+       const contentRange=document.createRange();
+       contentRange.selectNodeContents(content);
+       return selectedRange.compareBoundaryPoints(Range.START_TO_START,contentRange)<=0&&
+        selectedRange.compareBoundaryPoints(Range.END_TO_END,contentRange)>=0;
+      });
+     if(fullySelectedItems.length){
+      e.preventDefault();
+      const deletionRange=selectedRange.cloneRange();
+      deletionRange.deleteContents();
+      fullySelectedItems.forEach(item=>item.isConnected&&item.remove());
+      deletionRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(deletionRange);
+      save();
+      return;
+     }
+    }
+   }
+  }
   if(e.key==='Tab'){
    const ctx=getListContext();
    if(ctx?.item&&ctx.kind&&ctx.list instanceof HTMLUListElement){
