@@ -278,9 +278,19 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
       const deletionRange=selectedRange.cloneRange();
       deletionRange.deleteContents();
       fullySelectedItems.forEach(item=>item.isConnected&&item.remove());
+      editor.current.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]').forEach(list=>{
+       if(!list.querySelector(':scope > li'))list.remove();
+      });
       deletionRange.collapse(true);
       selection.removeAllRanges();
-      selection.addRange(deletionRange);
+      if(editor.current.contains(deletionRange.startContainer)){
+       selection.addRange(deletionRange);
+      }else{
+       const fallback=document.createRange();
+       fallback.selectNodeContents(editor.current);
+       fallback.collapse(false);
+       selection.addRange(fallback);
+      }
       save();
       return;
      }
