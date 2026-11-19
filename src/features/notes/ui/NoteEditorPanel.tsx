@@ -98,9 +98,7 @@ export function NoteEditorPanel({
           found.push({ id, title: title || 'Sem título', type });
         };
 
-        const targetId = note.id.replace(/[.*+?^${}()|[\]\\]/g, '\\  const isDiary =
-    note.workspace_type === 'diary' || Boolean(note.entry_date) || Boolean(note.diary_year);
-');
+        const targetId = note.id;
         const noteReferencePattern = new RegExp(
           '(?:data-note-id|data-internal-note-id)\\s*=\\s*["\\']' + targetId + '["\\']|href\\s*=\\s*["\\']note:(?:\\/\\/)?' + targetId + '["\\']',
           'i'
