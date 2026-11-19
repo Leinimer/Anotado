@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { Calendar } from 'lucide-react';
 import { Note as NoteType } from '../types';
 import { NoteEditor } from './NoteEditor';
@@ -45,7 +44,6 @@ export function NoteEditorPanel({
   isNewNoteJustCreated = false,
   zoomLevel = 100,
 }: NoteEditorPanelProps) {
-  const router = useRouter();
   const [isEditingTitle, setIsEditingTitle] = useState(isNewNoteJustCreated && !readOnly);
   const [referencedBy, setReferencedBy] = useState<Array<{ id: string; title: string; type: 'note' | 'sticky' | 'diary' }>>([]);
   const [titleInput, setTitleInput] = useState(note?.title || '');
@@ -143,13 +141,13 @@ export function NoteEditorPanel({
   const openReferencingItem = (item: typeof referencedBy[number]) => {
     if (item.type === 'sticky') {
       sessionStorage.setItem('anotado_active_sticky_id', item.id);
-      router.push('/sticky-notes');
+      window.location.href = '/sticky-notes';
     } else if (item.type === 'diary') {
       sessionStorage.setItem('anotado_active_diary_id', item.id);
-      router.push('/diary');
+      window.location.href = '/diary';
     } else {
       sessionStorage.setItem('anotado_reference_notes_id', item.id);
-      router.push('/notes');
+      window.location.href = '/notes';
     }
   };
 
