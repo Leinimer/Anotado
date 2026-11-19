@@ -100,7 +100,7 @@ export function NoteEditorPanel({
 
         const targetId = note.id;
         const noteReferencePattern = new RegExp(
-          '(?:data-note-id|data-internal-note-id)\\s*=\\s*["\\']' + targetId + '["\\']|href\\s*=\\s*["\\']note:(?:\\/\\/)?' + targetId + '["\\']',
+          '(?:data-note-id|data-internal-note-id)="'+ targetId + '"|href="note:(?:\\/\\/)?' + targetId + '"',
           'i'
         );
         for (const source of (allNotes || []) as ExtendedNote[]) {
@@ -111,7 +111,7 @@ export function NoteEditorPanel({
         }
 
         const stickyReferencePattern = new RegExp(
-          'data-sticky-reference-id\\s*=\\s*["\\']' + targetId + '["\\']',
+          'data-sticky-reference-id="' + targetId + '"',
           'i'
         );
         for (const source of allStickyNotes || []) {
