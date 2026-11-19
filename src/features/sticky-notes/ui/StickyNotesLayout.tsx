@@ -658,6 +658,7 @@ export function StickyNotesLayout() {
                 <button
                   key={group.id}
                   type="button"
+                  disabled={!members.length}
                   onClick={() => {
                     if (members.length && boardScrollRef.current) {
                       const left = Math.min(...members.map(note => note.position_x));
@@ -675,7 +676,7 @@ export function StickyNotesLayout() {
                     }
                     setGroupsSidebarOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left shadow-sm transition-transform hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8d725d] ${palette.cardClass} ${palette.textClass}`}
+                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left shadow-sm transition-transform hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8d725d] disabled:cursor-not-allowed disabled:opacity-65 disabled:hover:translate-y-0 disabled:hover:shadow-sm ${palette.cardClass} ${palette.textClass}`}
                   title={members.length ? 'Centralizar este campo no quadro' : 'Este campo ainda não possui Stick'}
                 >
                   <span className="min-w-0 truncate text-sm font-medium">{group.title || 'Campo sem título'}</span>
