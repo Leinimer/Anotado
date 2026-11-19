@@ -80,7 +80,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  const colors=getStickyColorTheme(note.color);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);
  type EditorHistoryEntry={html:string;caret:number};
  const history=useRef<{entries:EditorHistoryEntry[];index:number;restoring:boolean}>({entries:[],index:-1,restoring:false});const [drag,setDrag]=useState(false);const [resize,setResize]=useState(false);
- useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');if(el.innerHTML!==html){el.innerHTML=html;history.current={entries:[{html:el.innerHTML,caret:0}],index:0,restoring:false};}styleChecklist(el);if(history.current.index<0)history.current={entries:[{html:el.innerHTML,caret:0}],index:0,restoring:false};}},[note.content]);
+ useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');const changed=el.innerHTML!==html;if(changed)el.innerHTML=html;styleChecklist(el);if(changed||history.current.index<0)history.current={entries:[{html:el.innerHTML,caret:0}],index:0,restoring:false};}},[note.content]);
  useEffect(()=>{if(autoFocus)editor.current?.focus();},[autoFocus]);
  const getCaretOffset=(el:HTMLElement)=>{
   const selection=window.getSelection();
