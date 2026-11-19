@@ -903,7 +903,7 @@ export function StickyNotesLayout() {
                   x: other.position_x,
                   y: other.position_y,
                   width: other.width_px,
-                  height: document.getElementById('sticky-note-' + other.id)?.offsetHeight || noteHeights[other.id] || 280,
+                  height: noteHeights[other.id] || 280,
                 }))}
                 isSelected={selectedNoteId === note.id}
                 autoFocus={newlyCreatedId === note.id}
