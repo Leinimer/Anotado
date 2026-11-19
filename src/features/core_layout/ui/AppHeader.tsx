@@ -18,6 +18,7 @@ interface AppHeaderProps {
   onOpenShareModal?: () => void;
   variant?: 'top' | 'sidebar' | 'footer';
   toolbar?: React.ReactNode;
+  toolbarSecondary?: React.ReactNode;
 }
 const NAV_ITEMS = [
   { id: 'notes' as const, label: 'Notas', href: '/notes' },
@@ -26,7 +27,7 @@ const NAV_ITEMS = [
 ];
 export function AppHeader({
   activeSection, userId = '', userEmail = '', notes = [], onBeforeNavigate,
-  onOpenShareModal, variant = 'top', toolbar,
+  onOpenShareModal, variant = 'top', toolbar, toolbarSecondary,
 }: AppHeaderProps) {
   const router = useRouter();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -71,10 +72,13 @@ export function AppHeader({
           <div className="flex items-center justify-center gap-1 w-full">{nav}<StickyReminderBell /></div>
         </div>
       ) : variant === 'footer' ? controls : (
-        <header id="app-main-header" className="w-full h-12 shrink-0 bg-[#fbf9f4] dark:bg-[#000000] border-b border-[#eae8e3] dark:border-[#1a1a1a] px-3 sm:px-4 flex items-center gap-3 select-none z-30">
-          <div className="flex items-center gap-3 shrink-0">{logo}{nav}<StickyReminderBell /></div>
-          {toolbar && <><div className="h-7 w-px bg-[#e6e1d8] dark:bg-[#292929] shrink-0" /><div className="flex-1 min-w-0">{toolbar}</div></>}
-          <div className="ml-auto">{controls}</div>
+        <header id="app-main-header" className="anotado-app-header w-full shrink-0 bg-[#fbf9f4] dark:bg-[#000000] border-b border-[#eae8e3] dark:border-[#1a1a1a] px-3 sm:px-4 flex items-center gap-3 select-none z-30">
+          <div className="anotado-app-header-primary flex items-center gap-3 shrink-0 min-w-0">
+            {logo}{nav}<StickyReminderBell />
+            {toolbar && <div className="anotado-app-header-toolbar-primary min-w-0">{toolbar}</div>}
+            <div className="anotado-app-header-controls ml-auto">{controls}</div>
+          </div>
+          {toolbarSecondary && <div className="anotado-app-header-secondary">{toolbarSecondary}</div>}
         </header>
       )}
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} userId={userId} notes={notes} userEmail={userEmail} onOpenShareModal={onOpenShareModal} />
