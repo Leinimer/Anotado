@@ -202,10 +202,8 @@ export function StickyNotesLayout() {
   const handleBoardTouchEnd = useCallback((event: React.PointerEvent<HTMLElement>) => {
     if (event.pointerType !== 'touch') return;
     touchPointsRef.current.delete(event.pointerId);
-    if (touchPointsRef.current.size < 2) {
-      pinchGestureRef.current = null;
-      delete document.documentElement.dataset.stickyPinching;
-    }
+    if (touchPointsRef.current.size < 2) pinchGestureRef.current = null;
+    if (touchPointsRef.current.size === 0) delete document.documentElement.dataset.stickyPinching;
   }, []);
 
   const registerEditorActions = useCallback((noteId: string, actions: StickyEditorActions | null) => {
