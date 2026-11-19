@@ -67,8 +67,9 @@ const markdownInlineToHtml = (value: string) => {
   // contain escaped delimiters; restore only these tags and render safe markup.
   const source = value.replace(/&(?:amp;)?lt;(\/?mark\b[\s\S]*?)&(?:amp;)?gt;/gi, '<$1>');
   const markedSource = source.replace(/<mark\b([^>]*)>([\s\S]*?)<\/mark>/gi, (_match, attributes: string, inner: string) => {
-    const dataColor = attributes.match(/\bdata-color\s*=\s*["']([^"']+)["']/i)?.[1] || '';
-    const style = attributes.match(/\bstyle\s*=\s*["']([^"']*)["']/i)?.[1] || '';
+    const decodedAttributes = attributes.replace(/&quot;|&#34;|&#x22;/gi, '"').replace(/&#39;|&#x27;/gi, "'");
+    const dataColor = decodedAttributes.match(/\bdata-color\s*=\s*["']([^"']+)["']/i)?.[1] || '';
+    const style = decodedAttributes.match(/\bstyle\s*=\s*["']([^"']*)["']/i)?.[1] || '';
     const background = style.match(/(?:^|;)\s*background-color\s*:\s*(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\))/i)?.[1] || dataColor;
     const darkText = style.match(/--highlight-text-dark\s*:\s*(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\))/i)?.[1];
     const safeBackground = /^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\))$/i.test(background) ? background : '#fef08a';
