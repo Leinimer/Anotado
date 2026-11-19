@@ -304,10 +304,12 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
      node.replaceWith(...Array.from(node.childNodes));
      return;
     }
+    const originalHref=node.tagName==='A'?node.getAttribute('href'):null;
     Array.from(node.attributes).forEach(attribute=>node.removeAttribute(attribute.name));
-    if(node.tagName==='A'){
-     const original=parsed.body.querySelector('a')?.getAttribute('href');
-     if(original&&/^(https?:|mailto:)/i.test(original))node.setAttribute('href',original);
+    if(node.tagName==='A'&&originalHref&&/^(https?:|mailto:)/i.test(originalHref)){
+     node.setAttribute('href',originalHref);
+     node.setAttribute('target','_blank');
+     node.setAttribute('rel','noopener noreferrer');
     }
    });
    // Never import checkbox widgets or their non-editable wrappers from another editor.
