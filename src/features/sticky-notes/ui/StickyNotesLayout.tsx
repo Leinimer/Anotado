@@ -52,7 +52,8 @@ export function StickyNotesLayout() {
   const [isPanning, setIsPanning] = useState(false);
   const spacePressedRef = useRef(false);
   const [reminderNoteIds, setReminderNoteIds] = useState<Set<string>>(new Set());
-  const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);\n  const [groupsSidebarOpen, setGroupsSidebarOpen] = useState(false);
+  const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);
+  const [groupsSidebarOpen, setGroupsSidebarOpen] = useState(false);
 
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
