@@ -2030,7 +2030,7 @@ html.dark {
 
 /* Barra do Stick em tablets: navegação e ações principais na primeira linha;
    paleta e formatação na segunda. O cabeçalho não participa do zoom do quadro. */
-@media screen and (min-width: 768px) and (max-width: 1200px) {
+@media screen and (min-width: 768px) and (max-width: 1200px), screen and (pointer: coarse) and (min-width: 768px) {
   #sticky-notes-app-container { height: 100dvh; min-height: 0; overflow: hidden; }
   #app-main-header.anotado-app-header {
     display: flex;
@@ -2064,7 +2064,7 @@ html.dark {
     user-select: none;
   }
 }
-@media screen and (min-width: 1201px) {
+@media screen and (min-width: 1201px) and (pointer: fine) {
   #app-main-header.anotado-app-header { min-height: 48px; height: 48px; }
   #app-main-header .anotado-app-header-primary,
   #app-main-header .anotado-app-header-secondary { display: contents; }
