@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Plus, StickyNote as StickyNoteIcon } from 'lucide-react';
+import { Loader2, Plus, StickyNote as StickyNoteIcon, X } from 'lucide-react';
 import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 import {
   STICKY_DEFAULT_WIDTH,
@@ -52,7 +52,7 @@ export function StickyNotesLayout() {
   const [isPanning, setIsPanning] = useState(false);
   const spacePressedRef = useRef(false);
   const [reminderNoteIds, setReminderNoteIds] = useState<Set<string>>(new Set());
-  const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);
+  const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);\n  const [groupsSidebarOpen, setGroupsSidebarOpen] = useState(false);
 
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
@@ -632,11 +632,61 @@ export function StickyNotesLayout() {
           saveState={saveState}
           errorMessage={saveError}
           onCreateNote={handleCreateNote}
+          onToggleGroups={() => setGroupsSidebarOpen(open => !open)}
+          groupsOpen={groupsSidebarOpen}
           onSelectColor={handleToolbarSelectColor}
           onFormat={handleEditorFormat}
           onInsertNoteLink={handleInsertNoteLink}
         />}
       />
+
+      {groupsSidebarOpen && (
+        <aside
+          aria-label="Campos criados"
+          className="fixed left-0 top-[76px] bottom-0 z-[10500] flex w-[min(290px,85vw)] flex-col border-r border-[#ded6cc] bg-[#fbf9f4] shadow-[8px_0_28px_rgba(40,30,20,.14)] dark:border-[#38332e] dark:bg-[#11100f] dark:shadow-[8px_0_28px_rgba(0,0,0,.45)]"
+        >
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-[#e8e1d8] px-4 dark:border-[#302b26]">
+            <h2 className="text-sm font-semibold text-[#51463d] dark:text-[#e8ded4]">Campos criados</h2>
+            <button type="button" onClick={() => setGroupsSidebarOpen(false)} aria-label="Fechar campos criados" className="rounded-full p-1.5 text-[#75695f] hover:bg-[#eee8df] dark:text-[#c5b8aa] dark:hover:bg-[#29231e]"><X className="h-4 w-4"/></button>
+          </div>
+          <div className="flex-1 space-y-2 overflow-y-auto p-3">
+            {groups.map(group => {
+              const palette = STICKY_COLORS.find(color => color.key === group.color) || STICKY_COLORS[0];
+              const count = notes.filter(note => note.group_id === group.id).length;
+              const members = notes.filter(note => note.group_id === group.id);
+              return (
+                <button
+                  key={group.id}
+                  type="button"
+                  onClick={() => {
+                    if (members.length && boardScrollRef.current) {
+                      const left = Math.min(...members.map(note => note.position_x));
+                      const top = Math.min(...members.map(note => note.position_y));
+                      const right = Math.max(...members.map(note => note.position_x + note.width_px));
+                      const bottom = Math.max(...members.map(note => {
+                        const element = document.getElementById('sticky-note-' + note.id);
+                        return note.position_y + (noteHeights[note.id] || element?.offsetHeight || 280);
+                      }));
+                      const viewport = boardScrollRef.current;
+                      setCanvasPan({
+                        x: viewport.clientWidth / 2 - ((left + right) / 2) * canvasZoom,
+                        y: viewport.clientHeight / 2 - ((top + bottom) / 2) * canvasZoom,
+                      });
+                    }
+                    setGroupsSidebarOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left shadow-sm transition-transform hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8d725d] ${palette.cardClass} ${palette.textClass}`}
+                  title={members.length ? 'Centralizar este campo no quadro' : 'Este campo ainda não possui Stick'}
+                >
+                  <span className="min-w-0 truncate text-sm font-medium">{group.title || 'Campo sem título'}</span>
+                  <span className="shrink-0 text-[11px] font-medium opacity-75">{count} {count === 1 ? 'Stick' : 'Sticks'}</span>
+                </button>
+              );
+            })}
+            {groups.length === 0 && <p className="px-2 py-4 text-center text-xs text-[#8b8178] dark:text-[#a39a91]">Nenhum campo criado.</p>}
+          </div>
+        </aside>
+      )}
 
       <StickyNoteReferenceModal isOpen={referenceModalOpen} onClose={() => setReferenceModalOpen(false)} onSelectTarget={handleChooseReferencedNote} userId={userId} selectedText={referenceSelectedText} />
       <StickyReminderSettingsModal
