@@ -58,6 +58,13 @@ export function StickyNotesLayout() {
   const [referencePreview, setReferencePreview] = useState<{id:string;type:ReferenceType;left:number;top:number}|null>(null);
 
   const boardScrollRef = useRef<HTMLDivElement>(null);
+  const touchPointsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchGestureRef = useRef<{
+    initialDistance: number;
+    initialZoom: number;
+    worldX: number;
+    worldY: number;
+  } | null>(null);
   const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
   const pendingPatchesRef = useRef<Map<string, UpdateStickyNotePatch>>(new Map());
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -146,6 +153,55 @@ export function StickyNotesLayout() {
       window.removeEventListener('anotado:sticky-note-deleted', handleDeleted);
       window.removeEventListener('anotado:sticky-note-updated', handleUpdated);
     };
+  }, []);
+
+  const handleBoardTouchStart = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType !== 'touch') return;
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    touchPointsRef.current.set(event.pointerId, { x: event.clientX - rect.left, y: event.clientY - rect.top });
+    if (touchPointsRef.current.size === 2) {
+      const points = Array.from(touchPointsRef.current.values());
+      const dx = points[1].x - points[0].x;
+      const dy = points[1].y - points[0].y;
+      const midpointX = (points[0].x + points[1].x) / 2;
+      const midpointY = (points[0].y + points[1].y) / 2;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      pinchGestureRef.current = {
+        initialDistance: distance,
+        initialZoom: canvasZoom,
+        worldX: (midpointX - canvasPan.x) / canvasZoom,
+        worldY: (midpointY - canvasPan.y) / canvasZoom,
+      };
+      setIsPanning(false);
+    }
+  }, [canvasZoom, canvasPan]);
+
+  const handleBoardTouchMove = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType !== 'touch' || !touchPointsRef.current.has(event.pointerId)) return;
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    touchPointsRef.current.set(event.pointerId, { x: event.clientX - rect.left, y: event.clientY - rect.top });
+    if (touchPointsRef.current.size < 2 || !pinchGestureRef.current) return;
+    const points = Array.from(touchPointsRef.current.values()).slice(0, 2);
+    const dx = points[1].x - points[0].x;
+    const dy = points[1].y - points[0].y;
+    const midpointX = (points[0].x + points[1].x) / 2;
+    const midpointY = (points[0].y + points[1].y) / 2;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const gesture = pinchGestureRef.current;
+    const nextZoom = Math.max(0.25, Math.min(3, gesture.initialZoom * distance / gesture.initialDistance));
+    setCanvasZoom(nextZoom);
+    setCanvasPan({
+      x: midpointX - gesture.worldX * nextZoom,
+      y: midpointY - gesture.worldY * nextZoom,
+    });
+  }, []);
+
+  const handleBoardTouchEnd = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType !== 'touch') return;
+    touchPointsRef.current.delete(event.pointerId);
+    if (touchPointsRef.current.size < 2) pinchGestureRef.current = null;
   }, []);
 
   const registerEditorActions = useCallback((noteId: string, actions: StickyEditorActions | null) => {
@@ -649,6 +705,22 @@ export function StickyNotesLayout() {
         userEmail={userEmail}
         onBeforeNavigate={flushPendingPatches}
         toolbar={<StickyNotesToolbar
+          slot="primary"
+          activeColor={activeColor}
+          selectedNoteColor={selectedNote?.color}
+          hasSelectedNote={Boolean(selectedNote)}
+          notesCount={notes.length}
+          saveState={saveState}
+          errorMessage={saveError}
+          onCreateNote={handleCreateNote}
+          onToggleGroups={() => setGroupsSidebarOpen(open => !open)}
+          groupsOpen={groupsSidebarOpen}
+          onSelectColor={handleToolbarSelectColor}
+          onFormat={handleEditorFormat}
+          onInsertNoteLink={handleInsertNoteLink}
+        />}
+        toolbarSecondary={<StickyNotesToolbar
+          slot="secondary"
           activeColor={activeColor}
           selectedNoteColor={selectedNote?.color}
           hasSelectedNote={Boolean(selectedNote)}
@@ -741,7 +813,12 @@ export function StickyNotesLayout() {
       <main
         ref={boardScrollRef}
         id="sticky-notes-board-viewport"
+        onPointerDownCapture={handleBoardTouchStart}
+        onPointerMoveCapture={handleBoardTouchMove}
+        onPointerUpCapture={handleBoardTouchEnd}
+        onPointerCancelCapture={handleBoardTouchEnd}
         onPointerDown={(event) => {
+          if (event.pointerType === 'touch') return;
           const target = event.target as HTMLElement;
           const isBackground = target === event.currentTarget || target.dataset.stickyCanvas === 'true';
           if (event.button === 1) {
