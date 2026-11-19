@@ -180,11 +180,11 @@ export function StickyNotesLayout() {
   }, []);
   const handlePreviewLinkedNote = useCallback((id: string, type: ReferenceType, anchor: HTMLElement) => {
     const rect = anchor.getBoundingClientRect();
-    const width = Math.min(340, window.innerWidth - 24);
+    const width = Math.min(442, window.innerWidth - 24);
     const left = rect.right + 10 + width <= window.innerWidth - 12
       ? rect.right + 10
       : Math.max(12, rect.left - width - 10);
-    const top = Math.max(12, Math.min(rect.top, window.innerHeight - 392));
+    const top = Math.max(12, Math.min(rect.top, window.innerHeight - 506));
     setReferencePreview({ id, type, left, top });
   }, []);
 
