@@ -177,6 +177,27 @@ export function StickyNotesLayout() {
       window.location.href = '/notes';
     }
   }, []);
+  const handlePreviewLinkedNote = useCallback((id: string, type: ReferenceType, anchor: HTMLElement) => {
+    const rect = anchor.getBoundingClientRect();
+    const width = Math.min(340, window.innerWidth - 24);
+    const left = rect.right + 10 + width <= window.innerWidth - 12
+      ? rect.right + 10
+      : Math.max(12, rect.left - width - 10);
+    const top = Math.max(12, Math.min(rect.top, window.innerHeight - 392));
+    setReferencePreview({ id, type, left, top });
+  }, []);
+
+  useEffect(() => {
+    if (!referencePreview) return;
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-sticky-reference-preview]') || target.closest('a[data-sticky-reference-id]')) return;
+      setReferencePreview(null);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    return () => document.removeEventListener('pointerdown', closeOutside);
+  }, [referencePreview]);
 
   // Carrega usuário autenticado e notas adesivas do Supabase.
   useEffect(() => {
@@ -691,6 +712,14 @@ export function StickyNotesLayout() {
         </aside>
       )}
 
+      {referencePreview && userId && <StickyNoteReferencePreview
+        targetId={referencePreview.id}
+        type={referencePreview.type}
+        userId={userId}
+        left={referencePreview.left}
+        top={referencePreview.top}
+        onClose={() => setReferencePreview(null)}
+      />}
       <StickyNoteReferenceModal isOpen={referenceModalOpen} onClose={() => setReferenceModalOpen(false)} onSelectTarget={handleChooseReferencedNote} userId={userId} selectedText={referenceSelectedText} />
       <StickyReminderSettingsModal
         isOpen={Boolean(reminderDialogNoteId)}
@@ -922,6 +951,7 @@ export function StickyNotesLayout() {
                 onContextMenu={handleNoteContextMenu}
                 registerEditorActions={registerEditorActions}
                 onOpenLinkedNote={handleOpenLinkedNote}
+                onPreviewLinkedNote={handlePreviewLinkedNote}
               />
             ))
           )}
