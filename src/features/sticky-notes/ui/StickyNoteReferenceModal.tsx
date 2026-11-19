@@ -24,11 +24,47 @@ const escapeHtml = (value: string) => value
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
+const safeImageHtml = (tag: string) => {
+  const src = tag.match(/\\bsrc\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))/i);
+  const url = src?.[1] || src?.[2] || src?.[3] || '';
+  if (!/^https?:\\/\\//i.test(url)) return '';
+  const altMatch = tag.match(/\\balt\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))/i);
+  const alt = altMatch?.[1] || altMatch?.[2] || altMatch?.[3] || 'Imagem da nota';
+  const widthMatch = tag.match(/\\bdata-width\\s*=\\s*(?:"([^"]*)"|'([^']*)')/i);
+  const width = widthMatch?.[1] || widthMatch?.[2] || '100%';
+  const alignmentMatch = tag.match(/\\bdata-alignment\\s*=\\s*(?:"([^"]*)"|'([^']*)')/i);
+  const alignment = alignmentMatch?.[1] || alignmentMatch?.[2] || 'center';
+  const safeWidth = /^\\d+(?:\\.\\d+)?%?$/.test(width) ? width : '100%';
+  const justify = alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center';
+  return '<span style="display:flex;justify-content:' + justify + ';width:100%;margin:.75rem 0"><img src="' +
+    escapeHtml(url) + '" alt="' + escapeHtml(alt) +
+    '" style="display:block;width:' + safeWidth + ';max-width:100%;height:auto;object-fit:contain;border-radius:.5rem" loading="lazy" /></span>';
+};
+
 const contentAsHtml = (value?: string | null) => {
   if (!value) return '<p class="text-stone-400 italic">Esta nota ainda não tem conteúdo.</p>';
-  return /^\s*</.test(value)
-    ? value
-    : value.split(/\r?\n/).map(line => '<p>' + (escapeHtml(line) || '<br>') + '</p>').join('');
+  // O conteúdo das notas pode misturar Markdown/texto com tags HTML de imagem
+  // serializadas pelo editor. Preserve somente imagens com URL HTTP(S), sem
+  // escapar a tag como texto literal.
+  const renderMixedLine = (line: string) => {
+    const imagePattern = /<img\\b[^>]*>/gi;
+    let html = '';
+    let cursor = 0;
+    let match: RegExpExecArray | null;
+    while ((match = imagePattern.exec(line))) {
+      html += escapeHtml(line.slice(cursor, match.index));
+      html += safeImageHtml(match[0]);
+      cursor = match.index + match[0].length;
+    }
+    html += escapeHtml(line.slice(cursor));
+    return html || '<br>';
+  };
+
+  if (/^\\s*</.test(value) && !/<img\\b/i.test(value)) return value;
+  return value.split(/\\r?\\n/).map(line => {
+    const rendered = renderMixedLine(line);
+    return /^\\s*<span style="display:flex/.test(rendered) ? rendered : '<p>' + rendered + '</p>';
+  }).join('');
 };
 
 export function StickyNoteReferenceModal({ isOpen, onClose, onSelectTarget, userId, selectedText }: Props) {
