@@ -24,7 +24,7 @@ import {
 } from '../api/sticky-notes-api';
 import { StickyNoteCard, StickyEditorActions, StickyEditorAction } from './StickyNoteCard';
 import { StickyNotesToolbar, StickySaveState } from './StickyNotesToolbar';
-import { StickyNoteReferenceModal } from './StickyNoteReferenceModal';
+import { StickyNoteReferenceModal, StickyNoteReferencePreview, ReferenceType } from './StickyNoteReferenceModal';
 import { StickyReminderSettingsModal } from './StickyReminderSettingsModal';
 import { fetchStickyReminderNoteIds } from '../api/sticky-reminders-api';
 
@@ -54,6 +54,7 @@ export function StickyNotesLayout() {
   const [reminderNoteIds, setReminderNoteIds] = useState<Set<string>>(new Set());
   const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);
   const [groupsSidebarOpen, setGroupsSidebarOpen] = useState(false);
+  const [referencePreview, setReferencePreview] = useState<{id:string;type:ReferenceType;left:number;top:number}|null>(null);
 
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
