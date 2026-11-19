@@ -77,10 +77,74 @@ const styleChecklist=(editor:HTMLElement)=>{
 };
 
 export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
- const colors=getStickyColorTheme(note.color);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);const [drag,setDrag]=useState(false);const [resize,setResize]=useState(false);
- useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');if(el.innerHTML!==html)el.innerHTML=html;styleChecklist(el);}},[note.content]);
+ const colors=getStickyColorTheme(note.color);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);
+ type EditorHistoryEntry={html:string;caret:number};
+ const history=useRef<{entries:EditorHistoryEntry[];index:number;restoring:boolean}>({entries:[],index:-1,restoring:false});const [drag,setDrag]=useState(false);const [resize,setResize]=useState(false);
+ useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');if(el.innerHTML!==html){el.innerHTML=html;history.current={entries:[{html:el.innerHTML,caret:0}],index:0,restoring:false};}styleChecklist(el);if(history.current.index<0)history.current={entries:[{html:el.innerHTML,caret:0}],index:0,restoring:false};}},[note.content]);
  useEffect(()=>{if(autoFocus)editor.current?.focus();},[autoFocus]);
- const save=()=>{if(editor.current){styleChecklist(editor.current);onChangeContent(note.id,editor.current.innerHTML);}};
+ const getCaretOffset=(el:HTMLElement)=>{
+  const selection=window.getSelection();
+  if(!selection?.rangeCount)return 0;
+  const range=selection.getRangeAt(0);
+  if(!el.contains(range.startContainer))return 0;
+  const prefix=document.createRange();
+  prefix.selectNodeContents(el);
+  try{prefix.setEnd(range.startContainer,range.startOffset);return prefix.toString().length;}catch{return 0;}
+ };
+ const recordHistory=()=>{
+  const el=editor.current;
+  if(!el||history.current.restoring)return;
+  const current=history.current;
+  const html=el.innerHTML;
+  if(current.index<0){current.entries=[{html,caret:getCaretOffset(el)}];current.index=0;return;}
+  if(current.entries[current.index]?.html===html){
+   current.entries[current.index]={html,caret:getCaretOffset(el)};
+   return;
+  }
+  current.entries=current.entries.slice(0,current.index+1);
+  current.entries.push({html,caret:getCaretOffset(el)});
+  if(current.entries.length>150)current.entries.shift();
+  current.index=current.entries.length-1;
+ };
+ const restoreCaret=(el:HTMLElement,offset:number)=>{
+  const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);
+  let remaining=Math.max(0,offset);
+  let node:Node|null;
+  let target:Text|null=null;
+  while((node=walker.nextNode())){
+   const text=node as Text;
+   if(remaining<=text.length){target=text;break;}
+   remaining-=text.length;
+  }
+  const range=document.createRange();
+  if(target)range.setStart(target,Math.min(remaining,target.length));
+  else{
+   const paragraph=el.querySelector<HTMLElement>('p,div')||el;
+   if(!paragraph.childNodes.length)paragraph.appendChild(document.createElement('br'));
+   range.selectNodeContents(paragraph);
+   range.collapse(true);
+  }
+  range.collapse(true);
+  const selection=window.getSelection();
+  selection?.removeAllRanges();selection?.addRange(range);
+ };
+ const moveHistory=(direction:'undo'|'redo')=>{
+  const el=editor.current;
+  if(!el)return;
+  const current=history.current;
+  if(current.index<0)recordHistory();
+  const nextIndex=direction==='undo'?current.index-1:current.index+1;
+  if(nextIndex<0||nextIndex>=current.entries.length)return;
+  current.index=nextIndex;
+  const entry=current.entries[nextIndex];
+  current.restoring=true;
+  el.innerHTML=entry.html;
+  styleChecklist(el);
+  restoreCaret(el,entry.caret);
+  onChangeContent(note.id,el.innerHTML);
+  requestAnimationFrame(()=>{history.current.restoring=false;});
+ };
+ const save=()=>{if(editor.current){styleChecklist(editor.current);recordHistory();onChangeContent(note.id,editor.current.innerHTML);}};
  const handleInput=(e:React.FormEvent<HTMLDivElement>)=>{
   const el=editor.current;
   const selection=window.getSelection();
@@ -112,7 +176,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   }
   save();
  };
- const command=(cmd:string)=>{if(!editor.current)return;editor.current.focus();document.execCommand(cmd,false);save();};
+ const command=(cmd:string)=>{if(!editor.current)return;if(cmd==='undo'||cmd==='redo'){editor.current.focus();moveHistory(cmd);return;}editor.current.focus();document.execCommand(cmd,false);save();};
  const placeCaret=(target:HTMLElement)=>{
   const range=document.createRange();
   if(!target.childNodes.length)target.appendChild(document.createElement('br'));
@@ -352,6 +416,12 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   save();
  };
  const keyDown=(e:React.KeyboardEvent<HTMLDivElement>)=>{
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.key.toLowerCase()==='z'){
+   e.preventDefault();moveHistory(e.shiftKey?'redo':'undo');return;
+  }
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.key.toLowerCase()==='y'){
+   e.preventDefault();moveHistory('redo');return;
+  }
   if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='v')pasteAsPlainText.current=true;
   // When a selection crosses normal text and checklist rows, the browser
   // can delete the text while leaving the non-editable checkbox behind.
