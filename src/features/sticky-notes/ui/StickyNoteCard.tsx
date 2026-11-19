@@ -82,7 +82,24 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
  useEffect(()=>{if(autoFocus)editor.current?.focus();},[autoFocus]);
  const save=()=>{if(editor.current){styleChecklist(editor.current);onChangeContent(note.id,editor.current.innerHTML);}};
  const command=(cmd:string)=>{if(!editor.current)return;editor.current.focus();document.execCommand(cmd,false);save();};
- const placeCaret=(target:HTMLElement)=>{const range=document.createRange();range.selectNodeContents(target);range.collapse(false);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);};
+ const placeCaret=(target:HTMLElement)=>{
+  const range=document.createRange();
+  if(!target.childNodes.length)target.appendChild(document.createElement('br'));
+  const hasOnlyBreak=target.childNodes.length===1&&target.firstChild instanceof HTMLBRElement;
+  if(hasOnlyBreak){
+   range.setStart(target,0);
+   range.collapse(true);
+  }else if(target.lastChild instanceof HTMLBRElement){
+   range.setStartBefore(target.lastChild);
+   range.collapse(true);
+  }else{
+   range.selectNodeContents(target);
+   range.collapse(false);
+  }
+  const selection=window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+ };
  const placeCaretStart=(target:HTMLElement)=>{const range=document.createRange();range.selectNodeContents(target);range.collapse(true);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);};
  const makeChecklistItem=()=>{
   const li=document.createElement('li');
@@ -108,10 +125,13 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   const target=kind==='checklist'?(item.querySelector(':scope > div > p') as HTMLElement|null):item;
   if(target)placeCaret(target);
  };
- const insertList=(kind:'bullet'|'checklist')=>{
-  const el=editor.current;if(!el)return;el.focus();
+ const insertList=(kind:'bullet'|'checklist',initialRange?:Range|null)=>{
+  const el=editor.current;if(!el)return;
   const selection=window.getSelection();
-  let range=selection&&selection.rangeCount?selection.getRangeAt(0):null;
+  let range=initialRange&&el.contains(initialRange.commonAncestorContainer)
+   ?initialRange.cloneRange()
+   :(selection&&selection.rangeCount?selection.getRangeAt(0).cloneRange():null);
+  el.focus({preventScroll:true});
   if(!range||!el.contains(range.commonAncestorContainer)){
    range=document.createRange();range.selectNodeContents(el);range.collapse(false);
   }
@@ -120,7 +140,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   const existingList=existingItem?.parentElement;
   if(existingList&&el.contains(existingList)&&((kind==='checklist'&&existingList.matches('ul[data-sticky-checklist]'))||(kind==='bullet'&&existingList.matches('ul.sticky-bullet-list')))){
    const item=makeListItem(kind);existingItem.insertAdjacentElement('afterend',item);
-   styleChecklist(el);setCaretInItem(item,kind);save();return;
+   save();setCaretInItem(item,kind);return;
   }
   // If the cursor is in a text line, split that line at the cursor and put
   // the new list on the following line, preserving text on both sides.
@@ -144,7 +164,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   }else{
    range.collapse(false);range.insertNode(list);
   }
-  styleChecklist(el);setCaretInItem(item,kind);save();
+  save();setCaretInItem(item,kind);
  };
  const insertBullet=()=>insertList('bullet');
  const insertChecklist=()=>insertList('checklist');
@@ -285,11 +305,14 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
   const {el,range,item,list,kind}=ctx;
   const textHost=kind==='checklist'?(item.querySelector(':scope > div') as HTMLElement|null):(item as HTMLElement);
   if(!textHost)return;
-  const caret=document.createRange();caret.selectNodeContents(textHost);caret.setEnd(range.startContainer,range.startOffset);
-  const before=caret.toString();
+  let before='';
+  if(textHost.contains(range.startContainer)){
+   const caret=document.createRange();caret.selectNodeContents(textHost);caret.setEnd(range.startContainer,range.startOffset);
+   before=caret.toString();
+  }
   const atStart=before.length===0;
   const ownText=kind==='checklist'
-   ?Array.from(textHost.children).filter(child=>child instanceof HTMLParagraphElement).map(child=>child.textContent||'').join('')
+   ?Array.from(textHost.childNodes).filter(child=>!(child instanceof HTMLUListElement)).map(child=>child.textContent||'').join('')
    :(textHost.textContent||'');
   const empty=!ownText.trim();
   const moveItemOutOfList=(paragraph:HTMLParagraphElement)=>{
@@ -348,23 +371,19 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     // an empty top-level task exits the checklist into a normal paragraph.
     if(kind==='checklist'&&list instanceof HTMLUListElement&&list.parentElement instanceof HTMLDivElement&&list.parentElement.parentElement instanceof HTMLLIElement){
      changeListLevel(item,list,kind,'out');
-     const content=item.querySelector<HTMLElement>(':scope > div > p');
-     if(content)placeCaretStart(content);
-     save();return;
+     save();setCaretInItem(item,kind);return;
     }
     const paragraph=document.createElement('p');paragraph.innerHTML='<br>';paragraph.style.cssText='margin:0;padding:0;line-height:1.45';
-    moveItemOutOfList(paragraph);placeCaret(paragraph);save();return;
+    moveItemOutOfList(paragraph);save();placeCaret(paragraph);return;
    }
    // For checklist Enter, deliberately reuse the exact toolbar insertion
-   // path. The toolbar already inserts the LI and places the caret correctly
-   // in LI > DIV > P; duplicating that DOM/selection logic here caused the
-   // caret to land below the checkbox.
+   // path with the captured selection range so creation, styling, persistence
+   // and caret placement stay identical.
    if(kind==='checklist'){
-    insertList('checklist');
+    insertList('checklist',range);
     return;
    }
 
-   const activeSelection=window.getSelection();
    const workingRange=range.cloneRange();
    if(!workingRange.collapsed)workingRange.deleteContents();
 
@@ -375,8 +394,8 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
    tail.setEnd(splitBlock,splitBlock.childNodes.length);
    const trailing=tail.extractContents();
 
-   // Move every later paragraph in the current checklist item's content area
-   // into the next item's paragraph, preserving the checkbox/text structure.
+   // Move every later paragraph in the current item's content area
+   // into the next item's content, preserving structure.
    const followingBlocks:Node[]=[];
    let sibling=splitBlock.nextSibling;
    while(sibling){
@@ -384,46 +403,32 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,onSelect,onChang
     followingBlocks.push(sibling);
     sibling=nextSibling;
    }
-   followingBlocks.forEach(node=>node.remove());
+   followingBlocks.forEach(node=>node.parentNode?.removeChild(node));
 
    const next=makeListItem(kind);
-   const nextParagraph=kind==='checklist'
-    ?(next.querySelector(':scope > div > p') as HTMLElement|null)
-    :next;
-   if(nextParagraph){
-    nextParagraph.replaceChildren();
-    const appendInline=(source:ParentNode)=>{
-     Array.from(source.childNodes).forEach(node=>{
-      if(node instanceof HTMLParagraphElement||node instanceof HTMLDivElement){
-       while(node.firstChild)nextParagraph.appendChild(node.firstChild);
-      }else nextParagraph.appendChild(node);
-     });
-    };
-    appendInline(trailing);
-    followingBlocks.forEach(node=>appendInline(node));
-    if(!nextParagraph.childNodes.length)nextParagraph.innerHTML='<br>';
-   }
+   next.replaceChildren();
+   const appendInline=(source:Node)=>{
+    Array.from(source.childNodes).forEach(node=>{
+     if(node instanceof HTMLParagraphElement||node instanceof HTMLDivElement){
+      while(node.firstChild)next.appendChild(node.firstChild);
+     }else next.appendChild(node);
+    });
+   };
+   appendInline(trailing);
+   followingBlocks.forEach(node=>appendInline(node));
+   if(!next.childNodes.length)next.innerHTML='<br>';
 
-   // Insert the next checklist item directly below the current one.
+   // Insert the next list item directly below the current one.
    list.insertBefore(next,item.nextSibling);
    styleChecklist(el);
 
-   // Save/normalize first, then restore the caret at the paragraph's
-   // first line. With an empty paragraph, placing the range after <br> makes
-   // Chromium paint the caret on a second line below the checkbox.
    save();
    const focusNewItem=()=>{
     if(!el.isConnected||!next.isConnected)return;
-    const paragraph=kind==='checklist'
-     ?(next.querySelector(':scope > div > p') as HTMLElement|null)
-     :next;
-    if(!paragraph)return;
     el.focus({preventScroll:true});
-    // Keep the <br> placeholder: it gives an empty contenteditable paragraph
-    // a first-line box. Position before it, not after it.
-    if(!paragraph.childNodes.length)paragraph.appendChild(document.createElement('br'));
+    if(!next.childNodes.length)next.appendChild(document.createElement('br'));
     const nextRange=document.createRange();
-    nextRange.setStart(paragraph,0);
+    nextRange.setStart(next,0);
     nextRange.collapse(true);
     const selection=window.getSelection();
     selection?.removeAllRanges();
