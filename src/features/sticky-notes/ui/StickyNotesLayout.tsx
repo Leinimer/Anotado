@@ -24,7 +24,8 @@ import {
 } from '../api/sticky-notes-api';
 import { StickyNoteCard, StickyEditorActions, StickyEditorAction } from './StickyNoteCard';
 import { StickyNotesToolbar, StickySaveState } from './StickyNotesToolbar';
-import { StickyNoteReferenceModal, StickyNoteReferencePreview, ReferenceType } from './StickyNoteReferenceModal';
+import { StickyNoteReferenceModal, StickyNoteReferencePreview } from './StickyNoteReferenceModal';
+import type { ReferenceType } from './StickyNoteReferenceModal';
 import { StickyReminderSettingsModal } from './StickyReminderSettingsModal';
 import { fetchStickyReminderNoteIds } from '../api/sticky-reminders-api';
 
