@@ -63,7 +63,20 @@ const markdownInlineToHtml = (value: string) => {
     return token;
   };
   const tick = String.fromCharCode(96);
-  let text = escapeHtml(value);
+  // Sticky Notes stores highlighted spans as <mark> HTML. Older content may
+  // contain escaped delimiters; restore only these tags and render safe markup.
+  const source = value.replace(/&(?:amp;)?lt;(\/?mark\b[\s\S]*?)&(?:amp;)?gt;/gi, '<$1>');
+  const markedSource = source.replace(/<mark\b([^>]*)>([\s\S]*?)<\/mark>/gi, (_match, attributes: string, inner: string) => {
+    const dataColor = attributes.match(/\bdata-color\s*=\s*["']([^"']+)["']/i)?.[1] || '';
+    const style = attributes.match(/\bstyle\s*=\s*["']([^"']*)["']/i)?.[1] || '';
+    const background = style.match(/(?:^|;)\s*background-color\s*:\s*(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\))/i)?.[1] || dataColor;
+    const darkText = style.match(/--highlight-text-dark\s*:\s*(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\))/i)?.[1];
+    const safeBackground = /^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\))$/i.test(background) ? background : '#fef08a';
+    const safeDarkText = darkText && /^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s]+\))$/i.test(darkText) ? darkText : '';
+    const safeStyle = 'background-color:' + safeBackground + ';' + (safeDarkText ? '--highlight-text-dark:' + safeDarkText + ';' : '') + 'color:inherit';
+    return hold('<mark style="' + safeStyle + '">' + escapeHtml(inner) + '</mark>');
+  });
+  let text = escapeHtml(markedSource);
   text = text.replace(new RegExp(tick + '([^' + tick + ']+)' + tick, 'g'), (_match, code: string) =>
     hold('<code>' + code + '</code>')
   );
@@ -158,7 +171,8 @@ const markdownToHtml = (value: string) => {
 const contentAsHtml = (value?: string | null) => {
   if (!value) return '<p class="text-stone-400 italic">Esta nota ainda não tem conteúdo.</p>';
 
-  const normalized = decodeImageMarkup(value);
+  const normalized = decodeImageMarkup(value)
+    .replace(/&(?:amp;)?lt;(\/?mark\b[\s\S]*?)&(?:amp;)?gt;/gi, '<$1>');
   const imagePattern = /<img\b[\s\S]*?>/gi;
 
   // Substitui imagens por marcação responsiva mesmo quando estão dentro de
