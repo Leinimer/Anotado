@@ -898,6 +898,13 @@ export function StickyNotesLayout() {
               <StickyNoteCard
                 key={note.id}
                 note={note}
+                snapTargets={notes.filter(other => other.id !== note.id).map(other => ({
+                  id: other.id,
+                  x: other.position_x,
+                  y: other.position_y,
+                  width: other.width_px,
+                  height: document.getElementById('sticky-note-' + other.id)?.offsetHeight || noteHeights[other.id] || 280,
+                }))}
                 isSelected={selectedNoteId === note.id}
                 autoFocus={newlyCreatedId === note.id}
                 onSelect={handleSelectNote}
