@@ -167,6 +167,7 @@ export function StickyNotesLayout() {
       const midpointX = (points[0].x + points[1].x) / 2;
       const midpointY = (points[0].y + points[1].y) / 2;
       const distance = Math.max(1, Math.hypot(dx, dy));
+      document.documentElement.dataset.stickyPinching = 'true';
       pinchGestureRef.current = {
         initialDistance: distance,
         initialZoom: canvasZoom,
@@ -201,7 +202,10 @@ export function StickyNotesLayout() {
   const handleBoardTouchEnd = useCallback((event: React.PointerEvent<HTMLElement>) => {
     if (event.pointerType !== 'touch') return;
     touchPointsRef.current.delete(event.pointerId);
-    if (touchPointsRef.current.size < 2) pinchGestureRef.current = null;
+    if (touchPointsRef.current.size < 2) {
+      pinchGestureRef.current = null;
+      delete document.documentElement.dataset.stickyPinching;
+    }
   }, []);
 
   const registerEditorActions = useCallback((noteId: string, actions: StickyEditorActions | null) => {
