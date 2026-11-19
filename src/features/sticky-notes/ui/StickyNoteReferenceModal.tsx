@@ -253,6 +253,7 @@ export function StickyNoteReferencePreview({ targetId, type, userId, left, top, 
   return (
     <div
       role="dialog"
+      data-sticky-reference-preview="true"
       aria-label={`Pré-visualização: ${title}`}
       className="fixed z-[12000] flex max-h-[min(380px,70vh)] w-[min(340px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-[#ded5cb] bg-[#fffefa] shadow-[0_12px_38px_rgba(35,25,18,.24)] dark:border-[#51463e] dark:bg-[#24201d] dark:shadow-[0_12px_38px_rgba(0,0,0,.5)]"
       style={{ left, top }}
