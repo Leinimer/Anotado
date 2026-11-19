@@ -1,12 +1,16 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Calendar } from 'lucide-react';
 import { Note as NoteType } from '../types';
 import { NoteEditor } from './NoteEditor';
 import { NoteTagsBar } from './NoteTagsBar';
 import { formatDateReadable } from '../utils/diary-date';
 import { Editor } from '@tiptap/react';
+import { indexedDBStorage, ExtendedNote } from '../db/indexed-db';
+import { fetchStickyNotes } from '@/src/features/sticky-notes/api/sticky-notes-api';
+import { StickyNote as StickyNoteRecord } from '@/src/features/sticky-notes/types';
 
 interface NoteEditorPanelProps {
   note: NoteType;
@@ -41,7 +45,9 @@ export function NoteEditorPanel({
   isNewNoteJustCreated = false,
   zoomLevel = 100,
 }: NoteEditorPanelProps) {
+  const router = useRouter();
   const [isEditingTitle, setIsEditingTitle] = useState(isNewNoteJustCreated && !readOnly);
+  const [referencedBy, setReferencedBy] = useState<Array<{ id: string; title: string; type: 'note' | 'sticky' | 'diary' }>>([]);
   const [titleInput, setTitleInput] = useState(note?.title || '');
   const titleInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -67,6 +73,87 @@ export function NoteEditorPanel({
 
   const isDiary =
     note.workspace_type === 'diary' || Boolean(note.entry_date) || Boolean(note.diary_year);
+
+  // Descobre referências de entrada (backlinks) sem criar uma tabela ou
+  // alterar o conteúdo das notas: os vínculos já estão persistidos no HTML.
+  useEffect(() => {
+    let active = true;
+    if (!userId || readOnly || note.workspace_type === 'diary' || note.entry_date || note.diary_year) {
+      setReferencedBy([]);
+      return;
+    }
+
+    const loadReferences = async () => {
+      try {
+        const [allNotes, allStickyNotes] = await Promise.all([
+          indexedDBStorage.getAllNotes(userId),
+          fetchStickyNotes(userId).catch(() => [] as StickyNoteRecord[]),
+        ]);
+
+        const found: Array<{ id: string; title: string; type: 'note' | 'sticky' | 'diary' }> = [];
+        const seen = new Set<string>();
+        const add = (id: string, title: string, type: 'note' | 'sticky' | 'diary') => {
+          if (!id || id === note.id || seen.has(type + ':' + id)) return;
+          seen.add(type + ':' + id);
+          found.push({ id, title: title || 'Sem título', type });
+        };
+
+        const targetId = note.id.replace(/[.*+?^${}()|[\]\\]/g, '\\  const isDiary =
+    note.workspace_type === 'diary' || Boolean(note.entry_date) || Boolean(note.diary_year);
+');
+        const noteReferencePattern = new RegExp(
+          '(?:data-note-id|data-internal-note-id)\\s*=\\s*["\\']' + targetId + '["\\']|href\\s*=\\s*["\\']note:(?:\\/\\/)?' + targetId + '["\\']',
+          'i'
+        );
+        for (const source of (allNotes || []) as ExtendedNote[]) {
+          if (source.id === note.id || source.is_archived || !source.content) continue;
+          if (!noteReferencePattern.test(source.content)) continue;
+          const sourceIsDiary = source.workspace_type === 'diary' || Boolean(source.entry_date) || Boolean(source.diary_year);
+          add(source.id, source.title || (source.entry_date ? formatDateReadable(source.entry_date) : 'Sem título'), sourceIsDiary ? 'diary' : 'note');
+        }
+
+        const stickyReferencePattern = new RegExp(
+          'data-sticky-reference-id\\s*=\\s*["\\']' + targetId + '["\\']',
+          'i'
+        );
+        for (const source of allStickyNotes || []) {
+          if (!source.content || !stickyReferencePattern.test(source.content)) continue;
+          add(source.id, source.title || 'Stick sem título', 'sticky');
+        }
+
+        found.sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'));
+        if (active) setReferencedBy(found);
+      } catch (error) {
+        console.warn('[NoteEditorPanel] Não foi possível carregar referências de entrada:', error);
+        if (active) setReferencedBy([]);
+      }
+    };
+
+    loadReferences();
+    const refresh = () => loadReferences();
+    window.addEventListener('anotado:sticky-note-updated', refresh);
+    window.addEventListener('anotado:sticky-note-deleted', refresh);
+    window.addEventListener('anotado:notes-updated', refresh);
+    return () => {
+      active = false;
+      window.removeEventListener('anotado:sticky-note-updated', refresh);
+      window.removeEventListener('anotado:sticky-note-deleted', refresh);
+      window.removeEventListener('anotado:notes-updated', refresh);
+    };
+  }, [note.id, userId, note.workspace_type, note.entry_date, note.diary_year, readOnly]);
+
+  const openReferencingItem = (item: typeof referencedBy[number]) => {
+    if (item.type === 'sticky') {
+      sessionStorage.setItem('anotado_active_sticky_id', item.id);
+      router.push('/sticky-notes');
+    } else if (item.type === 'diary') {
+      sessionStorage.setItem('anotado_active_diary_id', item.id);
+      router.push('/diary');
+    } else {
+      sessionStorage.setItem('anotado_reference_notes_id', item.id);
+      router.push('/notes');
+    }
+  };
 
   return (
     <div
@@ -149,6 +236,28 @@ export function NoteEditorPanel({
           }}
           disabled={readOnly}
         />
+        {referencedBy.length > 0 && (
+          <div
+            id={`note-referenced-by-${note.id}`}
+            className="w-full max-w-[850px] mx-auto px-4 sm:px-8 pt-0 pb-1 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1"
+            aria-label="Referenciada por"
+          >
+            {referencedBy.map((item) => {
+              const suffix = item.type === 'sticky' ? 'Stick' : item.type === 'diary' ? 'Diário' : 'Nota';
+              return (
+                <button
+                  key={item.type + ':' + item.id}
+                  type="button"
+                  onClick={() => openReferencingItem(item)}
+                  className="inline-flex items-center text-[#8c6b4f] hover:text-[#6e533d] dark:text-[#d7c3b0] dark:hover:text-white font-sans-ui text-xs font-medium transition-colors duration-150 cursor-pointer"
+                  title={`Abrir ${item.title} (${suffix})`}
+                >
+                  {item.title}-{suffix}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Área da Folha e Editor TipTap com Rolagem Independente */}
