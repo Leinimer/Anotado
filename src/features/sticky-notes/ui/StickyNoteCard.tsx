@@ -323,7 +323,14 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
   const plain=e.clipboardData.getData('text/plain');
   const html=e.clipboardData.getData('text/html');
   const plainContainsMarkup=looksLikeStickyMarkup(plain);
-  const clipboardHtml=html||(plainContainsMarkup?normalizePastedMarkup(plain):'');
+  let clipboardHtml=html;
+  if(clipboardHtml){
+   const clipboardDocument=new DOMParser().parseFromString(clipboardHtml,'text/html');
+   const embeddedMarkup=clipboardDocument.body.textContent||'';
+   if(looksLikeStickyMarkup(embeddedMarkup))clipboardHtml=normalizePastedMarkup(embeddedMarkup);
+  }else if(plainContainsMarkup){
+   clipboardHtml=normalizePastedMarkup(plain);
+  }
   const usePlain=pasteAsPlainText.current||!clipboardHtml;
   pasteAsPlainText.current=false;
   const ctx=getListContext();
