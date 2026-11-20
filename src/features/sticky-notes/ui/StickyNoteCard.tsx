@@ -7,6 +7,12 @@ export interface StickyEditorActions{format:(action:StickyEditorAction)=>void;pr
 interface SnapTarget{id:string;x:number;y:number;width:number;height:number;}
 interface Props{snapTargets?:SnapTarget[];canvasZoom?:number;isPinchingRef?:React.RefObject<boolean>;note:StickyNote;isSelected:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeLive:(id:string,width:number)=>void;onResizeEnd:(id:string,width:number)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;onPreviewLinkedNote?:(id:string,type:'note'|'sticky'|'diary',anchor:HTMLElement)=>void;hasReminder?:boolean;onOpenReminder?:(note:StickyNote)=>void;onContextMenu?:(note:StickyNote,x:number,y:number)=>void;}
 const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const hasMarkdownBold=(value:string)=>/(?:\\*\\*[^*\\n]+\\*\\*|\\*[^*\\n]+\\*)/.test(value);
+const markdownPlainToHtml=(value:string)=>{
+ const paragraphs=value.replace(/\\r\\n?/g,'\\n').trim().split(/\\n\\s*\\n/);
+ const inline=(text:string)=>esc(text).replace(/\\*\\*([^*\\n]+)\\*\\*/g,'<strong>$1</strong>').replace(/\\*([^*\\n]+)\\*/g,'<strong>$1</strong>');
+ return paragraphs.map(paragraph=>'<p>'+paragraph.split('\\n').map(inline).join('<br>')+'</p>').join('');
+};
 const looksLikeStickyMarkup=(value:string)=>/<\/?(?:p|br|div|ul|ol|li|strong|b|em|i|u|s|h[1-6]|blockquote|hr)\b[^>]*>/i.test(value);
 const normalizePastedMarkup=(value:string)=>{
  const decoder=document.createElement('textarea');
@@ -322,16 +328,22 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
   e.preventDefault();
   const plain=e.clipboardData.getData('text/plain');
   const html=e.clipboardData.getData('text/html');
+  const forcePlain=pasteAsPlainText.current;
   const plainContainsMarkup=looksLikeStickyMarkup(plain);
+  const plainHasMarkdownBold=hasMarkdownBold(plain);
   let clipboardHtml=html;
-  if(clipboardHtml){
+  if(!forcePlain&&plainHasMarkdownBold){
+   // Alguns aplicativos copiam Markdown como texto literal em vez de HTML semântico.
+   // Converte *negrito* / **negrito** em <strong>, removendo os asteriscos.
+   clipboardHtml=markdownPlainToHtml(plain);
+  }else if(clipboardHtml){
    const clipboardDocument=new DOMParser().parseFromString(clipboardHtml,'text/html');
    const embeddedMarkup=clipboardDocument.body.textContent||'';
    if(looksLikeStickyMarkup(embeddedMarkup))clipboardHtml=normalizePastedMarkup(embeddedMarkup);
   }else if(plainContainsMarkup){
    clipboardHtml=normalizePastedMarkup(plain);
   }
-  const usePlain=pasteAsPlainText.current||!clipboardHtml;
+  const usePlain=forcePlain||!clipboardHtml;
   pasteAsPlainText.current=false;
   const ctx=getListContext();
   const host=ctx?.kind==='checklist'&&ctx.item
