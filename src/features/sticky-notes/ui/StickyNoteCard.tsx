@@ -670,7 +670,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],o
    }
   }
  };
- const dragStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.stopPropagation();onSelect(note.id);const sx=e.clientX,sy=e.clientY,px=note.position_x,py=note.position_y;let x=px,y=py,moved=false;const ownHeight=editor.current?.closest<HTMLElement>('[data-sticky-note-id]')?.offsetHeight||280;setDrag(true);const move=(v:PointerEvent)=>{if(Math.abs(v.clientX-sx)>2||Math.abs(v.clientY-sy)>2)moved=true;const rawX=Math.max(12,Math.round(px+v.clientX-sx));const rawY=Math.max(12,Math.round(py+v.clientY-sy));x=rawX;y=rawY;
+ const dragStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;if(e.pointerType==='touch'&&document.documentElement.dataset.stickyPinching==='true')return;e.stopPropagation();onSelect(note.id);const sx=e.clientX,sy=e.clientY,px=note.position_x,py=note.position_y;let x=px,y=py,moved=false;const ownHeight=editor.current?.closest<HTMLElement>('[data-sticky-note-id]')?.offsetHeight||280;setDrag(true);const move=(v:PointerEvent)=>{if(document.documentElement.dataset.stickyPinching==='true')return;if(Math.abs(v.clientX-sx)>2||Math.abs(v.clientY-sy)>2)moved=true;const rawX=Math.max(12,Math.round(px+v.clientX-sx));const rawY=Math.max(12,Math.round(py+v.clientY-sy));x=rawX;y=rawY;
    // Gentle magnetic guides: only snap when an edge is already within 6px.
    // Each axis is independent, so fine positioning remains unrestricted.
    const tolerance=6,gap=12;
