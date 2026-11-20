@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Settings } from 'lucide-react';
 import { ThemeToggle } from '@/src/features/theme/ThemeToggle';
@@ -32,6 +32,13 @@ export function AppHeader({
 }: AppHeaderProps) {
   const router = useRouter();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Pré-carrega as três áreas para que a troca de workspace não espere o download
+  // do código da próxima página depois do clique.
+  useEffect(() => {
+    NAV_ITEMS.forEach((item) => router.prefetch(item.href));
+  }, [router]);
+
   const navigate = (target: AppNavSection, href: string) => {
     if (target === activeSection) return;
     onBeforeNavigate?.();
@@ -43,7 +50,7 @@ export function AppHeader({
         const active = activeSection === item.id;
         return (
           <button key={item.id} id={`app-nav-${item.id}`} type="button"
-            onClick={() => navigate(item.id, item.href)} aria-current={active ? 'page' : undefined}
+            onClick={() => navigate(item.id, item.href)} onMouseEnter={() => router.prefetch(item.href)} onFocus={() => router.prefetch(item.href)} aria-current={active ? 'page' : undefined}
             className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[11.5px] sm:text-[13px] font-sans-ui whitespace-nowrap transition-colors cursor-pointer shrink-0 ${active ? 'bg-[#ebe4d8] text-[#1b1c19] font-semibold shadow-2xs dark:bg-[#231f1b] dark:text-white' : 'text-[#68594d] hover:bg-[#f0eee9] hover:text-[#1b1c19] font-medium dark:text-[#a1a1aa] dark:hover:bg-[#141414] dark:hover:text-white'}`}>
             {item.label}
           </button>
