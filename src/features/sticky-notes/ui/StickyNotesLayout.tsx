@@ -1203,7 +1203,6 @@ export function StickyNotesLayout() {
                 onMoveEnd={handleMoveEnd}
                 onResizeLive={handleResizeLive}
                 onResizeEnd={handleResizeEnd}
-                onHeightChange={handleNoteHeightChange}
                 onDelete={handleDeleteNote}
                 hasReminder={reminderNoteIds.has(note.id)}
                 onOpenReminder={(targetNote) => setReminderDialogNoteId(targetNote.id)}
