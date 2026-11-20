@@ -10,7 +10,7 @@ const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,
 const getStickyHighlightColor=(color?:string|null)=>{
  const hex=getStickyColorTheme(color).swatchLight.replace('#','');
  const channels=[0,2,4].map(index=>parseInt(hex.slice(index,index+2),16));
- const darker=channels.map(channel=>Math.round(channel*0.82));
+ const darker=channels.map(channel=>Math.round(channel*0.90));
  return `rgb(${darker.join(', ')})`;
 };
 const hasMarkdownBold=(value:string)=>/(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*)/.test(value);
@@ -104,7 +104,7 @@ const styleChecklist=(editor:HTMLElement)=>{
 };
 
 export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],canvasZoom=1,isPinchingRef,isMovingWithGroup=false,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeStart,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,onPreviewLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
- const colors=getStickyColorTheme(note.color);const cardRef=useRef<HTMLDivElement>(null);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);
+ const colors=getStickyColorTheme(note.color);const cardRef=useRef<HTMLDivElement>(null);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);const highlightMode=useRef(false);const applyingHighlight=useRef(false);
  type EditorHistoryEntry={html:string;caret:number};
  const history=useRef<{entries:EditorHistoryEntry[];index:number;restoring:boolean}>({entries:[],index:-1,restoring:false});const [drag,setDrag]=useState(false);const [resizeAxis,setResizeAxis]=useState<StickyResizeAxis|null>(null);const resize=resizeAxis!==null;
  useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');const changed=el.innerHTML!==html;if(changed)el.innerHTML=html;styleChecklist(el);if(changed||history.current.index<0)history.current={entries:[{html:el.innerHTML,caret:0}],index:0,restoring:false};}},[note.content]);
@@ -203,7 +203,38 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
   }
   save();
  };
- const command=(cmd:string)=>{if(!editor.current)return;if(cmd==='undo'||cmd==='redo'){editor.current.focus();moveHistory(cmd);return;}editor.current.focus();if(cmd==='highlight'){document.execCommand('hiliteColor',false,getStickyHighlightColor(note.color));save();return;}document.execCommand(cmd,false);save();};
+ const applySelectionHighlight=()=>{
+  const el=editor.current;
+  const selection=window.getSelection();
+  if(!highlightMode.current||!el||!selection?.rangeCount||selection.isCollapsed||applyingHighlight.current)return;
+  const range=selection.getRangeAt(0);
+  if(!el.contains(range.commonAncestorContainer))return;
+  const selectedText=selection.toString();
+  if(!selectedText.trim())return;
+  const fragment=range.cloneContents();
+  const alreadyHighlighted=Array.from(fragment.querySelectorAll<HTMLElement>('span[style],mark')).length>0&&
+   Array.from(fragment.querySelectorAll<HTMLElement>('span[style],mark')).every(node=>{
+    const bg=(node.style.backgroundColor||'').replace(/\\s/g,'');
+    return bg===getStickyHighlightColor(note.color).replace(/\\s/g,'');
+   });
+  if(alreadyHighlighted)return;
+  applyingHighlight.current=true;
+  try{
+   document.execCommand('hiliteColor',false,getStickyHighlightColor(note.color));
+   save();
+  }finally{
+   requestAnimationFrame(()=>{applyingHighlight.current=false;});
+  }
+ };
+ useEffect(()=>{
+  const handleSelectionChange=()=>{
+   if(!highlightMode.current)return;
+   applySelectionHighlight();
+  };
+  document.addEventListener('selectionchange',handleSelectionChange);
+  return()=>document.removeEventListener('selectionchange',handleSelectionChange);
+ });
+ const command=(cmd:string)=>{if(!editor.current)return;if(cmd==='undo'||cmd==='redo'){editor.current.focus();moveHistory(cmd);return;}editor.current.focus();if(cmd==='highlight'){highlightMode.current=!highlightMode.current;if(highlightMode.current)applySelectionHighlight();return;}document.execCommand(cmd,false);save();};
  const placeCaret=(target:HTMLElement)=>{
   const range=document.createRange();
   if(!target.childNodes.length)target.appendChild(document.createElement('br'));
