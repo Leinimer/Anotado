@@ -37,6 +37,7 @@ export function StickyNotesLayout() {
   const [userEmail, setUserEmail] = useState<string>('');
   const [notes, setNotes] = useState<StickyNote[]>([]);
   const [noteHeights, setNoteHeights] = useState<Record<string, number>>({});
+  const noteHeightsRef = useRef<Record<string, number>>({});
   const [groups, setGroups] = useState<StickyNoteGroup[]>([]);
   const [contextMenu, setContextMenu] = useState<{kind:'note'|'group';id:string;x:number;y:number}|null>(null);
   const [editingGroupTitleId, setEditingGroupTitleId] = useState<string | null>(null);
@@ -570,6 +571,62 @@ export function StickyNotesLayout() {
     },
     [selectedNoteId, persistPatch]
   );
+
+  const handleNoteHeightChange = useCallback((noteId: string, height: number) => {
+    const previousHeight = noteHeightsRef.current[noteId] || 0;
+    noteHeightsRef.current[noteId] = height;
+    setNoteHeights(previous => previous[noteId] === height ? previous : { ...previous, [noteId]: height });
+
+    // Só empurra os outros Sticks quando este cartão cresce (por exemplo,
+    // ao adicionar uma linha), sem reorganizar a posição inicial ao carregar.
+    if (!previousHeight || height <= previousHeight + 1) return;
+    const source = notesRef.current.find(note => note.id === noteId);
+    if (!source) return;
+
+    const gap = 16;
+    const candidates = notesRef.current
+      .filter(note => note.id !== noteId &&
+        note.position_x < source.position_x + source.width_px &&
+        note.position_x + note.width_px > source.position_x &&
+        note.position_y >= source.position_y)
+      .sort((a, b) => a.position_y - b.position_y);
+
+    const nextY = new Map<string, number>();
+    const placed: Array<{ x: number; y: number; width: number; height: number }> = [
+      { x: source.position_x, y: source.position_y, width: source.width_px, height }
+    ];
+    for (const note of candidates) {
+      let y = note.position_y;
+      const noteHeight = noteHeightsRef.current[note.id] || 280;
+      let moved = true;
+      while (moved) {
+        moved = false;
+        for (const above of placed) {
+          const horizontalOverlap = note.position_x < above.x + above.width &&
+            note.position_x + note.width_px > above.x;
+          const verticalOverlap = y < above.y + above.height + gap &&
+            y + noteHeight > above.y;
+          if (horizontalOverlap && verticalOverlap) {
+            y = above.y + above.height + gap;
+            moved = true;
+          }
+        }
+      }
+      nextY.set(note.id, y);
+      placed.push({ x: note.position_x, y, width: note.width_px, height: noteHeight });
+    }
+
+    if (nextY.size) {
+      setNotes(previous => previous.map(note => {
+        const y = nextY.get(note.id);
+        return y !== undefined && y !== note.position_y ? { ...note, position_y: y } : note;
+      }));
+      nextY.forEach((y, id) => {
+        const current = notesRef.current.find(note => note.id === id);
+        if (current && current.position_y !== y) void persistPatch(id, { position_y: y });
+      });
+    }
+  }, [persistPatch]);
 
   const handleMoveLive = useCallback((noteId: string, x: number, y: number) => {
     setNotes((prev) =>
@@ -1148,6 +1205,7 @@ export function StickyNotesLayout() {
                 onMoveEnd={handleMoveEnd}
                 onResizeLive={handleResizeLive}
                 onResizeEnd={handleResizeEnd}
+                onHeightChange={handleNoteHeightChange}
                 onDelete={handleDeleteNote}
                 hasReminder={reminderNoteIds.has(note.id)}
                 onOpenReminder={(targetNote) => setReminderDialogNoteId(targetNote.id)}
