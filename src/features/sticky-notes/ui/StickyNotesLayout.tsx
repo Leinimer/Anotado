@@ -304,7 +304,13 @@ export function StickyNotesLayout() {
       options?: { deselectOnTap?: boolean; immediate?: boolean; currentX?: number; currentY?: number }
     ) => {
       const initialPan = canvasPanRef.current;
+      const previousUserSelect = document.body.style.userSelect;
       let moved = Boolean(options?.immediate);
+
+      if (moved) {
+        document.body.style.userSelect = 'none';
+        window.getSelection()?.removeAllRanges();
+      }
 
       if (moved && options?.currentX !== undefined && options?.currentY !== undefined) {
         const nextPan = {
@@ -317,6 +323,7 @@ export function StickyNotesLayout() {
       }
 
       const cleanup = () => {
+        document.body.style.userSelect = previousUserSelect;
         setIsPanning(false);
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onEnd);
@@ -339,6 +346,8 @@ export function StickyNotesLayout() {
         if (!moved) {
           if (Math.hypot(dx, dy) <= 6) return;
           moved = true;
+          document.body.style.userSelect = 'none';
+          window.getSelection()?.removeAllRanges();
           setIsPanning(true);
         }
         const nextPan = { x: initialPan.x + dx, y: initialPan.y + dy };
@@ -2449,7 +2458,7 @@ export function StickyNotesLayout() {
                   canvasZoom={canvasZoom}
                   isPinchingRef={isPinchingRef}
                   snapTargets={
-                    isDesktop
+                    (isDesktop || isTablet)
                       ? notes
                           .filter((other) => other.id !== note.id)
                           .map((other) => {
