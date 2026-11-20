@@ -20,6 +20,7 @@ import {
   Unlink,
   Download,
   FileText,
+  StickyNote,
 } from 'lucide-react';
 import { Folder as FolderType, Note as NoteType } from '../types';
 import { FOLDER_PRESET_COLORS } from './sidebar-constants';
