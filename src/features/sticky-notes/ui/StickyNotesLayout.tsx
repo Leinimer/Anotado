@@ -1568,6 +1568,7 @@ export function StickyNotesLayout() {
   }, []);
 
   const handleNoteContextMenu = useCallback((note: StickyNote, x: number, y: number) => {
+    if (isTablet) return; // No tablet, o menu é aberto pelo controle explícito ou após a espera de 1 s no campo.
     const menuWidth = isTablet ? 230 : 190;
     const menuHeight = isTablet ? 310 : 240;
     setContextMenu({
@@ -1580,6 +1581,7 @@ export function StickyNotesLayout() {
 
   const handleGroupContextMenu = useCallback((groupId: string, event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
+    if (isTablet) return; // Evita o menu nativo de toque/long press; o timer do campo controla a abertura.
     event.stopPropagation();
     const menuWidth = isTablet ? 230 : 190;
     const menuHeight = isTablet ? 280 : 190;
