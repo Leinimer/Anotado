@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { GripVertical, Loader2, Plus, StickyNote as StickyNoteIcon, X } from 'lucide-react';
-import { DndContext, MouseSensor, TouchSensor, KeyboardSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { DndContext, PointerSensor, KeyboardSensor, closestCorners, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
@@ -56,11 +56,13 @@ function StickyGroupSortableItem({ group, count, cardClass, textClass, onSelect 
   } = useSortable({ id: group.id });
 
   return (
-    <button
+    <div
       ref={setNodeRef}
-      type="button"
+      role="button"
+      tabIndex={0}
       data-sticky-group-id={group.id}
       onClick={onSelect}
+      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(); } }}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
@@ -71,20 +73,22 @@ function StickyGroupSortableItem({ group, count, cardClass, textClass, onSelect 
       className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left shadow-sm transition-[box-shadow,border-color] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8d725d] ${cardClass} ${textClass}`}
       title="Clique para centralizar este campo; arraste pelos seis pontos para mudar sua posição"
     >
-      <span
+      <button
         ref={setActivatorNodeRef}
+        type="button"
         {...attributes}
         {...listeners}
         aria-label={`Arrastar campo ${group.title || 'sem título'} para mudar sua posição`}
         title="Segure e arraste para mudar a posição"
         onClick={(event) => event.stopPropagation()}
-        className="shrink-0 cursor-grab touch-none rounded p-0.5 opacity-60 hover:opacity-100 active:cursor-grabbing"
+        className="shrink-0 cursor-grab touch-none rounded border-0 bg-transparent p-1 opacity-70 hover:opacity-100 active:cursor-grabbing"
+        style={{ touchAction: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
       >
-        <GripVertical className="h-4 w-4" />
-      </span>
+        <GripVertical className="h-5 w-5" />
+      </button>
       <span className="min-w-0 flex-1 truncate text-sm font-medium">{group.title || 'Campo sem título'}</span>
       <span className="shrink-0 text-[11px] font-medium opacity-75">{count} {count === 1 ? 'Stick' : 'Sticks'}</span>
-    </button>
+    </div>
   );
 }
 
@@ -114,9 +118,9 @@ export function StickyNotesLayout() {
   const [reminderNoteIds, setReminderNoteIds] = useState<Set<string>>(new Set());
   const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);
   const [groupsSidebarOpen, setGroupsSidebarOpen] = useState(false);
+  const [activeGroupDragId, setActiveGroupDragId] = useState<string | null>(null);
   const groupDragSensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 8 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
   const [referencePreview, setReferencePreview] = useState<{id:string;type:ReferenceType;left:number;top:number}|null>(null);
@@ -884,11 +888,18 @@ export function StickyNotesLayout() {
     }
   }, [groups]);
 
+  const handleGroupDragStart = useCallback((event: DragStartEvent) => {
+    setActiveGroupDragId(String(event.active.id));
+  }, []);
+
   const handleGroupDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
+    setActiveGroupDragId(null);
     if (!over || active.id === over.id) return;
     void handleReorderGroups(String(active.id), String(over.id));
   }, [handleReorderGroups]);
+
+  const handleGroupDragCancel = useCallback(() => setActiveGroupDragId(null), []);
 
   const handleGroupTitleChange = useCallback((groupId: string, title: string) => {
     setGroups(previous => previous.map(group => group.id === groupId ? { ...group, title } : group));
@@ -1016,8 +1027,10 @@ export function StickyNotesLayout() {
           <div className="flex-1 overflow-y-auto p-3">
             <DndContext
               sensors={groupDragSensors}
-              collisionDetection={closestCenter}
+              collisionDetection={closestCorners}
+              onDragStart={handleGroupDragStart}
               onDragEnd={handleGroupDragEnd}
+              onDragCancel={handleGroupDragCancel}
             >
               <SortableContext items={groups.map(group => group.id)} strategy={verticalListSortingStrategy}>
                 <div className="space-y-2">
@@ -1053,6 +1066,21 @@ export function StickyNotesLayout() {
                   })}
                 </div>
               </SortableContext>
+              <DragOverlay dropAnimation={{ duration: 180, easing: 'ease' }}>
+                {activeGroupDragId ? (() => {
+                  const activeGroup = groups.find(group => group.id === activeGroupDragId);
+                  if (!activeGroup) return null;
+                  const activePalette = STICKY_COLORS.find(color => color.key === activeGroup.color) || STICKY_COLORS[0];
+                  const count = notes.filter(note => note.group_id === activeGroup.id).length;
+                  return (
+                    <div className={'flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left shadow-xl ' + activePalette.cardClass + ' ' + activePalette.textClass}>
+                      <GripVertical className="h-5 w-5 opacity-70" />
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{activeGroup.title || 'Campo sem título'}</span>
+                      <span className="shrink-0 text-[11px] font-medium opacity-75">{count} {count === 1 ? 'Stick' : 'Sticks'}</span>
+                    </div>
+                  );
+                })() : null}
+              </DragOverlay>
             </DndContext>
             {groups.length === 0 && <p className="px-2 py-4 text-center text-xs text-[#8b8178] dark:text-[#a39a91]">Nenhum campo criado.</p>}
           </div>
