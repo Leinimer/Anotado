@@ -227,7 +227,7 @@ export async function fetchStickyNoteGroups(userId: string): Promise<StickyNoteG
 export async function createStickyNoteGroup(userId: string, color: StickyNoteColorKey): Promise<StickyNoteGroup> {
   if (!isSupabaseConfigured()) {
     const now = new Date().toISOString();
-    return { id: crypto.randomUUID(), user_id: userId, color, title: '', created_at: now, updated_at: now };
+    return { id: crypto.randomUUID(), user_id: userId, color, title: '', sort_order: 0, created_at: now, updated_at: now };
   }
   const { data, error } = await createClient()
     .from('sticky_note_groups')
@@ -243,6 +243,12 @@ export async function updateStickyNoteGroup(userId: string, groupId: string, pat
   const { error } = await createClient().from('sticky_note_groups')
     .update(patch).eq('id', groupId).eq('user_id', userId);
   if (error) throw formatSupabaseStickyError(error, 'Erro ao atualizar agrupamento.');
+}
+
+export async function updateStickyNoteGroupsOrder(userId: string, groupIds: string[]): Promise<void> {
+  if (!isSupabaseConfigured() || groupIds.length === 0) return;
+  const { error } = await createClient().rpc('reorder_sticky_note_groups', { p_group_ids: groupIds });
+  if (error) throw formatSupabaseStickyError(error, 'Erro ao salvar a ordem dos campos.');
 }
 
 export async function deleteStickyNoteGroup(userId: string, groupId: string): Promise<void> {
