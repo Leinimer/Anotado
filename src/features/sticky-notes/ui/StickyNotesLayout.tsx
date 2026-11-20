@@ -670,15 +670,15 @@ export function StickyNotesLayout() {
     [persistPatch]
   );
 
-  const handleResizeLive = useCallback((noteId: string, widthPx: number) => {
-    setNotes((prev) =>
-      prev.map((item) => (item.id === noteId ? { ...item, width_px: widthPx } : item))
-    );
+  const handleResizeLive = useCallback((noteId: string, widthPx: number, heightPx?: number | null) => {
+    setNotes((prev) => prev.map((item) => item.id === noteId
+      ? { ...item, width_px: widthPx, ...(heightPx !== undefined ? { height_px: heightPx } : {}) }
+      : item));
   }, []);
 
   const handleResizeEnd = useCallback(
-    (noteId: string, widthPx: number) => {
-      void persistPatch(noteId, { width_px: widthPx });
+    (noteId: string, widthPx: number, heightPx?: number | null) => {
+      void persistPatch(noteId, { width_px: widthPx, ...(heightPx !== undefined ? { height_px: heightPx } : {}) });
     },
     [persistPatch]
   );
