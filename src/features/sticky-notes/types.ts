@@ -17,6 +17,7 @@ export interface StickyNote {
   position_x: number;
   position_y: number;
   width_px: number;
+  height_px?: number | null;
   z_index: number;
   group_id?: string | null;
   created_at: string;
