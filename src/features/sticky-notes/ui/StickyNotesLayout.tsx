@@ -50,7 +50,7 @@ import {
 
 const DEBOUNCE_MS = 450;
 const TABLET_GROUP_HOLD_MS = 1500;
-const TABLET_HOLD_VISUAL_DELAY_MS = 320;
+const TABLET_CONTEXT_MENU_DELAY_MS = 1000;
 const TABLET_HOLD_CANCEL_PX = 10;
 
 export function StickyNotesLayout() {
@@ -91,7 +91,6 @@ export function StickyNotesLayout() {
   const [tabletNoteDisplacements, setTabletNoteDisplacements] = useState<Record<string, TabletOffset>>({});
   const tabletNoteDisplacementsRef = useRef<Record<string, TabletOffset>>({});
   const [tabletWidthOverrides, setTabletWidthOverrides] = useState<Record<string, number>>({});
-  const [tabletHoldState, setTabletHoldState] = useState<{ groupId: string; progress: number; x: number; y: number } | null>(null);
   const [tabletMovingGroupId, setTabletMovingGroupId] = useState<string | null>(null);
   const tabletDragStartOffsetRef = useRef<Map<string, TabletOffset>>(new Map());
   const tabletResizeStartRef = useRef<{ startVisualX: number; startVisualY: number; startOffset: TabletOffset } | null>(null);
@@ -1239,12 +1238,16 @@ export function StickyNotesLayout() {
       const pointerId = event.pointerId;
       const startX = event.clientX;
       const startY = event.clientY;
-      setContextMenu({
-        kind: 'group',
-        id: groupId,
-        x: Math.max(12, Math.min(startX - 110, window.innerWidth - 242)),
-        y: Math.max(12, Math.min(startY + 12, window.innerHeight - 292)),
-      });
+      contextMenuTimer = setTimeout(() => {
+        if (!activated && !aborted) {
+          setContextMenu({
+            kind: 'group',
+            id: groupId,
+            x: Math.max(12, Math.min(startX - 110, window.innerWidth - 242)),
+            y: Math.max(12, Math.min(startY + 12, window.innerHeight - 292)),
+          });
+        }
+      }, TABLET_CONTEXT_MENU_DELAY_MS);
       let currentClientX = startX;
       let currentClientY = startY;
       let dragStartX = startX;
@@ -1254,7 +1257,7 @@ export function StickyNotesLayout() {
       const holdStartedAt = performance.now();
       const baseGroupOffset = tabletGroupDisplacementsRef.current[groupId] || { dx: 0, dy: 0 };
 
-      let progressInterval: ReturnType<typeof setInterval> | null = null;
+      let contextMenuTimer: ReturnType<typeof setTimeout> | null = null;
       let holdTimer: ReturnType<typeof setTimeout> | null = null;
 
       const clearHoldTimers = () => {
@@ -1262,9 +1265,9 @@ export function StickyNotesLayout() {
           clearTimeout(holdTimer);
           holdTimer = null;
         }
-        if (progressInterval) {
-          clearInterval(progressInterval);
-          progressInterval = null;
+        if (contextMenuTimer) {
+          clearTimeout(contextMenuTimer);
+          contextMenuTimer = null;
         }
       };
 
@@ -1294,26 +1297,12 @@ export function StickyNotesLayout() {
         setContextMenu(null);
       };
 
-      progressInterval = setInterval(() => {
-        if (activated || aborted) return;
-        const elapsed = performance.now() - holdStartedAt;
-        if (elapsed >= TABLET_HOLD_VISUAL_DELAY_MS) {
-          setTabletHoldState({
-            groupId,
-            progress: Math.min(1, elapsed / TABLET_GROUP_HOLD_MS),
-            x: currentClientX,
-            y: currentClientY,
-          });
-        }
-      }, 50);
-
       holdTimer = setTimeout(() => {
         if (aborted || isPinchingRef.current) return;
         clearHoldTimers();
         activated = true;
         dragStartX = currentClientX;
         dragStartY = currentClientY;
-        setTabletHoldState(null);
         setContextMenu(null);
         setTabletMovingGroupId(groupId);
         setMovingGroupNoteIds(new Set(members.map((member) => member.id)));
@@ -1670,6 +1659,22 @@ export function StickyNotesLayout() {
         userId={userId}
         userEmail={userEmail}
         onBeforeNavigate={flushPendingPatches}
+        tabletActions={isTablet ? <StickyNotesToolbar
+          layoutMode="tablet-primary"
+          activeColor={activeColor}
+          selectedNoteColor={selectedNote?.color}
+          hasSelectedNote={Boolean(selectedNote)}
+          notesCount={notes.length}
+          saveState={saveState}
+          errorMessage={saveError}
+          onCreateNote={handleCreateNote}
+          onToggleGroups={() => setGroupsSidebarOpen(open => !open)}
+          groupsOpen={groupsSidebarOpen}
+          onSelectColor={handleToolbarSelectColor}
+          onFormat={handleEditorFormat}
+          highlightMode={highlightMode}
+          onInsertNoteLink={handleInsertNoteLink}
+        /> : undefined}
         tabletStatus={isTablet ? <StickyNotesToolbar
           layoutMode="tablet-status"
           activeColor={activeColor}
@@ -1849,7 +1854,6 @@ export function StickyNotesLayout() {
           {activeGroupBounds.map(({group,left,top,width,height}) => {
             const palette = STICKY_COLORS.find(color => color.key === group.color) || STICKY_COLORS[0];
             const tint = palette.swatchLight;
-            const isHoldingThisGroup = isTablet && tabletHoldState?.groupId === group.id;
             const isMovingThisGroup = isTablet && tabletMovingGroupId === group.id;
             const titleColorClass = ({
               yellow: 'text-[#8a741f] dark:text-[#f5df78]',
