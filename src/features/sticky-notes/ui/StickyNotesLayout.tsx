@@ -2040,6 +2040,7 @@ export function StickyNotesLayout() {
                 key={note.id}
                 isTablet={isTablet}
                 visualFrame={isTablet ? tabletLayout?.noteFrames[note.id] : undefined}
+                onTabletPanStart={isTablet ? startTabletBoardPan : undefined}
                 onTabletMoveLive={isTablet ? handleTabletMoveLive : undefined}
                 onTabletMoveEnd={isTablet ? handleTabletMoveEnd : undefined}
                 note={note}
