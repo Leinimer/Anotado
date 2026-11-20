@@ -620,9 +620,12 @@ export function commitStickMoveToLayout(params: {
   const existing = base.notes[noteId];
   const now = new Date().toISOString();
 
+  // O desktop possui um quadro livre, sem bordas artificiais em X/Y.
+  // Tablet e mobile mantêm a margem mínima de seus layouts responsivos.
+  const freeDesktopPosition = resolved.layoutType === 'desktop';
   base.notes[noteId] = {
-    x: Math.max(12, Math.round(x)),
-    y: Math.max(12, Math.round(y)),
+    x: freeDesktopPosition ? Math.round(x) : Math.max(12, Math.round(x)),
+    y: freeDesktopPosition ? Math.round(y) : Math.max(12, Math.round(y)),
     width: existing?.width ?? resolved.cardWidth,
     height: existing?.height ?? null,
     group_id: groupId !== undefined ? groupId : (targetNote?.group_id ?? null),
@@ -649,18 +652,22 @@ export function commitGroupMoveToLayout(params: {
   const members = notes.filter((n) => n.group_id === groupId);
   if (!members.length) return base;
 
-  // Garante que nenhum Stick do campo ultrapasse a borda mínima (12px),
-  // preservando rigorosamente as posições relativas entre todos os membros.
-  let minMemberX = Infinity;
-  let minMemberY = Infinity;
-  for (const member of members) {
-    const entry = base.notes[member.id];
-    if (!entry) continue;
-    minMemberX = Math.min(minMemberX, entry.x);
-    minMemberY = Math.min(minMemberY, entry.y);
+  // No desktop o campo pode atravessar livremente os eixos X/Y.
+  // Tablet e mobile preservam a margem mínima usada pelos layouts responsivos.
+  let safeDx = Math.round(dx);
+  let safeDy = Math.round(dy);
+  if (resolved.layoutType !== 'desktop') {
+    let minMemberX = Infinity;
+    let minMemberY = Infinity;
+    for (const member of members) {
+      const entry = base.notes[member.id];
+      if (!entry) continue;
+      minMemberX = Math.min(minMemberX, entry.x);
+      minMemberY = Math.min(minMemberY, entry.y);
+    }
+    if (Number.isFinite(minMemberX)) safeDx = Math.max(12 - minMemberX, safeDx);
+    if (Number.isFinite(minMemberY)) safeDy = Math.max(12 - minMemberY, safeDy);
   }
-  const safeDx = Number.isFinite(minMemberX) ? Math.max(12 - minMemberX, Math.round(dx)) : Math.round(dx);
-  const safeDy = Number.isFinite(minMemberY) ? Math.max(12 - minMemberY, Math.round(dy)) : Math.round(dy);
 
   for (const member of members) {
     const entry = base.notes[member.id];
@@ -703,8 +710,12 @@ export function commitStickResizeToLayout(params: {
   const now = new Date().toISOString();
 
   base.notes[noteId] = {
-    x: size.position_x !== undefined ? Math.max(12, Math.round(size.position_x)) : (existing?.x ?? 80),
-    y: size.position_y !== undefined ? Math.max(12, Math.round(size.position_y)) : (existing?.y ?? 80),
+    x: size.position_x !== undefined
+      ? (resolved.layoutType === 'desktop' ? Math.round(size.position_x) : Math.max(12, Math.round(size.position_x)))
+      : (existing?.x ?? 80),
+    y: size.position_y !== undefined
+      ? (resolved.layoutType === 'desktop' ? Math.round(size.position_y) : Math.max(12, Math.round(size.position_y)))
+      : (existing?.y ?? 80),
     width: clampWidth(size.width_px),
     height: size.height_px !== undefined ? size.height_px : (existing?.height ?? null),
     group_id: targetNote?.group_id ?? existing?.group_id ?? null,
