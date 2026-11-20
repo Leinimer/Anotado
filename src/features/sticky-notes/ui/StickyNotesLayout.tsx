@@ -818,7 +818,7 @@ export function StickyNotesLayout() {
     next.splice(targetIndex, 0, moved);
     setGroups(next);
     try {
-      await updateStickyNoteGroupsOrder(userIdRef.current, next.map(group => group.id));
+      await updateStickyNoteGroupsOrder(next.map(group => group.id));
     } catch (error) {
       setGroups(previous);
       setSaveState('error');
