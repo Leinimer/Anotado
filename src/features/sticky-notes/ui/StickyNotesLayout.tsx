@@ -1157,8 +1157,8 @@ export function StickyNotesLayout() {
   const handleMoveLive = useCallback(
     (noteId: string, x: number, y: number) => {
       const activeType = layoutTypeRef.current;
-      const safeX = Math.max(12, Math.round(x));
-      const safeY = Math.max(12, Math.round(y));
+      const safeX = activeType === 'desktop' ? Math.round(x) : Math.max(12, Math.round(x));
+      const safeY = activeType === 'desktop' ? Math.round(y) : Math.max(12, Math.round(y));
       const resolved = resolvedLayoutRef.current;
 
       if (resolved) {
@@ -1189,8 +1189,8 @@ export function StickyNotesLayout() {
     (noteId: string, x: number, y: number) => {
       draggingNoteIdRef.current = null;
       const activeType = layoutTypeRef.current;
-      const safeX = Math.max(12, Math.round(x));
-      const safeY = Math.max(12, Math.round(y));
+      const safeX = activeType === 'desktop' ? Math.round(x) : Math.max(12, Math.round(x));
+      const safeY = activeType === 'desktop' ? Math.round(y) : Math.max(12, Math.round(y));
       const target = notesRef.current.find((n) => n.id === noteId);
       const resolved = resolvedLayoutRef.current;
 
