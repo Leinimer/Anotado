@@ -206,9 +206,11 @@ export async function fetchFoldersAndNotes(
   return remoteOperationGuard.execute(opKey, async (): Promise<{ folders: Folder[]; notes: Note[] }> => {
     // 1. Leitura imediata do IndexedDB: se houver dados ou lastSync confirmado, não há necessidade de GET remoto
     try {
-      const allUserFolders = await indexedDBStorage.getAllFolders(userId);
-      const allUserNotes = await indexedDBStorage.getAllNotes(userId);
-      const lastSync = await indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp');
+      const [allUserFolders, allUserNotes, lastSync] = await Promise.all([
+        indexedDBStorage.getAllFolders(userId),
+        indexedDBStorage.getAllNotes(userId),
+        indexedDBStorage.getMetadata<string>(userId, 'last_sync_timestamp'),
+      ]);
 
       if (allUserFolders.length > 0 || allUserNotes.length > 0 || lastSync) {
         const filteredFolders = workspaceType
