@@ -1277,7 +1277,6 @@ export function StickyNotesLayout() {
         window.removeEventListener('pointerup', onFinish);
         window.removeEventListener('pointercancel', onCancel);
         window.removeEventListener('anotado:sticky-pinch-start', onAbortForPinch);
-        setTabletHoldState((prev) => (prev?.groupId === groupId ? null : prev));
         setTabletMovingGroupId((prev) => (prev === groupId ? null : prev));
         setMovingGroupNoteIds(new Set());
       };
@@ -1881,9 +1880,7 @@ export function StickyNotesLayout() {
                     : `color-mix(in srgb, ${tint} 34%, transparent)`,
                   border: isMovingThisGroup
                     ? `3px solid color-mix(in srgb, ${tint} 92%, #68594d)`
-                    : isHoldingThisGroup
-                      ? `2.5px dashed color-mix(in srgb, ${tint} 88%, #68594d)`
-                      : `2px solid color-mix(in srgb, ${tint} 78%, #9a7658)`,
+                    : `2px solid color-mix(in srgb, ${tint} 78%, #9a7658)`,
                   boxShadow: isMovingThisGroup
                     ? '0 18px 42px rgba(45,30,18,.26)'
                     : '0 5px 18px rgba(65,45,28,.08)',
@@ -2067,29 +2064,6 @@ export function StickyNotesLayout() {
             ))
           )}
         </div>
-
-        {/* Feedback visual do pressionamento longo de 3 segundos no tablet */}
-        {isTablet && tabletHoldState && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="fixed z-[10900] pointer-events-none flex items-center gap-2.5 rounded-full border border-[#dfd2c3] dark:border-[#4b3e33] bg-[#fffdf9]/95 dark:bg-[#1e1b18]/95 px-3.5 py-2 shadow-lg backdrop-blur-sm"
-            style={{
-              left: Math.max(16, Math.min(tabletHoldState.x - 105, (typeof window !== 'undefined' ? window.innerWidth : 800) - 230)),
-              top: Math.max(112, tabletHoldState.y - 68),
-            }}
-          >
-            <div className="relative h-2.5 w-20 overflow-hidden rounded-full bg-[#ebe1d6] dark:bg-[#342c25]">
-              <div
-                className="h-full rounded-full bg-[#68594d] dark:bg-[#e7d4bf] transition-[width] duration-75"
-                style={{ width: `${Math.round(tabletHoldState.progress * 100)}%` }}
-              />
-            </div>
-            <span className="text-xs font-medium text-[#514235] dark:text-[#eadccd] whitespace-nowrap">
-              Segure para mover ({Math.max(1, Math.ceil((1 - tabletHoldState.progress) * 3))}s)
-            </span>
-          </div>
-        )}
 
         {/* Indicador do modo ativo de movimentação de campo no tablet */}
         {isTablet && tabletMovingGroupId && (
