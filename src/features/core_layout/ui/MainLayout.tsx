@@ -807,6 +807,38 @@ export function MainLayout() {
     }
   }, [isSplit, leftNoteId, rightNoteId, activeSplitPane, tabs]);
 
+  // Converte uma nota do workspace Notas em um Stick, preservando título e conteúdo.
+  const handleConvertNoteToStick = useCallback(
+    async (targetNoteId: string) => {
+      const targetNote = notes.find((item) => item.id === targetNoteId);
+      if (!targetNote) return;
+
+      try {
+        // Garante que o conteúdo mais recente esteja persistido antes da conversão.
+        await flushNoteSaves(targetNoteId);
+        let content = targetNote.content;
+        if (content === undefined || content === null) {
+          const loaded = await fetchNoteContent(userId, targetNote);
+          content = loaded.content ?? '';
+        }
+
+        sessionStorage.setItem(
+          'anotado_pending_sticky_conversion',
+          JSON.stringify({
+            sourceNoteId: targetNote.id,
+            title: targetNote.title || '',
+            content: typeof content === 'string' ? content : String(content ?? ''),
+          })
+        );
+        router.push('/sticky-notes');
+      } catch (error) {
+        console.error('[MainLayout] Não foi possível preparar a conversão para Stick:', error);
+        window.alert('Não foi possível carregar o conteúdo completo desta nota. Tente novamente.');
+      }
+    },
+    [notes, userId, router]
+  );
+
   // Divide a tela a partir do menu contextual da nota na Sidebar
   const handleSplitFromSidebar = useCallback(
     async (targetNoteId: string) => {
@@ -2204,6 +2236,10 @@ export function MainLayout() {
                 onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
                 onSplitNote={(id) => {
                   handleSplitFromSidebar(id);
+                  setMobileSidebarOpen(false);
+                }}
+                onConvertNoteToStick={(id) => {
+                  void handleConvertNoteToStick(id);
                   setMobileSidebarOpen(false);
                 }}
                 onMoveItem={handleMoveItem}
