@@ -196,35 +196,8 @@ export function DiaryLayout() {
       setUserId(uid);
 
       try {
-        // Verifica se há evidência de inconsistência local antes de reconciliar
-        const localFolders = await indexedDBStorage.getAllFolders(uid);
-        const yearFolders = localFolders.filter((f) => isDiaryYearFolder(f));
-        const yearNums = yearFolders.map((f) => extractDiaryYear(f)).filter(Boolean);
-        const hasDuplicateYears = new Set(yearNums).size !== yearNums.length;
-
-        let hasDuplicateMonths = false;
-        for (const yf of yearFolders) {
-          const childMonths = localFolders.filter((f) => f.parent_id === yf.id);
-          const mNums = childMonths.map((m) => extractDiaryMonth(m)).filter(Boolean);
-          if (new Set(mNums).size !== mNums.length) {
-            hasDuplicateMonths = true;
-            break;
-          }
-        }
-
-        // Executa reconciliação somente quando houver duplicatas ou inconsistência estrutural
-        if (hasDuplicateYears || hasDuplicateMonths) {
-          await reconcileAndDeduplicateDiary(uid);
-        }
-
-        // Garante que o ano atual e seus 12 meses existam na estrutura
-        const currentYear = new Date().getFullYear();
-        await ensureDiaryYearFolders(uid, currentYear);
-
-        // Limpeza segura de tags automáticas obsoletas do Diário
-        await cleanAutomaticDiaryTags(uid);
-
-        // Carrega pastas e notas
+        // Prioriza a leitura do snapshot local e apresenta o Diário imediatamente.
+        // A manutenção da estrutura não deve bloquear a abertura da página.
         const initialData = await fetchFoldersAndNotes(uid, 'diary');
         if (!isMounted) return;
 
@@ -235,27 +208,49 @@ export function DiaryLayout() {
         setFolders(loadedFolders);
         setNotes(loadedNotes);
 
-        // Se houver anotação salva em sessionStorage (ex: navegação vinda de referência interna):
-        const savedDiaryActiveId = typeof window !== 'undefined' ? sessionStorage.getItem('anotado_active_diary_id') : null;
-        const targetSavedNote = savedDiaryActiveId ? loadedNotes.find((n) => n.id === savedDiaryActiveId) : null;
+        const savedDiaryActiveId =
+          typeof window !== 'undefined'
+            ? sessionStorage.getItem('anotado_active_diary_id')
+            : null;
+        const targetSavedNote = savedDiaryActiveId
+          ? loadedNotes.find((n) => n.id === savedDiaryActiveId)
+          : null;
 
         if (targetSavedNote) {
           setActiveNoteId(targetSavedNote.id);
         } else {
-          // REGRA 3: Ao abrir o Diário por padrão:
-          // - seleciona o dia atual;
-          // - se a nota do dia atual existir, abre seu conteúdo;
-          // - se NÃO existir, NÃO cria automaticamente. A nota só nasce quando o usuário clicar no dia.
           const todayStr = getLocalDateString();
           const todayNote = loadedNotes.find((n) => n.entry_date === todayStr);
-
-          if (todayNote) {
-            setActiveNoteId(todayNote.id);
-          } else {
-            // Não cria automaticamente!
-            setActiveNoteId(null);
-          }
+          setActiveNoteId(todayNote?.id ?? null);
         }
+
+        // Reconciliação, criação de meses e limpeza de tags seguem em segundo plano.
+        // Isso mantém os dados atuais visíveis enquanto o IndexedDB é verificado.
+        void (async () => {
+          const localFolders = await indexedDBStorage.getAllFolders(uid);
+          const yearFolders = localFolders.filter((f) => isDiaryYearFolder(f));
+          const yearNums = yearFolders.map((f) => extractDiaryYear(f)).filter(Boolean);
+          const hasDuplicateYears = new Set(yearNums).size !== yearNums.length;
+
+          let hasDuplicateMonths = false;
+          for (const yearFolder of yearFolders) {
+            const childMonths = localFolders.filter((f) => f.parent_id === yearFolder.id);
+            const monthNums = childMonths.map((m) => extractDiaryMonth(m)).filter(Boolean);
+            if (new Set(monthNums).size !== monthNums.length) {
+              hasDuplicateMonths = true;
+              break;
+            }
+          }
+
+          if (hasDuplicateYears || hasDuplicateMonths) {
+            await reconcileAndDeduplicateDiary(uid);
+          }
+
+          await ensureDiaryYearFolders(uid, new Date().getFullYear());
+          await cleanAutomaticDiaryTags(uid);
+        })().catch((maintenanceError) => {
+          console.warn('[DiaryLayout] Manutenção em segundo plano não concluída:', maintenanceError);
+        });
       } catch (err) {
         console.error('[DiaryLayout] Erro na inicialização:', err);
       }
