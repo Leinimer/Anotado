@@ -316,14 +316,15 @@ export function MainLayout() {
             console.warn('[MainLayout] Aviso ao provisionar Notas Rápidas em segundo plano:', qErr);
           });
 
-        try {
-          const fetchedPdfs = await fetchLibraryPdfs(currentUserId);
-          if (isMounted) {
-            setLibraryPdfs(fetchedPdfs);
-          }
-        } catch (pdfErr) {
-          console.warn('[MainLayout] Aviso ao carregar PDFs da biblioteca:', pdfErr);
-        }
+        // A biblioteca de PDFs é complementar à abertura das notas.
+        // Busca em paralelo, sem atrasar a restauração da nota ativa.
+        void fetchLibraryPdfs(currentUserId)
+          .then((fetchedPdfs) => {
+            if (isMounted) setLibraryPdfs(fetchedPdfs);
+          })
+          .catch((pdfErr) => {
+            console.warn('[MainLayout] Aviso ao carregar PDFs da biblioteca:', pdfErr);
+          });
 
         const referenceTargetId =
           typeof window !== 'undefined'
