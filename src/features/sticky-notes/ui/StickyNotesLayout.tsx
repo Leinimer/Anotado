@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { GripVertical, Loader2, Plus, StickyNote as StickyNoteIcon, X } from 'lucide-react';
+import { Loader2, Plus, StickyNote as StickyNoteIcon } from 'lucide-react';
 import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 import {
   STICKY_DEFAULT_WIDTH,
@@ -25,11 +25,13 @@ import {
 } from '../api/sticky-notes-api';
 import { StickyNoteCard, StickyEditorActions, StickyEditorAction } from './StickyNoteCard';
 import { StickyNotesToolbar, StickySaveState } from './StickyNotesToolbar';
+import { StickyGroupsSidebar } from './StickyGroupsSidebar';
 import { StickyNoteReferenceModal, StickyNoteReferencePreview } from './StickyNoteReferenceModal';
 import type { ReferenceType } from './StickyNoteReferenceModal';
 import { StickyReminderSettingsModal } from './StickyReminderSettingsModal';
 import { fetchStickyReminderNoteIds } from '../api/sticky-reminders-api';
 import { useStickyTabletMode } from '../hooks/useStickyTabletMode';
+import { reorderStickyGroups, StickyResizePatch } from '../lib/sticky-interactions';
 
 const DEBOUNCE_MS = 450;
 
@@ -59,8 +61,6 @@ export function StickyNotesLayout() {
   const [reminderNoteIds, setReminderNoteIds] = useState<Set<string>>(new Set());
   const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);
   const [groupsSidebarOpen, setGroupsSidebarOpen] = useState(false);
-  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
-  const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
   const [referencePreview, setReferencePreview] = useState<{id:string;type:ReferenceType;left:number;top:number}|null>(null);
 
   const { isTablet } = useStickyTabletMode();
@@ -69,12 +69,21 @@ export function StickyNotesLayout() {
   const pendingPatchesRef = useRef<Map<string, UpdateStickyNotePatch>>(new Map());
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const notesRef = useRef<StickyNote[]>(notes);
-  // Keep event/ResizeObserver callbacks synchronized with the latest React state.
-  notesRef.current = notes;
+  const groupsRef = useRef<StickyNoteGroup[]>(groups);
+  const resizingNoteIdRef = useRef<string | null>(null);
+  const resizeInitialSizeRef = useRef<{ width_px: number; height_px: number | null } | null>(null);
   const userIdRef = useRef<string>(userId);
   const canvasZoomRef = useRef<number>(canvasZoom);
   const canvasPanRef = useRef<{ x: number; y: number }>(canvasPan);
   const isPinchingRef = useRef<boolean>(false);
+
+  useLayoutEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+
+  useLayoutEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
 
   useEffect(() => {
     canvasZoomRef.current = canvasZoom;
@@ -553,6 +562,9 @@ export function StickyNotesLayout() {
     noteHeightsRef.current[noteId] = height;
     setNoteHeights(previous => previous[noteId] === height ? previous : { ...previous, [noteId]: height });
 
+    // Durante o redimensionamento manual, apenas atualiza a altura medida sem empurrar cartões no meio do gesto.
+    if (resizingNoteIdRef.current === noteId) return;
+
     // Só empurra os outros Sticks quando este cartão cresce (por exemplo,
     // ao adicionar uma linha), sem reorganizar a posição inicial ao carregar.
     if (!previousHeight || height <= previousHeight + 1) return;
@@ -573,7 +585,7 @@ export function StickyNotesLayout() {
     ];
     for (const note of candidates) {
       let y = note.position_y;
-      const noteHeight = noteHeightsRef.current[note.id] || 280;
+      const noteHeight = note.height_px ?? noteHeightsRef.current[note.id] ?? 280;
       let moved = true;
       while (moved) {
         moved = false;
@@ -604,8 +616,8 @@ export function StickyNotesLayout() {
     }
   }, [persistPatch]);
 
-  // A única medição de altura fica no quadro. Assim, qualquer mudança real
-  // no tamanho de um Stick aciona a mesma rotina de prevenção de colisões.
+  // A única medição de altura fica no quadro. Usa offsetHeight (não afetado por canvasZoom)
+  // para medir a altura real no espaço do quadro sem distorções durante zoom/pinça.
   useLayoutEffect(() => {
     if (isLoading || typeof ResizeObserver === 'undefined') return;
 
@@ -616,8 +628,8 @@ export function StickyNotesLayout() {
     const reportHeight = (element: HTMLElement) => {
       const noteId = element.dataset.stickyNoteId;
       if (!noteId) return;
-      const height = Math.ceil(element.getBoundingClientRect().height);
-      handleNoteHeightChange(noteId, height);
+      const height = Math.ceil(element.offsetHeight);
+      if (height > 0) handleNoteHeightChange(noteId, height);
     };
 
     elements.forEach(reportHeight);
@@ -673,15 +685,47 @@ export function StickyNotesLayout() {
     [persistPatch]
   );
 
-  const handleResizeLive = useCallback((noteId: string, widthPx: number) => {
+  const handleResizeStart = useCallback((noteId: string) => {
+    const target = notesRef.current.find((item) => item.id === noteId);
+    resizingNoteIdRef.current = noteId;
+    resizeInitialSizeRef.current = target
+      ? { width_px: target.width_px, height_px: target.height_px ?? null }
+      : null;
+  }, []);
+
+  const handleResizeLive = useCallback((noteId: string, size: StickyResizePatch) => {
+    if (size.height_px != null) {
+      noteHeightsRef.current[noteId] = size.height_px;
+    }
     setNotes((prev) =>
-      prev.map((item) => (item.id === noteId ? { ...item, width_px: widthPx } : item))
+      prev.map((item) =>
+        item.id === noteId
+          ? {
+              ...item,
+              width_px: size.width_px,
+              ...(size.height_px !== undefined ? { height_px: size.height_px } : {}),
+            }
+          : item
+      )
     );
   }, []);
 
   const handleResizeEnd = useCallback(
-    (noteId: string, widthPx: number) => {
-      void persistPatch(noteId, { width_px: widthPx });
+    (noteId: string, size: StickyResizePatch) => {
+      const initial = resizeInitialSizeRef.current;
+      resizingNoteIdRef.current = null;
+      resizeInitialSizeRef.current = null;
+
+      const nextHeight = size.height_px ?? null;
+      const widthChanged = !initial || initial.width_px !== size.width_px;
+      const heightChanged = !initial || initial.height_px !== nextHeight;
+      if (!widthChanged && !heightChanged) return;
+
+      const patch: UpdateStickyNotePatch = { width_px: size.width_px };
+      if (heightChanged) {
+        patch.height_px = nextHeight;
+      }
+      void persistPatch(noteId, patch);
     },
     [persistPatch]
   );
@@ -808,62 +852,49 @@ export function StickyNotesLayout() {
   }, [canvasZoom, persistPatch]);
 
   const handleReorderGroups = useCallback(async (sourceId: string, targetId: string) => {
-    if (sourceId === targetId) return;
-    const previous = groups;
-    const next = [...groups];
-    const sourceIndex = next.findIndex(group => group.id === sourceId);
-    const targetIndex = next.findIndex(group => group.id === targetId);
-    if (sourceIndex < 0 || targetIndex < 0) return;
-    const [moved] = next.splice(sourceIndex, 1);
-    next.splice(targetIndex, 0, moved);
+    const previous = groupsRef.current;
+    const next = reorderStickyGroups(previous, sourceId, targetId);
+    if (!next) return;
+
+    groupsRef.current = next;
     setGroups(next);
+    setSaveState('saving');
+    setSaveError(null);
     try {
-      await updateStickyNoteGroupsOrder(next.map(group => group.id));
+      await updateStickyNoteGroupsOrder(
+        next.map((group) => group.id),
+        userIdRef.current
+      );
+      setSaveState('saved');
     } catch (error) {
+      groupsRef.current = previous;
       setGroups(previous);
       setSaveState('error');
       setSaveError(error instanceof Error ? error.message : 'Não foi possível salvar a ordem dos campos.');
     }
-  }, [groups]);
+  }, []);
 
-  const handleGroupReorderPointerDown = useCallback((groupId: string, event: React.PointerEvent<HTMLSpanElement>) => {
-    if (event.pointerType === 'mouse' && event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const pointerId = event.pointerId;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    let didMove = false;
-    setDraggingGroupId(groupId);
-    const cleanup = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', finish);
-      window.removeEventListener('pointercancel', cancel);
-      setDraggingGroupId(null);
-      setDragOverGroupId(null);
-    };
-    const move = (pointer: PointerEvent) => {
-      if (pointer.pointerId !== pointerId) return;
-      if (!didMove && Math.hypot(pointer.clientX - startX, pointer.clientY - startY) < 5) return;
-      didMove = true;
-      const element = document.elementFromPoint(pointer.clientX, pointer.clientY) as HTMLElement | null;
-      const target = element?.closest<HTMLElement>('[data-sticky-group-id]');
-      setDragOverGroupId(target?.dataset.stickyGroupId || null);
-    };
-    const finish = (pointer: PointerEvent) => {
-      if (pointer.pointerId !== pointerId) return;
-      const element = document.elementFromPoint(pointer.clientX, pointer.clientY) as HTMLElement | null;
-      const targetId = element?.closest<HTMLElement>('[data-sticky-group-id]')?.dataset.stickyGroupId;
-      cleanup();
-      if (didMove && targetId && targetId !== groupId) void handleReorderGroups(groupId, targetId);
-    };
-    const cancel = (pointer: PointerEvent) => {
-      if (pointer.pointerId === pointerId) cleanup();
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', finish);
-    window.addEventListener('pointercancel', cancel);
-  }, [handleReorderGroups]);
+  const handleSelectGroupFromSidebar = useCallback((groupId: string) => {
+    const members = notesRef.current.filter((note) => note.group_id === groupId);
+    if (members.length && boardScrollRef.current) {
+      const left = Math.min(...members.map((note) => note.position_x));
+      const top = Math.min(...members.map((note) => note.position_y));
+      const right = Math.max(...members.map((note) => note.position_x + note.width_px));
+      const bottom = Math.max(
+        ...members.map((note) => {
+          const element = document.getElementById('sticky-note-' + note.id);
+          return note.position_y + (note.height_px ?? noteHeightsRef.current[note.id] ?? element?.offsetHeight ?? 280);
+        })
+      );
+      const viewport = boardScrollRef.current;
+      const zoom = canvasZoomRef.current || 1;
+      setCanvasPan({
+        x: viewport.clientWidth / 2 - ((left + right) / 2) * zoom,
+        y: viewport.clientHeight / 2 - ((top + bottom) / 2) * zoom,
+      });
+    }
+    setGroupsSidebarOpen(false);
+  }, []);
 
   const handleGroupTitleChange = useCallback((groupId: string, title: string) => {
     setGroups(previous => previous.map(group => group.id === groupId ? { ...group, title } : group));
@@ -909,7 +940,7 @@ export function StickyNotesLayout() {
     const right = Math.max(...members.map(note => note.position_x + note.width_px));
     const bottom = Math.max(...members.map(note => {
       const element = typeof document !== 'undefined' ? document.getElementById('sticky-note-' + note.id) : null;
-      const height = noteHeights[note.id] || element?.offsetHeight || 280;
+      const height = note.height_px ?? noteHeights[note.id] ?? element?.offsetHeight ?? 280;
       return note.position_y + height;
     }));
     return { group, left: left - 22, top: top - 42, width: right - left + 44, height: bottom - top + 66 };
@@ -980,68 +1011,16 @@ export function StickyNotesLayout() {
       />
 
       {groupsSidebarOpen && (
-        <aside
-          aria-label="Campos criados"
-          className={`fixed left-0 ${isTablet ? 'top-[92px]' : 'top-[76px]'} bottom-0 z-[10500] flex w-[min(290px,85vw)] flex-col border-r border-[#ded6cc] bg-[#fbf9f4] shadow-[8px_0_28px_rgba(40,30,20,.14)] dark:border-[#38332e] dark:bg-[#11100f] dark:shadow-[8px_0_28px_rgba(0,0,0,.45)]`}
-        >
-          <div className="flex h-12 shrink-0 items-center justify-between border-b border-[#e8e1d8] px-4 dark:border-[#302b26]">
-            <h2 className="text-sm font-semibold text-[#51463d] dark:text-[#e8ded4]">Campos criados</h2>
-            <button type="button" onClick={() => setGroupsSidebarOpen(false)} aria-label="Fechar campos criados" className="rounded-full p-1.5 text-[#75695f] hover:bg-[#eee8df] dark:text-[#c5b8aa] dark:hover:bg-[#29231e]"><X className="h-4 w-4"/></button>
-          </div>
-          <div className="flex-1 space-y-2 overflow-y-auto p-3">
-            {groups.map(group => {
-              const palette = STICKY_COLORS.find(color => color.key === group.color) || STICKY_COLORS[0];
-              const count = notes.filter(note => note.group_id === group.id).length;
-              const members = notes.filter(note => note.group_id === group.id);
-              return (
-                <button
-                  key={group.id}
-                  type="button"
-                  data-sticky-group-id={group.id}
-                  onClick={() => {
-                    if (members.length && boardScrollRef.current) {
-                      const left = Math.min(...members.map(note => note.position_x));
-                      const top = Math.min(...members.map(note => note.position_y));
-                      const right = Math.max(...members.map(note => note.position_x + note.width_px));
-                      const bottom = Math.max(...members.map(note => {
-                        const element = document.getElementById('sticky-note-' + note.id);
-                        return note.position_y + (noteHeights[note.id] || element?.offsetHeight || 280);
-                      }));
-                      const viewport = boardScrollRef.current;
-                      setCanvasPan({
-                        x: viewport.clientWidth / 2 - ((left + right) / 2) * canvasZoom,
-                        y: viewport.clientHeight / 2 - ((top + bottom) / 2) * canvasZoom,
-                      });
-                    }
-                    setGroupsSidebarOpen(false);
-                  }}
-                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left shadow-sm transition-all hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8d725d] ${dragOverGroupId === group.id ? 'ring-2 ring-[#8d725d] -translate-y-0.5' : ''} ${draggingGroupId === group.id ? 'opacity-50' : ''} ${palette.cardClass} ${palette.textClass}`}
-                  title={members.length ? 'Centralizar este campo no quadro' : 'Este campo ainda não possui Stick'}
-                >
-                  <span
-                    tabIndex={0}
-                    aria-label={`Arrastar campo ${group.title || 'sem título'} para mudar sua posição`}
-                    title="Arraste para mudar a posição deste campo"
-                    onPointerDown={(event) => handleGroupReorderPointerDown(group.id, event)}
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => {
-                      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-                      event.preventDefault();
-                      event.stopPropagation();
-                      const index = groups.findIndex(item => item.id === group.id);
-                      const target = groups[index + (event.key === 'ArrowUp' ? -1 : 1)];
-                      if (target) void handleReorderGroups(group.id, target.id);
-                    }}
-                    className="shrink-0 cursor-grab touch-none rounded p-0.5 opacity-55 hover:opacity-100 active:cursor-grabbing"
-                  ><GripVertical className="h-4 w-4" /></span>
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{group.title || 'Campo sem título'}</span>
-                  <span className="shrink-0 text-[11px] font-medium opacity-75">{count} {count === 1 ? 'Stick' : 'Sticks'}</span>
-                </button>
-              );
-            })}
-            {groups.length === 0 && <p className="px-2 py-4 text-center text-xs text-[#8b8178] dark:text-[#a39a91]">Nenhum campo criado.</p>}
-          </div>
-        </aside>
+        <StickyGroupsSidebar
+          isTablet={isTablet}
+          groups={groups}
+          notes={notes}
+          onClose={() => setGroupsSidebarOpen(false)}
+          onSelectGroup={handleSelectGroupFromSidebar}
+          onReorderGroups={(activeId, overId) => {
+            void handleReorderGroups(activeId, overId);
+          }}
+        />
       )}
 
       {referencePreview && userId && <StickyNoteReferencePreview
@@ -1268,7 +1247,7 @@ export function StickyNotesLayout() {
                   x: other.position_x,
                   y: other.position_y,
                   width: other.width_px,
-                  height: noteHeights[other.id] || 280,
+                  height: other.height_px ?? noteHeights[other.id] ?? 280,
                 }))}
                 isSelected={selectedNoteId === note.id}
                 autoFocus={newlyCreatedId === note.id}
@@ -1278,6 +1257,7 @@ export function StickyNotesLayout() {
                 onChangeColor={handleChangeNoteColor}
                 onMoveLive={handleMoveLive}
                 onMoveEnd={handleMoveEnd}
+                onResizeStart={handleResizeStart}
                 onResizeLive={handleResizeLive}
                 onResizeEnd={handleResizeEnd}
                 onDelete={handleDeleteNote}

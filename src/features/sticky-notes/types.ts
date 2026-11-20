@@ -17,6 +17,7 @@ export interface StickyNote {
   position_x: number;
   position_y: number;
   width_px: number;
+  height_px?: number | null;
   z_index: number;
   group_id?: string | null;
   created_at: string;
@@ -26,6 +27,8 @@ export interface StickyNote {
 export const STICKY_DEFAULT_WIDTH = 260;
 export const STICKY_MIN_WIDTH = 190;
 export const STICKY_MAX_WIDTH = 640;
+export const STICKY_MIN_HEIGHT = 120;
+export const STICKY_MAX_HEIGHT = 1200;
 
 export interface StickyColorTheme {
   key: StickyNoteColorKey;
