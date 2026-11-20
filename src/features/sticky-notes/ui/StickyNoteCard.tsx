@@ -782,7 +782,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
   const sw=note.width_px;
   const initialHeightPx=note.height_px??null;
   const sh=Math.round(note.height_px??cardRef.current?.offsetHeight??180);
-  let currentSize:StickyResizePatch={width_px:sw,height_px:initialHeightPx};
+  let currentSize:StickyResizePatch={width_px:sw,height_px:initialHeightPx,position_x:note.position_x,position_y:note.position_y};
   let changed=false,cancelledByPinch=false;
   setResizeAxis(axis);
   const cleanup=()=>{
@@ -798,8 +798,8 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
    cancelledByPinch=true;
    cleanup();
    setResizeAxis(null);
-   if(changed)onResizeLive(note.id,{width_px:sw,height_px:initialHeightPx});
-   onResizeEnd(note.id,{width_px:sw,height_px:initialHeightPx});
+   if(changed)onResizeLive(note.id,{width_px:sw,height_px:initialHeightPx,position_x:note.position_x,position_y:note.position_y});
+   onResizeEnd(note.id,{width_px:sw,height_px:initialHeightPx,position_x:note.position_x,position_y:note.position_y});
   };
   const move=(v:PointerEvent)=>{
    if(v.pointerId!==pointerId)return;
@@ -816,7 +816,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
     positionY:note.position_y,
     snapTargets,
    });
-   if(next.width_px!==currentSize.width_px||next.height_px!==currentSize.height_px){
+   if(next.width_px!==currentSize.width_px||next.height_px!==currentSize.height_px||next.position_x!==currentSize.position_x||next.position_y!==currentSize.position_y){
     currentSize=next;
     changed=true;
     onResizeLive(note.id,next);
@@ -827,7 +827,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
    cleanup();
    setResizeAxis(null);
    if(!cancelledByPinch){
-    onResizeEnd(note.id,changed?currentSize:{width_px:sw,height_px:initialHeightPx});
+    onResizeEnd(note.id,changed?currentSize:{width_px:sw,height_px:initialHeightPx,position_x:note.position_x,position_y:note.position_y});
    }
   };
   window.addEventListener('pointermove',move);
@@ -836,11 +836,17 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
   window.addEventListener('anotado:sticky-pinch-start',abortForPinch);
  };
  const hasManualHeight=note.height_px!=null;
- return <div ref={cardRef} id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>{if(!isPinchingRef?.current)onSelect(note.id);}} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,height:hasManualHeight?note.height_px??undefined:undefined,zIndex:note.z_index}} className={`group flex flex-col rounded-xl border transition-shadow duration-150 ${colors.cardClass} ${drag||resize?'shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
+ return <div ref={cardRef} id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>{if(!isPinchingRef?.current)onSelect(note.id);}} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,height:hasManualHeight?note.height_px??undefined:undefined,zIndex:note.z_index}} className={`group flex flex-col rounded-xl border transition-[left,top,box-shadow,transform] duration-200 ease-out ${drag||resize?'transition-none scale-[1.015] shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
  <div onPointerDown={dragStart} className={`flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 border-b rounded-t-xl cursor-grab active:cursor-grabbing touch-none select-none ${colors.headerClass}`}><GripHorizontal className={`w-3.5 h-3.5 shrink-0 opacity-45 ${colors.textClass}`}/><input value={note.title} onPointerDown={e=>{e.stopPropagation();onSelect(note.id);}} onChange={e=>onChangeTitle(note.id,e.target.value)} placeholder="Título..." aria-label="Título do Stick" className={`flex-1 min-w-0 bg-transparent text-[15px] font-semibold focus:outline-none placeholder:opacity-50 ${colors.textClass}`}/><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onOpenReminder?.(note);}} className={`relative p-1 rounded-md opacity-35 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-[#8d725d]/10 ${hasReminder?'opacity-100 text-[#b4533c] dark:text-[#f08a72]':colors.mutedTextClass}`} title={hasReminder?'Gerenciar lembretes deste Stick':'Configurar lembrete'} aria-label="Configurar lembrete"><AlarmClock className="w-3.5 h-3.5"/>{hasReminder&&<span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-[#c34f3c] ring-1 ring-white dark:ring-[#222]"/>}</button><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onDelete(note.id);}} className={`p-1 rounded-md opacity-25 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-500/15 ${colors.mutedTextClass}`} title="Excluir Stick" aria-label="Excluir Stick"><Trash2 className="w-3.5 h-3.5"/></button></div>
- <div onClick={e=>{if(e.target===e.currentTarget)editor.current?.focus();}} className={`px-3 py-2.5 ${hasManualHeight?'flex-1 min-h-0 overflow-y-auto':''}`}><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onKeyUp={()=>{pasteAsPlainText.current=false;}} onBlur={()=>{pasteAsPlainText.current=false;}} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
- <div onPointerDown={e=>startResize('x',e)} role="separator" aria-orientation="vertical" aria-label="Ajustar largura do Stick" title="Arraste para ajustar a largura" className="absolute top-2 bottom-5 -right-1.5 w-3.5 cursor-ew-resize touch-none select-none flex items-center justify-center group/resize-x z-10"><span aria-hidden="true" className="hidden"/></div>
- <div onPointerDown={e=>startResize('y',e)} role="separator" aria-orientation="horizontal" aria-label="Ajustar altura do Stick" title="Arraste para ajustar a altura" className="absolute left-2 right-5 -bottom-1.5 h-3.5 cursor-ns-resize touch-none select-none flex items-center justify-center group/resize-y z-10"><span aria-hidden="true" className="hidden"/></div>
- <div onPointerDown={e=>startResize('xy',e)} role="separator" aria-label="Redimensionar largura e altura do Stick" title="Arraste para ajustar largura e altura" className="absolute -right-2 -bottom-2 h-7 w-7 cursor-nwse-resize touch-none select-none flex items-end justify-end p-2 group/resize-xy z-20"><span aria-hidden="true" className="hidden"/></div>
+ <div data-sticky-scroll-color={note.color} onClick={e=>{if(e.target===e.currentTarget)editor.current?.focus();}} className={`sticky-note-scroll-area px-3 py-2.5 ${hasManualHeight?'flex-1 min-h-0 overflow-y-auto':''}`}><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onKeyUp={()=>{pasteAsPlainText.current=false;}} onBlur={()=>{pasteAsPlainText.current=false;}} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
+ {/* Oito zonas de arraste: quatro bordas e quatro quinas. */}
+ <div onPointerDown={e=>startResize('left',e)} role="separator" aria-orientation="vertical" aria-label="Redimensionar pela borda esquerda" className="absolute left-0 top-3 bottom-3 w-3 -translate-x-1/2 cursor-ew-resize touch-none z-20"/>
+ <div onPointerDown={e=>startResize('right',e)} role="separator" aria-orientation="vertical" aria-label="Redimensionar pela borda direita" className="absolute right-0 top-3 bottom-3 w-3 translate-x-1/2 cursor-ew-resize touch-none z-20"/>
+ <div onPointerDown={e=>startResize('top',e)} role="separator" aria-orientation="horizontal" aria-label="Redimensionar pela borda superior" className="absolute top-0 left-3 right-3 h-3 -translate-y-1/2 cursor-ns-resize touch-none z-20"/>
+ <div onPointerDown={e=>startResize('bottom',e)} role="separator" aria-orientation="horizontal" aria-label="Redimensionar pela borda inferior" className="absolute bottom-0 left-3 right-3 h-3 translate-y-1/2 cursor-ns-resize touch-none z-20"/>
+ <div onPointerDown={e=>startResize('top-left',e)} role="separator" aria-label="Redimensionar pela quina superior esquerda" className="absolute -left-1.5 -top-1.5 w-5 h-5 cursor-nwse-resize touch-none z-30"/>
+ <div onPointerDown={e=>startResize('top-right',e)} role="separator" aria-label="Redimensionar pela quina superior direita" className="absolute -right-1.5 -top-1.5 w-5 h-5 cursor-nesw-resize touch-none z-30"/>
+ <div onPointerDown={e=>startResize('bottom-left',e)} role="separator" aria-label="Redimensionar pela quina inferior esquerda" className="absolute -left-1.5 -bottom-1.5 w-5 h-5 cursor-nesw-resize touch-none z-30"/>
+ <div onPointerDown={e=>startResize('bottom-right',e)} role="separator" aria-label="Redimensionar pela quina inferior direita" className="absolute -right-1.5 -bottom-1.5 w-5 h-5 cursor-nwse-resize touch-none z-30"/>
  </div>;
 }
