@@ -2028,25 +2028,56 @@ html.dark {
 }
 
 
-/* Barra do Stick em tablets: navegação e ações principais na primeira linha;
-   paleta e formatação na segunda. O cabeçalho não participa do zoom do quadro. */
-@media screen and (min-width: 768px) and (max-width: 1200px), screen and (pointer: coarse) and (min-width: 768px) {
-  #sticky-notes-app-container { height: 100dvh; min-height: 0; overflow: hidden; }
-  #app-main-header.anotado-app-header {
+/* Somente a tela Stick em tablets: cabeçalho de duas linhas e quadro com zoom próprio. */
+.app-header-tablet { display: none; }
+@media screen and (min-width: 768px) and (max-width: 1200px),
+       screen and (pointer: coarse) and (min-width: 768px) {
+  #sticky-notes-app-container { height: 100dvh; min-height: 0; overflow: hidden; touch-action: pan-x pan-y; }
+  #sticky-notes-app-container #app-main-header {
+    display: block;
+    width: 100%;
+    height: auto;
+    min-height: 92px;
+    padding: 6px 12px 5px;
+    overflow: visible;
+  }
+  #sticky-notes-app-container #app-main-header .app-header-standard { display: none; }
+  #sticky-notes-app-container #app-main-header .app-header-tablet {
     display: flex;
     flex-direction: column;
-    align-items: stretch;
-    gap: 0;
-    padding: 6px 12px 5px;
-    min-height: 88px;
-  }
-  #app-main-header .anotado-app-header-primary {
     width: 100%;
-    min-height: 42px;
-    gap: 12px;
+    gap: 4px;
   }
-  #app-main-header .anotado-app-header-primary nav { overflow: visible; }
-  #app-main-header .anotado-app-header-secondary {
+  #sticky-notes-app-container #app-main-header .app-header-tablet-primary {
+    display: grid;
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: clamp(5px, 1vw, 12px);
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+  }
+  #sticky-notes-app-container #app-main-header .app-header-tablet-primary > nav {
+    min-width: 0;
+    overflow: visible;
+    gap: 2px;
+  }
+  #sticky-notes-app-container #app-main-header .app-header-tablet-actions {
+    min-width: 0;
+    overflow: hidden;
+  }
+  #sticky-notes-app-container #app-main-header #sticky-notes-toolbar-primary {
+    min-width: 0;
+    justify-content: flex-start;
+    gap: clamp(4px, .8vw, 10px);
+  }
+  #sticky-notes-app-container #app-main-header .app-header-tablet-controls {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: max-content;
+  }
+  #sticky-notes-app-container #app-main-header .app-header-tablet-secondary {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2055,19 +2086,18 @@ html.dark {
     padding-top: 3px;
     border-top: 1px solid #eae8e3;
   }
-  .dark #app-main-header .anotado-app-header-secondary { border-top-color: #1a1a1a; }
-  #app-main-header #sticky-notes-toolbar-secondary { justify-content: center; }
-  #sticky-notes-board-viewport {
+  .dark #sticky-notes-app-container #app-main-header .app-header-tablet-secondary { border-top-color: #1a1a1a; }
+  #sticky-notes-app-container #app-main-header #sticky-notes-toolbar-secondary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(4px, .8vw, 10px);
+    width: 100%;
+  }
+  #sticky-notes-app-container #sticky-notes-board-viewport {
     touch-action: none;
     overscroll-behavior: none;
     -webkit-user-select: none;
     user-select: none;
   }
-}
-@media screen and (min-width: 1201px) and (pointer: fine) {
-  #app-main-header.anotado-app-header { min-height: 48px; height: 48px; }
-  #app-main-header .anotado-app-header-primary,
-  #app-main-header .anotado-app-header-secondary { display: contents; }
-  #app-main-header .anotado-app-header-secondary { flex: 1 1 auto; }
-  #app-main-header #sticky-notes-toolbar-secondary { flex: 1 1 auto; }
 }
