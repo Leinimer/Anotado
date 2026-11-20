@@ -71,7 +71,7 @@ export function StickyNotesLayout() {
   const notesRef = useRef<StickyNote[]>(notes);
   const groupsRef = useRef<StickyNoteGroup[]>(groups);
   const resizingNoteIdRef = useRef<string | null>(null);
-  const resizeInitialSizeRef = useRef<{ width_px: number; height_px: number | null } | null>(null);
+  const resizeInitialSizeRef = useRef<{ width_px: number; height_px: number | null; position_x: number; position_y: number } | null>(null);
   const userIdRef = useRef<string>(userId);
   const canvasZoomRef = useRef<number>(canvasZoom);
   const canvasPanRef = useRef<{ x: number; y: number }>(canvasPan);
@@ -689,23 +689,22 @@ export function StickyNotesLayout() {
     const target = notesRef.current.find((item) => item.id === noteId);
     resizingNoteIdRef.current = noteId;
     resizeInitialSizeRef.current = target
-      ? { width_px: target.width_px, height_px: target.height_px ?? null }
+      ? { width_px: target.width_px, height_px: target.height_px ?? null, position_x: target.position_x, position_y: target.position_y }
       : null;
   }, []);
 
   const handleResizeLive = useCallback((noteId: string, size: StickyResizePatch) => {
-    if (size.height_px != null) {
-      noteHeightsRef.current[noteId] = size.height_px;
-    }
+    if (size.height_px != null) noteHeightsRef.current[noteId] = size.height_px;
     setNotes((prev) =>
-      prev.map((item) =>
-        item.id === noteId
-          ? {
-              ...item,
-              width_px: size.width_px,
-              ...(size.height_px !== undefined ? { height_px: size.height_px } : {}),
-            }
-          : item
+      prev.map((item) => item.id === noteId
+        ? {
+            ...item,
+            width_px: size.width_px,
+            ...(size.height_px !== undefined ? { height_px: size.height_px } : {}),
+            ...(size.position_x !== undefined ? { position_x: size.position_x } : {}),
+            ...(size.position_y !== undefined ? { position_y: size.position_y } : {}),
+          }
+        : item
       )
     );
   }, []);
@@ -719,12 +718,14 @@ export function StickyNotesLayout() {
       const nextHeight = size.height_px ?? null;
       const widthChanged = !initial || initial.width_px !== size.width_px;
       const heightChanged = !initial || initial.height_px !== nextHeight;
-      if (!widthChanged && !heightChanged) return;
+      const xChanged = !initial || initial.position_x !== (size.position_x ?? initial.position_x);
+      const yChanged = !initial || initial.position_y !== (size.position_y ?? initial.position_y);
+      if (!widthChanged && !heightChanged && !xChanged && !yChanged) return;
 
       const patch: UpdateStickyNotePatch = { width_px: size.width_px };
-      if (heightChanged) {
-        patch.height_px = nextHeight;
-      }
+      if (heightChanged) patch.height_px = nextHeight;
+      if (xChanged && size.position_x !== undefined) patch.position_x = size.position_x;
+      if (yChanged && size.position_y !== undefined) patch.position_y = size.position_y;
       void persistPatch(noteId, patch);
     },
     [persistPatch]
