@@ -13,6 +13,7 @@ export interface CreateStickyNoteInput {
   position_x: number;
   position_y: number;
   width_px?: number;
+  height_px?: number | null;
   z_index: number;
   group_id?: string | null;
 }
@@ -135,6 +136,7 @@ export async function createStickyNote(
       position_x: Math.round(input.position_x),
       position_y: Math.round(input.position_y),
       width_px: Math.round(input.width_px ?? STICKY_DEFAULT_WIDTH),
+      height_px: input.height_px ?? null,
       z_index: Math.round(input.z_index),
     })
     .select('id, user_id, title, content, color, position_x, position_y, width_px, height_px, z_index, group_id, created_at, updated_at')
@@ -149,6 +151,7 @@ export async function createStickyNote(
     position_x: Number(data.position_x ?? 80),
     position_y: Number(data.position_y ?? 80),
     width_px: Number(data.width_px ?? STICKY_DEFAULT_WIDTH),
+    height_px: data.height_px == null ? null : Number(data.height_px),
     z_index: Number(data.z_index ?? 1),
   };
 }
