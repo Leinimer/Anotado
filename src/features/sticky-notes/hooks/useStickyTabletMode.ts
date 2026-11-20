@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 
 const TABLET_MIN_SHORT_SIDE = 600;
 const TABLET_MIN_LONG_SIDE = 800;
-const TABLET_MAX_LONG_SIDE = 1500;
+const TABLET_MAX_LONG_SIDE = 1800;
 
 interface TabletViewportInfo {
   width: number;
@@ -50,7 +50,7 @@ export function evaluateTabletMode(info: TabletViewportInfo): boolean {
   const isTabletPointerProfile =
     isIPadOS ||
     isAndroidTablet ||
-    (coarsePrimary && !finePrimaryWithHover);
+    (hasTouch && !finePrimaryWithHover);
 
   if (!isTabletPointerProfile) return false;
 

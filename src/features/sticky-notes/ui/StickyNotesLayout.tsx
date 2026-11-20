@@ -37,6 +37,7 @@ export function StickyNotesLayout() {
   const [userEmail, setUserEmail] = useState<string>('');
   const [notes, setNotes] = useState<StickyNote[]>([]);
   const [noteHeights, setNoteHeights] = useState<Record<string, number>>({});
+  const noteHeightsRef = useRef<Record<string, number>>({});
   const [groups, setGroups] = useState<StickyNoteGroup[]>([]);
   const [contextMenu, setContextMenu] = useState<{kind:'note'|'group';id:string;x:number;y:number}|null>(null);
   const [editingGroupTitleId, setEditingGroupTitleId] = useState<string | null>(null);
@@ -65,6 +66,8 @@ export function StickyNotesLayout() {
   const pendingPatchesRef = useRef<Map<string, UpdateStickyNotePatch>>(new Map());
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const notesRef = useRef<StickyNote[]>(notes);
+  // Keep event/ResizeObserver callbacks synchronized with the latest React state.
+  notesRef.current = notes;
   const userIdRef = useRef<string>(userId);
   const canvasZoomRef = useRef<number>(canvasZoom);
   const canvasPanRef = useRef<{ x: number; y: number }>(canvasPan);
@@ -230,35 +233,6 @@ export function StickyNotesLayout() {
       window.removeEventListener('blur', handleWindowBlur);
     };
   }, []);
-
-  useLayoutEffect(() => {
-    if (isLoading || typeof ResizeObserver === 'undefined') return;
-
-    const elements = notes
-      .map(note => document.getElementById('sticky-note-' + note.id))
-      .filter((element): element is HTMLElement => Boolean(element));
-
-    const updateHeight = (element: HTMLElement) => {
-      const noteId = element.dataset.stickyNoteId;
-      if (!noteId) return;
-      const height = Math.ceil(element.getBoundingClientRect().height);
-      setNoteHeights(previous => previous[noteId] === height
-        ? previous
-        : { ...previous, [noteId]: height });
-    };
-
-    elements.forEach(updateHeight);
-    const observer = new ResizeObserver(entries => {
-      entries.forEach(entry => updateHeight(entry.target as HTMLElement));
-    });
-    elements.forEach(element => observer.observe(element));
-
-    return () => observer.disconnect();
-  }, [notes, isLoading]);
-
-  useEffect(() => {
-    notesRef.current = notes;
-  }, [notes]);
 
   useEffect(() => {
     userIdRef.current = userId;
@@ -571,6 +545,87 @@ export function StickyNotesLayout() {
     [selectedNoteId, persistPatch]
   );
 
+  const handleNoteHeightChange = useCallback((noteId: string, height: number) => {
+    const previousHeight = noteHeightsRef.current[noteId] || 0;
+    noteHeightsRef.current[noteId] = height;
+    setNoteHeights(previous => previous[noteId] === height ? previous : { ...previous, [noteId]: height });
+
+    // Só empurra os outros Sticks quando este cartão cresce (por exemplo,
+    // ao adicionar uma linha), sem reorganizar a posição inicial ao carregar.
+    if (!previousHeight || height <= previousHeight + 1) return;
+    const source = notesRef.current.find(note => note.id === noteId);
+    if (!source) return;
+
+    const gap = 16;
+    const candidates = notesRef.current
+      .filter(note => note.id !== noteId &&
+        note.position_x < source.position_x + source.width_px &&
+        note.position_x + note.width_px > source.position_x &&
+        note.position_y >= source.position_y)
+      .sort((a, b) => a.position_y - b.position_y);
+
+    const nextY = new Map<string, number>();
+    const placed: Array<{ x: number; y: number; width: number; height: number }> = [
+      { x: source.position_x, y: source.position_y, width: source.width_px, height }
+    ];
+    for (const note of candidates) {
+      let y = note.position_y;
+      const noteHeight = noteHeightsRef.current[note.id] || 280;
+      let moved = true;
+      while (moved) {
+        moved = false;
+        for (const above of placed) {
+          const horizontalOverlap = note.position_x < above.x + above.width &&
+            note.position_x + note.width_px > above.x;
+          const verticalOverlap = y < above.y + above.height + gap &&
+            y + noteHeight > above.y;
+          if (horizontalOverlap && verticalOverlap) {
+            y = above.y + above.height + gap;
+            moved = true;
+          }
+        }
+      }
+      nextY.set(note.id, y);
+      placed.push({ x: note.position_x, y, width: note.width_px, height: noteHeight });
+    }
+
+    if (nextY.size) {
+      setNotes(previous => previous.map(note => {
+        const y = nextY.get(note.id);
+        return y !== undefined && y !== note.position_y ? { ...note, position_y: y } : note;
+      }));
+      nextY.forEach((y, id) => {
+        const current = notesRef.current.find(note => note.id === id);
+        if (current && current.position_y !== y) void persistPatch(id, { position_y: y });
+      });
+    }
+  }, [persistPatch]);
+
+  // A única medição de altura fica no quadro. Assim, qualquer mudança real
+  // no tamanho de um Stick aciona a mesma rotina de prevenção de colisões.
+  useLayoutEffect(() => {
+    if (isLoading || typeof ResizeObserver === 'undefined') return;
+
+    const elements = notes
+      .map(note => document.getElementById('sticky-note-' + note.id))
+      .filter((element): element is HTMLElement => Boolean(element));
+
+    const reportHeight = (element: HTMLElement) => {
+      const noteId = element.dataset.stickyNoteId;
+      if (!noteId) return;
+      const height = Math.ceil(element.getBoundingClientRect().height);
+      handleNoteHeightChange(noteId, height);
+    };
+
+    elements.forEach(reportHeight);
+    const observer = new ResizeObserver(entries => {
+      entries.forEach(entry => reportHeight(entry.target as HTMLElement));
+    });
+    elements.forEach(element => observer.observe(element));
+
+    return () => observer.disconnect();
+  }, [notes, isLoading, handleNoteHeightChange]);
+
   const handleMoveLive = useCallback((noteId: string, x: number, y: number) => {
     setNotes((prev) =>
       prev.map((item) =>
@@ -615,15 +670,15 @@ export function StickyNotesLayout() {
     [persistPatch]
   );
 
-  const handleResizeLive = useCallback((noteId: string, widthPx: number) => {
-    setNotes((prev) =>
-      prev.map((item) => (item.id === noteId ? { ...item, width_px: widthPx } : item))
-    );
+  const handleResizeLive = useCallback((noteId: string, widthPx: number, heightPx?: number | null) => {
+    setNotes((prev) => prev.map((item) => item.id === noteId
+      ? { ...item, width_px: widthPx, ...(heightPx !== undefined ? { height_px: heightPx } : {}) }
+      : item));
   }, []);
 
   const handleResizeEnd = useCallback(
-    (noteId: string, widthPx: number) => {
-      void persistPatch(noteId, { width_px: widthPx });
+    (noteId: string, widthPx: number, heightPx?: number | null) => {
+      void persistPatch(noteId, { width_px: widthPx, ...(heightPx !== undefined ? { height_px: heightPx } : {}) });
     },
     [persistPatch]
   );
@@ -814,6 +869,21 @@ export function StickyNotesLayout() {
         userId={userId}
         userEmail={userEmail}
         onBeforeNavigate={flushPendingPatches}
+        tabletStatus={isTablet ? <StickyNotesToolbar
+          layoutMode="tablet-status"
+          activeColor={activeColor}
+          selectedNoteColor={selectedNote?.color}
+          hasSelectedNote={Boolean(selectedNote)}
+          notesCount={notes.length}
+          saveState={saveState}
+          errorMessage={saveError}
+          onCreateNote={handleCreateNote}
+          onToggleGroups={() => setGroupsSidebarOpen(open => !open)}
+          groupsOpen={groupsSidebarOpen}
+          onSelectColor={handleToolbarSelectColor}
+          onFormat={handleEditorFormat}
+          onInsertNoteLink={handleInsertNoteLink}
+        /> : undefined}
         toolbar={<StickyNotesToolbar
           layoutMode={isTablet ? 'tablet-primary' : 'default'}
           activeColor={activeColor}
