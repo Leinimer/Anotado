@@ -20,6 +20,7 @@ interface AppHeaderProps {
   toolbar?: React.ReactNode;
   secondaryToolbar?: React.ReactNode;
   tabletStatus?: React.ReactNode;
+  tabletActions?: React.ReactNode;
 }
 const NAV_ITEMS = [
   { id: 'notes' as const, label: 'Notas', href: '/notes' },
@@ -28,7 +29,7 @@ const NAV_ITEMS = [
 ];
 export function AppHeader({
   activeSection, userId = '', userEmail = '', notes = [], onBeforeNavigate,
-  onOpenShareModal, variant = 'top', toolbar, secondaryToolbar, tabletStatus,
+  onOpenShareModal, variant = 'top', toolbar, secondaryToolbar, tabletStatus, tabletActions,
 }: AppHeaderProps) {
   const router = useRouter();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -82,7 +83,7 @@ export function AppHeader({
       ) : variant === 'footer' ? controls : secondaryToolbar ? (
         <header id="app-main-header" data-tablet-header="true" className="sticky top-0 w-full shrink-0 bg-[#fbf9f4] dark:bg-[#000000] border-b border-[#eae8e3] dark:border-[#1a1a1a] select-none z-[10400] touch-manipulation shadow-[0_1px_4px_rgba(40,30,20,0.06)]">
           <div id="app-header-tablet-primary-row" className="w-full h-12 px-2.5 sm:px-3 flex flex-nowrap items-center gap-2 min-w-0">
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">{logo}{nav}<StickyReminderBell /></div>
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">{logo}{nav}<StickyReminderBell />{tabletActions}</div>
             <div className="ml-auto flex items-center gap-2 shrink-0">
               <ThemeToggle />
               {tabletStatus}
