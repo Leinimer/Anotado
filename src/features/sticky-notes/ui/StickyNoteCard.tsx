@@ -10,7 +10,7 @@ const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,
 const getStickyHighlightColor=(color?:string|null)=>{
  const hex=getStickyColorTheme(color).swatchLight.replace('#','');
  const channels=[0,2,4].map(index=>parseInt(hex.slice(index,index+2),16));
- const darker=channels.map(channel=>Math.round(channel*0.90));
+ const darker=channels.map(channel=>Math.round(channel*0.96));
  return `rgb(${darker.join(', ')})`;
 };
 const hasMarkdownBold=(value:string)=>/(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*)/.test(value);
@@ -106,7 +106,7 @@ const styleChecklist=(editor:HTMLElement)=>{
 export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=false,snapTargets=[],canvasZoom=1,isPinchingRef,isMovingWithGroup=false,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeStart,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,onPreviewLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
  const colors=getStickyColorTheme(note.color);const cardRef=useRef<HTMLDivElement>(null);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);const highlightModeRef=useRef(highlightMode);const applyingHighlight=useRef(false);
  type EditorHistoryEntry={html:string;caret:number};
- const history=useRef<{entries:EditorHistoryEntry[];index:number;restoring:boolean}>({entries:[],index:-1,restoring:false});const [drag,setDrag]=useState(false);const [resizeAxis,setResizeAxis]=useState<StickyResizeAxis|null>(null);const resize=resizeAxis!==null;
+ const history=useRef<{entries:EditorHistoryEntry[];index:number;restoring:boolean}>({entries:[],index:-1,restoring:false});const [drag,setDrag]=useState(false);const [resizeAxis,setResizeAxis]=useState<StickyResizeAxis|null>(null);const resize=resizeAxis!==null;const [highlightDeleteTarget,setHighlightDeleteTarget]=useState<{element:HTMLElement;left:number;top:number}|null>(null);
  useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');const changed=el.innerHTML!==html;if(changed)el.innerHTML=html;styleChecklist(el);if(changed||history.current.index<0)history.current={entries:[{html:el.innerHTML,caret:0}],index:0,restoring:false};}},[note.content]);
  useEffect(()=>{if(autoFocus)editor.current?.focus();},[autoFocus]);
  useEffect(()=>{highlightModeRef.current=highlightMode;},[highlightMode]);
@@ -223,9 +223,34 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
   try{
    document.execCommand('hiliteColor',false,getStickyHighlightColor(note.color));
    save();
+   requestAnimationFrame(()=>window.getSelection()?.removeAllRanges());
   }finally{
    requestAnimationFrame(()=>{applyingHighlight.current=false;});
   }
+ };
+ const findHighlightElement=(target:EventTarget|null):HTMLElement|null=>{
+  if(!(target instanceof Element))return null;
+  const candidate=target.closest<HTMLElement>('mark,span[style]');
+  if(!candidate||!editor.current?.contains(candidate))return null;
+  const background=candidate.style.backgroundColor||candidate.getAttribute('data-sticky-highlight');
+  return background&&background!=='transparent'?candidate:null;
+ };
+ const showHighlightDelete=(target:EventTarget|null)=>{
+  const element=findHighlightElement(target);
+  if(!element||!cardRef.current)return;
+  const rect=element.getBoundingClientRect();
+  const card=cardRef.current.getBoundingClientRect();
+  setHighlightDeleteTarget({element,left:Math.max(4,Math.min(card.width-30,rect.right-card.left-10)),top:Math.max(34,rect.top-card.top-24)});
+ };
+ const removeHighlight=()=>{
+  const element=highlightDeleteTarget?.element;
+  if(!element||!editor.current?.contains(element))return;
+  const parent=element.parentNode;
+  if(!parent)return;
+  while(element.firstChild)parent.insertBefore(element.firstChild,element);
+  parent.removeChild(element);
+  setHighlightDeleteTarget(null);
+  save();
  };
  const scheduleSelectionHighlight=()=>{
   if(!highlightModeRef.current)return;
@@ -871,10 +896,12 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
   window.addEventListener('anotado:sticky-pinch-start',abortForPinch);
  };
  const hasManualHeight=note.height_px!=null;
+ <style>{`.sticky-rich-editor::selection{background:var(--sticky-selection-color)!important;color:inherit!important}.sticky-rich-editor *::selection{background:var(--sticky-selection-color)!important;color:inherit!important}.sticky-rich-editor::-moz-selection{background:var(--sticky-selection-color)!important;color:inherit!important}`}</style>
  return <div ref={cardRef} id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>{if(!isPinchingRef?.current)onSelect(note.id);}} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,height:hasManualHeight?note.height_px??undefined:undefined,zIndex:note.z_index,transition:drag||resize||isMovingWithGroup?'none':'left 200ms ease, top 200ms ease, box-shadow 150ms ease, transform 150ms ease'}} className={`group flex flex-col rounded-xl border ${colors.cardClass} ${drag||resize?'scale-[1.015] shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
  <div onPointerDown={dragStart} className={`flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 border-b rounded-t-xl cursor-grab active:cursor-grabbing touch-none select-none ${colors.headerClass}`}><GripHorizontal className={`w-3.5 h-3.5 shrink-0 opacity-45 ${colors.textClass}`}/><input value={note.title} onPointerDown={e=>{e.stopPropagation();onSelect(note.id);}} onChange={e=>onChangeTitle(note.id,e.target.value)} placeholder="Título..." aria-label="Título do Stick" className={`flex-1 min-w-0 bg-transparent text-[15px] font-semibold focus:outline-none placeholder:opacity-50 ${colors.textClass}`}/><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onOpenReminder?.(note);}} className={`relative p-1 rounded-md opacity-35 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-[#8d725d]/10 ${hasReminder?'opacity-100 text-[#b4533c] dark:text-[#f08a72]':colors.mutedTextClass}`} title={hasReminder?'Gerenciar lembretes deste Stick':'Configurar lembrete'} aria-label="Configurar lembrete"><AlarmClock className="w-3.5 h-3.5"/>{hasReminder&&<span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-[#c34f3c] ring-1 ring-white dark:ring-[#222]"/>}</button><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onDelete(note.id);}} className={`p-1 rounded-md opacity-25 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-500/15 ${colors.mutedTextClass}`} title="Excluir Stick" aria-label="Excluir Stick"><Trash2 className="w-3.5 h-3.5"/></button></div>
- <div data-sticky-scroll-color={note.color} onClick={e=>{if(e.target===e.currentTarget)editor.current?.focus();}} className={`sticky-note-scroll-area px-3 py-2.5 ${hasManualHeight?'flex-1 min-h-0 overflow-y-auto':''}`}><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onKeyUp={()=>{pasteAsPlainText.current=false;scheduleSelectionHighlight();}} onMouseUp={scheduleSelectionHighlight} onPointerUp={scheduleSelectionHighlight} onBlur={()=>{pasteAsPlainText.current=false;}} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
+ <div data-sticky-scroll-color={note.color} onClick={e=>{if(e.target===e.currentTarget)editor.current?.focus();}} className={`sticky-note-scroll-area px-3 py-2.5 ${hasManualHeight?'flex-1 min-h-0 overflow-y-auto':''}`}><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onKeyUp={()=>{pasteAsPlainText.current=false;scheduleSelectionHighlight();}} onMouseUp={scheduleSelectionHighlight} onPointerUp={scheduleSelectionHighlight} onMouseOver={e=>showHighlightDelete(e.target)} onMouseOut={e=>{const next=e.relatedTarget;if(next instanceof Element&&next.closest('[data-sticky-highlight-delete]'))return;if(findHighlightElement(e.target))setHighlightDeleteTarget(null);}} onBlur={()=>{pasteAsPlainText.current=false;}} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} style={{'--sticky-selection-color':getStickyHighlightColor(note.color)} as React.CSSProperties} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
  {/* Oito zonas de arraste: quatro bordas e quatro quinas. */}
+ {highlightDeleteTarget&&<button type="button" data-sticky-highlight-delete onMouseDown={e=>e.preventDefault()} onClick={e=>{e.stopPropagation();removeHighlight();}} onMouseLeave={()=>setHighlightDeleteTarget(null)} title="Remover marcação" aria-label="Remover marcação" style={{position:'absolute',left:highlightDeleteTarget.left,top:highlightDeleteTarget.top,zIndex:40}} className="flex h-6 w-6 items-center justify-center rounded-full border border-[#d8c9b8] bg-[#fffaf4] text-[#8b5548] shadow-md hover:bg-[#f8e6df] dark:border-[#665448] dark:bg-[#2b241f] dark:text-[#f0b5a7] dark:hover:bg-[#49302a]"><Trash2 className="h-3.5 w-3.5"/></button>}
  <div onPointerDown={e=>startResize('left',e)} role="separator" aria-orientation="vertical" aria-label="Redimensionar pela borda esquerda" className="absolute left-0 top-3 bottom-3 w-3 -translate-x-1/2 cursor-ew-resize touch-none z-20"/>
  <div onPointerDown={e=>startResize('right',e)} role="separator" aria-orientation="vertical" aria-label="Redimensionar pela borda direita" className="absolute right-0 top-3 bottom-3 w-3 translate-x-1/2 cursor-ew-resize touch-none z-20"/>
  <div onPointerDown={e=>startResize('top',e)} role="separator" aria-orientation="horizontal" aria-label="Redimensionar pela borda superior" className="absolute top-0 left-3 right-3 h-3 -translate-y-1/2 cursor-ns-resize touch-none z-20"/>
