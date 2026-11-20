@@ -814,6 +814,21 @@ export function StickyNotesLayout() {
         userId={userId}
         userEmail={userEmail}
         onBeforeNavigate={flushPendingPatches}
+        tabletStatus={isTablet ? <StickyNotesToolbar
+          layoutMode="tablet-status"
+          activeColor={activeColor}
+          selectedNoteColor={selectedNote?.color}
+          hasSelectedNote={Boolean(selectedNote)}
+          notesCount={notes.length}
+          saveState={saveState}
+          errorMessage={saveError}
+          onCreateNote={handleCreateNote}
+          onToggleGroups={() => setGroupsSidebarOpen(open => !open)}
+          groupsOpen={groupsSidebarOpen}
+          onSelectColor={handleToolbarSelectColor}
+          onFormat={handleEditorFormat}
+          onInsertNoteLink={handleInsertNoteLink}
+        /> : undefined}
         toolbar={<StickyNotesToolbar
           layoutMode={isTablet ? 'tablet-primary' : 'default'}
           activeColor={activeColor}
