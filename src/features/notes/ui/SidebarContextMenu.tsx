@@ -101,6 +101,19 @@ export function SidebarContextMenu({
   const [stickGroups, setStickGroups] = useState<StickyNoteGroup[]>([]);
   const [stickGroupsLoading, setStickGroupsLoading] = useState(false);
   const stickGroupsLoadedRef = useRef(false);
+  const stickTriggerRef = useRef<HTMLButtonElement>(null);
+  const stickCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [stickSubmenuPosition, setStickSubmenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const openStickSubmenu = () => {
+    if (stickCloseTimerRef.current) clearTimeout(stickCloseTimerRef.current);
+    const rect = stickTriggerRef.current?.getBoundingClientRect();
+    if (rect) setStickSubmenuPosition({ top: rect.top, left: rect.right + 4 });
+    setShowStickSubmenu(true);
+  };
+  const scheduleStickSubmenuClose = () => {
+    if (stickCloseTimerRef.current) clearTimeout(stickCloseTimerRef.current);
+    stickCloseTimerRef.current = setTimeout(() => setShowStickSubmenu(false), 220);
+  };
   const [exportSubmenuPosition, setExportSubmenuPosition] = useState<{ top: number; left: number } | null>(null);
   const exportButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -187,7 +200,7 @@ export function SidebarContextMenu({
           <div
             className="relative"
             onMouseEnter={async () => {
-              setShowStickSubmenu(true);
+              openStickSubmenu();
               if (stickGroupsLoadedRef.current || stickGroupsLoading) return;
               setStickGroupsLoading(true);
               try {
@@ -202,13 +215,14 @@ export function SidebarContextMenu({
                 setStickGroupsLoading(false);
               }
             }}
-            onMouseLeave={() => setShowStickSubmenu(false)}
+            onMouseLeave={scheduleStickSubmenuClose}
           >
             <button
+              ref={stickTriggerRef}
               id="context-menu-convert-note-to-stick-btn"
               type="button"
-              onClick={() => setShowStickSubmenu((open) => !open)}
-              onFocus={() => setShowStickSubmenu(true)}
+              onClick={() => showStickSubmenu ? setShowStickSubmenu(false) : openStickSubmenu()}
+              onFocus={openStickSubmenu}
               className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] transition-colors cursor-pointer text-left"
               title="Criar Stick ou escolher um campo"
               aria-haspopup="true"
@@ -217,8 +231,14 @@ export function SidebarContextMenu({
               <span className="flex items-center gap-2"><FileText className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" /><span>Stick</span></span>
               <ChevronRight className="w-3.5 h-3.5 opacity-60" />
             </button>
-            {showStickSubmenu && (
-              <div className="absolute left-full top-0 z-[70] min-w-[190px] max-h-[60vh] overflow-y-auto rounded-xl border border-[#e4e2dd] dark:border-[#5a514a] bg-white dark:bg-[#2a2826] p-1.5 shadow-xl">
+            {showStickSubmenu && stickSubmenuPosition && createPortal(
+              <div
+                className="fixed z-[100000] min-w-[210px] max-h-[60vh] overflow-y-auto rounded-xl border border-[#e4e2dd] dark:border-[#5a514a] bg-white dark:bg-[#2a2826] p-1.5 shadow-[0_12px_35px_rgba(40,28,18,.28)]"
+                style={{ top: Math.max(8, Math.min(stickSubmenuPosition.top, window.innerHeight - 260)), left: Math.min(stickSubmenuPosition.left, window.innerWidth - 225) }}
+                onMouseEnter={() => { if (stickCloseTimerRef.current) clearTimeout(stickCloseTimerRef.current); }}
+                onMouseLeave={() => setShowStickSubmenu(false)}
+                onClick={(event) => event.stopPropagation()}
+              >
                 <button type="button" onClick={() => { if (onConvertNoteToStick && menuOpenId) onConvertNoteToStick(menuOpenId, null); setShowStickSubmenu(false); onClose(); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616]">Criar Stick</button>
                 <div className="my-1 border-t border-[#e8e1d9] dark:border-[#51483f]" />
                 {stickGroupsLoading ? (
@@ -229,7 +249,8 @@ export function SidebarContextMenu({
                     <span className="truncate">{group.title?.trim() || 'Campo sem título'}</span>
                   </button>
                 )) : <p className="px-2.5 py-2 text-[11px] text-[#8b7b6c]">Nenhum campo criado na página Stick.</p>}
-              </div>
+              </div>,
+              document.body
             )}
           </div>
 
