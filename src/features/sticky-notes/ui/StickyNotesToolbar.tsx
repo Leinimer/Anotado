@@ -5,7 +5,7 @@ import {useTheme} from '@/src/features/theme/theme-context';
 import {STICKY_COLORS,StickyNoteColorKey} from '../types';
 import {StickyEditorAction} from './StickyNoteCard';
 export type StickySaveState='idle'|'saving'|'saved'|'error';
-export type StickyToolbarLayoutMode='default'|'tablet-primary'|'tablet-editing';
+export type StickyToolbarLayoutMode='default'|'tablet-primary'|'tablet-status'|'tablet-editing';
 interface Props{activeColor:StickyNoteColorKey;selectedNoteColor?:string|null;hasSelectedNote:boolean;notesCount:number;saveState:StickySaveState;errorMessage?:string|null;layoutMode?:StickyToolbarLayoutMode;onCreateNote:()=>void;onToggleGroups?:()=>void;groupsOpen?:boolean;onSelectColor:(c:StickyNoteColorKey)=>void;onFormat?:(a:StickyEditorAction)=>void;onInsertNoteLink?:()=>void;}
 export function StickyNotesToolbar({activeColor,selectedNoteColor,hasSelectedNote,notesCount,saveState,errorMessage,layoutMode='default',onCreateNote,onToggleGroups,groupsOpen,onSelectColor,onFormat,onInsertNoteLink}:Props){
  const {theme,isMounted}=useTheme();const dark=isMounted&&theme==='dark';const active=(hasSelectedNote&&selectedNoteColor?selectedNoteColor:activeColor).toLowerCase();
@@ -14,15 +14,18 @@ export function StickyNotesToolbar({activeColor,selectedNoteColor,hasSelectedNot
  const createButton=<button id="sticky-create-note-btn" type="button" onClick={onCreateNote} className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#68594d] hover:bg-[#53463c] dark:bg-[#2e2620] text-white text-xs font-medium whitespace-nowrap shrink-0"><Plus className="w-3.5 h-3.5"/>Novo Stick</button>;
  const saveStatus=(alwaysShowCount=false)=><div className="ml-auto flex items-center gap-2 shrink-0 text-[11px] whitespace-nowrap text-[#7f756e] dark:text-[#a1a1aa]">{saveState==='saving'&&<span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin"/>Salvando</span>}{saveState==='saved'&&<span className="inline-flex items-center gap-1 text-[#5f6f52]"><Check className="w-3 h-3"/>Salvo</span>}{saveState==='error'&&<span title={errorMessage||'Erro ao salvar'} className="inline-flex items-center gap-1 text-red-600"><AlertCircle className="w-3 h-3"/>Erro ao salvar</span>}<span className={alwaysShowCount?'inline':'hidden sm:inline'}>{notesCount} {notesCount===1?'Stick':'Sticks'}</span></div>;
 
- if(layoutMode==='tablet-primary'){
-  return <div id="sticky-notes-toolbar-primary" className="w-full min-w-0 flex flex-nowrap items-center gap-2 select-none">
-   <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">{groupsButton}{createButton}</div>
-   {saveStatus(true)}
-  </div>;
- }
+ if(layoutMode==='tablet-primary') return null;
+ if(layoutMode==='tablet-status') return <div id="sticky-notes-toolbar-status" className="flex items-center gap-2 shrink-0 text-[11px] whitespace-nowrap text-[#7f756e] dark:text-[#a1a1aa]">
+  {saveState==='saving'&&<span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin"/>Salvando</span>}
+  {saveState==='saved'&&<span className="inline-flex items-center gap-1 text-[#5f6f52]"><Check className="w-3 h-3"/>Salvo</span>}
+  {saveState==='error'&&<span title={errorMessage||'Erro ao salvar'} className="inline-flex items-center gap-1 text-red-600"><AlertCircle className="w-3 h-3"/>Erro</span>}
+  <span>{notesCount} {notesCount===1?'Stick':'Sticks'}</span>
+ </div>;
 
  if(layoutMode==='tablet-editing'){
-  return <div id="sticky-notes-toolbar-editing" className="w-full min-w-0 flex flex-nowrap items-center justify-center gap-2 sm:gap-2.5 overflow-x-auto no-scrollbar select-none">
+  return <div id="sticky-notes-toolbar-editing" className="w-full min-w-0 flex flex-nowrap items-center justify-start gap-2 sm:gap-2.5 overflow-x-auto no-scrollbar select-none">
+   <div className="flex items-center gap-1.5 shrink-0">{groupsButton}{createButton}</div>
+   <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
    <div className="flex items-center gap-2 shrink-0" role="group" aria-label="Cores das notas">{STICKY_COLORS.map(c=><button key={c.key} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>onSelectColor(c.key)} style={{backgroundColor:dark?c.swatchDark:c.swatchLight}} className={`w-5.5 h-5.5 rounded-full border shrink-0 transition-transform hover:scale-110 ${active===c.key?'ring-2 ring-[#68594d] dark:ring-[#f4dfcb] ring-offset-2 ring-offset-[#fbf9f4] dark:ring-offset-[#0a0a0a] border-transparent':'border-black/15 dark:border-white/20'}`} title={c.label} aria-label={c.label} aria-pressed={active===c.key}/>)}</div>
    <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
    <div className="flex items-center gap-1 shrink-0">
