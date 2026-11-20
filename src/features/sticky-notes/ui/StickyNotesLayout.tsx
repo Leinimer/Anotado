@@ -346,17 +346,22 @@ export function StickyNotesLayout() {
         setUserEmail(email);
 
         if (authUser?.userId) {
-          const loaded = await fetchStickyNotes(authUser.userId);
+          // As três consultas são independentes: executá-las juntas reduz o tempo
+          // total de abertura sem alterar a origem nem a consistência dos dados.
+          const [loaded, loadedGroups, activeReminderIds] = await Promise.all([
+            fetchStickyNotes(authUser.userId),
+            fetchStickyNoteGroups(authUser.userId),
+            fetchStickyReminderNoteIds(authUser.userId).catch((reminderError) => {
+              console.warn('[Stick] Não foi possível carregar os indicadores de lembrete:', reminderError);
+              return [] as string[];
+            }),
+          ]);
           if (!isMounted) return;
+
           setNotes(loaded);
-          const loadedGroups = await fetchStickyNoteGroups(authUser.userId);
-          if (isMounted) setGroups(loadedGroups);
-          try {
-            const activeReminderIds = await fetchStickyReminderNoteIds(authUser.userId);
-            if (isMounted) setReminderNoteIds(new Set(activeReminderIds));
-          } catch (reminderError) {
-            console.warn('[Stick] Não foi possível carregar os indicadores de lembrete:', reminderError);
-          }
+          setGroups(loadedGroups);
+          setReminderNoteIds(new Set(activeReminderIds));
+
           const linkedStickyId = sessionStorage.getItem('anotado_active_sticky_id');
           if (linkedStickyId && loaded.some(note => note.id === linkedStickyId)) {
             setSelectedNoteId(linkedStickyId);
