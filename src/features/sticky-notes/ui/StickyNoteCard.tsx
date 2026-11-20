@@ -878,8 +878,10 @@ export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabl
    }
    dx=(v.clientX-sx)/zoom;
    dy=(v.clientY-sy)/zoom;
-   const rawX=Math.max(12,Math.round(px+dx));
-   const rawY=Math.max(12,Math.round(py+dy));
+   // Desktop: quadro sem limites artificiais, inclusive em coordenadas negativas.
+   // Tablet/mobile continuam respeitando a margem mínima do layout responsivo.
+   const rawX=isTouchLayout?Math.max(12,Math.round(px+dx)):Math.round(px+dx);
+   const rawY=isTouchLayout?Math.max(12,Math.round(py+dy)):Math.round(py+dy);
    x=rawX;y=rawY;
    if(!isTouchLayout&&snapTargets.length>0){
     // Gentle magnetic guides on desktop: only snap when an edge is already within 6px.
@@ -891,7 +893,7 @@ export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabl
      xGuides.push(target.x,target.x+target.width-cardWidth,target.x+target.width+gap,target.x-cardWidth-gap);
      yGuides.push(target.y,target.y+target.height-ownHeight,target.y+target.height+gap,target.y-ownHeight-gap);
     }
-    x=Math.max(12,nearest(rawX,xGuides));y=Math.max(12,nearest(rawY,yGuides));
+    x=nearest(rawX,xGuides);y=nearest(rawY,yGuides);
    }
    onMoveLive(note.id,x,y);
   };
