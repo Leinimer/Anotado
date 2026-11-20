@@ -708,6 +708,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
  const dragStart=(e:React.PointerEvent<HTMLDivElement>)=>{
   if(e.button!==0&&e.pointerType==='mouse')return;
   if(isPinchingRef?.current)return;
+  e.preventDefault();
   e.stopPropagation();
   onSelect(note.id);
   const pointerId=e.pointerId;
