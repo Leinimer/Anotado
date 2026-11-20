@@ -298,18 +298,23 @@ export function MainLayout() {
         const { folders: fetchedFolders, notes: fetchedNotes } = await fetchFoldersAndNotes(currentUserId, 'notes');
         if (!isMounted) return;
 
-        let allFolders = fetchedFolders;
-        try {
-          const quickFolder = await ensureQuickNotesFolder(currentUserId);
-          if (!allFolders.some((f) => f.id === quickFolder.id)) {
-            allFolders = [quickFolder, ...allFolders];
-          }
-        } catch (qErr) {
-          console.warn('[MainLayout] Aviso ao provisionar Notas Rápidas na inicialização:', qErr);
-        }
-
-        setFolders(allFolders);
+        // Mostra imediatamente o snapshot local/IndexedDB. A verificação da pasta
+        // Notas Rápidas não deve bloquear a primeira renderização do workspace.
+        setFolders(fetchedFolders);
         setNotes(fetchedNotes);
+
+        void ensureQuickNotesFolder(currentUserId)
+          .then((quickFolder) => {
+            if (!isMounted) return;
+            setFolders((current) =>
+              current.some((folder) => folder.id === quickFolder.id)
+                ? current
+                : [quickFolder, ...current]
+            );
+          })
+          .catch((qErr) => {
+            console.warn('[MainLayout] Aviso ao provisionar Notas Rápidas em segundo plano:', qErr);
+          });
 
         try {
           const fetchedPdfs = await fetchLibraryPdfs(currentUserId);
