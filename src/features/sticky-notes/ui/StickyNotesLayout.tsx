@@ -59,6 +59,7 @@ export function StickyNotesLayout() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeColor, setActiveColor] = useState<StickyNoteColorKey>('yellow');
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [highlightMode, setHighlightMode] = useState(false);
   const [newlyCreatedId, setNewlyCreatedId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<StickySaveState>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -295,6 +296,10 @@ export function StickyNotesLayout() {
     else editorActionsRef.current.delete(noteId);
   }, []);
   const handleEditorFormat = useCallback((action: StickyEditorAction) => {
+    if (action === 'highlight') {
+      setHighlightMode(current => !current);
+      return;
+    }
     if (selectedNoteId) editorActionsRef.current.get(selectedNoteId)?.format(action);
   }, [selectedNoteId]);
   const handleInsertNoteLink = useCallback(() => {
@@ -1171,6 +1176,7 @@ export function StickyNotesLayout() {
           groupsOpen={groupsSidebarOpen}
           onSelectColor={handleToolbarSelectColor}
           onFormat={handleEditorFormat}
+          highlightMode={highlightMode}
           onInsertNoteLink={handleInsertNoteLink}
         /> : undefined}
         toolbar={<StickyNotesToolbar
@@ -1448,6 +1454,7 @@ export function StickyNotesLayout() {
                   height: other.height_px ?? noteHeights[other.id] ?? 280,
                 }))}
                 isSelected={selectedNoteId === note.id}
+                highlightMode={highlightMode}
                 autoFocus={newlyCreatedId === note.id}
                 onSelect={handleSelectNote}
                 onChangeTitle={handleChangeTitle}
