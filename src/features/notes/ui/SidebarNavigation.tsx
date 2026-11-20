@@ -83,7 +83,7 @@ interface SidebarNavigationProps {
   onArchiveNote?: (noteId: string) => void;
   onUnarchiveNote?: (noteId: string) => void;
   onSplitNote?: (noteId: string) => void;
-  onConvertNoteToStick?: (noteId: string) => void;
+  onConvertNoteToStick?: (noteId: string, groupId?: string | null) => void;
   onDuplicateNote?: (noteId: string) => void;
   onOpenNoteInNewTab?: (noteId: string) => void;
   onDetachPdfSummary?: (noteId: string) => void;
