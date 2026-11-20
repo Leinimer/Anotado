@@ -1238,6 +1238,17 @@ export function StickyNotesLayout() {
       const pointerId = event.pointerId;
       const startX = event.clientX;
       const startY = event.clientY;
+      let currentClientX = startX;
+      let currentClientY = startY;
+      let dragStartX = startX;
+      let dragStartY = startY;
+      let activated = false;
+      let aborted = false;
+      const baseGroupOffset = tabletGroupDisplacementsRef.current[groupId] || { dx: 0, dy: 0 };
+
+      let contextMenuTimer: ReturnType<typeof setTimeout> | null = null;
+      let holdTimer: ReturnType<typeof setTimeout> | null = null;
+
       contextMenuTimer = setTimeout(() => {
         if (!activated && !aborted) {
           setContextMenu({
@@ -1248,17 +1259,6 @@ export function StickyNotesLayout() {
           });
         }
       }, TABLET_CONTEXT_MENU_DELAY_MS);
-      let currentClientX = startX;
-      let currentClientY = startY;
-      let dragStartX = startX;
-      let dragStartY = startY;
-      let activated = false;
-      let aborted = false;
-      const holdStartedAt = performance.now();
-      const baseGroupOffset = tabletGroupDisplacementsRef.current[groupId] || { dx: 0, dy: 0 };
-
-      let contextMenuTimer: ReturnType<typeof setTimeout> | null = null;
-      let holdTimer: ReturnType<typeof setTimeout> | null = null;
 
       const clearHoldTimers = () => {
         if (holdTimer) {
