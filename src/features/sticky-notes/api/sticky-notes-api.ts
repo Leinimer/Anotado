@@ -255,7 +255,7 @@ export async function updateStickyNoteGroup(userId: string, groupId: string, pat
   if (error) throw formatSupabaseStickyError(error, 'Erro ao atualizar agrupamento.');
 }
 
-export async function updateStickyNoteGroupsOrder(userId: string, groupIds: string[]): Promise<void> {
+export async function updateStickyNoteGroupsOrder(groupIds: string[]): Promise<void> {
   if (!isSupabaseConfigured() || groupIds.length === 0) return;
   const { error } = await createClient().rpc('reorder_sticky_note_groups', { p_group_ids: groupIds });
   if (error) throw formatSupabaseStickyError(error, 'Erro ao salvar a ordem dos campos.');
