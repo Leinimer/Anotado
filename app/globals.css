@@ -2026,3 +2026,92 @@ html.dark {
 .dark .sticky-board-viewport {
   background-image: radial-gradient(#1c1c1c 1px, transparent 1px);
 }
+
+
+/* Barra de rolagem dos Sticks: acompanha a cor do cartão, em tom mais escuro. */
+.sticky-note-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sticky-scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
+}
+.sticky-note-scrollbar::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+.sticky-note-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sticky-note-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--sticky-scrollbar-thumb);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+  min-height: 28px;
+}
+.sticky-note-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--sticky-scrollbar-thumb-hover);
+}
+.sticky-note-scrollbar-yellow {
+  --sticky-scrollbar-thumb: #d5c46c;
+  --sticky-scrollbar-thumb-hover: #b9a64e;
+}
+.sticky-note-scrollbar-green {
+  --sticky-scrollbar-thumb: #91c394;
+  --sticky-scrollbar-thumb-hover: #6da875;
+}
+.sticky-note-scrollbar-blue {
+  --sticky-scrollbar-thumb: #8dbbe2;
+  --sticky-scrollbar-thumb-hover: #6d9fcf;
+}
+.sticky-note-scrollbar-pink {
+  --sticky-scrollbar-thumb: #d99bb5;
+  --sticky-scrollbar-thumb-hover: #c27b9b;
+}
+.sticky-note-scrollbar-lilac {
+  --sticky-scrollbar-thumb: #b4a0df;
+  --sticky-scrollbar-thumb-hover: #967bc9;
+}
+.sticky-note-scrollbar-orange {
+  --sticky-scrollbar-thumb: #dfaa75;
+  --sticky-scrollbar-thumb-hover: #c88b4f;
+}
+.sticky-note-scrollbar-red {
+  --sticky-scrollbar-thumb: #dc9999;
+  --sticky-scrollbar-thumb-hover: #c87979;
+}
+.sticky-note-scrollbar-gray {
+  --sticky-scrollbar-thumb: #aeb4bd;
+  --sticky-scrollbar-thumb-hover: #929aa5;
+}
+.dark .sticky-note-scrollbar-yellow {
+  --sticky-scrollbar-thumb: #75632b;
+  --sticky-scrollbar-thumb-hover: #97813a;
+}
+.dark .sticky-note-scrollbar-green {
+  --sticky-scrollbar-thumb: #315d3e;
+  --sticky-scrollbar-thumb-hover: #41794f;
+}
+.dark .sticky-note-scrollbar-blue {
+  --sticky-scrollbar-thumb: #31577e;
+  --sticky-scrollbar-thumb-hover: #416f9e;
+}
+.dark .sticky-note-scrollbar-pink {
+  --sticky-scrollbar-thumb: #704057;
+  --sticky-scrollbar-thumb-hover: #91536f;
+}
+.dark .sticky-note-scrollbar-lilac {
+  --sticky-scrollbar-thumb: #514174;
+  --sticky-scrollbar-thumb-hover: #69539a;
+}
+.dark .sticky-note-scrollbar-orange {
+  --sticky-scrollbar-thumb: #784b25;
+  --sticky-scrollbar-thumb-hover: #9a6330;
+}
+.dark .sticky-note-scrollbar-red {
+  --sticky-scrollbar-thumb: #753838;
+  --sticky-scrollbar-thumb-hover: #984848;
+}
+.dark .sticky-note-scrollbar-gray {
+  --sticky-scrollbar-thumb: #4b515b;
+  --sticky-scrollbar-thumb-hover: #626b78;
+}
