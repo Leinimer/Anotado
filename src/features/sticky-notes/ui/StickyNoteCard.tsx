@@ -5,7 +5,7 @@ import {StickyNote,getStickyColorTheme} from '../types';
 import {StickyResizeAxis,StickyResizePatch,StickySnapTarget,computeNextStickySize} from '../lib/sticky-interactions';
 export type StickyEditorAction='bold'|'italic'|'underline'|'highlight'|'undo'|'redo'|'bullet'|'checklist'|'outdent'|'indent';
 export interface StickyEditorActions{format:(action:StickyEditorAction)=>void;prepareNoteReference:()=>string;insertNoteLink:(id:string,title:string,type?:'note'|'sticky'|'diary')=>void;}
-interface Props{snapTargets?:StickySnapTarget[];canvasZoom?:number;isPinchingRef?:React.RefObject<boolean>;isMovingWithGroup?:boolean;note:StickyNote;isSelected:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeStart?:(id:string)=>void;onResizeLive:(id:string,size:StickyResizePatch)=>void;onResizeEnd:(id:string,size:StickyResizePatch)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;onPreviewLinkedNote?:(id:string,type:'note'|'sticky'|'diary',anchor:HTMLElement)=>void;hasReminder?:boolean;onOpenReminder?:(note:StickyNote)=>void;onContextMenu?:(note:StickyNote,x:number,y:number)=>void;}
+interface Props{snapTargets?:StickySnapTarget[];canvasZoom?:number;isPinchingRef?:React.RefObject<boolean>;isMovingWithGroup?:boolean;note:StickyNote;isSelected:boolean;highlightMode?:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeStart?:(id:string)=>void;onResizeLive:(id:string,size:StickyResizePatch)=>void;onResizeEnd:(id:string,size:StickyResizePatch)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;onPreviewLinkedNote?:(id:string,type:'note'|'sticky'|'diary',anchor:HTMLElement)=>void;hasReminder?:boolean;onOpenReminder?:(note:StickyNote)=>void;onContextMenu?:(note:StickyNote,x:number,y:number)=>void;}
 const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const getStickyHighlightColor=(color?:string|null)=>{
  const hex=getStickyColorTheme(color).swatchLight.replace('#','');
@@ -103,12 +103,13 @@ const styleChecklist=(editor:HTMLElement)=>{
  editor.querySelectorAll<HTMLParagraphElement>('p[data-sticky-after-checklist]').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.2',minHeight:'0',height:'auto'}));
 };
 
-export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],canvasZoom=1,isPinchingRef,isMovingWithGroup=false,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeStart,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,onPreviewLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
- const colors=getStickyColorTheme(note.color);const cardRef=useRef<HTMLDivElement>(null);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);const highlightMode=useRef(false);const applyingHighlight=useRef(false);
+export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=false,snapTargets=[],canvasZoom=1,isPinchingRef,isMovingWithGroup=false,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeStart,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,onPreviewLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
+ const colors=getStickyColorTheme(note.color);const cardRef=useRef<HTMLDivElement>(null);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);const highlightModeRef=useRef(highlightMode);const applyingHighlight=useRef(false);
  type EditorHistoryEntry={html:string;caret:number};
  const history=useRef<{entries:EditorHistoryEntry[];index:number;restoring:boolean}>({entries:[],index:-1,restoring:false});const [drag,setDrag]=useState(false);const [resizeAxis,setResizeAxis]=useState<StickyResizeAxis|null>(null);const resize=resizeAxis!==null;
  useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');const changed=el.innerHTML!==html;if(changed)el.innerHTML=html;styleChecklist(el);if(changed||history.current.index<0)history.current={entries:[{html:el.innerHTML,caret:0}],index:0,restoring:false};}},[note.content]);
  useEffect(()=>{if(autoFocus)editor.current?.focus();},[autoFocus]);
+ useEffect(()=>{highlightModeRef.current=highlightMode;},[highlightMode]);
  const getCaretOffset=(el:HTMLElement)=>{
   const selection=window.getSelection();
   if(!selection?.rangeCount)return 0;
@@ -206,7 +207,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
  const applySelectionHighlight=()=>{
   const el=editor.current;
   const selection=window.getSelection();
-  if(!highlightMode.current||!el||!selection?.rangeCount||selection.isCollapsed||applyingHighlight.current)return;
+  if(!highlightModeRef.current||!el||!selection?.rangeCount||selection.isCollapsed||applyingHighlight.current)return;
   const range=selection.getRangeAt(0);
   if(!el.contains(range.commonAncestorContainer))return;
   const selectedText=selection.toString();
@@ -226,15 +227,11 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
    requestAnimationFrame(()=>{applyingHighlight.current=false;});
   }
  };
- useEffect(()=>{
-  const handleSelectionChange=()=>{
-   if(!highlightMode.current)return;
-   applySelectionHighlight();
-  };
-  document.addEventListener('selectionchange',handleSelectionChange);
-  return()=>document.removeEventListener('selectionchange',handleSelectionChange);
- });
- const command=(cmd:string)=>{if(!editor.current)return;if(cmd==='undo'||cmd==='redo'){editor.current.focus();moveHistory(cmd);return;}editor.current.focus();if(cmd==='highlight'){highlightMode.current=!highlightMode.current;if(highlightMode.current)applySelectionHighlight();return;}document.execCommand(cmd,false);save();};
+ const scheduleSelectionHighlight=()=>{
+  if(!highlightModeRef.current)return;
+  requestAnimationFrame(()=>applySelectionHighlight());
+ };
+ const command=(cmd:string)=>{if(!editor.current)return;if(cmd==='undo'||cmd==='redo'){editor.current.focus();moveHistory(cmd);return;}editor.current.focus();if(cmd==='highlight'){scheduleSelectionHighlight();return;}document.execCommand(cmd,false);save();};
  const placeCaret=(target:HTMLElement)=>{
   const range=document.createRange();
   if(!target.childNodes.length)target.appendChild(document.createElement('br'));
@@ -876,7 +873,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
  const hasManualHeight=note.height_px!=null;
  return <div ref={cardRef} id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>{if(!isPinchingRef?.current)onSelect(note.id);}} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,height:hasManualHeight?note.height_px??undefined:undefined,zIndex:note.z_index,transition:drag||resize||isMovingWithGroup?'none':'left 200ms ease, top 200ms ease, box-shadow 150ms ease, transform 150ms ease'}} className={`group flex flex-col rounded-xl border ${colors.cardClass} ${drag||resize?'scale-[1.015] shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
  <div onPointerDown={dragStart} className={`flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 border-b rounded-t-xl cursor-grab active:cursor-grabbing touch-none select-none ${colors.headerClass}`}><GripHorizontal className={`w-3.5 h-3.5 shrink-0 opacity-45 ${colors.textClass}`}/><input value={note.title} onPointerDown={e=>{e.stopPropagation();onSelect(note.id);}} onChange={e=>onChangeTitle(note.id,e.target.value)} placeholder="Título..." aria-label="Título do Stick" className={`flex-1 min-w-0 bg-transparent text-[15px] font-semibold focus:outline-none placeholder:opacity-50 ${colors.textClass}`}/><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onOpenReminder?.(note);}} className={`relative p-1 rounded-md opacity-35 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-[#8d725d]/10 ${hasReminder?'opacity-100 text-[#b4533c] dark:text-[#f08a72]':colors.mutedTextClass}`} title={hasReminder?'Gerenciar lembretes deste Stick':'Configurar lembrete'} aria-label="Configurar lembrete"><AlarmClock className="w-3.5 h-3.5"/>{hasReminder&&<span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-[#c34f3c] ring-1 ring-white dark:ring-[#222]"/>}</button><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onDelete(note.id);}} className={`p-1 rounded-md opacity-25 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-500/15 ${colors.mutedTextClass}`} title="Excluir Stick" aria-label="Excluir Stick"><Trash2 className="w-3.5 h-3.5"/></button></div>
- <div data-sticky-scroll-color={note.color} onClick={e=>{if(e.target===e.currentTarget)editor.current?.focus();}} className={`sticky-note-scroll-area px-3 py-2.5 ${hasManualHeight?'flex-1 min-h-0 overflow-y-auto':''}`}><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onKeyUp={()=>{pasteAsPlainText.current=false;}} onBlur={()=>{pasteAsPlainText.current=false;}} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
+ <div data-sticky-scroll-color={note.color} onClick={e=>{if(e.target===e.currentTarget)editor.current?.focus();}} className={`sticky-note-scroll-area px-3 py-2.5 ${hasManualHeight?'flex-1 min-h-0 overflow-y-auto':''}`}><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onKeyUp={()=>{pasteAsPlainText.current=false;scheduleSelectionHighlight();}} onMouseUp={scheduleSelectionHighlight} onPointerUp={scheduleSelectionHighlight} onBlur={()=>{pasteAsPlainText.current=false;}} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
  {/* Oito zonas de arraste: quatro bordas e quatro quinas. */}
  <div onPointerDown={e=>startResize('left',e)} role="separator" aria-orientation="vertical" aria-label="Redimensionar pela borda esquerda" className="absolute left-0 top-3 bottom-3 w-3 -translate-x-1/2 cursor-ew-resize touch-none z-20"/>
  <div onPointerDown={e=>startResize('right',e)} role="separator" aria-orientation="vertical" aria-label="Redimensionar pela borda direita" className="absolute right-0 top-3 bottom-3 w-3 translate-x-1/2 cursor-ew-resize touch-none z-20"/>
