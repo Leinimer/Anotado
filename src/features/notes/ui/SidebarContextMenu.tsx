@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import { Folder as FolderType, Note as NoteType } from '../types';
 import { FOLDER_PRESET_COLORS } from './sidebar-constants';
+import { fetchStickyNoteGroups, getAuthenticatedStickyUser } from '@/src/features/sticky-notes/api/sticky-notes-api';
+import type { StickyNoteGroup } from '@/src/features/sticky-notes/types';
 
 interface SidebarContextMenuProps {
   menuOpenId: string | null;
@@ -39,7 +41,7 @@ interface SidebarContextMenuProps {
   onCreateNoteInFolder?: (folderId: string) => void;
   onCreateSubfolder?: (parentFolderId: string) => void;
   onSplitNote?: (noteId: string) => void;
-  onConvertNoteToStick?: (noteId: string) => void;
+  onConvertNoteToStick?: (noteId: string, groupId?: string | null) => void;
   onDuplicateNote?: (noteId: string) => void;
   onOpenNoteInNewTab?: (noteId: string) => void;
   onDetachPdfSummary?: (noteId: string) => void;
@@ -95,11 +97,16 @@ export function SidebarContextMenu({
   colorSubmenuTimerRef,
 }: SidebarContextMenuProps) {
   const [showExportSubmenu, setShowExportSubmenu] = useState(false);
+  const [showStickSubmenu, setShowStickSubmenu] = useState(false);
+  const [stickGroups, setStickGroups] = useState<StickyNoteGroup[]>([]);
+  const [stickGroupsLoading, setStickGroupsLoading] = useState(false);
+  const stickGroupsLoadedRef = useRef(false);
   const [exportSubmenuPosition, setExportSubmenuPosition] = useState<{ top: number; left: number } | null>(null);
   const exportButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     setShowExportSubmenu(false);
     setExportSubmenuPosition(null);
+    setShowStickSubmenu(false);
   }, [menuOpenId]);
 
   if (!menuOpenId || !menuPosition) return null;
@@ -177,20 +184,54 @@ export function SidebarContextMenu({
             <ExternalLink className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
             <span>Abrir em nova aba</span>
           </button>
-
-          <button
-            id="context-menu-convert-note-to-stick-btn"
-            type="button"
-            onClick={() => {
-              if (onConvertNoteToStick && menuOpenId) onConvertNoteToStick(menuOpenId);
-              onClose();
+          <div
+            className="relative"
+            onMouseEnter={async () => {
+              setShowStickSubmenu(true);
+              if (stickGroupsLoadedRef.current || stickGroupsLoading) return;
+              setStickGroupsLoading(true);
+              try {
+                const auth = await getAuthenticatedStickyUser();
+                if (auth?.userId) {
+                  setStickGroups(await fetchStickyNoteGroups(auth.userId));
+                  stickGroupsLoadedRef.current = true;
+                }
+              } catch (error) {
+                console.warn('[SidebarContextMenu] Falha ao carregar campos do Stick:', error);
+              } finally {
+                setStickGroupsLoading(false);
+              }
             }}
-            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
-            title="Transformar esta nota em Stick"
+            onMouseLeave={() => setShowStickSubmenu(false)}
           >
-            <FileText className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
-            <span>Transformar em Stick</span>
-          </button>
+            <button
+              id="context-menu-convert-note-to-stick-btn"
+              type="button"
+              onClick={() => setShowStickSubmenu((open) => !open)}
+              onFocus={() => setShowStickSubmenu(true)}
+              className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] transition-colors cursor-pointer text-left"
+              title="Criar Stick ou escolher um campo"
+              aria-haspopup="true"
+              aria-expanded={showStickSubmenu}
+            >
+              <span className="flex items-center gap-2"><FileText className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" /><span>Stick</span></span>
+              <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+            </button>
+            {showStickSubmenu && (
+              <div className="absolute left-full top-0 ml-1 z-[70] min-w-[190px] max-h-[60vh] overflow-y-auto rounded-xl border border-[#e4e2dd] dark:border-[#5a514a] bg-white dark:bg-[#2a2826] p-1.5 shadow-xl">
+                <button type="button" onClick={() => { if (onConvertNoteToStick && menuOpenId) onConvertNoteToStick(menuOpenId, null); setShowStickSubmenu(false); onClose(); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616]">Criar Stick</button>
+                <div className="my-1 border-t border-[#e8e1d9] dark:border-[#51483f]" />
+                {stickGroupsLoading ? (
+                  <p className="px-2.5 py-2 text-[11px] text-[#8b7b6c]">Carregando campos...</p>
+                ) : stickGroups.length ? stickGroups.map((group) => (
+                  <button key={group.id} type="button" onClick={() => { if (onConvertNoteToStick && menuOpenId) onConvertNoteToStick(menuOpenId, group.id); setShowStickSubmenu(false); onClose(); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] flex items-center gap-2" title={`Criar Stick no campo ${group.title || 'sem título'}`}>
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-black/10" style={{ backgroundColor: group.color }} />
+                    <span className="truncate">{group.title?.trim() || 'Campo sem título'}</span>
+                  </button>
+                )) : <p className="px-2.5 py-2 text-[11px] text-[#8b7b6c]">Nenhum campo criado na página Stick.</p>}
+              </div>
+            )}
+          </div>
 
           {/* Opção: Dividir tela */}
           <button
