@@ -28,6 +28,7 @@ import { StickyNoteReferenceModal, StickyNoteReferencePreview } from './StickyNo
 import type { ReferenceType } from './StickyNoteReferenceModal';
 import { StickyReminderSettingsModal } from './StickyReminderSettingsModal';
 import { fetchStickyReminderNoteIds } from '../api/sticky-reminders-api';
+import { useStickyTabletMode } from '../hooks/useStickyTabletMode';
 
 const DEBOUNCE_MS = 450;
 
@@ -51,18 +52,154 @@ export function StickyNotesLayout() {
   const [canvasZoom, setCanvasZoom] = useState(1);
   const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
   const spacePressedRef = useRef(false);
   const [reminderNoteIds, setReminderNoteIds] = useState<Set<string>>(new Set());
   const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);
   const [groupsSidebarOpen, setGroupsSidebarOpen] = useState(false);
   const [referencePreview, setReferencePreview] = useState<{id:string;type:ReferenceType;left:number;top:number}|null>(null);
 
+  const { isTablet } = useStickyTabletMode();
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
   const pendingPatchesRef = useRef<Map<string, UpdateStickyNotePatch>>(new Map());
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const notesRef = useRef<StickyNote[]>(notes);
   const userIdRef = useRef<string>(userId);
+  const canvasZoomRef = useRef<number>(canvasZoom);
+  const canvasPanRef = useRef<{ x: number; y: number }>(canvasPan);
+  const isPinchingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    canvasZoomRef.current = canvasZoom;
+  }, [canvasZoom]);
+
+  useEffect(() => {
+    canvasPanRef.current = canvasPan;
+  }, [canvasPan]);
+
+  // Zoom por pinça exclusivo do quadro no modo tablet, reutilizando o mesmo
+  // estado canvasZoom / canvasPan já usado no zoom desktop (Space + scroll).
+  useEffect(() => {
+    if (!isTablet) {
+      isPinchingRef.current = false;
+      return;
+    }
+    const boardEl = boardScrollRef.current;
+    if (!boardEl) return;
+
+    const activePointers = new Map<number, { x: number; y: number }>();
+    let pinchAnchor: {
+      startDist: number;
+      startZoom: number;
+      worldX: number;
+      worldY: number;
+    } | null = null;
+
+    const initPinch = () => {
+      const points = Array.from(activePointers.values());
+      if (points.length < 2) return;
+      const [p1, p2] = points;
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      if (dist < 4) return;
+      const rect = boardEl.getBoundingClientRect();
+      const midX = (p1.x + p2.x) / 2 - rect.left;
+      const midY = (p1.y + p2.y) / 2 - rect.top;
+      const currentZoom = canvasZoomRef.current || 1;
+      const currentPan = canvasPanRef.current;
+      pinchAnchor = {
+        startDist: dist,
+        startZoom: currentZoom,
+        worldX: (midX - currentPan.x) / currentZoom,
+        worldY: (midY - currentPan.y) / currentZoom,
+      };
+      isPinchingRef.current = true;
+      window.dispatchEvent(new CustomEvent('anotado:sticky-pinch-start'));
+    };
+
+    const handlePointerDownCapture = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') return;
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (activePointers.size === 2) {
+        initPinch();
+      }
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch' || !activePointers.has(event.pointerId)) return;
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (activePointers.size < 2) return;
+      if (!pinchAnchor) {
+        initPinch();
+        if (!pinchAnchor) return;
+      }
+      const points = Array.from(activePointers.values());
+      const [p1, p2] = points;
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      if (dist < 4 || pinchAnchor.startDist < 4) return;
+
+      const rect = boardEl.getBoundingClientRect();
+      const midX = (p1.x + p2.x) / 2 - rect.left;
+      const midY = (p1.y + p2.y) / 2 - rect.top;
+      const nextZoom = Math.max(
+        0.15,
+        Math.min(2.5, pinchAnchor.startZoom * (dist / pinchAnchor.startDist))
+      );
+      const nextPan = {
+        x: midX - pinchAnchor.worldX * nextZoom,
+        y: midY - pinchAnchor.worldY * nextZoom,
+      };
+
+      canvasZoomRef.current = nextZoom;
+      canvasPanRef.current = nextPan;
+      setCanvasZoom(nextZoom);
+      setCanvasPan(nextPan);
+    };
+
+    const handlePointerEnd = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') return;
+      if (!activePointers.has(event.pointerId)) return;
+      activePointers.delete(event.pointerId);
+      if (activePointers.size < 2) {
+        pinchAnchor = null;
+      }
+      if (activePointers.size === 0) {
+        isPinchingRef.current = false;
+      }
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (event.touches.length >= 2 || isPinchingRef.current) {
+        event.preventDefault();
+      }
+    };
+
+    const preventSafariGesture = (event: Event) => {
+      event.preventDefault();
+    };
+
+    boardEl.addEventListener('pointerdown', handlePointerDownCapture, { capture: true });
+    window.addEventListener('pointermove', handlePointerMove, { passive: true });
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    boardEl.addEventListener('touchmove', handleTouchMove, { passive: false });
+    boardEl.addEventListener('gesturestart', preventSafariGesture, { passive: false });
+    boardEl.addEventListener('gesturechange', preventSafariGesture, { passive: false });
+    boardEl.addEventListener('gestureend', preventSafariGesture, { passive: false });
+
+    return () => {
+      isPinchingRef.current = false;
+      activePointers.clear();
+      boardEl.removeEventListener('pointerdown', handlePointerDownCapture, { capture: true });
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+      boardEl.removeEventListener('touchmove', handleTouchMove);
+      boardEl.removeEventListener('gesturestart', preventSafariGesture);
+      boardEl.removeEventListener('gesturechange', preventSafariGesture);
+      boardEl.removeEventListener('gestureend', preventSafariGesture);
+    };
+  }, [isTablet]);
 
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => {
@@ -72,11 +209,18 @@ export function StickyNotesLayout() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || isEditableTarget(event.target)) return;
       spacePressedRef.current = true;
+      setIsSpacePressed(true);
     };
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.code === 'Space') spacePressedRef.current = false;
+      if (event.code === 'Space') {
+        spacePressedRef.current = false;
+        setIsSpacePressed(false);
+      }
     };
-    const handleWindowBlur = () => { spacePressedRef.current = false; };
+    const handleWindowBlur = () => {
+      spacePressedRef.current = false;
+      setIsSpacePressed(false);
+    };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleWindowBlur);
@@ -541,16 +685,36 @@ export function StickyNotesLayout() {
   }, []);
 
   const handleGroupPointerDown = useCallback((groupId: string, event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || event.target !== event.currentTarget) return;
+    if ((event.button !== 0 && event.pointerType === 'mouse') || event.target !== event.currentTarget) return;
+    if (isPinchingRef.current) return;
     event.preventDefault();
     event.stopPropagation();
+    const pointerId = event.pointerId;
     const startX = event.clientX;
     const startY = event.clientY;
     const zoom = canvasZoom || 1;
     const members = notesRef.current.filter(note => note.group_id === groupId).map(note => ({ ...note }));
     if (!members.length) return;
+    let cancelledByPinch = false;
 
+    const cleanup = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('anotado:sticky-pinch-start', abortForPinch);
+    };
+    const abortForPinch = () => {
+      if (cancelledByPinch) return;
+      cancelledByPinch = true;
+      cleanup();
+      setNotes(previous => previous.map(note => {
+        const initial = members.find(member => member.id === note.id);
+        return initial ? { ...note, position_x: initial.position_x, position_y: initial.position_y } : note;
+      }));
+    };
     const move = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return;
+      if (isPinchingRef.current) { abortForPinch(); return; }
       const dx = (pointer.clientX - startX) / zoom;
       const dy = (pointer.clientY - startY) / zoom;
       setNotes(previous => previous.map(note => {
@@ -558,15 +722,16 @@ export function StickyNotesLayout() {
         return initial ? { ...note, position_x: initial.position_x + dx, position_y: initial.position_y + dy } : note;
       }));
     };
-    const cancel = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', finish);
-      window.removeEventListener('pointercancel', cancel);
+    const cancel = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return;
+      cleanup();
     };
     const finish = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return;
       const dx = (pointer.clientX - startX) / zoom;
       const dy = (pointer.clientY - startY) / zoom;
-      cancel();
+      cleanup();
+      if (cancelledByPinch) return;
       members.forEach(member => {
         void persistPatch(member.id, {
           position_x: Math.round(member.position_x + dx),
@@ -581,6 +746,7 @@ export function StickyNotesLayout() {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', finish);
     window.addEventListener('pointercancel', cancel);
+    window.addEventListener('anotado:sticky-pinch-start', abortForPinch);
   }, [canvasZoom, persistPatch]);
 
   const handleGroupTitleChange = useCallback((groupId: string, title: string) => {
@@ -649,6 +815,7 @@ export function StickyNotesLayout() {
         userEmail={userEmail}
         onBeforeNavigate={flushPendingPatches}
         toolbar={<StickyNotesToolbar
+          layoutMode={isTablet ? 'tablet-primary' : 'default'}
           activeColor={activeColor}
           selectedNoteColor={selectedNote?.color}
           hasSelectedNote={Boolean(selectedNote)}
@@ -662,12 +829,29 @@ export function StickyNotesLayout() {
           onFormat={handleEditorFormat}
           onInsertNoteLink={handleInsertNoteLink}
         />}
+        secondaryToolbar={isTablet ? (
+          <StickyNotesToolbar
+            layoutMode="tablet-editing"
+            activeColor={activeColor}
+            selectedNoteColor={selectedNote?.color}
+            hasSelectedNote={Boolean(selectedNote)}
+            notesCount={notes.length}
+            saveState={saveState}
+            errorMessage={saveError}
+            onCreateNote={handleCreateNote}
+            onToggleGroups={() => setGroupsSidebarOpen(open => !open)}
+            groupsOpen={groupsSidebarOpen}
+            onSelectColor={handleToolbarSelectColor}
+            onFormat={handleEditorFormat}
+            onInsertNoteLink={handleInsertNoteLink}
+          />
+        ) : undefined}
       />
 
       {groupsSidebarOpen && (
         <aside
           aria-label="Campos criados"
-          className="fixed left-0 top-[76px] bottom-0 z-[10500] flex w-[min(290px,85vw)] flex-col border-r border-[#ded6cc] bg-[#fbf9f4] shadow-[8px_0_28px_rgba(40,30,20,.14)] dark:border-[#38332e] dark:bg-[#11100f] dark:shadow-[8px_0_28px_rgba(0,0,0,.45)]"
+          className={`fixed left-0 ${isTablet ? 'top-[92px]' : 'top-[76px]'} bottom-0 z-[10500] flex w-[min(290px,85vw)] flex-col border-r border-[#ded6cc] bg-[#fbf9f4] shadow-[8px_0_28px_rgba(40,30,20,.14)] dark:border-[#38332e] dark:bg-[#11100f] dark:shadow-[8px_0_28px_rgba(0,0,0,.45)]`}
         >
           <div className="flex h-12 shrink-0 items-center justify-between border-b border-[#e8e1d8] px-4 dark:border-[#302b26]">
             <h2 className="text-sm font-semibold text-[#51463d] dark:text-[#e8ded4]">Campos criados</h2>
@@ -785,7 +969,7 @@ export function StickyNotesLayout() {
             window.addEventListener('pointercancel', finish);
             return;
           }
-          if (isBackground) setSelectedNoteId(null);
+          if (isBackground && !isPinchingRef.current) setSelectedNoteId(null);
         }}
         onWheel={(event) => {
           if (!spacePressedRef.current) return;
@@ -803,7 +987,8 @@ export function StickyNotesLayout() {
         style={{
           backgroundSize: `${24 * canvasZoom}px ${24 * canvasZoom}px`,
           backgroundPosition: `${canvasPan.x}px ${canvasPan.y}px`,
-          cursor: isPanning ? 'grabbing' : spacePressedRef.current ? 'grab' : undefined,
+          cursor: isPanning ? 'grabbing' : isSpacePressed ? 'grab' : undefined,
+          touchAction: isTablet ? 'none' : undefined,
         }}
       >
         <div
@@ -929,6 +1114,8 @@ export function StickyNotesLayout() {
               <StickyNoteCard
                 key={note.id}
                 note={note}
+                canvasZoom={canvasZoom}
+                isPinchingRef={isPinchingRef}
                 snapTargets={notes.filter(other => other.id !== note.id).map(other => ({
                   id: other.id,
                   x: other.position_x,

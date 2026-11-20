@@ -5,7 +5,7 @@ import {STICKY_MAX_WIDTH,STICKY_MIN_WIDTH,StickyNote,getStickyColorTheme} from '
 export type StickyEditorAction='bold'|'italic'|'underline'|'undo'|'redo'|'bullet'|'checklist'|'outdent'|'indent';
 export interface StickyEditorActions{format:(action:StickyEditorAction)=>void;prepareNoteReference:()=>string;insertNoteLink:(id:string,title:string,type?:'note'|'sticky'|'diary')=>void;}
 interface SnapTarget{id:string;x:number;y:number;width:number;height:number;}
-interface Props{snapTargets?:SnapTarget[];note:StickyNote;isSelected:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeLive:(id:string,width:number)=>void;onResizeEnd:(id:string,width:number)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;onPreviewLinkedNote?:(id:string,type:'note'|'sticky'|'diary',anchor:HTMLElement)=>void;hasReminder?:boolean;onOpenReminder?:(note:StickyNote)=>void;onContextMenu?:(note:StickyNote,x:number,y:number)=>void;}
+interface Props{snapTargets?:SnapTarget[];canvasZoom?:number;isPinchingRef?:React.RefObject<boolean>;note:StickyNote;isSelected:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeLive:(id:string,width:number)=>void;onResizeEnd:(id:string,width:number)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;onPreviewLinkedNote?:(id:string,type:'note'|'sticky'|'diary',anchor:HTMLElement)=>void;hasReminder?:boolean;onOpenReminder?:(note:StickyNote)=>void;onContextMenu?:(note:StickyNote,x:number,y:number)=>void;}
 const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const toHtml=(v:string)=>!v?'<p><br></p>':/^\s*</.test(v)?v:v.split('\n').map(x=>'<p>'+(esc(x)||'<br>')+'</p>').join('');
 const styleChecklist=(editor:HTMLElement)=>{
@@ -77,7 +77,7 @@ const styleChecklist=(editor:HTMLElement)=>{
  editor.querySelectorAll<HTMLParagraphElement>('p[data-sticky-after-checklist]').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.2',minHeight:'0',height:'auto'}));
 };
 
-export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,onPreviewLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
+export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],canvasZoom=1,isPinchingRef,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,onPreviewLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
  const colors=getStickyColorTheme(note.color);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);
  type EditorHistoryEntry={html:string;caret:number};
  const history=useRef<{entries:EditorHistoryEntry[];index:number;restoring:boolean}>({entries:[],index:-1,restoring:false});const [drag,setDrag]=useState(false);const [resize,setResize]=useState(false);
@@ -670,7 +670,37 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],o
    }
   }
  };
- const dragStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.stopPropagation();onSelect(note.id);const sx=e.clientX,sy=e.clientY,px=note.position_x,py=note.position_y;let x=px,y=py,moved=false;const ownHeight=editor.current?.closest<HTMLElement>('[data-sticky-note-id]')?.offsetHeight||280;setDrag(true);const move=(v:PointerEvent)=>{if(Math.abs(v.clientX-sx)>2||Math.abs(v.clientY-sy)>2)moved=true;const rawX=Math.max(12,Math.round(px+v.clientX-sx));const rawY=Math.max(12,Math.round(py+v.clientY-sy));x=rawX;y=rawY;
+ const dragStart=(e:React.PointerEvent<HTMLDivElement>)=>{
+  if(e.button!==0&&e.pointerType==='mouse')return;
+  if(isPinchingRef?.current)return;
+  e.stopPropagation();
+  onSelect(note.id);
+  const pointerId=e.pointerId;
+  const zoom=canvasZoom||1;
+  const sx=e.clientX,sy=e.clientY,px=note.position_x,py=note.position_y;
+  let x=px,y=py,moved=false,cancelledByPinch=false;
+  const ownHeight=editor.current?.closest<HTMLElement>('[data-sticky-note-id]')?.offsetHeight||280;
+  setDrag(true);
+  const cleanup=()=>{
+   window.removeEventListener('pointermove',move);
+   window.removeEventListener('pointerup',up);
+   window.removeEventListener('pointercancel',up);
+   window.removeEventListener('anotado:sticky-pinch-start',abortForPinch);
+  };
+  const abortForPinch=()=>{
+   if(cancelledByPinch)return;
+   cancelledByPinch=true;
+   cleanup();
+   setDrag(false);
+   if(moved)onMoveLive(note.id,px,py);
+  };
+  const move=(v:PointerEvent)=>{
+   if(v.pointerId!==pointerId)return;
+   if(isPinchingRef?.current){abortForPinch();return;}
+   if(Math.abs(v.clientX-sx)>2||Math.abs(v.clientY-sy)>2)moved=true;
+   const rawX=Math.max(12,Math.round(px+(v.clientX-sx)/zoom));
+   const rawY=Math.max(12,Math.round(py+(v.clientY-sy)/zoom));
+   x=rawX;y=rawY;
    // Gentle magnetic guides: only snap when an edge is already within 6px.
    // Each axis is independent, so fine positioning remains unrestricted.
    const tolerance=6,gap=12;
@@ -681,9 +711,64 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],o
     yGuides.push(target.y,target.y+target.height-ownHeight,target.y+target.height+gap,target.y-ownHeight-gap);
    }
    x=Math.max(12,nearest(rawX,xGuides));y=Math.max(12,nearest(rawY,yGuides));
-   onMoveLive(note.id,x,y);};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setDrag(false);if(moved)onMoveEnd(note.id,x,y);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
- const resizeStart=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.pointerType==='mouse')return;e.preventDefault();e.stopPropagation();onSelect(note.id);const sx=e.clientX,sw=note.width_px;let w=sw,changed=false;setResize(true);const move=(v:PointerEvent)=>{const raw=Math.max(STICKY_MIN_WIDTH,Math.min(STICKY_MAX_WIDTH,Math.round(sw+v.clientX-sx)));const tolerance=6;let n=raw;let best=tolerance+1;for(const target of snapTargets){const guides=[target.x-note.position_x-12,target.x+target.width-note.position_x];for(const guide of guides){const distance=Math.abs(guide-raw);if(guide>=STICKY_MIN_WIDTH&&guide<=STICKY_MAX_WIDTH&&distance<=tolerance&&distance<best){n=guide;best=distance;}}}if(n!==w){w=n;changed=true;onResizeLive(note.id,w);}};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);setResize(false);if(changed)onResizeEnd(note.id,w);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);};
- return <div id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>onSelect(note.id)} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,zIndex:note.z_index}} className={`group rounded-xl border transition-shadow duration-150 ${colors.cardClass} ${drag||resize?'shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
+   onMoveLive(note.id,x,y);
+  };
+  const up=(v:PointerEvent)=>{
+   if(v.pointerId!==pointerId)return;
+   cleanup();
+   setDrag(false);
+   if(moved&&!cancelledByPinch)onMoveEnd(note.id,x,y);
+  };
+  window.addEventListener('pointermove',move);
+  window.addEventListener('pointerup',up);
+  window.addEventListener('pointercancel',up);
+  window.addEventListener('anotado:sticky-pinch-start',abortForPinch);
+ };
+ const resizeStart=(e:React.PointerEvent<HTMLDivElement>)=>{
+  if(e.button!==0&&e.pointerType==='mouse')return;
+  if(isPinchingRef?.current)return;
+  e.preventDefault();e.stopPropagation();onSelect(note.id);
+  const pointerId=e.pointerId;
+  const zoom=canvasZoom||1;
+  const sx=e.clientX,sw=note.width_px;
+  let w=sw,changed=false,cancelledByPinch=false;
+  setResize(true);
+  const cleanup=()=>{
+   window.removeEventListener('pointermove',move);
+   window.removeEventListener('pointerup',up);
+   window.removeEventListener('pointercancel',up);
+   window.removeEventListener('anotado:sticky-pinch-start',abortForPinch);
+  };
+  const abortForPinch=()=>{
+   if(cancelledByPinch)return;
+   cancelledByPinch=true;
+   cleanup();
+   setResize(false);
+   if(changed)onResizeLive(note.id,sw);
+  };
+  const move=(v:PointerEvent)=>{
+   if(v.pointerId!==pointerId)return;
+   if(isPinchingRef?.current){abortForPinch();return;}
+   const raw=Math.max(STICKY_MIN_WIDTH,Math.min(STICKY_MAX_WIDTH,Math.round(sw+(v.clientX-sx)/zoom)));
+   const tolerance=6;let n=raw;let best=tolerance+1;
+   for(const target of snapTargets){
+    const guides=[target.x-note.position_x-12,target.x+target.width-note.position_x];
+    for(const guide of guides){const distance=Math.abs(guide-raw);if(guide>=STICKY_MIN_WIDTH&&guide<=STICKY_MAX_WIDTH&&distance<=tolerance&&distance<best){n=guide;best=distance;}}
+   }
+   if(n!==w){w=n;changed=true;onResizeLive(note.id,w);}
+  };
+  const up=(v:PointerEvent)=>{
+   if(v.pointerId!==pointerId)return;
+   cleanup();
+   setResize(false);
+   if(changed&&!cancelledByPinch)onResizeEnd(note.id,w);
+  };
+  window.addEventListener('pointermove',move);
+  window.addEventListener('pointerup',up);
+  window.addEventListener('pointercancel',up);
+  window.addEventListener('anotado:sticky-pinch-start',abortForPinch);
+ };
+ return <div id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>{if(!isPinchingRef?.current)onSelect(note.id);}} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,zIndex:note.z_index}} className={`group rounded-xl border transition-shadow duration-150 ${colors.cardClass} ${drag||resize?'shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
  <div onPointerDown={dragStart} className={`flex items-center gap-1.5 px-2.5 py-1.5 border-b rounded-t-xl cursor-grab active:cursor-grabbing touch-none select-none ${colors.headerClass}`}><GripHorizontal className={`w-3.5 h-3.5 shrink-0 opacity-45 ${colors.textClass}`}/><input value={note.title} onPointerDown={e=>{e.stopPropagation();onSelect(note.id);}} onChange={e=>onChangeTitle(note.id,e.target.value)} placeholder="Título..." aria-label="Título do Stick" className={`flex-1 min-w-0 bg-transparent text-[15px] font-semibold focus:outline-none placeholder:opacity-50 ${colors.textClass}`}/><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onOpenReminder?.(note);}} className={`relative p-1 rounded-md opacity-35 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-[#8d725d]/10 ${hasReminder?'opacity-100 text-[#b4533c] dark:text-[#f08a72]':colors.mutedTextClass}`} title={hasReminder?'Gerenciar lembretes deste Stick':'Configurar lembrete'} aria-label="Configurar lembrete"><AlarmClock className="w-3.5 h-3.5"/>{hasReminder&&<span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-[#c34f3c] ring-1 ring-white dark:ring-[#222]"/>}</button><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onDelete(note.id);}} className={`p-1 rounded-md opacity-25 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-500/15 ${colors.mutedTextClass}`} title="Excluir Stick" aria-label="Excluir Stick"><Trash2 className="w-3.5 h-3.5"/></button></div>
  <div className="px-3 py-2.5"><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onKeyUp={()=>{pasteAsPlainText.current=false;}} onBlur={()=>{pasteAsPlainText.current=false;}} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
  <div onPointerDown={resizeStart} role="separator" aria-orientation="vertical" aria-label="Ajustar largura da nota adesiva" title="Arraste para ajustar a largura" className="absolute top-2 bottom-2 -right-1.5 w-3 cursor-ew-resize touch-none flex items-center justify-center group/resize z-10"><span className={`w-1 h-8 rounded-full transition-opacity ${resize?'opacity-100 bg-[#68594d]':'opacity-0 group-hover:opacity-60 group-hover/resize:opacity-100 bg-black/25'}`}/></div></div>;

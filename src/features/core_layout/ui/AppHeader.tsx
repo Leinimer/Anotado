@@ -18,6 +18,7 @@ interface AppHeaderProps {
   onOpenShareModal?: () => void;
   variant?: 'top' | 'sidebar' | 'footer';
   toolbar?: React.ReactNode;
+  secondaryToolbar?: React.ReactNode;
 }
 const NAV_ITEMS = [
   { id: 'notes' as const, label: 'Notas', href: '/notes' },
@@ -26,7 +27,7 @@ const NAV_ITEMS = [
 ];
 export function AppHeader({
   activeSection, userId = '', userEmail = '', notes = [], onBeforeNavigate,
-  onOpenShareModal, variant = 'top', toolbar,
+  onOpenShareModal, variant = 'top', toolbar, secondaryToolbar,
 }: AppHeaderProps) {
   const router = useRouter();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -70,7 +71,18 @@ export function AppHeader({
           {logo}
           <div className="flex items-center justify-center gap-1 w-full">{nav}<StickyReminderBell /></div>
         </div>
-      ) : variant === 'footer' ? controls : (
+      ) : variant === 'footer' ? controls : secondaryToolbar ? (
+        <header id="app-main-header" data-tablet-header="true" className="w-full shrink-0 bg-[#fbf9f4] dark:bg-[#000000] border-b border-[#eae8e3] dark:border-[#1a1a1a] select-none z-30 touch-manipulation">
+          <div id="app-header-tablet-primary-row" className="w-full h-12 px-2.5 sm:px-3 flex flex-nowrap items-center gap-1.5 sm:gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">{logo}{nav}<StickyReminderBell /></div>
+            {toolbar && <><div className="h-6 w-px bg-[#e6e1d8] dark:bg-[#292929] shrink-0" /><div className="flex-1 min-w-0">{toolbar}</div></>}
+            <div className="shrink-0">{controls}</div>
+          </div>
+          <div id="app-header-tablet-editing-row" className="w-full h-11 px-3 border-t border-[#eae8e3] dark:border-[#1a1a1a] flex items-center justify-center min-w-0">
+            {secondaryToolbar}
+          </div>
+        </header>
+      ) : (
         <header id="app-main-header" className="w-full h-12 shrink-0 bg-[#fbf9f4] dark:bg-[#000000] border-b border-[#eae8e3] dark:border-[#1a1a1a] px-3 sm:px-4 flex items-center gap-3 select-none z-30">
           <div className="flex items-center gap-3 shrink-0">{logo}{nav}<StickyReminderBell /></div>
           {toolbar && <><div className="h-7 w-px bg-[#e6e1d8] dark:bg-[#292929] shrink-0" /><div className="flex-1 min-w-0">{toolbar}</div></>}
