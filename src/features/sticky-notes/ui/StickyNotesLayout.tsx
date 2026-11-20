@@ -642,11 +642,15 @@ export function StickyNotesLayout() {
   }, [notes, isLoading, handleNoteHeightChange]);
 
   const handleMoveLive = useCallback((noteId: string, x: number, y: number) => {
-    setNotes((prev) =>
-      prev.map((item) =>
+    setNotes((prev) => {
+      const next = prev.map((item) =>
         item.id === noteId ? { ...item, position_x: x, position_y: y } : item
-      )
-    );
+      );
+      // Keep the live ref synchronized so the final drop always persists the
+      // exact position shown on screen, even on a very fast pointer release.
+      notesRef.current = next;
+      return next;
+    });
   }, []);
 
   const handleMoveEnd = useCallback(
