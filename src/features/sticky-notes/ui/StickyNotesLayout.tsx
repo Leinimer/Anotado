@@ -398,7 +398,7 @@ export function StickyNotesLayout() {
     return () => {
       isMounted = false;
     };
-  }, [handleConvertPendingNoteToStick]);
+  }, []);
 
   const persistPatch = useCallback(async (noteId: string, patch: UpdateStickyNotePatch) => {
     const uid = userIdRef.current;
