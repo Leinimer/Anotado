@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Plus, StickyNote as StickyNoteIcon, X } from 'lucide-react';
+import { GripVertical, Loader2, Plus, StickyNote as StickyNoteIcon, X } from 'lucide-react';
 import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 import {
   STICKY_DEFAULT_WIDTH,
@@ -21,6 +21,7 @@ import {
   createStickyNoteGroup,
   updateStickyNoteGroup,
   deleteStickyNoteGroup,
+  updateStickyNoteGroupsOrder,
 } from '../api/sticky-notes-api';
 import { StickyNoteCard, StickyEditorActions, StickyEditorAction } from './StickyNoteCard';
 import { StickyNotesToolbar, StickySaveState } from './StickyNotesToolbar';
@@ -58,6 +59,8 @@ export function StickyNotesLayout() {
   const [reminderNoteIds, setReminderNoteIds] = useState<Set<string>>(new Set());
   const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);
   const [groupsSidebarOpen, setGroupsSidebarOpen] = useState(false);
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
+  const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
   const [referencePreview, setReferencePreview] = useState<{id:string;type:ReferenceType;left:number;top:number}|null>(null);
 
   const { isTablet } = useStickyTabletMode();
@@ -804,6 +807,64 @@ export function StickyNotesLayout() {
     window.addEventListener('anotado:sticky-pinch-start', abortForPinch);
   }, [canvasZoom, persistPatch]);
 
+  const handleReorderGroups = useCallback(async (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    const previous = groups;
+    const next = [...groups];
+    const sourceIndex = next.findIndex(group => group.id === sourceId);
+    const targetIndex = next.findIndex(group => group.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [moved] = next.splice(sourceIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    setGroups(next);
+    try {
+      await updateStickyNoteGroupsOrder(next.map(group => group.id));
+    } catch (error) {
+      setGroups(previous);
+      setSaveState('error');
+      setSaveError(error instanceof Error ? error.message : 'Não foi possível salvar a ordem dos campos.');
+    }
+  }, [groups]);
+
+  const handleGroupReorderPointerDown = useCallback((groupId: string, event: React.PointerEvent<HTMLSpanElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let didMove = false;
+    setDraggingGroupId(groupId);
+    const cleanup = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', cancel);
+      setDraggingGroupId(null);
+      setDragOverGroupId(null);
+    };
+    const move = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return;
+      if (!didMove && Math.hypot(pointer.clientX - startX, pointer.clientY - startY) < 5) return;
+      didMove = true;
+      const element = document.elementFromPoint(pointer.clientX, pointer.clientY) as HTMLElement | null;
+      const target = element?.closest<HTMLElement>('[data-sticky-group-id]');
+      setDragOverGroupId(target?.dataset.stickyGroupId || null);
+    };
+    const finish = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return;
+      const element = document.elementFromPoint(pointer.clientX, pointer.clientY) as HTMLElement | null;
+      const targetId = element?.closest<HTMLElement>('[data-sticky-group-id]')?.dataset.stickyGroupId;
+      cleanup();
+      if (didMove && targetId && targetId !== groupId) void handleReorderGroups(groupId, targetId);
+    };
+    const cancel = (pointer: PointerEvent) => {
+      if (pointer.pointerId === pointerId) cleanup();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', cancel);
+  }, [handleReorderGroups]);
+
   const handleGroupTitleChange = useCallback((groupId: string, title: string) => {
     setGroups(previous => previous.map(group => group.id === groupId ? { ...group, title } : group));
   }, []);
@@ -936,7 +997,7 @@ export function StickyNotesLayout() {
                 <button
                   key={group.id}
                   type="button"
-                  disabled={!members.length}
+                  data-sticky-group-id={group.id}
                   onClick={() => {
                     if (members.length && boardScrollRef.current) {
                       const left = Math.min(...members.map(note => note.position_x));
@@ -954,10 +1015,26 @@ export function StickyNotesLayout() {
                     }
                     setGroupsSidebarOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left shadow-sm transition-transform hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8d725d] disabled:cursor-not-allowed disabled:opacity-65 disabled:hover:translate-y-0 disabled:hover:shadow-sm ${palette.cardClass} ${palette.textClass}`}
+                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left shadow-sm transition-all hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8d725d] ${dragOverGroupId === group.id ? 'ring-2 ring-[#8d725d] -translate-y-0.5' : ''} ${draggingGroupId === group.id ? 'opacity-50' : ''} ${palette.cardClass} ${palette.textClass}`}
                   title={members.length ? 'Centralizar este campo no quadro' : 'Este campo ainda não possui Stick'}
                 >
-                  <span className="min-w-0 truncate text-sm font-medium">{group.title || 'Campo sem título'}</span>
+                  <span
+                    tabIndex={0}
+                    aria-label={`Arrastar campo ${group.title || 'sem título'} para mudar sua posição`}
+                    title="Arraste para mudar a posição deste campo"
+                    onPointerDown={(event) => handleGroupReorderPointerDown(group.id, event)}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const index = groups.findIndex(item => item.id === group.id);
+                      const target = groups[index + (event.key === 'ArrowUp' ? -1 : 1)];
+                      if (target) void handleReorderGroups(group.id, target.id);
+                    }}
+                    className="shrink-0 cursor-grab touch-none rounded p-0.5 opacity-55 hover:opacity-100 active:cursor-grabbing"
+                  ><GripVertical className="h-4 w-4" /></span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{group.title || 'Campo sem título'}</span>
                   <span className="shrink-0 text-[11px] font-medium opacity-75">{count} {count === 1 ? 'Stick' : 'Sticks'}</span>
                 </button>
               );
