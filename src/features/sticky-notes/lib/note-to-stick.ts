@@ -56,6 +56,7 @@ export interface ConvertNoteToStickParams {
   userId: string;
   note: Note | null | undefined;
   color?: StickyNoteColorKey;
+  groupId?: string | null;
   widthPx?: number;
   gap?: number;
 }
@@ -523,7 +524,7 @@ export async function convertNoteToStickAndPersist(
   overrides?: Partial<ConvertNoteToStickDeps>
 ): Promise<ConvertNoteToStickResult> {
   const deps: ConvertNoteToStickDeps = { ...DEFAULT_DEPS, ...overrides };
-  const { userId, note, color = 'yellow', widthPx = STICKY_DEFAULT_WIDTH, gap = STICKY_PLACEMENT_MIN_GAP } =
+  const { userId, note, color = 'yellow', groupId = null, widthPx = STICKY_DEFAULT_WIDTH, gap = STICKY_PLACEMENT_MIN_GAP } =
     params;
 
   if (!note || !note.id) {
@@ -613,6 +614,7 @@ export async function convertNoteToStickAndPersist(
       position_y: Math.round(position.y),
       width_px: Math.round(widthPx),
       z_index: nextZ,
+      group_id: groupId,
     });
   } catch (error) {
     const detail = error instanceof Error && error.message ? ` ${error.message}` : '';
