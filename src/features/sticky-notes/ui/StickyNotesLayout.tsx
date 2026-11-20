@@ -1232,7 +1232,6 @@ export function StickyNotesLayout() {
       const targetEl = event.target as HTMLElement | null;
       if (targetEl?.closest('input, button, textarea, a, [contenteditable="true"]')) return;
       const members = notesRef.current.filter((note) => note.group_id === groupId).map((note) => ({ ...note }));
-      if (!members.length) return;
 
       event.stopPropagation();
       const pointerId = event.pointerId;
@@ -1296,21 +1295,23 @@ export function StickyNotesLayout() {
         setContextMenu(null);
       };
 
-      holdTimer = setTimeout(() => {
-        if (aborted || isPinchingRef.current) return;
-        clearHoldTimers();
-        activated = true;
-        dragStartX = currentClientX;
-        dragStartY = currentClientY;
-        setContextMenu(null);
-        setTabletMovingGroupId(groupId);
-        setMovingGroupNoteIds(new Set(members.map((member) => member.id)));
-        try {
-          navigator.vibrate?.(35);
-        } catch {
-          // Alguns tablets/navegadores não oferecem vibração háptica.
-        }
-      }, TABLET_GROUP_HOLD_MS);
+      if (members.length) {
+        holdTimer = setTimeout(() => {
+          if (aborted || isPinchingRef.current) return;
+          clearHoldTimers();
+          activated = true;
+          dragStartX = currentClientX;
+          dragStartY = currentClientY;
+          setContextMenu(null);
+          setTabletMovingGroupId(groupId);
+          setMovingGroupNoteIds(new Set(members.map((member) => member.id)));
+          try {
+            navigator.vibrate?.(35);
+          } catch {
+            // Alguns tablets/navegadores não oferecem vibração háptica.
+          }
+        }, TABLET_GROUP_HOLD_MS);
+      }
 
       const onMove = (pointer: PointerEvent) => {
         if (pointer.pointerId !== pointerId) return;
@@ -1567,9 +1568,9 @@ export function StickyNotesLayout() {
   }, []);
 
   const handleNoteContextMenu = useCallback((note: StickyNote, x: number, y: number) => {
-    if (isTablet) return; // No tablet, o menu é aberto pelo controle explícito ou após a espera de 1 s no campo.
-    const menuWidth = isTablet ? 230 : 190;
-    const menuHeight = isTablet ? 310 : 240;
+    if (isTablet) return; // No tablet, o menu contextual é aberto pelo botão explícito.
+    const menuWidth = 190;
+    const menuHeight = 240;
     setContextMenu({
       kind: 'note',
       id: note.id,
@@ -1577,6 +1578,17 @@ export function StickyNotesLayout() {
       y: Math.max(12, Math.min(y, window.innerHeight - menuHeight)),
     });
   }, [isTablet]);
+
+  const handleOpenTabletNoteMenu = useCallback((note: StickyNote, x: number, y: number) => {
+    const menuWidth = 230;
+    const menuHeight = 310;
+    setContextMenu({
+      kind: 'note',
+      id: note.id,
+      x: Math.max(12, Math.min(x, window.innerWidth - menuWidth)),
+      y: Math.max(12, Math.min(y, window.innerHeight - menuHeight)),
+    });
+  }, []);
 
   const handleGroupContextMenu = useCallback((groupId: string, event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -2057,6 +2069,7 @@ export function StickyNotesLayout() {
                 hasReminder={reminderNoteIds.has(note.id)}
                 onOpenReminder={(targetNote) => setReminderDialogNoteId(targetNote.id)}
                 onContextMenu={handleNoteContextMenu}
+                onOpenTabletNoteMenu={isTablet ? handleOpenTabletNoteMenu : undefined}
                 registerEditorActions={registerEditorActions}
                 onOpenLinkedNote={handleOpenLinkedNote}
                 onPreviewLinkedNote={handlePreviewLinkedNote}
