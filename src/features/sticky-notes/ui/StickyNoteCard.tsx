@@ -7,7 +7,13 @@ export type StickyEditorAction='bold'|'italic'|'underline'|'highlight'|'undo'|'r
 export interface StickyEditorActions{format:(action:StickyEditorAction)=>void;prepareNoteReference:()=>string;insertNoteLink:(id:string,title:string,type?:'note'|'sticky'|'diary')=>void;}
 interface Props{snapTargets?:StickySnapTarget[];canvasZoom?:number;isPinchingRef?:React.RefObject<boolean>;isMovingWithGroup?:boolean;note:StickyNote;isSelected:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeStart?:(id:string)=>void;onResizeLive:(id:string,size:StickyResizePatch)=>void;onResizeEnd:(id:string,size:StickyResizePatch)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;onPreviewLinkedNote?:(id:string,type:'note'|'sticky'|'diary',anchor:HTMLElement)=>void;hasReminder?:boolean;onOpenReminder?:(note:StickyNote)=>void;onContextMenu?:(note:StickyNote,x:number,y:number)=>void;}
 const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const getStickyHighlightColor=(color?:string|null)=>{\n const hex=getStickyColorTheme(color).swatchLight.replace('#','');\n const channels=[0,2,4].map(index=>parseInt(hex.slice(index,index+2),16));\n const darker=channels.map(channel=>Math.round(channel*0.82));\n return `rgb(${darker.join(', ')})`;\n};\nconst hasMarkdownBold=(value:string)=>/(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*)/.test(value);
+const getStickyHighlightColor=(color?:string|null)=>{
+ const hex=getStickyColorTheme(color).swatchLight.replace('#','');
+ const channels=[0,2,4].map(index=>parseInt(hex.slice(index,index+2),16));
+ const darker=channels.map(channel=>Math.round(channel*0.82));
+ return `rgb(${darker.join(', ')})`;
+};
+const hasMarkdownBold=(value:string)=>/(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*)/.test(value);
 const markdownPlainToHtml=(value:string)=>{
  const paragraphs=value.replace(/\r\n?/g,'\n').trim().split(/\n\s*\n/);
  const inline=(text:string)=>esc(text).replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>').replace(/\*([^*\n]+)\*/g,'<strong>$1</strong>');
