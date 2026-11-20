@@ -13,7 +13,6 @@ export interface CreateStickyNoteInput {
   position_x: number;
   position_y: number;
   width_px?: number;
-  height_px?: number | null;
   z_index: number;
   group_id?: string | null;
 }
@@ -25,7 +24,6 @@ export interface UpdateStickyNotePatch {
   position_x?: number;
   position_y?: number;
   width_px?: number;
-  height_px?: number | null;
   z_index?: number;
   group_id?: string | null;
 }
@@ -83,7 +81,7 @@ export async function fetchStickyNotes(userId: string): Promise<StickyNote[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('sticky_notes')
-    .select('id, user_id, title, content, color, position_x, position_y, width_px, height_px, z_index, group_id, created_at, updated_at')
+    .select('id, user_id, title, content, color, position_x, position_y, width_px, z_index, group_id, created_at, updated_at')
     .eq('user_id', userId)
     .order('z_index', { ascending: true })
     .order('created_at', { ascending: true });
@@ -97,7 +95,6 @@ export async function fetchStickyNotes(userId: string): Promise<StickyNote[]> {
     position_x: Number(row.position_x ?? 80),
     position_y: Number(row.position_y ?? 80),
     width_px: Number(row.width_px ?? STICKY_DEFAULT_WIDTH),
-    height_px: row.height_px == null ? null : Number(row.height_px),
     z_index: Number(row.z_index ?? 1),
   }));
 }
@@ -117,7 +114,6 @@ export async function createStickyNote(
       position_x: Math.round(input.position_x),
       position_y: Math.round(input.position_y),
       width_px: Math.round(input.width_px ?? STICKY_DEFAULT_WIDTH),
-      height_px: input.height_px ?? null,
       z_index: Math.round(input.z_index),
       group_id: input.group_id ?? null,
       created_at: now,
@@ -136,10 +132,9 @@ export async function createStickyNote(
       position_x: Math.round(input.position_x),
       position_y: Math.round(input.position_y),
       width_px: Math.round(input.width_px ?? STICKY_DEFAULT_WIDTH),
-      height_px: input.height_px ?? null,
       z_index: Math.round(input.z_index),
     })
-    .select('id, user_id, title, content, color, position_x, position_y, width_px, height_px, z_index, group_id, created_at, updated_at')
+    .select('id, user_id, title, content, color, position_x, position_y, width_px, z_index, group_id, created_at, updated_at')
     .single();
 
   if (error || !data) {
@@ -151,7 +146,6 @@ export async function createStickyNote(
     position_x: Number(data.position_x ?? 80),
     position_y: Number(data.position_y ?? 80),
     width_px: Number(data.width_px ?? STICKY_DEFAULT_WIDTH),
-    height_px: data.height_px == null ? null : Number(data.height_px),
     z_index: Number(data.z_index ?? 1),
   };
 }
@@ -172,7 +166,6 @@ export async function updateStickyNote(
   if (patch.position_x !== undefined) sanitizedPatch.position_x = Math.round(patch.position_x);
   if (patch.position_y !== undefined) sanitizedPatch.position_y = Math.round(patch.position_y);
   if (patch.width_px !== undefined) sanitizedPatch.width_px = Math.round(patch.width_px);
-  if (patch.height_px !== undefined) sanitizedPatch.height_px = patch.height_px === null ? null : Math.round(patch.height_px);
   if (patch.z_index !== undefined) sanitizedPatch.z_index = Math.round(patch.z_index);
   if (patch.group_id !== undefined) sanitizedPatch.group_id = patch.group_id;
 
@@ -184,7 +177,7 @@ export async function updateStickyNote(
     .update(sanitizedPatch)
     .eq('id', noteId)
     .eq('user_id', userId)
-    .select('id, user_id, title, content, color, position_x, position_y, width_px, height_px, z_index, group_id, created_at, updated_at')
+    .select('id, user_id, title, content, color, position_x, position_y, width_px, z_index, group_id, created_at, updated_at')
     .single();
 
   if (error) {
@@ -197,7 +190,6 @@ export async function updateStickyNote(
         position_x: Number(data.position_x ?? 80),
         position_y: Number(data.position_y ?? 80),
         width_px: Number(data.width_px ?? STICKY_DEFAULT_WIDTH),
-        height_px: data.height_px == null ? null : Number(data.height_px),
         z_index: Number(data.z_index ?? 1),
       }
     : null;
