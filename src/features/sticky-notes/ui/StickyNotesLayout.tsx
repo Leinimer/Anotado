@@ -42,6 +42,7 @@ export function StickyNotesLayout() {
   const [noteHeights, setNoteHeights] = useState<Record<string, number>>({});
   const noteHeightsRef = useRef<Record<string, number>>({});
   const [groups, setGroups] = useState<StickyNoteGroup[]>([]);
+  const [movingGroupNoteIds, setMovingGroupNoteIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{kind:'note'|'group';id:string;x:number;y:number}|null>(null);
   const [editingGroupTitleId, setEditingGroupTitleId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -802,6 +803,10 @@ export function StickyNotesLayout() {
     const zoom = canvasZoom || 1;
     const members = notesRef.current.filter(note => note.group_id === groupId).map(note => ({ ...note }));
     if (!members.length) return;
+    // Enquanto o agrupamento se move, desative as transições individuais dos
+    // cartões: caso contrário cada Stick tenta animar até a nova posição e fica
+    // visualmente para trás, criando o efeito de movimento fantasma.
+    setMovingGroupNoteIds(new Set(members.map(member => member.id)));
     let cancelledByPinch = false;
 
     const cleanup = () => {
@@ -809,29 +814,40 @@ export function StickyNotesLayout() {
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', cancel);
       window.removeEventListener('anotado:sticky-pinch-start', abortForPinch);
+      setMovingGroupNoteIds(new Set());
+    };
+    const restoreInitialPositions = () => {
+      const restored = notesRef.current.map(note => {
+        const initial = members.find(member => member.id === note.id);
+        return initial ? { ...note, position_x: initial.position_x, position_y: initial.position_y } : note;
+      });
+      notesRef.current = restored;
+      setNotes(restored);
     };
     const abortForPinch = () => {
       if (cancelledByPinch) return;
       cancelledByPinch = true;
       cleanup();
-      setNotes(previous => previous.map(note => {
-        const initial = members.find(member => member.id === note.id);
-        return initial ? { ...note, position_x: initial.position_x, position_y: initial.position_y } : note;
-      }));
+      restoreInitialPositions();
     };
     const move = (pointer: PointerEvent) => {
       if (pointer.pointerId !== pointerId) return;
       if (isPinchingRef.current) { abortForPinch(); return; }
       const dx = (pointer.clientX - startX) / zoom;
       const dy = (pointer.clientY - startY) / zoom;
-      setNotes(previous => previous.map(note => {
+      const next = notesRef.current.map(note => {
         const initial = members.find(member => member.id === note.id);
         return initial ? { ...note, position_x: initial.position_x + dx, position_y: initial.position_y + dy } : note;
-      }));
+      });
+      // Atualização síncrona da referência mantém todos os membros no mesmo
+      // frame e evita que o próximo evento use posições antigas.
+      notesRef.current = next;
+      setNotes(next);
     };
     const cancel = (pointer: PointerEvent) => {
       if (pointer.pointerId !== pointerId) return;
       cleanup();
+      restoreInitialPositions();
     };
     const finish = (pointer: PointerEvent) => {
       if (pointer.pointerId !== pointerId) return;
@@ -839,16 +855,18 @@ export function StickyNotesLayout() {
       const dy = (pointer.clientY - startY) / zoom;
       cleanup();
       if (cancelledByPinch) return;
+      const finalNotes = notesRef.current.map(note => {
+        const initial = members.find(member => member.id === note.id);
+        return initial ? { ...note, position_x: Math.round(initial.position_x + dx), position_y: Math.round(initial.position_y + dy) } : note;
+      });
+      notesRef.current = finalNotes;
+      setNotes(finalNotes);
       members.forEach(member => {
         void persistPatch(member.id, {
           position_x: Math.round(member.position_x + dx),
           position_y: Math.round(member.position_y + dy),
         });
       });
-      setNotes(previous => previous.map(note => {
-        const initial = members.find(member => member.id === note.id);
-        return initial ? { ...note, position_x: Math.round(initial.position_x + dx), position_y: Math.round(initial.position_y + dy) } : note;
-      }));
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', finish);
@@ -1245,6 +1263,7 @@ export function StickyNotesLayout() {
               <StickyNoteCard
                 key={note.id}
                 note={note}
+                isGroupMoving={movingGroupNoteIds.has(note.id)}
                 canvasZoom={canvasZoom}
                 isPinchingRef={isPinchingRef}
                 snapTargets={notes.filter(other => other.id !== note.id).map(other => ({
