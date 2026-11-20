@@ -1263,7 +1263,7 @@ export function StickyNotesLayout() {
               <StickyNoteCard
                 key={note.id}
                 note={note}
-                isGroupMoving={movingGroupNoteIds.has(note.id)}
+                isMovingWithGroup={movingGroupNoteIds.has(note.id)}
                 canvasZoom={canvasZoom}
                 isPinchingRef={isPinchingRef}
                 snapTargets={notes.filter(other => other.id !== note.id).map(other => ({
