@@ -368,6 +368,20 @@ export function StickyNotesLayout() {
             sessionStorage.removeItem('anotado_active_sticky_id');
             requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById('sticky-note-' + linkedStickyId)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })));
           }
+
+          const pendingConversion = sessionStorage.getItem('anotado_pending_sticky_conversion');
+          if (pendingConversion) {
+            sessionStorage.removeItem('anotado_pending_sticky_conversion');
+            try {
+              const payload = JSON.parse(pendingConversion) as { title?: string; content?: string };
+              // Aguarda a renderização do quadro para medir alturas já disponíveis.
+              requestAnimationFrame(() => {
+                void handleConvertPendingNoteToStick(payload);
+              });
+            } catch (conversionError) {
+              console.error('[Stick] Dados inválidos para conversão de nota:', conversionError);
+            }
+          }
         }
       } catch (error) {
         if (!isMounted) return;
@@ -384,7 +398,7 @@ export function StickyNotesLayout() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [handleConvertPendingNoteToStick]);
 
   const persistPatch = useCallback(async (noteId: string, patch: UpdateStickyNotePatch) => {
     const uid = userIdRef.current;
@@ -478,6 +492,81 @@ export function StickyNotesLayout() {
     },
     [schedulePatch]
   );
+
+  const handleConvertPendingNoteToStick = useCallback(async (payload: { title?: string; content?: string }) => {
+    const uid = userIdRef.current || 'demo-user';
+    const currentNotes = notesRef.current;
+    const gap = 24;
+    const width = STICKY_DEFAULT_WIDTH;
+    const defaultHeight = 280;
+    const rectangles = currentNotes.map(note => ({
+      x: note.position_x,
+      y: note.position_y,
+      width: note.width_px,
+      height: note.height_px ?? noteHeightsRef.current[note.id] ?? defaultHeight,
+    }));
+
+    const overlaps = (x: number, y: number) => rectangles.some(rect =>
+      x < rect.x + rect.width + gap &&
+      x + width + gap > rect.x &&
+      y < rect.y + rect.height + gap &&
+      y + defaultHeight + gap > rect.y
+    );
+
+    // Procura primeiro um espaço imediatamente à direita de cada Stick existente;
+    // se estiver ocupado, tenta à esquerda e depois abaixo, sempre sem sobreposição.
+    const candidates: Array<{ x: number; y: number }> = [];
+    for (const rect of rectangles) {
+      candidates.push({ x: rect.x + rect.width + gap, y: rect.y });
+      candidates.push({ x: rect.x - width - gap, y: rect.y });
+      candidates.push({ x: rect.x, y: rect.y + rect.height + gap });
+      candidates.push({ x: rect.x, y: rect.y - defaultHeight - gap });
+    }
+    candidates.sort((a, b) => a.y - b.y || a.x - b.x);
+    let position = candidates.find(candidate =>
+      candidate.x >= 12 && candidate.y >= 12 && !overlaps(candidate.x, candidate.y)
+    );
+
+    if (!position) {
+      const rightEdge = rectangles.reduce((max, rect) => Math.max(max, rect.x + rect.width), 12);
+      position = { x: rightEdge + gap, y: 12 };
+    }
+
+    const nextZ = getNextZIndex(currentNotes);
+    setSaveState('saving');
+    setSaveError(null);
+    try {
+      const created = await createStickyNote(uid, {
+        title: payload.title || '',
+        content: payload.content || '',
+        color: activeColor,
+        position_x: Math.round(position.x),
+        position_y: Math.round(position.y),
+        width_px: width,
+        z_index: nextZ,
+      });
+      setNotes(previous => [...previous, created]);
+      setSelectedNoteId(created.id);
+      setNewlyCreatedId(created.id);
+      setSaveState(uid !== 'demo-user' ? 'saved' : 'idle');
+      requestAnimationFrame(() => {
+        const viewport = boardScrollRef.current;
+        if (!viewport) return;
+        const centerX = (created.position_x + created.width_px / 2) * canvasZoom + canvasPan.x;
+        const centerY = (created.position_y + (created.height_px ?? defaultHeight) / 2) * canvasZoom + canvasPan.y;
+        viewport.scrollTo({
+          left: Math.max(0, centerX - viewport.clientWidth / 2),
+          top: Math.max(0, centerY - viewport.clientHeight / 2),
+          behavior: 'smooth',
+        });
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao transformar nota em Stick.';
+      setSaveState('error');
+      setSaveError(message);
+      console.error('[Stick] Falha ao converter nota:', error);
+    }
+  }, [activeColor, getNextZIndex, canvasPan, canvasZoom]);
 
   const handleCreateNote = useCallback(async () => {
     const uid = userIdRef.current || 'demo-user';
