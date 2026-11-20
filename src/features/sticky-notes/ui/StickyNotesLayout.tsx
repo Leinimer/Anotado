@@ -998,7 +998,6 @@ export function StickyNotesLayout() {
                   key={group.id}
                   type="button"
                   data-sticky-group-id={group.id}
-                  disabled={!members.length}
                   onClick={() => {
                     if (members.length && boardScrollRef.current) {
                       const left = Math.min(...members.map(note => note.position_x));
@@ -1016,7 +1015,7 @@ export function StickyNotesLayout() {
                     }
                     setGroupsSidebarOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left shadow-sm transition-all hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8d725d] disabled:cursor-not-allowed disabled:opacity-65 disabled:hover:translate-y-0 disabled:hover:shadow-sm ${dragOverGroupId === group.id ? 'ring-2 ring-[#8d725d] -translate-y-0.5' : ''} ${draggingGroupId === group.id ? 'opacity-50' : ''} ${palette.cardClass} ${palette.textClass}`}
+                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left shadow-sm transition-all hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8d725d] ${dragOverGroupId === group.id ? 'ring-2 ring-[#8d725d] -translate-y-0.5' : ''} ${draggingGroupId === group.id ? 'opacity-50' : ''} ${palette.cardClass} ${palette.textClass}`}
                   title={members.length ? 'Centralizar este campo no quadro' : 'Este campo ainda não possui Stick'}
                 >
                   <span
