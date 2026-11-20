@@ -740,6 +740,7 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
  };
  const click=(e:React.MouseEvent<HTMLDivElement>)=>{
   const t=e.target as HTMLElement;
+  showHighlightDelete(t);
   if(t instanceof HTMLInputElement&&t.type==='checkbox'){
    const item=t.closest('li');
    // The checkbox's native click activation has already updated checked here.
