@@ -1,6 +1,6 @@
 'use client';
 import React from 'react';
-import {AlertCircle,Bold,Check,CheckSquare,Italic,LayoutGrid,Link2,List,Loader2,Plus,Redo2,Underline,Undo2} from 'lucide-react';
+import {AlertCircle,Bold,Check,CheckSquare,Highlighter,Italic,LayoutGrid,Link2,List,Loader2,Plus,Redo2,Underline,Undo2} from 'lucide-react';
 import {useTheme} from '@/src/features/theme/theme-context';
 import {STICKY_COLORS,StickyNoteColorKey} from '../types';
 import {StickyEditorAction} from './StickyNoteCard';
@@ -31,7 +31,7 @@ export function StickyNotesToolbar({activeColor,selectedNoteColor,hasSelectedNot
    <div className="flex items-center gap-1 shrink-0">
     {btn('Negrito',<Bold className="w-4 h-4"/>,()=>onFormat?.('bold'),!hasSelectedNote,'w-8 h-8')}
     {btn('Itálico',<Italic className="w-4 h-4"/>,()=>onFormat?.('italic'),!hasSelectedNote,'w-8 h-8')}
-    {btn('Sublinhado',<Underline className="w-4 h-4"/>,()=>onFormat?.('underline'),!hasSelectedNote,'w-8 h-8')}
+    {btn('Sublinhado',<Underline className="w-4 h-4"/>,()=>onFormat?.('underline'),!hasSelectedNote,'w-8 h-8')}{btn('Marca-texto',<Highlighter className="w-4 h-4"/>,()=>onFormat?.('highlight'),!hasSelectedNote,'w-8 h-8')}
    </div>
    <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
    <div className="flex items-center gap-1 shrink-0">
@@ -51,7 +51,7 @@ export function StickyNotesToolbar({activeColor,selectedNoteColor,hasSelectedNot
  <div className="flex items-center gap-2 shrink-0">{groupsButton}{createButton}<div className="h-6 w-px bg-[#e4e2dd] dark:bg-[#303030]"/><div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label="Cores das notas">{STICKY_COLORS.map(c=><button key={c.key} type="button" onClick={()=>onSelectColor(c.key)} style={{backgroundColor:dark?c.swatchDark:c.swatchLight}} className={`w-5 h-5 sm:w-5.5 sm:h-5.5 rounded-full border hover:scale-110 ${active===c.key?'ring-2 ring-[#68594d] dark:ring-[#f4dfcb] ring-offset-2 ring-offset-[#fbf9f4] dark:ring-offset-[#0a0a0a] border-transparent':'border-black/15 dark:border-white/20'}`} title={c.label} aria-label={c.label} aria-pressed={active===c.key}/>)}</div></div>
  <div className="h-6 w-px bg-[#e4e2dd] dark:bg-[#303030] mx-1"/>
  <div className="flex items-center gap-0.5">
- {btn('Negrito',<Bold className="w-4 h-4"/>,()=>onFormat?.('bold'),!hasSelectedNote)}{btn('Itálico',<Italic className="w-4 h-4"/>,()=>onFormat?.('italic'),!hasSelectedNote)}{btn('Sublinhado',<Underline className="w-4 h-4"/>,()=>onFormat?.('underline'),!hasSelectedNote)}
+ {btn('Negrito',<Bold className="w-4 h-4"/>,()=>onFormat?.('bold'),!hasSelectedNote)}{btn('Itálico',<Italic className="w-4 h-4"/>,()=>onFormat?.('italic'),!hasSelectedNote)}{btn('Sublinhado',<Underline className="w-4 h-4"/>,()=>onFormat?.('underline'),!hasSelectedNote)}{btn('Marca-texto',<Highlighter className="w-4 h-4"/>,()=>onFormat?.('highlight'),!hasSelectedNote)}
  <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] mx-1"/>{btn('Marcadores',<List className="w-4 h-4"/>,()=>onFormat?.('bullet'),!hasSelectedNote)}{btn('Checklist',<CheckSquare className="w-4 h-4"/>,()=>onFormat?.('checklist'),!hasSelectedNote)}
 
  <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] mx-1"/>{btn('Desfazer',<Undo2 className="w-4 h-4"/>,()=>onFormat?.('undo'),!hasSelectedNote)}{btn('Refazer',<Redo2 className="w-4 h-4"/>,()=>onFormat?.('redo'),!hasSelectedNote)}{btn('Referenciar nota',<Link2 className="w-4 h-4"/>,()=>onInsertNoteLink?.(),!hasSelectedNote)}
