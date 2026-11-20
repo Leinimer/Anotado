@@ -49,7 +49,7 @@ import {
 } from '../lib/tablet-layout';
 
 const DEBOUNCE_MS = 450;
-const TABLET_GROUP_HOLD_MS = 3000;
+const TABLET_GROUP_HOLD_MS = 1500;
 const TABLET_HOLD_VISUAL_DELAY_MS = 320;
 const TABLET_HOLD_CANCEL_PX = 10;
 
@@ -1228,7 +1228,7 @@ export function StickyNotesLayout() {
     if (isPinchingRef.current) return;
 
     // No tablet com toque: movimentação do campo somente após pressionar e segurar por
-    // 3 segundos completos. Antes disso, deslizar o dedo navega o quadro normalmente.
+    // 1,5 segundo completo. Antes disso, o menu contextual permanece disponível.
     if (isTablet && event.pointerType !== 'mouse') {
       const targetEl = event.target as HTMLElement | null;
       if (targetEl?.closest('input, button, textarea, a, [contenteditable="true"]')) return;
@@ -1239,6 +1239,12 @@ export function StickyNotesLayout() {
       const pointerId = event.pointerId;
       const startX = event.clientX;
       const startY = event.clientY;
+      setContextMenu({
+        kind: 'group',
+        id: groupId,
+        x: Math.max(12, Math.min(startX - 110, window.innerWidth - 242)),
+        y: Math.max(12, Math.min(startY + 12, window.innerHeight - 292)),
+      });
       let currentClientX = startX;
       let currentClientY = startY;
       let dragStartX = startX;
@@ -1285,6 +1291,7 @@ export function StickyNotesLayout() {
         const wasActivated = activated;
         cleanup();
         if (wasActivated) restoreBaseOffset();
+        setContextMenu(null);
       };
 
       progressInterval = setInterval(() => {
@@ -1307,6 +1314,7 @@ export function StickyNotesLayout() {
         dragStartX = currentClientX;
         dragStartY = currentClientY;
         setTabletHoldState(null);
+        setContextMenu(null);
         setTabletMovingGroupId(groupId);
         setMovingGroupNoteIds(new Set(members.map((member) => member.id)));
         try {
@@ -1329,6 +1337,7 @@ export function StickyNotesLayout() {
           if (Math.hypot(pointer.clientX - startX, pointer.clientY - startY) > TABLET_HOLD_CANCEL_PX) {
             aborted = true;
             cleanup();
+            setContextMenu(null);
             startTabletBoardPan(pointerId, startX, startY, {
               immediate: true,
               currentX: pointer.clientX,
@@ -1857,7 +1866,7 @@ export function StickyNotesLayout() {
                 data-sticky-group-id={group.id}
                 onPointerDown={event => handleGroupPointerDown(group.id, event)}
                 onContextMenu={event => handleGroupContextMenu(group.id, event)}
-                title={isTablet ? 'Segure por 3 segundos para mover este campo' : 'Arraste para mover o agrupamento; clique com o botão direito para opções'}
+                title={isTablet ? 'Segure por 1,5 segundo para mover este campo' : 'Arraste para mover o agrupamento; clique com o botão direito para opções'}
                 style={{
                   position: 'absolute', left, top, width, height,
                   borderRadius: 22,
