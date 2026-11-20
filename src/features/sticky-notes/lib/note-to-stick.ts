@@ -594,11 +594,58 @@ export async function convertNoteToStickAndPersist(
   const title = (note.title || '').trim();
   const formattedContent = convertNoteContentForStick(rawContent);
   const estimatedHeight = estimateStickyCardHeight(title, formattedContent || rawContent, widthPx);
-  const position = findNonOverlappingStickPosition(existingSticks, {
-    widthPx,
-    estimatedHeight,
-    gap,
-  });
+  // Quando a conversão é direcionada a um campo, posiciona o novo Stick
+  // junto dos cartões daquele campo (e não no centro global do quadro).
+  // Assim o retângulo do campo cresce apenas o necessário, sem se esticar
+  // atravessando todo o mapa para alcançar a posição central do canvas.
+  let position: StickyPositionResult;
+  if (groupId) {
+    const groupSticks = existingSticks.filter((item) => item.group_id === groupId);
+    if (groupSticks.length === 0) {
+      position = { x: STICKY_BOARD_ORIGIN, y: STICKY_BOARD_ORIGIN, placement: 'origin' };
+    } else {
+      const rightmost = [...groupSticks].sort(
+        (a, b) => (b.position_x + b.width_px) - (a.position_x + a.width_px) || a.position_y - b.position_y
+      )[0];
+      let x = Math.round(rightmost.position_x + rightmost.width_px + gap);
+      let y = Math.round(rightmost.position_y);
+      const collides = (candidateX: number, candidateY: number) =>
+        groupSticks.some((item) => rectsOverlapWithGap(
+          {
+            x: candidateX,
+            y: candidateY,
+            width: widthPx,
+            height: estimatedHeight,
+          },
+          {
+            x: item.position_x,
+            y: item.position_y,
+            width: item.width_px,
+            height: item.height_px ?? estimateStickyCardHeight(item.title, item.content, item.width_px),
+          },
+          8
+        ));
+
+      // Prioridade: à direita do Stick mais à direita. Se não houver espaço,
+      // coloca abaixo da última nota da coluna mais à esquerda.
+      if (collides(x, y)) {
+        const leftmostX = Math.min(...groupSticks.map((item) => item.position_x));
+        const leftColumn = groupSticks.filter((item) => item.position_x === leftmostX);
+        x = leftmostX;
+        y = Math.max(...leftColumn.map((item) =>
+          item.position_y + (item.height_px ?? estimateStickyCardHeight(item.title, item.content, item.width_px))
+        )) + gap;
+        while (collides(x, y)) y += estimatedHeight + gap;
+      }
+      position = { x, y, placement: x > rightmost.position_x ? 'right' : 'below' };
+    }
+  } else {
+    position = findNonOverlappingStickPosition(existingSticks, {
+      widthPx,
+      estimatedHeight,
+      gap,
+    });
+  }
 
   const maxZ = existingSticks.reduce((acc, item) => Math.max(acc, Number(item.z_index) || 0), 0);
   const nextZ = maxZ + 1;
