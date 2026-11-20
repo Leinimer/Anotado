@@ -1019,7 +1019,6 @@ export function StickyNotesLayout() {
                   title={members.length ? 'Centralizar este campo no quadro' : 'Este campo ainda não possui Stick'}
                 >
                   <span
-                    role="button"
                     tabIndex={0}
                     aria-label={`Arrastar campo ${group.title || 'sem título'} para mudar sua posição`}
                     title="Arraste para mudar a posição deste campo"
