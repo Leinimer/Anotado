@@ -159,6 +159,7 @@ export function StickyNotesLayout() {
     if (event.pointerType !== 'touch') return;
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
     touchPointsRef.current.set(event.pointerId, { x: event.clientX - rect.left, y: event.clientY - rect.top });
     if (touchPointsRef.current.size === 2) {
       const points = Array.from(touchPointsRef.current.values());
@@ -707,6 +708,21 @@ export function StickyNotesLayout() {
         userEmail={userEmail}
         onBeforeNavigate={flushPendingPatches}
         toolbar={<StickyNotesToolbar
+          slot="full"
+          activeColor={activeColor}
+          selectedNoteColor={selectedNote?.color}
+          hasSelectedNote={Boolean(selectedNote)}
+          notesCount={notes.length}
+          saveState={saveState}
+          errorMessage={saveError}
+          onCreateNote={handleCreateNote}
+          onToggleGroups={() => setGroupsSidebarOpen(open => !open)}
+          groupsOpen={groupsSidebarOpen}
+          onSelectColor={handleToolbarSelectColor}
+          onFormat={handleEditorFormat}
+          onInsertNoteLink={handleInsertNoteLink}
+        />}
+        tabletToolbarPrimary={<StickyNotesToolbar
           slot="primary"
           activeColor={activeColor}
           selectedNoteColor={selectedNote?.color}
@@ -721,7 +737,7 @@ export function StickyNotesLayout() {
           onFormat={handleEditorFormat}
           onInsertNoteLink={handleInsertNoteLink}
         />}
-        toolbarSecondary={<StickyNotesToolbar
+        tabletToolbarSecondary={<StickyNotesToolbar
           slot="secondary"
           activeColor={activeColor}
           selectedNoteColor={selectedNote?.color}
