@@ -1192,6 +1192,7 @@ export function StickyNotesLayout() {
           groupsOpen={groupsSidebarOpen}
           onSelectColor={handleToolbarSelectColor}
           onFormat={handleEditorFormat}
+          highlightMode={highlightMode}
           onInsertNoteLink={handleInsertNoteLink}
         />}
         secondaryToolbar={isTablet ? (
@@ -1208,6 +1209,7 @@ export function StickyNotesLayout() {
             groupsOpen={groupsSidebarOpen}
             onSelectColor={handleToolbarSelectColor}
             onFormat={handleEditorFormat}
+            highlightMode={highlightMode}
             onInsertNoteLink={handleInsertNoteLink}
           />
         ) : undefined}
