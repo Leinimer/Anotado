@@ -7,7 +7,21 @@ export interface StickyEditorActions{format:(action:StickyEditorAction)=>void;pr
 interface SnapTarget{id:string;x:number;y:number;width:number;height:number;}
 interface Props{snapTargets?:SnapTarget[];canvasZoom?:number;isPinchingRef?:React.RefObject<boolean>;note:StickyNote;isSelected:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeLive:(id:string,width:number)=>void;onResizeEnd:(id:string,width:number)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;onPreviewLinkedNote?:(id:string,type:'note'|'sticky'|'diary',anchor:HTMLElement)=>void;hasReminder?:boolean;onOpenReminder?:(note:StickyNote)=>void;onContextMenu?:(note:StickyNote,x:number,y:number)=>void;}
 const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const toHtml=(v:string)=>!v?'<p><br></p>':/^\s*</.test(v)?v:v.split('\n').map(x=>'<p>'+(esc(x)||'<br>')+'</p>').join('');
+const looksLikeStickyMarkup=(value:string)=>/<\\/?(?:p|br|div|ul|ol|li|strong|b|em|i|u|s|h[1-6]|blockquote|hr)\\b[^>]*>/i.test(value);
+const normalizePastedMarkup=(value:string)=>{
+ const decoder=document.createElement('textarea');
+ decoder.innerHTML=value;
+ const decoded=decoder.value;
+ const candidate=looksLikeStickyMarkup(decoded)?decoded:value;
+ const bullet=candidate.match(/^\\s*[•·]\\s*(?=<p\\b)/i);
+ return bullet?'<ul class="sticky-bullet-list"><li>'+candidate.replace(/^\\s*[•·]\\s*/,'')+'</li></ul>':candidate;
+};
+const toHtml=(v:string)=>{
+ if(!v)return '<p><br></p>';
+ const normalized=normalizePastedMarkup(v);
+ if(looksLikeStickyMarkup(normalized))return normalized;
+ return v.split('\\n').map(x=>'<p>'+(esc(x)||'<br>')+'</p>').join('');
+};
 const styleChecklist=(editor:HTMLElement)=>{
  editor.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]').forEach(list=>{
   Object.assign(list.style,{listStyle:'none',paddingLeft:'0',margin:'0'});
@@ -308,7 +322,9 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
   e.preventDefault();
   const plain=e.clipboardData.getData('text/plain');
   const html=e.clipboardData.getData('text/html');
-  const usePlain=pasteAsPlainText.current||!html;
+  const plainContainsMarkup=looksLikeStickyMarkup(plain);
+  const clipboardHtml=html||(plainContainsMarkup?plain:'');
+  const usePlain=pasteAsPlainText.current||!clipboardHtml;
   pasteAsPlainText.current=false;
   const ctx=getListContext();
   const host=ctx?.kind==='checklist'&&ctx.item
@@ -325,7 +341,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
 
   let fragment:DocumentFragment;
   if(usePlain){
-   const value=(plain||new DOMParser().parseFromString(html,'text/html').body.textContent||'').replace(/\r\n?/g,'\n');
+   const value=(plain||new DOMParser().parseFromString(clipboardHtml,'text/html').body.textContent||'').replace(/\r\n?/g,'\n');
    if(!value)return;
    fragment=document.createDocumentFragment();
    value.split('\n').forEach((line,index)=>{
@@ -333,7 +349,7 @@ export function StickyNoteCard({note,isSelected,autoFocus=false,snapTargets=[],c
     if(line)fragment.appendChild(document.createTextNode(line));
    });
   }else{
-   const parsed=new DOMParser().parseFromString(html,'text/html');
+   const parsed=new DOMParser().parseFromString(clipboardHtml,'text/html');
    parsed.querySelectorAll('script,style,meta,link,iframe,object,embed,form,button,input,textarea,select').forEach(node=>node.remove());
    // Convert inline semantic styling to tags before removing all source colors,
    // backgrounds, fonts and classes.
