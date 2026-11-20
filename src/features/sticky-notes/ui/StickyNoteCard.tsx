@@ -7,11 +7,11 @@ export interface StickyEditorActions{format:(action:StickyEditorAction)=>void;pr
 interface SnapTarget{id:string;x:number;y:number;width:number;height:number;}
 interface Props{snapTargets?:SnapTarget[];canvasZoom?:number;isPinchingRef?:React.RefObject<boolean>;note:StickyNote;isSelected:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeLive:(id:string,width:number)=>void;onResizeEnd:(id:string,width:number)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;onPreviewLinkedNote?:(id:string,type:'note'|'sticky'|'diary',anchor:HTMLElement)=>void;hasReminder?:boolean;onOpenReminder?:(note:StickyNote)=>void;onContextMenu?:(note:StickyNote,x:number,y:number)=>void;}
 const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const hasMarkdownBold=(value:string)=>/(?:\\*\\*[^*\\n]+\\*\\*|\\*[^*\\n]+\\*)/.test(value);
+const hasMarkdownBold=(value:string)=>/(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*)/.test(value);
 const markdownPlainToHtml=(value:string)=>{
- const paragraphs=value.replace(/\\r\\n?/g,'\\n').trim().split(/\\n\\s*\\n/);
- const inline=(text:string)=>esc(text).replace(/\\*\\*([^*\\n]+)\\*\\*/g,'<strong>$1</strong>').replace(/\\*([^*\\n]+)\\*/g,'<strong>$1</strong>');
- return paragraphs.map(paragraph=>'<p>'+paragraph.split('\\n').map(inline).join('<br>')+'</p>').join('');
+ const paragraphs=value.replace(/\r\n?/g,'\n').trim().split(/\n\s*\n/);
+ const inline=(text:string)=>esc(text).replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>').replace(/\*([^*\n]+)\*/g,'<strong>$1</strong>');
+ return paragraphs.map(paragraph=>'<p>'+paragraph.split('\n').map(inline).join('<br>')+'</p>').join('');
 };
 const looksLikeStickyMarkup=(value:string)=>/<\/?(?:p|br|div|ul|ol|li|strong|b|em|i|u|s|h[1-6]|blockquote|hr)\b[^>]*>/i.test(value);
 const normalizePastedMarkup=(value:string)=>{
