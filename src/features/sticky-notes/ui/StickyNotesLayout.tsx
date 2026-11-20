@@ -5,6 +5,8 @@ import { AlertCircle, Loader2, MoreVertical, Move, Plus, StickyNote as StickyNot
 import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 import {
   STICKY_DEFAULT_WIDTH,
+  StickyBoardLayoutData,
+  StickyLayoutType,
   StickyNote,
   StickyNoteColorKey,
   StickyNoteGroup,
@@ -23,6 +25,10 @@ import {
   deleteStickyNoteGroup,
   updateStickyNoteGroupsOrder,
 } from '../api/sticky-notes-api';
+import {
+  fetchStickyBoardLayout,
+  saveStickyBoardLayout,
+} from '../api/sticky-layouts-api';
 import { StickyNoteCard, StickyEditorActions, StickyEditorAction } from './StickyNoteCard';
 import { StickyNotesToolbar, StickySaveState } from './StickyNotesToolbar';
 import { StickyGroupsSidebar } from './StickyGroupsSidebar';
@@ -30,7 +36,7 @@ import { StickyNoteReferenceModal, StickyNoteReferencePreview } from './StickyNo
 import type { ReferenceType } from './StickyNoteReferenceModal';
 import { StickyReminderSettingsModal } from './StickyReminderSettingsModal';
 import { fetchStickyReminderNoteIds } from '../api/sticky-reminders-api';
-import { useStickyTabletMode } from '../hooks/useStickyTabletMode';
+import { useStickyDeviceMode } from '../hooks/useStickyDeviceMode';
 import { reorderStickyGroups, StickyResizePatch } from '../lib/sticky-interactions';
 import {
   ACTIVE_STICKY_ID_KEY,
@@ -43,10 +49,14 @@ import {
   readConvertedStickHandoff,
 } from '../lib/note-to-stick';
 import {
-  computeTabletBoardLayout,
-  TabletBoardLayout,
-  TabletOffset,
-} from '../lib/tablet-layout';
+  commitGroupMoveToLayout,
+  commitStickMoveToLayout,
+  commitStickResizeToLayout,
+  computeSmartDesktopNewStickPosition,
+  resolveBoardLayout,
+  ResolvedBoardLayout,
+  snapshotResolvedLayout,
+} from '../lib/device-layouts';
 
 const DEBOUNCE_MS = 450;
 const TABLET_GROUP_HOLD_MS = 1500;
@@ -84,17 +94,20 @@ export function StickyNotesLayout() {
   const [groupsSidebarOpen, setGroupsSidebarOpen] = useState(false);
   const [referencePreview, setReferencePreview] = useState<{id:string;type:ReferenceType;left:number;top:number}|null>(null);
 
-  const { isTablet } = useStickyTabletMode();
+  const { layoutType, isDesktop, isTablet, isMobile, isResolved } = useStickyDeviceMode();
+  const isTouchLayout = isTablet || isMobile;
   const [boardViewportWidth, setBoardViewportWidth] = useState<number>(820);
-  const [tabletGroupDisplacements, setTabletGroupDisplacements] = useState<Record<string, TabletOffset>>({});
-  const tabletGroupDisplacementsRef = useRef<Record<string, TabletOffset>>({});
-  const [tabletNoteDisplacements, setTabletNoteDisplacements] = useState<Record<string, TabletOffset>>({});
-  const tabletNoteDisplacementsRef = useRef<Record<string, TabletOffset>>({});
-  const [tabletWidthOverrides, setTabletWidthOverrides] = useState<Record<string, number>>({});
-  const [tabletMovingGroupId, setTabletMovingGroupId] = useState<string | null>(null);
-  const tabletDragStartOffsetRef = useRef<Map<string, TabletOffset>>(new Map());
-  const tabletResizeStartRef = useRef<{ startVisualX: number; startVisualY: number; startOffset: TabletOffset } | null>(null);
-  const tabletLayoutRef = useRef<TabletBoardLayout | null>(null);
+  const [deviceLayouts, setDeviceLayouts] = useState<
+    Partial<Record<StickyLayoutType, StickyBoardLayoutData | null>>
+  >({});
+  const deviceLayoutsRef = useRef<
+    Partial<Record<StickyLayoutType, StickyBoardLayoutData | null>>
+  >({});
+  const layoutTypeRef = useRef<StickyLayoutType>(layoutType);
+  const loadedLayoutKeysRef = useRef<Set<string>>(new Set());
+  const resolvedLayoutRef = useRef<ResolvedBoardLayout | null>(null);
+  const draggingNoteIdRef = useRef<string | null>(null);
+  const [touchMovingGroupId, setTouchMovingGroupId] = useState<string | null>(null);
 
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
@@ -118,12 +131,12 @@ export function StickyNotesLayout() {
   }, [groups]);
 
   useLayoutEffect(() => {
-    tabletGroupDisplacementsRef.current = tabletGroupDisplacements;
-  }, [tabletGroupDisplacements]);
+    layoutTypeRef.current = layoutType;
+  }, [layoutType]);
 
   useLayoutEffect(() => {
-    tabletNoteDisplacementsRef.current = tabletNoteDisplacements;
-  }, [tabletNoteDisplacements]);
+    deviceLayoutsRef.current = deviceLayouts;
+  }, [deviceLayouts]);
 
   useEffect(() => {
     canvasZoomRef.current = canvasZoom;
@@ -133,9 +146,9 @@ export function StickyNotesLayout() {
     canvasPanRef.current = canvasPan;
   }, [canvasPan]);
 
-  // Monitora a largura real do quadro no tablet para calcular o layout de 2 colunas.
+  // Monitora a largura real do quadro no tablet e no mobile para calcular o layout inicial.
   useEffect(() => {
-    if (!isTablet || typeof ResizeObserver === 'undefined') return;
+    if (!isTouchLayout || typeof ResizeObserver === 'undefined') return;
     const boardEl = boardScrollRef.current;
     if (!boardEl) return;
 
@@ -149,12 +162,12 @@ export function StickyNotesLayout() {
     const observer = new ResizeObserver(updateWidth);
     observer.observe(boardEl);
     return () => observer.disconnect();
-  }, [isTablet]);
+  }, [isTouchLayout]);
 
-  // Zoom por pinça exclusivo do quadro no modo tablet, ancorado no ponto médio
-  // entre os dois dedos e bloqueando completamente o zoom nativo do navegador.
+  // Zoom por pinça exclusivo do quadro nos modos sensíveis ao toque (tablet/mobile),
+  // ancorado no ponto médio entre os dois dedos e bloqueando o zoom nativo do navegador.
   useEffect(() => {
-    if (!isTablet) {
+    if (!isTouchLayout) {
       isPinchingRef.current = false;
       return;
     }
@@ -280,7 +293,7 @@ export function StickyNotesLayout() {
       boardEl.removeEventListener('gesturechange', preventSafariGesture);
       boardEl.removeEventListener('gestureend', preventSafariGesture);
     };
-  }, [isTablet]);
+  }, [isTouchLayout]);
 
   // Navegação fluida com 1 dedo pelo quadro no modo tablet (fundo e arraste rápido sobre campos).
   const startTabletBoardPan = useCallback(
@@ -475,17 +488,45 @@ export function StickyNotesLayout() {
     return () => document.removeEventListener('pointerdown', closeOutside);
   }, [referencePreview]);
 
+  const applyDeviceLayoutState = useCallback(
+    (targetType: StickyLayoutType, nextLayout: StickyBoardLayoutData | null) => {
+      const nextMap = { ...deviceLayoutsRef.current, [targetType]: nextLayout };
+      deviceLayoutsRef.current = nextMap;
+      setDeviceLayouts(nextMap);
+    },
+    []
+  );
+
+  const commitAndSaveDeviceLayout = useCallback(
+    async (targetType: StickyLayoutType, nextLayout: StickyBoardLayoutData) => {
+      applyDeviceLayoutState(targetType, nextLayout);
+      const uid = userIdRef.current || 'demo-user';
+      setSaveState('saving');
+      setSaveError(null);
+      try {
+        await saveStickyBoardLayout(uid, targetType, nextLayout);
+        setSaveState(uid !== 'demo-user' ? 'saved' : 'idle');
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Erro ao salvar posicionamento deste dispositivo.';
+        setSaveState('error');
+        setSaveError(message);
+      }
+    },
+    [applyDeviceLayoutState]
+  );
+
   const centerViewportOnStick = useCallback((target: StickyNote) => {
     const applyCenter = () => {
       const viewport = boardScrollRef.current;
       if (!viewport || viewport.clientWidth === 0 || viewport.clientHeight === 0) return false;
       const element = document.getElementById('sticky-note-' + target.id);
-      const tabletFrame = isTablet ? tabletLayoutRef.current?.noteFrames[target.id] : undefined;
+      const resolvedFrame = resolvedLayoutRef.current?.noteFrames[target.id];
       const zoom = canvasZoomRef.current || 1;
-      if (tabletFrame) {
+      if (resolvedFrame) {
         const nextPan = {
-          x: Math.round(viewport.clientWidth / 2 - (tabletFrame.x + tabletFrame.width / 2) * zoom),
-          y: Math.round(viewport.clientHeight / 2 - (tabletFrame.y + tabletFrame.height / 2) * zoom),
+          x: Math.round(viewport.clientWidth / 2 - (resolvedFrame.x + resolvedFrame.width / 2) * zoom),
+          y: Math.round(viewport.clientHeight / 2 - (resolvedFrame.y + resolvedFrame.height / 2) * zoom),
         };
         canvasPanRef.current = nextPan;
         setCanvasPan(nextPan);
@@ -515,9 +556,32 @@ export function StickyNotesLayout() {
         }
       });
     });
-  }, [isTablet]);
+  }, []);
 
-  // Carrega usuário autenticado e notas adesivas do Supabase.
+  // Carrega o layout específico do dispositivo sempre que o usuário e a modalidade estiverem prontos.
+  useEffect(() => {
+    if (!isResolved || !userId) return;
+    const key = `${userId}:${layoutType}`;
+    if (loadedLayoutKeysRef.current.has(key)) return;
+    loadedLayoutKeysRef.current.add(key);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await fetchStickyBoardLayout(userId, layoutType);
+        if (cancelled) return;
+        applyDeviceLayoutState(layoutType, result.data);
+      } catch (error) {
+        console.warn('[Stick] Erro ao carregar layout independente do dispositivo:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isResolved, userId, layoutType, applyDeviceLayoutState]);
+
+  // Carrega usuário autenticado, notas adesivas, grupos e layout inicial do dispositivo.
   useEffect(() => {
     let isMounted = true;
 
@@ -526,23 +590,31 @@ export function StickyNotesLayout() {
         const authUser = await getAuthenticatedStickyUser();
         const uid = authUser?.userId || 'demo-user';
         const email = authUser?.email || '';
+        const initialLayoutType = layoutTypeRef.current;
 
         if (!isMounted) return;
         setUserId(uid);
         setUserEmail(email);
 
         if (authUser?.userId) {
-          // As três consultas são independentes: executá-las juntas reduz o tempo
-          // total de abertura sem alterar a origem nem a consistência dos dados.
-          const [loaded, loadedGroups, activeReminderIds] = await Promise.all([
+          const layoutCacheKey = `${authUser.userId}:${initialLayoutType}`;
+          loadedLayoutKeysRef.current.add(layoutCacheKey);
+
+          const [loaded, loadedGroups, activeReminderIds, initialLayoutResult] = await Promise.all([
             fetchStickyNotes(authUser.userId),
             fetchStickyNoteGroups(authUser.userId),
             fetchStickyReminderNoteIds(authUser.userId).catch((reminderError) => {
               console.warn('[Stick] Não foi possível carregar os indicadores de lembrete:', reminderError);
               return [] as string[];
             }),
+            fetchStickyBoardLayout(authUser.userId, initialLayoutType).catch((layoutError) => {
+              console.warn('[Stick] Não foi possível carregar o layout salvo do dispositivo:', layoutError);
+              return { data: null, source: 'none' as const, tableMissing: false };
+            }),
           ]);
           if (!isMounted) return;
+
+          applyDeviceLayoutState(initialLayoutType, initialLayoutResult.data);
 
           const convertedHandoff = readConvertedStickHandoff();
           const linkedStickyId = sessionStorage.getItem(ACTIVE_STICKY_ID_KEY);
@@ -583,6 +655,13 @@ export function StickyNotesLayout() {
             }
           }
         } else {
+          const demoKey = `demo-user:${initialLayoutType}`;
+          loadedLayoutKeysRef.current.add(demoKey);
+          const localLayout = await fetchStickyBoardLayout('demo-user', initialLayoutType);
+          if (isMounted) {
+            applyDeviceLayoutState(initialLayoutType, localLayout.data);
+          }
+
           const hasPendingConversion =
             Boolean(sessionStorage.getItem(LEGACY_PENDING_CONVERSION_KEY)) ||
             Boolean(readConvertedStickHandoff());
@@ -607,7 +686,7 @@ export function StickyNotesLayout() {
     return () => {
       isMounted = false;
     };
-  }, [centerViewportOnStick]);
+  }, [centerViewportOnStick, applyDeviceLayoutState]);
 
   const persistPatch = useCallback(async (noteId: string, patch: UpdateStickyNotePatch) => {
     const uid = userIdRef.current;
@@ -795,15 +874,22 @@ export function StickyNotesLayout() {
     const uid = userIdRef.current || 'demo-user';
     const currentNotes = notesRef.current;
     const nextZ = getNextZIndex(currentNotes);
-
-    // Posiciona em cascata visível na área atualmente rolada do painel.
+    const activeType = layoutTypeRef.current;
     const viewport = boardScrollRef.current;
     const rect = viewport?.getBoundingClientRect();
-    const cascade = (currentNotes.length % 7) * 28;
-    const centerX = rect ? (rect.width / 2 - canvasPan.x) / canvasZoom : 320;
-    const centerY = rect ? (rect.height / 2 - canvasPan.y) / canvasZoom : 240;
-    const position_x = Math.max(12, Math.round(centerX - STICKY_DEFAULT_WIDTH / 2 + cascade));
-    const position_y = Math.max(12, Math.round(centerY - 90 + cascade));
+
+    // Calcula posição inteligente sem sobreposição para a tabela base (desktop),
+    // preservando integralmente todos os Sticks posicionados manualmente.
+    const desktopPos = computeSmartDesktopNewStickPosition({
+      notes: currentNotes,
+      resolvedDesktopFrames:
+        activeType === 'desktop' ? resolvedLayoutRef.current?.noteFrames : undefined,
+      noteHeights: noteHeightsRef.current,
+      viewportRect: activeType === 'desktop' && rect ? { width: rect.width, height: rect.height } : null,
+      canvasPan: canvasPanRef.current,
+      canvasZoom: canvasZoomRef.current,
+      widthPx: STICKY_DEFAULT_WIDTH,
+    });
 
     setSaveState('saving');
     setSaveError(null);
@@ -814,25 +900,70 @@ export function StickyNotesLayout() {
         title: '',
         content: '',
         color: activeColor,
-        position_x,
-        position_y,
+        position_x: desktopPos.x,
+        position_y: desktopPos.y,
         width_px: STICKY_DEFAULT_WIDTH,
         z_index: nextZ,
       });
 
-      setNotes((prev) => [...prev, created]);
+      const nextNotes = [...notesRef.current, created];
+      notesRef.current = nextNotes;
+      setNotes(nextNotes);
       setSelectedNoteId(created.id);
       setNewlyCreatedId(created.id);
-      setSaveState(uid !== 'demo-user' ? 'saved' : 'idle');
-      if (isTablet) {
+
+      // Se o dispositivo ativo já possui layout salvo personalizado, registra o novo Stick
+      // em um espaço livre sem alterar as posições manuais existentes neste ou nos outros dispositivos.
+      const existingDeviceLayout = deviceLayoutsRef.current[activeType] ?? null;
+      if (existingDeviceLayout) {
+        const vpWidth = viewport?.clientWidth || boardViewportWidth;
+        const nextResolved = resolveBoardLayout({
+          layoutType: activeType,
+          notes: nextNotes,
+          groups: groupsRef.current,
+          savedLayout: existingDeviceLayout,
+          viewportWidth: vpWidth,
+          noteHeights: noteHeightsRef.current,
+        });
+        const nextLayoutData = snapshotResolvedLayout(
+          nextResolved,
+          nextNotes,
+          existingDeviceLayout,
+          vpWidth
+        );
+        await commitAndSaveDeviceLayout(activeType, nextLayoutData);
+      } else {
+        setSaveState(uid !== 'demo-user' ? 'saved' : 'idle');
+      }
+
+      if (activeType !== 'desktop') {
         centerViewportOnStick(created);
+      } else if (rect) {
+        const zoom = canvasZoomRef.current || 1;
+        const pan = canvasPanRef.current;
+        const screenX = desktopPos.x * zoom + pan.x;
+        const screenY = desktopPos.y * zoom + pan.y;
+        const outOfView =
+          screenX < 0 ||
+          screenY < 0 ||
+          screenX + STICKY_DEFAULT_WIDTH * zoom > rect.width ||
+          screenY + 200 * zoom > rect.height;
+        if (outOfView) {
+          centerViewportOnStick(created);
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao criar Stick.';
       setSaveState('error');
       setSaveError(message);
     }
-  }, [activeColor, getNextZIndex, canvasPan, canvasZoom, isTablet, centerViewportOnStick]);
+  }, [
+    activeColor,
+    getNextZIndex,
+    boardViewportWidth,
+    commitAndSaveDeviceLayout,
+    centerViewportOnStick,
+  ]);
 
   const handleChangeTitle = useCallback(
     (noteId: string, title: string) => {
@@ -878,76 +1009,129 @@ export function StickyNotesLayout() {
     [selectedNoteId, persistPatch]
   );
 
-  const handleNoteHeightChange = useCallback((noteId: string, height: number) => {
-    const previousHeight = noteHeightsRef.current[noteId] || 0;
-    noteHeightsRef.current[noteId] = height;
-    setNoteHeights(previous => previous[noteId] === height ? previous : { ...previous, [noteId]: height });
+  const handleNoteHeightChange = useCallback(
+    (noteId: string, height: number) => {
+      const previousHeight = noteHeightsRef.current[noteId] || 0;
+      noteHeightsRef.current[noteId] = height;
+      setNoteHeights((previous) =>
+        previous[noteId] === height ? previous : { ...previous, [noteId]: height }
+      );
 
-    // No tablet, o layout visual em 2 colunas recalcula automaticamente as fileiras
-    // sem alterar as coordenadas position_y salvas para a versão desktop.
-    if (isTablet) return;
+      // No tablet e no mobile, o layout próprio de cada dispositivo controla as posições
+      // sem nunca alterar position_y da versão desktop.
+      if (layoutTypeRef.current !== 'desktop') return;
 
-    // Durante o redimensionamento manual, apenas atualiza a altura medida sem empurrar cartões no meio do gesto.
-    if (resizingNoteIdRef.current === noteId) return;
+      // Durante arraste ou redimensionamento manual, não empurra cartões no meio do gesto.
+      if (resizingNoteIdRef.current === noteId || draggingNoteIdRef.current) return;
 
-    // Só empurra os outros Sticks quando este cartão cresce (por exemplo,
-    // ao adicionar uma linha), sem reorganizar a posição inicial ao carregar.
-    if (!previousHeight || height <= previousHeight + 1) return;
-    const source = notesRef.current.find(note => note.id === noteId);
-    if (!source) return;
+      // Só empurra os outros Sticks quando este cartão cresce ao digitar,
+      // sem reorganizar posições ao carregar.
+      if (!previousHeight || height <= previousHeight + 1) return;
+      const frames = resolvedLayoutRef.current?.noteFrames;
+      const sourceNote = notesRef.current.find((note) => note.id === noteId);
+      if (!sourceNote) return;
+      const sourceFrame = frames?.[noteId] ?? {
+        x: sourceNote.position_x,
+        y: sourceNote.position_y,
+        width: sourceNote.width_px,
+        height,
+      };
 
-    const gap = 16;
-    const candidates = notesRef.current
-      .filter(note => note.id !== noteId &&
-        note.position_x < source.position_x + source.width_px &&
-        note.position_x + note.width_px > source.position_x &&
-        note.position_y >= source.position_y)
-      .sort((a, b) => a.position_y - b.position_y);
+      const gap = 16;
+      const candidates = notesRef.current
+        .filter((note) => {
+          if (note.id === noteId) return false;
+          const frame = frames?.[note.id];
+          const nx = frame ? frame.x : note.position_x;
+          const ny = frame ? frame.y : note.position_y;
+          const nw = frame ? frame.width : note.width_px;
+          return (
+            nx < sourceFrame.x + sourceFrame.width &&
+            nx + nw > sourceFrame.x &&
+            ny >= sourceFrame.y
+          );
+        })
+        .sort((a, b) => {
+          const ay = frames?.[a.id]?.y ?? a.position_y;
+          const by = frames?.[b.id]?.y ?? b.position_y;
+          return ay - by;
+        });
 
-    const nextY = new Map<string, number>();
-    const placed: Array<{ x: number; y: number; width: number; height: number }> = [
-      { x: source.position_x, y: source.position_y, width: source.width_px, height }
-    ];
-    for (const note of candidates) {
-      let y = note.position_y;
-      const noteHeight = note.height_px ?? noteHeightsRef.current[note.id] ?? 280;
-      let moved = true;
-      while (moved) {
-        moved = false;
-        for (const above of placed) {
-          const horizontalOverlap = note.position_x < above.x + above.width &&
-            note.position_x + note.width_px > above.x;
-          const verticalOverlap = y < above.y + above.height + gap &&
-            y + noteHeight > above.y;
-          if (horizontalOverlap && verticalOverlap) {
-            y = above.y + above.height + gap;
-            moved = true;
+      const nextY = new Map<string, number>();
+      const placed: Array<{ x: number; y: number; width: number; height: number }> = [
+        { x: sourceFrame.x, y: sourceFrame.y, width: sourceFrame.width, height },
+      ];
+      for (const note of candidates) {
+        const frame = frames?.[note.id];
+        const nx = frame ? frame.x : note.position_x;
+        const nw = frame ? frame.width : note.width_px;
+        const startY = frame ? frame.y : note.position_y;
+        let y = startY;
+        const noteHeight =
+          frame?.heightPx ?? note.height_px ?? noteHeightsRef.current[note.id] ?? 280;
+        let moved = true;
+        while (moved) {
+          moved = false;
+          for (const above of placed) {
+            const horizontalOverlap = nx < above.x + above.width && nx + nw > above.x;
+            const verticalOverlap = y < above.y + above.height + gap && y + noteHeight > above.y;
+            if (horizontalOverlap && verticalOverlap) {
+              y = above.y + above.height + gap;
+              moved = true;
+            }
           }
         }
+        if (y !== startY) {
+          nextY.set(note.id, Math.round(y));
+        }
+        placed.push({ x: nx, y, width: nw, height: noteHeight });
       }
-      nextY.set(note.id, y);
-      placed.push({ x: note.position_x, y, width: note.width_px, height: noteHeight });
-    }
 
-    if (nextY.size) {
-      setNotes(previous => previous.map(note => {
-        const y = nextY.get(note.id);
-        return y !== undefined && y !== note.position_y ? { ...note, position_y: y } : note;
-      }));
-      nextY.forEach((y, id) => {
-        const current = notesRef.current.find(note => note.id === id);
-        if (current && current.position_y !== y) void persistPatch(id, { position_y: y });
-      });
-    }
-  }, [isTablet, persistPatch]);
+      if (nextY.size) {
+        const updatedNotes = notesRef.current.map((note) => {
+          const y = nextY.get(note.id);
+          return y !== undefined && y !== note.position_y ? { ...note, position_y: y } : note;
+        });
+        notesRef.current = updatedNotes;
+        setNotes(updatedNotes);
 
-  // A única medição de altura fica no quadro. Usa offsetHeight (não afetado por canvasZoom)
-  // para medir a altura real no espaço do quadro sem distorções durante zoom/pinça.
+        nextY.forEach((y, id) => {
+          void persistPatch(id, { position_y: y });
+        });
+
+        const desktopLayout = deviceLayoutsRef.current.desktop;
+        const resolved = resolvedLayoutRef.current;
+        if (desktopLayout && resolved) {
+          const updatedDesktop = snapshotResolvedLayout(
+            resolved,
+            updatedNotes,
+            desktopLayout,
+            boardScrollRef.current?.clientWidth
+          );
+          const now = new Date().toISOString();
+          nextY.forEach((y, id) => {
+            const existing = updatedDesktop.notes[id];
+            if (existing) {
+              updatedDesktop.notes[id] = { ...existing, y, updated_at: now };
+            }
+          });
+          updatedDesktop.updated_at = now;
+          void commitAndSaveDeviceLayout('desktop', updatedDesktop);
+        }
+      }
+    },
+    [persistPatch, commitAndSaveDeviceLayout]
+  );
+
+  const noteIdsKey = useMemo(() => notes.map((note) => note.id).join(','), [notes]);
+
+  // A medição de altura fica no quadro e depende apenas da lista de IDs (nunca de x/y),
+  // evitando desconectar e recriar ResizeObservers durante cada pixel de arraste.
   useLayoutEffect(() => {
     if (isLoading || typeof ResizeObserver === 'undefined') return;
 
-    const elements = notes
-      .map(note => document.getElementById('sticky-note-' + note.id))
+    const elements = notesRef.current
+      .map((note) => document.getElementById('sticky-note-' + note.id))
       .filter((element): element is HTMLElement => Boolean(element));
 
     const reportHeight = (element: HTMLElement) => {
@@ -958,199 +1142,267 @@ export function StickyNotesLayout() {
     };
 
     elements.forEach(reportHeight);
-    const observer = new ResizeObserver(entries => {
-      entries.forEach(entry => reportHeight(entry.target as HTMLElement));
+    const observer = new ResizeObserver((entries) => {
+      entries.forEach((entry) => reportHeight(entry.target as HTMLElement));
     });
-    elements.forEach(element => observer.observe(element));
+    elements.forEach((element) => observer.observe(element));
 
     return () => observer.disconnect();
-  }, [notes, isLoading, handleNoteHeightChange]);
+  }, [noteIdsKey, isLoading, handleNoteHeightChange]);
 
-  const handleMoveLive = useCallback((noteId: string, x: number, y: number) => {
-    setNotes((prev) => {
-      const next = prev.map((item) =>
-        item.id === noteId ? { ...item, position_x: x, position_y: y } : item
-      );
-      // Keep the live ref synchronized so the final drop always persists the
-      // exact position shown on screen, even on a very fast pointer release.
-      notesRef.current = next;
-      return next;
-    });
+  const handleMoveStart = useCallback((noteId: string) => {
+    draggingNoteIdRef.current = noteId;
   }, []);
+
+  const handleMoveLive = useCallback(
+    (noteId: string, x: number, y: number) => {
+      const activeType = layoutTypeRef.current;
+      const safeX = Math.max(12, Math.round(x));
+      const safeY = Math.max(12, Math.round(y));
+      const resolved = resolvedLayoutRef.current;
+
+      if (resolved) {
+        const nextLayout = commitStickMoveToLayout({
+          resolved,
+          notes: notesRef.current,
+          previousLayout: deviceLayoutsRef.current[activeType] ?? null,
+          noteId,
+          x: safeX,
+          y: safeY,
+          viewportWidth: boardScrollRef.current?.clientWidth,
+        });
+        applyDeviceLayoutState(activeType, nextLayout);
+      }
+
+      if (activeType === 'desktop') {
+        const next = notesRef.current.map((item) =>
+          item.id === noteId ? { ...item, position_x: safeX, position_y: safeY } : item
+        );
+        notesRef.current = next;
+        setNotes(next);
+      }
+    },
+    [applyDeviceLayoutState]
+  );
 
   const handleMoveEnd = useCallback(
     (noteId: string, x: number, y: number) => {
+      draggingNoteIdRef.current = null;
+      const activeType = layoutTypeRef.current;
+      const safeX = Math.max(12, Math.round(x));
+      const safeY = Math.max(12, Math.round(y));
       const target = notesRef.current.find((n) => n.id === noteId);
-      void persistPatch(noteId, {
-        position_x: x,
-        position_y: y,
-        z_index: target?.z_index,
-      });
+      const resolved = resolvedLayoutRef.current;
 
-      // Soltar um Stick sobre um agrupamento o adiciona automaticamente,
-      // mantendo a cor original do Stick e posicionando-o ao lado dos demais.
+      // Soltar um Stick sobre um campo o adiciona automaticamente ao agrupamento,
+      // mantendo a cor original do Stick e preservando o isolamento de layout entre dispositivos.
       const noteElement = document.getElementById('sticky-note-' + noteId);
       const noteRect = noteElement?.getBoundingClientRect();
-      if (!noteRect) return;
-      const centerX = noteRect.left + noteRect.width / 2;
-      const centerY = noteRect.top + noteRect.height / 2;
-      const hitGroup = Array.from(document.querySelectorAll<HTMLElement>('[data-sticky-group-id]'))
-        .find(element => {
-          const rect = element.getBoundingClientRect();
-          return centerX >= rect.left && centerX <= rect.right && centerY >= rect.top && centerY <= rect.bottom;
-        });
-      if (!hitGroup) return;
-      const groupId = hitGroup.dataset.stickyGroupId;
-      if (!groupId || target?.group_id === groupId) return;
-      const members = notesRef.current.filter(note => note.group_id === groupId && note.id !== noteId);
-      const maxRight = members.reduce((right, note) => Math.max(right, note.position_x + note.width_px), 0);
-      const rowY = members.length ? Math.min(...members.map(note => note.position_y)) : y;
-      const nextX = members.length ? maxRight + 18 : x;
-      setNotes(previous => previous.map(note => note.id === noteId
-        ? { ...note, group_id: groupId, position_x: nextX, position_y: rowY }
-        : note));
-      void persistPatch(noteId, { group_id: groupId, position_x: nextX, position_y: rowY });
-    },
-    [persistPatch]
-  );
-
-  const handleTabletMoveLive = useCallback((noteId: string, dx: number, dy: number) => {
-    let base = tabletDragStartOffsetRef.current.get(noteId);
-    if (!base) {
-      base = tabletNoteDisplacementsRef.current[noteId] || { dx: 0, dy: 0 };
-      tabletDragStartOffsetRef.current.set(noteId, base);
-    }
-    const nextOffset = { dx: base.dx + dx, dy: base.dy + dy };
-    const nextMap = { ...tabletNoteDisplacementsRef.current, [noteId]: nextOffset };
-    tabletNoteDisplacementsRef.current = nextMap;
-    setTabletNoteDisplacements(nextMap);
-  }, []);
-
-  const handleTabletMoveEnd = useCallback(
-    (noteId: string, dx: number, dy: number) => {
-      const base =
-        tabletDragStartOffsetRef.current.get(noteId) ||
-        tabletNoteDisplacementsRef.current[noteId] ||
-        { dx: 0, dy: 0 };
-      tabletDragStartOffsetRef.current.delete(noteId);
-
-      const target = notesRef.current.find((n) => n.id === noteId);
-      const noteElement = document.getElementById('sticky-note-' + noteId);
-      const noteRect = noteElement?.getBoundingClientRect();
+      let hitGroupId: string | undefined;
       if (noteRect) {
         const centerX = noteRect.left + noteRect.width / 2;
         const centerY = noteRect.top + noteRect.height / 2;
-        const hitGroup = Array.from(document.querySelectorAll<HTMLElement>('[data-sticky-group-id]'))
-          .find((element) => {
-            const rect = element.getBoundingClientRect();
-            return centerX >= rect.left && centerX <= rect.right && centerY >= rect.top && centerY <= rect.bottom;
-          });
-        const hitGroupId = hitGroup?.dataset.stickyGroupId;
-        if (hitGroupId && target && target.group_id !== hitGroupId) {
-          const members = notesRef.current.filter((note) => note.group_id === hitGroupId && note.id !== noteId);
-          const maxRight = members.reduce((right, note) => Math.max(right, note.position_x + note.width_px), 0);
-          const rowY = members.length ? Math.min(...members.map((note) => note.position_y)) : target.position_y;
-          const nextX = members.length ? maxRight + 18 : target.position_x;
-
-          const clearedDisplacements = { ...tabletNoteDisplacementsRef.current };
-          delete clearedDisplacements[noteId];
-          tabletNoteDisplacementsRef.current = clearedDisplacements;
-          setTabletNoteDisplacements(clearedDisplacements);
-
-          setNotes((previous) =>
-            previous.map((note) =>
-              note.id === noteId
-                ? { ...note, group_id: hitGroupId, position_x: nextX, position_y: rowY }
-                : note
-            )
+        const hitGroup = Array.from(
+          document.querySelectorAll<HTMLElement>('[data-sticky-group-id]')
+        ).find((element) => {
+          const rect = element.getBoundingClientRect();
+          return (
+            centerX >= rect.left &&
+            centerX <= rect.right &&
+            centerY >= rect.top &&
+            centerY <= rect.bottom
           );
-          void persistPatch(noteId, { group_id: hitGroupId, position_x: nextX, position_y: rowY });
-          return;
-        }
+        });
+        hitGroupId = hitGroup?.dataset.stickyGroupId;
       }
 
-      const nextOffset = { dx: base.dx + dx, dy: base.dy + dy };
-      const nextMap = { ...tabletNoteDisplacementsRef.current, [noteId]: nextOffset };
-      tabletNoteDisplacementsRef.current = nextMap;
-      setTabletNoteDisplacements(nextMap);
+      if (hitGroupId && target && target.group_id !== hitGroupId) {
+        if (activeType === 'desktop') {
+          const members = notesRef.current.filter(
+            (note) => note.group_id === hitGroupId && note.id !== noteId
+          );
+          const memberFrames = members.map((member) => {
+            const frame = resolved?.noteFrames[member.id];
+            return {
+              x: frame ? frame.x : member.position_x,
+              y: frame ? frame.y : member.position_y,
+              width: frame ? frame.width : member.width_px,
+            };
+          });
+          const maxRight = memberFrames.reduce((right, f) => Math.max(right, f.x + f.width), 0);
+          const rowY = memberFrames.length ? Math.min(...memberFrames.map((f) => f.y)) : safeY;
+          const nextX = memberFrames.length ? Math.round(maxRight + 18) : safeX;
+
+          const updatedNotes = notesRef.current.map((note) =>
+            note.id === noteId
+              ? { ...note, group_id: hitGroupId, position_x: nextX, position_y: rowY }
+              : note
+          );
+          notesRef.current = updatedNotes;
+          setNotes(updatedNotes);
+
+          if (resolved) {
+            const nextLayout = commitStickMoveToLayout({
+              resolved,
+              notes: updatedNotes,
+              previousLayout: deviceLayoutsRef.current.desktop ?? null,
+              noteId,
+              x: nextX,
+              y: rowY,
+              groupId: hitGroupId,
+              viewportWidth: boardScrollRef.current?.clientWidth,
+            });
+            void commitAndSaveDeviceLayout('desktop', nextLayout);
+          }
+
+          void persistPatch(noteId, {
+            group_id: hitGroupId,
+            position_x: nextX,
+            position_y: rowY,
+            z_index: target.z_index,
+          });
+          return;
+        }
+
+        // Em tablet/mobile: vincula ao campo sem alterar coordenadas desktop em sticky_notes,
+        // e encaixa o Stick em um espaço livre dentro do campo no layout do dispositivo ativo.
+        const updatedNotes = notesRef.current.map((note) =>
+          note.id === noteId ? { ...note, group_id: hitGroupId } : note
+        );
+        notesRef.current = updatedNotes;
+        setNotes(updatedNotes);
+
+        const vpWidth = boardScrollRef.current?.clientWidth || boardViewportWidth;
+        const currentSaved = deviceLayoutsRef.current[activeType] ?? null;
+        const cleanedSaved: StickyBoardLayoutData | null = currentSaved
+          ? {
+              ...currentSaved,
+              notes: Object.fromEntries(
+                Object.entries(currentSaved.notes).filter(([id]) => id !== noteId)
+              ),
+            }
+          : null;
+        const nextResolved = resolveBoardLayout({
+          layoutType: activeType,
+          notes: updatedNotes,
+          groups: groupsRef.current,
+          savedLayout: cleanedSaved,
+          viewportWidth: vpWidth,
+          noteHeights: noteHeightsRef.current,
+        });
+        const nextLayout = snapshotResolvedLayout(
+          nextResolved,
+          updatedNotes,
+          cleanedSaved,
+          vpWidth
+        );
+        if (nextLayout.notes[noteId]) {
+          nextLayout.notes[noteId] = {
+            ...nextLayout.notes[noteId],
+            group_id: hitGroupId,
+            manual: true,
+          };
+        }
+        void commitAndSaveDeviceLayout(activeType, nextLayout);
+        void persistPatch(noteId, { group_id: hitGroupId });
+        return;
+      }
+
+      // Movimentação normal dentro do dispositivo ativo: salva apenas o layout deste dispositivo.
+      if (resolved) {
+        const nextLayout = commitStickMoveToLayout({
+          resolved,
+          notes: notesRef.current,
+          previousLayout: deviceLayoutsRef.current[activeType] ?? null,
+          noteId,
+          x: safeX,
+          y: safeY,
+          viewportWidth: boardScrollRef.current?.clientWidth,
+        });
+        void commitAndSaveDeviceLayout(activeType, nextLayout);
+      }
+
+      if (activeType === 'desktop') {
+        const updatedNotes = notesRef.current.map((item) =>
+          item.id === noteId ? { ...item, position_x: safeX, position_y: safeY } : item
+        );
+        notesRef.current = updatedNotes;
+        setNotes(updatedNotes);
+        void persistPatch(noteId, {
+          position_x: safeX,
+          position_y: safeY,
+          z_index: target?.z_index,
+        });
+      }
     },
-    [persistPatch]
+    [boardViewportWidth, commitAndSaveDeviceLayout, persistPatch]
   );
 
   const handleResizeStart = useCallback((noteId: string) => {
     const target = notesRef.current.find((item) => item.id === noteId);
+    const frame = resolvedLayoutRef.current?.noteFrames[noteId];
     resizingNoteIdRef.current = noteId;
-    resizeInitialSizeRef.current = target
-      ? { width_px: target.width_px, height_px: target.height_px ?? null, position_x: target.position_x, position_y: target.position_y }
-      : null;
-    if (isTablet) {
-      const frame = tabletLayoutRef.current?.noteFrames[noteId];
-      const startOffset = tabletNoteDisplacementsRef.current[noteId] || { dx: 0, dy: 0 };
-      tabletResizeStartRef.current = frame
-        ? { startVisualX: frame.x, startVisualY: frame.y, startOffset }
-        : null;
-    } else {
-      tabletResizeStartRef.current = null;
-    }
-  }, [isTablet]);
-
-  const handleResizeLive = useCallback((noteId: string, size: StickyResizePatch) => {
-    if (size.height_px != null) noteHeightsRef.current[noteId] = size.height_px;
-    if (isTablet) {
-      setTabletWidthOverrides((previous) =>
-        previous[noteId] === size.width_px ? previous : { ...previous, [noteId]: size.width_px }
-      );
-      const startInfo = tabletResizeStartRef.current;
-      if (startInfo && (size.position_x !== undefined || size.position_y !== undefined)) {
-        const deltaX = size.position_x !== undefined ? size.position_x - startInfo.startVisualX : 0;
-        const deltaY = size.position_y !== undefined ? size.position_y - startInfo.startVisualY : 0;
-        const nextOffset = {
-          dx: Math.round(startInfo.startOffset.dx + deltaX),
-          dy: Math.round(startInfo.startOffset.dy + deltaY),
-        };
-        const nextMap = { ...tabletNoteDisplacementsRef.current, [noteId]: nextOffset };
-        tabletNoteDisplacementsRef.current = nextMap;
-        setTabletNoteDisplacements(nextMap);
-      }
-      if (size.height_px !== undefined) {
-        setNotes((prev) =>
-          prev.map((item) => (item.id === noteId ? { ...item, height_px: size.height_px } : item))
-        );
-      }
-      return;
-    }
-    setNotes((prev) =>
-      prev.map((item) => item.id === noteId
+    resizeInitialSizeRef.current = frame
+      ? {
+          width_px: frame.width,
+          height_px: frame.heightPx,
+          position_x: frame.x,
+          position_y: frame.y,
+        }
+      : target
         ? {
-            ...item,
-            width_px: size.width_px,
-            ...(size.height_px !== undefined ? { height_px: size.height_px } : {}),
-            ...(size.position_x !== undefined ? { position_x: size.position_x } : {}),
-            ...(size.position_y !== undefined ? { position_y: size.position_y } : {}),
+            width_px: target.width_px,
+            height_px: target.height_px ?? null,
+            position_x: target.position_x,
+            position_y: target.position_y,
           }
-        : item
-      )
-    );
-  }, [isTablet]);
+        : null;
+  }, []);
+
+  const handleResizeLive = useCallback(
+    (noteId: string, size: StickyResizePatch) => {
+      if (size.height_px != null) noteHeightsRef.current[noteId] = size.height_px;
+      const activeType = layoutTypeRef.current;
+      const resolved = resolvedLayoutRef.current;
+
+      if (resolved) {
+        const nextLayout = commitStickResizeToLayout({
+          resolved,
+          notes: notesRef.current,
+          previousLayout: deviceLayoutsRef.current[activeType] ?? null,
+          noteId,
+          size,
+          viewportWidth: boardScrollRef.current?.clientWidth,
+        });
+        applyDeviceLayoutState(activeType, nextLayout);
+      }
+
+      if (activeType === 'desktop') {
+        const next = notesRef.current.map((item) =>
+          item.id === noteId
+            ? {
+                ...item,
+                width_px: size.width_px,
+                ...(size.height_px !== undefined ? { height_px: size.height_px } : {}),
+                ...(size.position_x !== undefined ? { position_x: size.position_x } : {}),
+                ...(size.position_y !== undefined ? { position_y: size.position_y } : {}),
+              }
+            : item
+        );
+        notesRef.current = next;
+        setNotes(next);
+      }
+    },
+    [applyDeviceLayoutState]
+  );
 
   const handleResizeEnd = useCallback(
     (noteId: string, size: StickyResizePatch) => {
       const initial = resizeInitialSizeRef.current;
       resizingNoteIdRef.current = null;
       resizeInitialSizeRef.current = null;
-      tabletResizeStartRef.current = null;
 
-      if (isTablet) {
-        const nextHeight = size.height_px ?? null;
-        const heightChanged = !initial || initial.height_px !== nextHeight;
-        // No tablet, mantém a largura visual em tabletWidthOverrides sem sobrescrever
-        // as dimensões/coordenadas desktop salvas no banco de dados.
-        if (heightChanged) {
-          void persistPatch(noteId, { height_px: nextHeight });
-        }
-        return;
-      }
-
+      const activeType = layoutTypeRef.current;
       const nextHeight = size.height_px ?? null;
       const widthChanged = !initial || initial.width_px !== size.width_px;
       const heightChanged = !initial || initial.height_px !== nextHeight;
@@ -1158,324 +1410,480 @@ export function StickyNotesLayout() {
       const yChanged = !initial || initial.position_y !== (size.position_y ?? initial.position_y);
       if (!widthChanged && !heightChanged && !xChanged && !yChanged) return;
 
+      const resolved = resolvedLayoutRef.current;
+      if (resolved) {
+        const nextLayout = commitStickResizeToLayout({
+          resolved,
+          notes: notesRef.current,
+          previousLayout: deviceLayoutsRef.current[activeType] ?? null,
+          noteId,
+          size,
+          viewportWidth: boardScrollRef.current?.clientWidth,
+        });
+        void commitAndSaveDeviceLayout(activeType, nextLayout);
+      }
+
+      // Somente o desktop sincroniza dimensões/coordenadas na tabela base sticky_notes.
+      // Tablet e mobile salvam exclusivamente em sticky_board_layouts (layout_type próprio).
+      if (activeType !== 'desktop') return;
+
       const patch: UpdateStickyNotePatch = { width_px: size.width_px };
       if (heightChanged) patch.height_px = nextHeight;
       if (xChanged && size.position_x !== undefined) patch.position_x = size.position_x;
       if (yChanged && size.position_y !== undefined) patch.position_y = size.position_y;
       void persistPatch(noteId, patch);
     },
-    [isTablet, persistPatch]
+    [commitAndSaveDeviceLayout, persistPatch]
   );
 
-  const handleDeleteNote = useCallback(async (noteId: string) => {
-    const timer = debounceTimersRef.current.get(noteId);
-    if (timer) {
-      clearTimeout(timer);
-      debounceTimersRef.current.delete(noteId);
-    }
-    pendingPatchesRef.current.delete(noteId);
+  const handleDeleteNote = useCallback(
+    async (noteId: string) => {
+      const timer = debounceTimersRef.current.get(noteId);
+      if (timer) {
+        clearTimeout(timer);
+        debounceTimersRef.current.delete(noteId);
+      }
+      pendingPatchesRef.current.delete(noteId);
 
-    const snapshot = notesRef.current;
-    setNotes((prev) => prev.filter((item) => item.id !== noteId));
-    setSelectedNoteId((prev) => (prev === noteId ? null : prev));
-    setReminderNoteIds((prev) => { const next = new Set(prev); next.delete(noteId); return next; });
+      const snapshot = notesRef.current;
+      const nextNotes = snapshot.filter((item) => item.id !== noteId);
+      notesRef.current = nextNotes;
+      setNotes(nextNotes);
+      setSelectedNoteId((prev) => (prev === noteId ? null : prev));
+      setReminderNoteIds((prev) => {
+        const next = new Set(prev);
+        next.delete(noteId);
+        return next;
+      });
 
-    const uid = userIdRef.current;
-    if (!uid || uid === 'demo-user') return;
+      const activeType = layoutTypeRef.current;
+      const currentSaved = deviceLayoutsRef.current[activeType];
+      if (currentSaved && currentSaved.notes[noteId]) {
+        const remainingNotes = { ...currentSaved.notes };
+        delete remainingNotes[noteId];
+        void commitAndSaveDeviceLayout(activeType, {
+          ...currentSaved,
+          notes: remainingNotes,
+          updated_at: new Date().toISOString(),
+        });
+      }
 
-    setSaveState('saving');
-    setSaveError(null);
-    try {
-      await deleteStickyNote(uid, noteId);
-      setSaveState('saved');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao excluir Stick.';
-      setNotes(snapshot);
-      setSaveState('error');
-      setSaveError(message);
-    }
-  }, []);
+      const uid = userIdRef.current;
+      if (!uid || uid === 'demo-user') return;
 
-  const handleCreateGroupForNote = useCallback(async (noteId: string) => {
-    const note = notesRef.current.find(item => item.id === noteId);
-    if (!note || note.group_id) return;
-    try {
-      const created = await createStickyNoteGroup(userIdRef.current, (note.color || 'yellow') as StickyNoteColorKey);
-      setGroups(previous => [...previous, created]);
-      setNotes(previous => previous.map(item => item.id === noteId ? { ...item, group_id: created.id } : item));
-      await persistPatch(noteId, { group_id: created.id });
-    } catch (error) {
-      setSaveState('error');
-      setSaveError(error instanceof Error ? error.message : 'Não foi possível agrupar o Stick.');
-    }
-    setContextMenu(null);
-  }, [persistPatch]);
+      setSaveState('saving');
+      setSaveError(null);
+      try {
+        await deleteStickyNote(uid, noteId);
+        setSaveState('saved');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erro ao excluir Stick.';
+        notesRef.current = snapshot;
+        setNotes(snapshot);
+        setSaveState('error');
+        setSaveError(message);
+      }
+    },
+    [commitAndSaveDeviceLayout]
+  );
 
-  const handleDeleteGroup = useCallback(async (groupId: string) => {
-    try {
-      await deleteStickyNoteGroup(userIdRef.current, groupId);
-      setGroups(previous => previous.filter(group => group.id !== groupId));
-      setNotes(previous => previous.map(note => note.group_id === groupId ? { ...note, group_id: null } : note));
-    } catch (error) {
-      setSaveState('error');
-      setSaveError(error instanceof Error ? error.message : 'Não foi possível desagrupar.');
-    }
-    setContextMenu(null);
-  }, []);
+  const handleCreateGroupForNote = useCallback(
+    async (noteId: string) => {
+      const note = notesRef.current.find((item) => item.id === noteId);
+      if (!note || note.group_id) return;
+      try {
+        const created = await createStickyNoteGroup(
+          userIdRef.current,
+          (note.color || 'yellow') as StickyNoteColorKey
+        );
+        const nextGroups = [...groupsRef.current, created];
+        groupsRef.current = nextGroups;
+        setGroups(nextGroups);
+        const nextNotes = notesRef.current.map((item) =>
+          item.id === noteId ? { ...item, group_id: created.id } : item
+        );
+        notesRef.current = nextNotes;
+        setNotes(nextNotes);
 
-  const handleGroupPointerDown = useCallback((groupId: string, event: React.PointerEvent<HTMLDivElement>) => {
-    if (isPinchingRef.current) return;
+        const activeType = layoutTypeRef.current;
+        const currentSaved = deviceLayoutsRef.current[activeType];
+        if (currentSaved && currentSaved.notes[noteId]) {
+          void commitAndSaveDeviceLayout(activeType, {
+            ...currentSaved,
+            notes: {
+              ...currentSaved.notes,
+              [noteId]: {
+                ...currentSaved.notes[noteId],
+                group_id: created.id,
+                updated_at: new Date().toISOString(),
+              },
+            },
+            updated_at: new Date().toISOString(),
+          });
+        }
 
-    // No tablet com toque: movimentação do campo somente após pressionar e segurar por
-    // 1,5 segundo completo. Antes disso, o menu contextual permanece disponível.
-    if (isTablet && event.pointerType !== 'mouse') {
-      const targetEl = event.target as HTMLElement | null;
-      if (targetEl?.closest('input, button, textarea, a, [contenteditable="true"]')) return;
-      const members = notesRef.current.filter((note) => note.group_id === groupId).map((note) => ({ ...note }));
+        await persistPatch(noteId, { group_id: created.id });
+      } catch (error) {
+        setSaveState('error');
+        setSaveError(error instanceof Error ? error.message : 'Não foi possível agrupar o Stick.');
+      }
+      setContextMenu(null);
+    },
+    [commitAndSaveDeviceLayout, persistPatch]
+  );
 
+  const handleDeleteGroup = useCallback(
+    async (groupId: string) => {
+      try {
+        await deleteStickyNoteGroup(userIdRef.current, groupId);
+        const nextGroups = groupsRef.current.filter((group) => group.id !== groupId);
+        groupsRef.current = nextGroups;
+        setGroups(nextGroups);
+        const affectedIds = new Set(
+          notesRef.current.filter((note) => note.group_id === groupId).map((note) => note.id)
+        );
+        const nextNotes = notesRef.current.map((note) =>
+          note.group_id === groupId ? { ...note, group_id: null } : note
+        );
+        notesRef.current = nextNotes;
+        setNotes(nextNotes);
+
+        const activeType = layoutTypeRef.current;
+        const currentSaved = deviceLayoutsRef.current[activeType];
+        if (currentSaved) {
+          const nextSavedNotes = { ...currentSaved.notes };
+          const now = new Date().toISOString();
+          affectedIds.forEach((id) => {
+            if (nextSavedNotes[id]) {
+              nextSavedNotes[id] = { ...nextSavedNotes[id], group_id: null, updated_at: now };
+            }
+          });
+          const nextSavedGroups = { ...currentSaved.groups };
+          delete nextSavedGroups[groupId];
+          void commitAndSaveDeviceLayout(activeType, {
+            ...currentSaved,
+            notes: nextSavedNotes,
+            groups: nextSavedGroups,
+            updated_at: now,
+          });
+        }
+      } catch (error) {
+        setSaveState('error');
+        setSaveError(error instanceof Error ? error.message : 'Não foi possível desagrupar.');
+      }
+      setContextMenu(null);
+    },
+    [commitAndSaveDeviceLayout]
+  );
+
+  const handleGroupPointerDown = useCallback(
+    (groupId: string, event: React.PointerEvent<HTMLDivElement>) => {
+      if (isPinchingRef.current) return;
+
+      // No tablet e mobile com toque: movimentação do campo somente após pressionar e segurar por
+      // 1,5 segundo completo. Antes disso, o menu contextual permanece disponível e o gesto persiste
+      // exclusivamente no layout do dispositivo atual (sem alterar desktop).
+      if (isTouchLayout && event.pointerType !== 'mouse') {
+        const targetEl = event.target as HTMLElement | null;
+        if (targetEl?.closest('input, button, textarea, a, [contenteditable="true"]')) return;
+        const members = notesRef.current.filter((note) => note.group_id === groupId);
+
+        event.stopPropagation();
+        const pointerId = event.pointerId;
+        const startX = event.clientX;
+        const startY = event.clientY;
+        let currentClientX = startX;
+        let currentClientY = startY;
+        let dragStartX = startX;
+        let dragStartY = startY;
+        let activated = false;
+        let aborted = false;
+
+        const startLayoutType = layoutTypeRef.current;
+        let startResolved: ResolvedBoardLayout | null = null;
+        let startSavedLayout: StickyBoardLayoutData | null = null;
+
+        let contextMenuTimer: ReturnType<typeof setTimeout> | null = null;
+        let holdTimer: ReturnType<typeof setTimeout> | null = null;
+
+        contextMenuTimer = setTimeout(() => {
+          if (!activated && !aborted) {
+            setContextMenu({
+              kind: 'group',
+              id: groupId,
+              x: Math.max(12, Math.min(startX - 110, window.innerWidth - 242)),
+              y: Math.max(12, Math.min(startY + 12, window.innerHeight - 292)),
+            });
+          }
+        }, TABLET_CONTEXT_MENU_DELAY_MS);
+
+        const clearHoldTimers = () => {
+          if (holdTimer) {
+            clearTimeout(holdTimer);
+            holdTimer = null;
+          }
+          if (contextMenuTimer) {
+            clearTimeout(contextMenuTimer);
+            contextMenuTimer = null;
+          }
+        };
+
+        const cleanup = () => {
+          clearHoldTimers();
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onFinish);
+          window.removeEventListener('pointercancel', onCancel);
+          window.removeEventListener('anotado:sticky-pinch-start', onAbortForPinch);
+          setTouchMovingGroupId((prev) => (prev === groupId ? null : prev));
+          setMovingGroupNoteIds(new Set());
+        };
+
+        const restoreBaseLayout = () => {
+          applyDeviceLayoutState(startLayoutType, startSavedLayout);
+        };
+
+        const onAbortForPinch = () => {
+          if (aborted) return;
+          aborted = true;
+          const wasActivated = activated;
+          cleanup();
+          if (wasActivated) restoreBaseLayout();
+          setContextMenu(null);
+        };
+
+        if (members.length) {
+          holdTimer = setTimeout(() => {
+            if (aborted || isPinchingRef.current) return;
+            clearHoldTimers();
+            activated = true;
+            dragStartX = currentClientX;
+            dragStartY = currentClientY;
+            startResolved = resolvedLayoutRef.current;
+            startSavedLayout = deviceLayoutsRef.current[startLayoutType] ?? null;
+            setContextMenu(null);
+            setTouchMovingGroupId(groupId);
+            setMovingGroupNoteIds(new Set(members.map((member) => member.id)));
+            try {
+              navigator.vibrate?.(35);
+            } catch {
+              // Alguns tablets/navegadores não oferecem vibração háptica.
+            }
+          }, TABLET_GROUP_HOLD_MS);
+        }
+
+        const onMove = (pointer: PointerEvent) => {
+          if (pointer.pointerId !== pointerId) return;
+          if (isPinchingRef.current) {
+            onAbortForPinch();
+            return;
+          }
+          currentClientX = pointer.clientX;
+          currentClientY = pointer.clientY;
+
+          if (!activated) {
+            if (
+              Math.hypot(pointer.clientX - startX, pointer.clientY - startY) >
+              TABLET_HOLD_CANCEL_PX
+            ) {
+              aborted = true;
+              cleanup();
+              setContextMenu(null);
+              startTabletBoardPan(pointerId, startX, startY, {
+                immediate: true,
+                currentX: pointer.clientX,
+                currentY: pointer.clientY,
+              });
+            }
+            return;
+          }
+
+          if (!startResolved) return;
+          const zoom = canvasZoomRef.current || 1;
+          const dx = Math.round((pointer.clientX - dragStartX) / zoom);
+          const dy = Math.round((pointer.clientY - dragStartY) / zoom);
+          const nextLayout = commitGroupMoveToLayout({
+            resolved: startResolved,
+            notes: notesRef.current,
+            previousLayout: startSavedLayout,
+            groupId,
+            dx,
+            dy,
+            viewportWidth: boardScrollRef.current?.clientWidth,
+          });
+          applyDeviceLayoutState(startLayoutType, nextLayout);
+        };
+
+        const onCancel = (pointer: PointerEvent) => {
+          if (pointer.pointerId !== pointerId) return;
+          const wasActivated = activated;
+          aborted = true;
+          cleanup();
+          if (wasActivated) restoreBaseLayout();
+        };
+
+        const onFinish = (pointer: PointerEvent) => {
+          if (pointer.pointerId !== pointerId) return;
+          const wasActivated = activated;
+          const wasAborted = aborted;
+          cleanup();
+          if (!wasActivated || wasAborted || !startResolved) return;
+
+          const zoom = canvasZoomRef.current || 1;
+          const dx = Math.round((pointer.clientX - dragStartX) / zoom);
+          const dy = Math.round((pointer.clientY - dragStartY) / zoom);
+          const finalLayout = commitGroupMoveToLayout({
+            resolved: startResolved,
+            notes: notesRef.current,
+            previousLayout: startSavedLayout,
+            groupId,
+            dx,
+            dy,
+            viewportWidth: boardScrollRef.current?.clientWidth,
+          });
+          // Salva exclusivamente no layout do dispositivo atual (tablet ou mobile),
+          // preservando integralmente as posições desktop em sticky_notes.
+          void commitAndSaveDeviceLayout(startLayoutType, finalLayout);
+        };
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onFinish);
+        window.addEventListener('pointercancel', onCancel);
+        window.addEventListener('anotado:sticky-pinch-start', onAbortForPinch);
+        return;
+      }
+
+      if ((event.button !== 0 && event.pointerType === 'mouse') || event.target !== event.currentTarget)
+        return;
+      event.preventDefault();
       event.stopPropagation();
       const pointerId = event.pointerId;
       const startX = event.clientX;
       const startY = event.clientY;
-      let currentClientX = startX;
-      let currentClientY = startY;
-      let dragStartX = startX;
-      let dragStartY = startY;
-      let activated = false;
-      let aborted = false;
-      const baseGroupOffset = tabletGroupDisplacementsRef.current[groupId] || { dx: 0, dy: 0 };
+      const zoom = canvasZoomRef.current || 1;
+      const startLayoutType = layoutTypeRef.current;
+      const startResolved = resolvedLayoutRef.current;
+      const startSavedLayout = deviceLayoutsRef.current[startLayoutType] ?? null;
+      const members = notesRef.current
+        .filter((note) => note.group_id === groupId)
+        .map((note) => ({ ...note }));
+      if (!members.length || !startResolved) return;
 
-      let contextMenuTimer: ReturnType<typeof setTimeout> | null = null;
-      let holdTimer: ReturnType<typeof setTimeout> | null = null;
-
-      contextMenuTimer = setTimeout(() => {
-        if (!activated && !aborted) {
-          setContextMenu({
-            kind: 'group',
-            id: groupId,
-            x: Math.max(12, Math.min(startX - 110, window.innerWidth - 242)),
-            y: Math.max(12, Math.min(startY + 12, window.innerHeight - 292)),
-          });
-        }
-      }, TABLET_CONTEXT_MENU_DELAY_MS);
-
-      const clearHoldTimers = () => {
-        if (holdTimer) {
-          clearTimeout(holdTimer);
-          holdTimer = null;
-        }
-        if (contextMenuTimer) {
-          clearTimeout(contextMenuTimer);
-          contextMenuTimer = null;
-        }
-      };
+      // Enquanto o agrupamento se move, desativa as transições individuais dos cartões
+      // para evitar efeito de movimento fantasma.
+      setMovingGroupNoteIds(new Set(members.map((member) => member.id)));
+      let cancelledByPinch = false;
 
       const cleanup = () => {
-        clearHoldTimers();
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onFinish);
-        window.removeEventListener('pointercancel', onCancel);
-        window.removeEventListener('anotado:sticky-pinch-start', onAbortForPinch);
-        setTabletMovingGroupId((prev) => (prev === groupId ? null : prev));
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', finish);
+        window.removeEventListener('pointercancel', cancel);
+        window.removeEventListener('anotado:sticky-pinch-start', abortForPinch);
         setMovingGroupNoteIds(new Set());
       };
-
-      const restoreBaseOffset = () => {
-        const nextMap = { ...tabletGroupDisplacementsRef.current, [groupId]: baseGroupOffset };
-        tabletGroupDisplacementsRef.current = nextMap;
-        setTabletGroupDisplacements(nextMap);
-      };
-
-      const onAbortForPinch = () => {
-        if (aborted) return;
-        aborted = true;
-        const wasActivated = activated;
-        cleanup();
-        if (wasActivated) restoreBaseOffset();
-        setContextMenu(null);
-      };
-
-      if (members.length) {
-        holdTimer = setTimeout(() => {
-          if (aborted || isPinchingRef.current) return;
-          clearHoldTimers();
-          activated = true;
-          dragStartX = currentClientX;
-          dragStartY = currentClientY;
-          setContextMenu(null);
-          setTabletMovingGroupId(groupId);
-          setMovingGroupNoteIds(new Set(members.map((member) => member.id)));
-          try {
-            navigator.vibrate?.(35);
-          } catch {
-            // Alguns tablets/navegadores não oferecem vibração háptica.
-          }
-        }, TABLET_GROUP_HOLD_MS);
-      }
-
-      const onMove = (pointer: PointerEvent) => {
-        if (pointer.pointerId !== pointerId) return;
-        if (isPinchingRef.current) {
-          onAbortForPinch();
-          return;
-        }
-        currentClientX = pointer.clientX;
-        currentClientY = pointer.clientY;
-
-        if (!activated) {
-          if (Math.hypot(pointer.clientX - startX, pointer.clientY - startY) > TABLET_HOLD_CANCEL_PX) {
-            aborted = true;
-            cleanup();
-            setContextMenu(null);
-            startTabletBoardPan(pointerId, startX, startY, {
-              immediate: true,
-              currentX: pointer.clientX,
-              currentY: pointer.clientY,
-            });
-          }
-          return;
-        }
-
-        const zoom = canvasZoomRef.current || 1;
-        const dx = Math.round((pointer.clientX - dragStartX) / zoom);
-        const dy = Math.round((pointer.clientY - dragStartY) / zoom);
-        const nextOffset = { dx: baseGroupOffset.dx + dx, dy: baseGroupOffset.dy + dy };
-        const nextMap = { ...tabletGroupDisplacementsRef.current, [groupId]: nextOffset };
-        tabletGroupDisplacementsRef.current = nextMap;
-        setTabletGroupDisplacements(nextMap);
-      };
-
-      const onCancel = (pointer: PointerEvent) => {
-        if (pointer.pointerId !== pointerId) return;
-        const wasActivated = activated;
-        aborted = true;
-        cleanup();
-        if (wasActivated) restoreBaseOffset();
-      };
-
-      const onFinish = (pointer: PointerEvent) => {
-        if (pointer.pointerId !== pointerId) return;
-        const wasActivated = activated;
-        const wasAborted = aborted;
-        cleanup();
-        if (!wasActivated || wasAborted) return;
-
-        const zoom = canvasZoomRef.current || 1;
-        const dx = Math.round((pointer.clientX - dragStartX) / zoom);
-        const dy = Math.round((pointer.clientY - dragStartY) / zoom);
-        const finalOffset = { dx: baseGroupOffset.dx + dx, dy: baseGroupOffset.dy + dy };
-        const nextMap = { ...tabletGroupDisplacementsRef.current, [groupId]: finalOffset };
-        tabletGroupDisplacementsRef.current = nextMap;
-        setTabletGroupDisplacements(nextMap);
-
-        if (dx !== 0 || dy !== 0) {
-          const finalNotes = notesRef.current.map((note) => {
+      const restoreInitialPositions = () => {
+        applyDeviceLayoutState(startLayoutType, startSavedLayout);
+        if (startLayoutType === 'desktop') {
+          const restored = notesRef.current.map((note) => {
             const initial = members.find((member) => member.id === note.id);
             return initial
-              ? {
-                  ...note,
-                  position_x: Math.max(12, Math.round(initial.position_x + dx)),
-                  position_y: Math.max(12, Math.round(initial.position_y + dy)),
-                }
+              ? { ...note, position_x: initial.position_x, position_y: initial.position_y }
+              : note;
+          });
+          notesRef.current = restored;
+          setNotes(restored);
+        }
+      };
+      const abortForPinch = () => {
+        if (cancelledByPinch) return;
+        cancelledByPinch = true;
+        cleanup();
+        restoreInitialPositions();
+      };
+      const move = (pointer: PointerEvent) => {
+        if (pointer.pointerId !== pointerId) return;
+        if (isPinchingRef.current) {
+          abortForPinch();
+          return;
+        }
+        const dx = (pointer.clientX - startX) / zoom;
+        const dy = (pointer.clientY - startY) / zoom;
+        const nextLayout = commitGroupMoveToLayout({
+          resolved: startResolved,
+          notes: notesRef.current,
+          previousLayout: startSavedLayout,
+          groupId,
+          dx,
+          dy,
+          viewportWidth: boardScrollRef.current?.clientWidth,
+        });
+        applyDeviceLayoutState(startLayoutType, nextLayout);
+
+        if (startLayoutType === 'desktop') {
+          const next = notesRef.current.map((note) => {
+            const entry = nextLayout.notes[note.id];
+            return note.group_id === groupId && entry
+              ? { ...note, position_x: entry.x, position_y: entry.y }
+              : note;
+          });
+          notesRef.current = next;
+          setNotes(next);
+        }
+      };
+      const cancel = (pointer: PointerEvent) => {
+        if (pointer.pointerId !== pointerId) return;
+        cleanup();
+        restoreInitialPositions();
+      };
+      const finish = (pointer: PointerEvent) => {
+        if (pointer.pointerId !== pointerId) return;
+        const dx = (pointer.clientX - startX) / zoom;
+        const dy = (pointer.clientY - startY) / zoom;
+        cleanup();
+        if (cancelledByPinch) return;
+        const finalLayout = commitGroupMoveToLayout({
+          resolved: startResolved,
+          notes: notesRef.current,
+          previousLayout: startSavedLayout,
+          groupId,
+          dx,
+          dy,
+          viewportWidth: boardScrollRef.current?.clientWidth,
+        });
+        void commitAndSaveDeviceLayout(startLayoutType, finalLayout);
+
+        if (startLayoutType === 'desktop') {
+          const finalNotes = notesRef.current.map((note) => {
+            const entry = finalLayout.notes[note.id];
+            return note.group_id === groupId && entry
+              ? { ...note, position_x: entry.x, position_y: entry.y }
               : note;
           });
           notesRef.current = finalNotes;
           setNotes(finalNotes);
           members.forEach((member) => {
-            void persistPatch(member.id, {
-              position_x: Math.max(12, Math.round(member.position_x + dx)),
-              position_y: Math.max(12, Math.round(member.position_y + dy)),
-            });
+            const entry = finalLayout.notes[member.id];
+            if (entry) {
+              void persistPatch(member.id, {
+                position_x: entry.x,
+                position_y: entry.y,
+              });
+            }
           });
         }
       };
-
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onFinish);
-      window.addEventListener('pointercancel', onCancel);
-      window.addEventListener('anotado:sticky-pinch-start', onAbortForPinch);
-      return;
-    }
-
-    if ((event.button !== 0 && event.pointerType === 'mouse') || event.target !== event.currentTarget) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const pointerId = event.pointerId;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const zoom = canvasZoom || 1;
-    const members = notesRef.current.filter(note => note.group_id === groupId).map(note => ({ ...note }));
-    if (!members.length) return;
-    // Enquanto o agrupamento se move, desative as transições individuais dos
-    // cartões: caso contrário cada Stick tenta animar até a nova posição e fica
-    // visualmente para trás, criando o efeito de movimento fantasma.
-    setMovingGroupNoteIds(new Set(members.map(member => member.id)));
-    let cancelledByPinch = false;
-
-    const cleanup = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', finish);
-      window.removeEventListener('pointercancel', cancel);
-      window.removeEventListener('anotado:sticky-pinch-start', abortForPinch);
-      setMovingGroupNoteIds(new Set());
-    };
-    const restoreInitialPositions = () => {
-      const restored = notesRef.current.map(note => {
-        const initial = members.find(member => member.id === note.id);
-        return initial ? { ...note, position_x: initial.position_x, position_y: initial.position_y } : note;
-      });
-      notesRef.current = restored;
-      setNotes(restored);
-    };
-    const abortForPinch = () => {
-      if (cancelledByPinch) return;
-      cancelledByPinch = true;
-      cleanup();
-      restoreInitialPositions();
-    };
-    const move = (pointer: PointerEvent) => {
-      if (pointer.pointerId !== pointerId) return;
-      if (isPinchingRef.current) { abortForPinch(); return; }
-      const dx = (pointer.clientX - startX) / zoom;
-      const dy = (pointer.clientY - startY) / zoom;
-      const next = notesRef.current.map(note => {
-        const initial = members.find(member => member.id === note.id);
-        return initial ? { ...note, position_x: initial.position_x + dx, position_y: initial.position_y + dy } : note;
-      });
-      // Atualização síncrona da referência mantém todos os membros no mesmo
-      // frame e evita que o próximo evento use posições antigas.
-      notesRef.current = next;
-      setNotes(next);
-    };
-    const cancel = (pointer: PointerEvent) => {
-      if (pointer.pointerId !== pointerId) return;
-      cleanup();
-      restoreInitialPositions();
-    };
-    const finish = (pointer: PointerEvent) => {
-      if (pointer.pointerId !== pointerId) return;
-      const dx = (pointer.clientX - startX) / zoom;
-      const dy = (pointer.clientY - startY) / zoom;
-      cleanup();
-      if (cancelledByPinch) return;
-      const finalNotes = notesRef.current.map(note => {
-        const initial = members.find(member => member.id === note.id);
-        return initial ? { ...note, position_x: Math.round(initial.position_x + dx), position_y: Math.round(initial.position_y + dy) } : note;
-      });
-      notesRef.current = finalNotes;
-      setNotes(finalNotes);
-      members.forEach(member => {
-        void persistPatch(member.id, {
-          position_x: Math.round(member.position_x + dx),
-          position_y: Math.round(member.position_y + dy),
-        });
-      });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', finish);
-    window.addEventListener('pointercancel', cancel);
-    window.addEventListener('anotado:sticky-pinch-start', abortForPinch);
-  }, [isTablet, canvasZoom, persistPatch, startTabletBoardPan]);
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', finish);
+      window.addEventListener('pointercancel', cancel);
+      window.addEventListener('anotado:sticky-pinch-start', abortForPinch);
+    },
+    [
+      isTouchLayout,
+      applyDeviceLayoutState,
+      commitAndSaveDeviceLayout,
+      persistPatch,
+      startTabletBoardPan,
+    ]
+  );
 
   const handleReorderGroups = useCallback(async (sourceId: string, targetId: string) => {
     const previous = groupsRef.current;
@@ -1504,15 +1912,15 @@ export function StickyNotesLayout() {
     const viewport = boardScrollRef.current;
     if (viewport) {
       const zoom = canvasZoomRef.current || 1;
-      const tabletBound = isTablet
-        ? tabletLayoutRef.current?.groupBounds.find((item) => item.group.id === groupId)
-        : undefined;
-      if (tabletBound) {
-        const x = Math.round(viewport.clientWidth / 2 - (tabletBound.left + tabletBound.width / 2) * zoom);
-        const fitsVertically = tabletBound.height * zoom <= viewport.clientHeight - 40;
+      const bound = resolvedLayoutRef.current?.groupBounds.find(
+        (item) => item.group.id === groupId
+      );
+      if (bound) {
+        const x = Math.round(viewport.clientWidth / 2 - (bound.left + bound.width / 2) * zoom);
+        const fitsVertically = bound.height * zoom <= viewport.clientHeight - 40;
         const y = fitsVertically
-          ? Math.round(viewport.clientHeight / 2 - (tabletBound.top + tabletBound.height / 2) * zoom)
-          : Math.round(20 - tabletBound.top * zoom);
+          ? Math.round(viewport.clientHeight / 2 - (bound.top + bound.height / 2) * zoom)
+          : Math.round(20 - bound.top * zoom);
         canvasPanRef.current = { x, y };
         setCanvasPan({ x, y });
         setGroupsSidebarOpen(false);
@@ -1527,7 +1935,10 @@ export function StickyNotesLayout() {
         const bottom = Math.max(
           ...members.map((note) => {
             const element = document.getElementById('sticky-note-' + note.id);
-            return note.position_y + (note.height_px ?? noteHeightsRef.current[note.id] ?? element?.offsetHeight ?? 280);
+            return (
+              note.position_y +
+              (note.height_px ?? noteHeightsRef.current[note.id] ?? element?.offsetHeight ?? 280)
+            );
           })
         );
         const nextPan = {
@@ -1539,7 +1950,7 @@ export function StickyNotesLayout() {
       }
     }
     setGroupsSidebarOpen(false);
-  }, [isTablet]);
+  }, []);
 
   const handleGroupTitleChange = useCallback((groupId: string, title: string) => {
     setGroups(previous => previous.map(group => group.id === groupId ? { ...group, title } : group));
@@ -1568,7 +1979,7 @@ export function StickyNotesLayout() {
   }, []);
 
   const handleNoteContextMenu = useCallback((note: StickyNote, x: number, y: number) => {
-    if (isTablet) return; // No tablet, o menu contextual é aberto pelo botão explícito.
+    if (isTouchLayout) return; // Em tablet/mobile, o menu contextual é aberto pelo botão explícito.
     const menuWidth = 190;
     const menuHeight = 240;
     setContextMenu({
@@ -1577,7 +1988,7 @@ export function StickyNotesLayout() {
       x: Math.max(12, Math.min(x, window.innerWidth - menuWidth)),
       y: Math.max(12, Math.min(y, window.innerHeight - menuHeight)),
     });
-  }, [isTablet]);
+  }, [isTouchLayout]);
 
   const handleOpenTabletNoteMenu = useCallback((note: StickyNote, x: number, y: number) => {
     const menuWidth = 230;
@@ -1592,17 +2003,17 @@ export function StickyNotesLayout() {
 
   const handleGroupContextMenu = useCallback((groupId: string, event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
-    if (isTablet) return; // Evita o menu nativo de toque/long press; o timer do campo controla a abertura.
+    if (isTouchLayout) return; // Evita o menu nativo de toque/long press; o timer do campo controla a abertura.
     event.stopPropagation();
-    const menuWidth = isTablet ? 230 : 190;
-    const menuHeight = isTablet ? 280 : 190;
+    const menuWidth = 190;
+    const menuHeight = 190;
     setContextMenu({
       kind: 'group',
       id: groupId,
       x: Math.max(12, Math.min(event.clientX, window.innerWidth - menuWidth)),
       y: Math.max(12, Math.min(event.clientY, window.innerHeight - menuHeight)),
     });
-  }, [isTablet]);
+  }, [isTouchLayout]);
 
   const handleOpenTabletGroupMenu = useCallback((groupId: string, anchor: HTMLElement) => {
     const rect = anchor.getBoundingClientRect();
@@ -1614,47 +2025,26 @@ export function StickyNotesLayout() {
     });
   }, []);
 
-  const groupBounds = useMemo(() => groups.map(group => {
-    const members = notes.filter(note => note.group_id === group.id);
-    if (!members.length) return null;
-    const left = Math.min(...members.map(note => note.position_x));
-    const top = Math.min(...members.map(note => note.position_y));
-    const right = Math.max(...members.map(note => note.position_x + note.width_px));
-    const bottom = Math.max(...members.map(note => {
-      const element = typeof document !== 'undefined' ? document.getElementById('sticky-note-' + note.id) : null;
-      const height = note.height_px ?? noteHeights[note.id] ?? element?.offsetHeight ?? 280;
-      return note.position_y + height;
-    }));
-    return { group, left: left - 22, top: top - 42, width: right - left + 44, height: bottom - top + 66 };
-  }).filter((item): item is NonNullable<typeof item> => Boolean(item)), [groups, notes, noteHeights]);
+  const activeSavedLayout = deviceLayouts[layoutType] ?? null;
 
-  const tabletLayout = useMemo(() => {
-    if (!isTablet) return null;
-    return computeTabletBoardLayout({
-      notes,
-      groups,
-      viewportWidth: boardViewportWidth,
-      noteHeights,
-      groupDisplacements: tabletGroupDisplacements,
-      noteDisplacements: tabletNoteDisplacements,
-      widthOverrides: tabletWidthOverrides,
-    });
-  }, [
-    isTablet,
-    notes,
-    groups,
-    boardViewportWidth,
-    noteHeights,
-    tabletGroupDisplacements,
-    tabletNoteDisplacements,
-    tabletWidthOverrides,
-  ]);
+  const resolvedLayout = useMemo(
+    () =>
+      resolveBoardLayout({
+        layoutType,
+        notes,
+        groups,
+        savedLayout: activeSavedLayout,
+        viewportWidth: boardViewportWidth,
+        noteHeights,
+      }),
+    [layoutType, notes, groups, activeSavedLayout, boardViewportWidth, noteHeights]
+  );
 
   useLayoutEffect(() => {
-    tabletLayoutRef.current = tabletLayout;
-  }, [tabletLayout]);
+    resolvedLayoutRef.current = resolvedLayout;
+  }, [resolvedLayout]);
 
-  const activeGroupBounds = isTablet && tabletLayout ? tabletLayout.groupBounds : groupBounds;
+  const activeGroupBounds = resolvedLayout.groupBounds;
 
   const selectedNote = useMemo(
     () => notes.find((n) => n.id === selectedNoteId) || null,
@@ -1665,7 +2055,8 @@ export function StickyNotesLayout() {
     <div
       id="sticky-notes-app-container"
       data-sticky-tablet={isTablet ? 'true' : undefined}
-      className={`flex flex-col ${isTablet ? 'h-[100dvh]' : 'h-screen'} w-screen min-h-0 min-w-0 overflow-hidden bg-[#f7f4ed] dark:bg-[#050505] font-sans-ui`}
+      data-sticky-layout={layoutType}
+      className={`flex flex-col ${isTouchLayout ? 'h-[100dvh]' : 'h-screen'} w-screen min-h-0 min-w-0 overflow-hidden bg-[#f7f4ed] dark:bg-[#050505] font-sans-ui`}
     >
       <AppHeader
         activeSection="sticky-notes"
@@ -1825,7 +2216,7 @@ export function StickyNotesLayout() {
             window.addEventListener('pointercancel', finish);
             return;
           }
-          if (isTablet && event.pointerType !== 'mouse' && isBackground && !isPinchingRef.current) {
+          if (isTouchLayout && event.pointerType !== 'mouse' && isBackground && !isPinchingRef.current) {
             startTabletBoardPan(event.pointerId, event.clientX, event.clientY, { deselectOnTap: true });
             return;
           }
@@ -1848,7 +2239,7 @@ export function StickyNotesLayout() {
           backgroundSize: `${24 * canvasZoom}px ${24 * canvasZoom}px`,
           backgroundPosition: `${canvasPan.x}px ${canvasPan.y}px`,
           cursor: isPanning ? 'grabbing' : isSpacePressed ? 'grab' : undefined,
-          touchAction: isTablet ? 'none' : undefined,
+          touchAction: isTouchLayout ? 'none' : undefined,
         }}
       >
         <div
@@ -1867,7 +2258,7 @@ export function StickyNotesLayout() {
           {activeGroupBounds.map(({group,left,top,width,height}) => {
             const palette = STICKY_COLORS.find(color => color.key === group.color) || STICKY_COLORS[0];
             const tint = palette.swatchLight;
-            const isMovingThisGroup = isTablet && tabletMovingGroupId === group.id;
+            const isMovingThisGroup = isTouchLayout && touchMovingGroupId === group.id;
             const titleColorClass = ({
               yellow: 'text-[#8a741f] dark:text-[#f5df78]',
               green: 'text-[#39794a] dark:text-[#8fd59d]',
@@ -1883,7 +2274,7 @@ export function StickyNotesLayout() {
                 data-sticky-group-id={group.id}
                 onPointerDown={event => handleGroupPointerDown(group.id, event)}
                 onContextMenu={event => handleGroupContextMenu(group.id, event)}
-                title={isTablet ? 'Segure por 1,5 segundo para mover este campo' : 'Arraste para mover o agrupamento; clique com o botão direito para opções'}
+                title={isTouchLayout ? 'Segure por 1,5 segundo para mover este campo' : 'Arraste para mover o agrupamento; clique com o botão direito para opções'}
                 style={{
                   position: 'absolute', left, top, width, height,
                   borderRadius: 22,
@@ -1901,7 +2292,7 @@ export function StickyNotesLayout() {
                   touchAction: 'none',
                 }}
               />
-              {isTablet ? (
+              {isTouchLayout ? (
                 <div
                   data-sticky-group-header={group.id}
                   onPointerDown={event => handleGroupPointerDown(group.id, event)}
@@ -2035,52 +2426,77 @@ export function StickyNotesLayout() {
               </div>
             </div>
           ) : (
-            notes.map((note) => (
-              <StickyNoteCard
-                key={note.id}
-                isTablet={isTablet}
-                visualFrame={isTablet ? tabletLayout?.noteFrames[note.id] : undefined}
-                onTabletPanStart={isTablet ? startTabletBoardPan : undefined}
-                onTabletMoveLive={isTablet ? handleTabletMoveLive : undefined}
-                onTabletMoveEnd={isTablet ? handleTabletMoveEnd : undefined}
-                note={note}
-                isMovingWithGroup={movingGroupNoteIds.has(note.id)}
-                canvasZoom={canvasZoom}
-                isPinchingRef={isPinchingRef}
-                snapTargets={isTablet ? [] : notes.filter(other => other.id !== note.id).map(other => ({
-                  id: other.id,
-                  x: other.position_x,
-                  y: other.position_y,
-                  width: other.width_px,
-                  height: other.height_px ?? noteHeights[other.id] ?? 280,
-                }))}
-                isSelected={selectedNoteId === note.id}
-                highlightMode={highlightMode}
-                autoFocus={newlyCreatedId === note.id}
-                onSelect={handleSelectNote}
-                onChangeTitle={handleChangeTitle}
-                onChangeContent={handleChangeContent}
-                onChangeColor={handleChangeNoteColor}
-                onMoveLive={handleMoveLive}
-                onMoveEnd={handleMoveEnd}
-                onResizeStart={handleResizeStart}
-                onResizeLive={handleResizeLive}
-                onResizeEnd={handleResizeEnd}
-                onDelete={handleDeleteNote}
-                hasReminder={reminderNoteIds.has(note.id)}
-                onOpenReminder={(targetNote) => setReminderDialogNoteId(targetNote.id)}
-                onContextMenu={handleNoteContextMenu}
-                onOpenTabletNoteMenu={isTablet ? handleOpenTabletNoteMenu : undefined}
-                registerEditorActions={registerEditorActions}
-                onOpenLinkedNote={handleOpenLinkedNote}
-                onPreviewLinkedNote={handlePreviewLinkedNote}
-              />
-            ))
+            notes.map((note) => {
+              const frame = resolvedLayout.noteFrames[note.id];
+              return (
+                <StickyNoteCard
+                  key={note.id}
+                  isTablet={isTablet}
+                  isMobile={isMobile}
+                  visualFrame={
+                    frame
+                      ? {
+                          x: frame.x,
+                          y: frame.y,
+                          width: frame.width,
+                          heightPx: frame.heightPx,
+                        }
+                      : undefined
+                  }
+                  onTabletPanStart={isTouchLayout ? startTabletBoardPan : undefined}
+                  note={note}
+                  isMovingWithGroup={movingGroupNoteIds.has(note.id)}
+                  canvasZoom={canvasZoom}
+                  isPinchingRef={isPinchingRef}
+                  snapTargets={
+                    isDesktop
+                      ? notes
+                          .filter((other) => other.id !== note.id)
+                          .map((other) => {
+                            const otherFrame = resolvedLayout.noteFrames[other.id];
+                            return {
+                              id: other.id,
+                              x: otherFrame ? otherFrame.x : other.position_x,
+                              y: otherFrame ? otherFrame.y : other.position_y,
+                              width: otherFrame ? otherFrame.width : other.width_px,
+                              height:
+                                otherFrame?.height ??
+                                other.height_px ??
+                                noteHeights[other.id] ??
+                                280,
+                            };
+                          })
+                      : []
+                  }
+                  isSelected={selectedNoteId === note.id}
+                  highlightMode={highlightMode}
+                  autoFocus={newlyCreatedId === note.id}
+                  onSelect={handleSelectNote}
+                  onChangeTitle={handleChangeTitle}
+                  onChangeContent={handleChangeContent}
+                  onChangeColor={handleChangeNoteColor}
+                  onMoveStart={handleMoveStart}
+                  onMoveLive={handleMoveLive}
+                  onMoveEnd={handleMoveEnd}
+                  onResizeStart={handleResizeStart}
+                  onResizeLive={handleResizeLive}
+                  onResizeEnd={handleResizeEnd}
+                  onDelete={handleDeleteNote}
+                  hasReminder={reminderNoteIds.has(note.id)}
+                  onOpenReminder={(targetNote) => setReminderDialogNoteId(targetNote.id)}
+                  onContextMenu={handleNoteContextMenu}
+                  onOpenTabletNoteMenu={isTouchLayout ? handleOpenTabletNoteMenu : undefined}
+                  registerEditorActions={registerEditorActions}
+                  onOpenLinkedNote={handleOpenLinkedNote}
+                  onPreviewLinkedNote={handlePreviewLinkedNote}
+                />
+              );
+            })
           )}
         </div>
 
-        {/* Indicador do modo ativo de movimentação de campo no tablet */}
-        {isTablet && tabletMovingGroupId && (
+        {/* Indicador do modo ativo de movimentação de campo no tablet/mobile */}
+        {isTouchLayout && touchMovingGroupId && (
           <div
             role="status"
             aria-live="assertive"
@@ -2097,25 +2513,25 @@ export function StickyNotesLayout() {
           onContextMenu={event => { event.preventDefault(); setContextMenu(null); }}
         >
           <div
-            className={`fixed ${isTablet ? 'min-w-[216px] p-2' : 'min-w-[176px] p-1.5'} rounded-xl border border-[#e5d9cc] bg-[#fffdf9] shadow-[0_12px_35px_rgba(40,28,18,.22)] dark:border-[#494038] dark:bg-[#211e1b]`}
+            className={`fixed ${isTouchLayout ? 'min-w-[216px] p-2' : 'min-w-[176px] p-1.5'} rounded-xl border border-[#e5d9cc] bg-[#fffdf9] shadow-[0_12px_35px_rgba(40,28,18,.22)] dark:border-[#494038] dark:bg-[#211e1b]`}
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onPointerDown={event => event.stopPropagation()}
           >
             {contextMenu.kind === 'note' ? <>
-              {!notes.find(note => note.id === contextMenu.id)?.group_id && <button type="button" onClick={() => void handleCreateGroupForNote(contextMenu.id)} className={`w-full rounded-lg px-3 ${isTablet ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]`}>Agrupar</button>}
-              <button type="button" onClick={() => { void handleDeleteNote(contextMenu.id); setContextMenu(null); }} className={`w-full rounded-lg px-3 ${isTablet ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#a24e42] hover:bg-[#faeae5] dark:hover:bg-[#3d2521]`}>Excluir</button>
+              {!notes.find(note => note.id === contextMenu.id)?.group_id && <button type="button" onClick={() => void handleCreateGroupForNote(contextMenu.id)} className={`w-full rounded-lg px-3 ${isTouchLayout ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]`}>Agrupar</button>}
+              <button type="button" onClick={() => { void handleDeleteNote(contextMenu.id); setContextMenu(null); }} className={`w-full rounded-lg px-3 ${isTouchLayout ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#a24e42] hover:bg-[#faeae5] dark:hover:bg-[#3d2521]`}>Excluir</button>
               <div className="my-1 border-t border-[#eee5dc] dark:border-[#40372f]"/>
               <p className="px-3 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[#988777]">Mudar cor do Stick</p>
-              <div className={`flex flex-wrap ${isTablet ? 'gap-2.5 px-3 py-2.5' : 'gap-2 px-3 py-2'}`}>
-                {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => { handleChangeNoteColor(contextMenu.id, color.key); setContextMenu(null); }} className={`${isTablet ? 'h-8 w-8' : 'h-5 w-5'} rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]`} style={{ backgroundColor: color.swatchLight }}/>)}
+              <div className={`flex flex-wrap ${isTouchLayout ? 'gap-2.5 px-3 py-2.5' : 'gap-2 px-3 py-2'}`}>
+                {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => { handleChangeNoteColor(contextMenu.id, color.key); setContextMenu(null); }} className={`${isTouchLayout ? 'h-8 w-8' : 'h-5 w-5'} rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]`} style={{ backgroundColor: color.swatchLight }}/>)}
               </div>
             </> : <>
-              <button type="button" onClick={() => { setEditingGroupTitleId(contextMenu.id); setContextMenu(null); }} className={`w-full rounded-lg px-3 ${isTablet ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]`}>{groups.find(group => group.id === contextMenu.id)?.title ? 'Editar título' : 'Adicionar título'}</button>
-              <button type="button" onClick={() => void handleDeleteGroup(contextMenu.id)} className={`w-full rounded-lg px-3 ${isTablet ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]`}>Desagrupar</button>
+              <button type="button" onClick={() => { setEditingGroupTitleId(contextMenu.id); setContextMenu(null); }} className={`w-full rounded-lg px-3 ${isTouchLayout ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]`}>{groups.find(group => group.id === contextMenu.id)?.title ? 'Editar título' : 'Adicionar título'}</button>
+              <button type="button" onClick={() => void handleDeleteGroup(contextMenu.id)} className={`w-full rounded-lg px-3 ${isTouchLayout ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]`}>Desagrupar</button>
               <div className="my-1 border-t border-[#eee5dc] dark:border-[#40372f]"/>
               <p className="px-3 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[#988777]">Mudar cor do campo</p>
-              <div className={`flex flex-wrap ${isTablet ? 'gap-2.5 px-3 py-2.5' : 'gap-2 px-3 py-2'}`}>
-                {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => void handleGroupColor(contextMenu.id, color.key)} className={`${isTablet ? 'h-8 w-8' : 'h-5 w-5'} rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]`} style={{ backgroundColor: color.swatchLight }}/>)}
+              <div className={`flex flex-wrap ${isTouchLayout ? 'gap-2.5 px-3 py-2.5' : 'gap-2 px-3 py-2'}`}>
+                {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => void handleGroupColor(contextMenu.id, color.key)} className={`${isTouchLayout ? 'h-8 w-8' : 'h-5 w-5'} rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]`} style={{ backgroundColor: color.swatchLight }}/>)}
               </div>
             </>}
           </div>

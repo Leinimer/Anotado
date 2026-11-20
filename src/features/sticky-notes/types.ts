@@ -134,3 +134,44 @@ export interface StickyNoteGroup {
   created_at: string;
   updated_at: string;
 }
+
+export type StickyLayoutType = 'desktop' | 'tablet' | 'mobile';
+
+export const DEFAULT_STICKY_BOARD_ID = 'default';
+
+export interface StickyNoteLayoutEntry {
+  x: number;
+  y: number;
+  width?: number;
+  height?: number | null;
+  group_id?: string | null;
+  manual?: boolean;
+  updated_at?: string;
+}
+
+export interface StickyGroupLayoutEntry {
+  x: number;
+  y: number;
+  manual?: boolean;
+  updated_at?: string;
+}
+
+export interface StickyBoardLayoutData {
+  version: 1;
+  layout_type: StickyLayoutType;
+  notes: Record<string, StickyNoteLayoutEntry>;
+  groups: Record<string, StickyGroupLayoutEntry>;
+  viewport_width?: number;
+  updated_at: string;
+}
+
+export interface StickyBoardLayoutRecord {
+  id?: string;
+  user_id: string;
+  board_id: string;
+  layout_type: StickyLayoutType;
+  layout_data: StickyBoardLayoutData;
+  version: number;
+  updated_at: string;
+}
+

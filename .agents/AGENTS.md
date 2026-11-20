@@ -471,7 +471,7 @@ Esta seção é um mapa rápido da base. Antes de alterar um item, leia o seu c�
 - **SharedDiaryLayout.tsx**: carregamento e eventos da visualização compartilhada.
 - **DiarySidebarNavigation.tsx**: árvore de ano/mês/dia, filtros, menus e movimento.
 - **SharedDiarySidebarNavigation.tsx**: navegação compartilhada.
-- **src/features/sticky-notes/** e **app/sticky-notes/page.tsx**: quadro independente sem sidebar para notas adesivas (post-its) persistidas na tabela `public.sticky_notes` com RLS por usuário, largura redimensionável na lateral direita, altura automática e movimentação livre por arrastar e soltar (`supabase/migrations/20261117000000_create_sticky_notes.sql`).
+- **src/features/sticky-notes/** e **app/sticky-notes/page.tsx**: quadro independente sem sidebar para notas adesivas (Sticks) persistidas em `public.sticky_notes` e campos em `public.sticky_note_groups` com RLS por usuário (`supabase/migrations/20261117000000_create_sticky_notes.sql`). O posicionamento e as dimensões de Sticks e campos são completamente independentes por modalidade de dispositivo (`desktop`, `tablet`, `mobile`) via tabela `public.sticky_board_layouts` (`user_id + board_id + layout_type`, migration `supabase/migrations/20261120200000_add_sticky_board_layouts.sql`) com cache local isolado (`sticky-layouts-api.ts`), detecção estável em `useStickyDeviceMode.ts` e resolução/commit puro em `device-layouts.ts`. Alterações de posição/dimensão no tablet ou mobile nunca sobrescrevem coordenadas desktop em `sticky_notes`.
 
 ### Notas API e dados
 - **notes-api.ts**: operações principais de notas/pastas/tags.
