@@ -7,11 +7,13 @@ import {
   StickyNoteGroup,
 } from '../types';
 
-export type StickyResizeAxis = 'x' | 'y' | 'xy';
+export type StickyResizeAxis = 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
 export interface StickyResizePatch {
   width_px: number;
   height_px?: number | null;
+  position_x?: number;
+  position_y?: number;
 }
 
 export interface StickySnapTarget {
@@ -83,64 +85,67 @@ export function computeNextStickySize({
   snapTolerance = 6,
 }: ComputeNextStickySizeInput): StickyResizePatch {
   const safeZoom = zoom > 0 ? zoom : 1;
+  const dx = deltaX / safeZoom;
+  const dy = deltaY / safeZoom;
+  const movesLeft = axis.includes('left');
+  const movesRight = axis.includes('right');
+  const movesTop = axis.includes('top');
+  const movesBottom = axis.includes('bottom');
 
-  let nextWidth = clampStickyWidth(startWidth);
-  if (axis === 'x' || axis === 'xy') {
-    const rawWidth = clampStickyWidth(startWidth + deltaX / safeZoom);
-    let snappedWidth = rawWidth;
-    let bestDistance = snapTolerance + 1;
-
-    for (const target of snapTargets) {
-      const guides = [
-        target.x - positionX - 12,
-        target.x + target.width - positionX,
-      ];
-      for (const guide of guides) {
-        const roundedGuide = Math.round(guide);
-        const distance = Math.abs(roundedGuide - rawWidth);
-        if (
-          roundedGuide >= STICKY_MIN_WIDTH &&
-          roundedGuide <= STICKY_MAX_WIDTH &&
-          distance <= snapTolerance &&
-          distance < bestDistance
-        ) {
-          snappedWidth = roundedGuide;
-          bestDistance = distance;
-        }
-      }
-    }
-    nextWidth = snappedWidth;
-  }
-
+  let nextWidth = startWidth;
   let nextHeight: number | null | undefined = initialHeightPx;
-  if (axis === 'y' || axis === 'xy') {
-    const rawHeight = clampStickyHeight(startHeight + deltaY / safeZoom);
-    let snappedHeight = rawHeight;
-    let bestDistance = snapTolerance + 1;
+  let nextX = positionX;
+  let nextY = positionY;
 
+  if (movesLeft) {
+    const width = clampStickyWidth(startWidth - dx);
+    nextX = positionX + (startWidth - width);
+    nextWidth = width;
+  } else if (movesRight) {
+    nextWidth = clampStickyWidth(startWidth + dx);
+  }
+
+  if (movesTop) {
+    const widthHeight = clampStickyHeight(startHeight - dy);
+    nextY = positionY + (startHeight - widthHeight);
+    nextHeight = widthHeight;
+  } else if (movesBottom) {
+    nextHeight = clampStickyHeight(startHeight + dy);
+  }
+
+  // Magnetic snapping remains gentle on the fixed/right and bottom edges.
+  // Left/top resizing keeps the opposite edge anchored and prioritizes direct manipulation.
+  if (movesRight) {
+    let best = snapTolerance + 1;
     for (const target of snapTargets) {
-      const guides = [
-        target.y - positionY - 12,
-        target.y + target.height - positionY,
-      ];
-      for (const guide of guides) {
-        const roundedGuide = Math.round(guide);
-        const distance = Math.abs(roundedGuide - rawHeight);
-        if (
-          roundedGuide >= STICKY_MIN_HEIGHT &&
-          roundedGuide <= STICKY_MAX_HEIGHT &&
-          distance <= snapTolerance &&
-          distance < bestDistance
-        ) {
-          snappedHeight = roundedGuide;
-          bestDistance = distance;
+      for (const guide of [target.x - positionX - 12, target.x + target.width - positionX]) {
+        const candidate = Math.round(guide);
+        const distance = Math.abs(candidate - nextWidth);
+        if (candidate >= STICKY_MIN_WIDTH && candidate <= STICKY_MAX_WIDTH && distance <= snapTolerance && distance < best) {
+          nextWidth = candidate;
+          best = distance;
         }
       }
     }
-    nextHeight = snappedHeight;
+  }
+  if (movesBottom && nextHeight != null) {
+    let best = snapTolerance + 1;
+    for (const target of snapTargets) {
+      for (const guide of [target.y - positionY - 12, target.y + target.height - positionY]) {
+        const candidate = Math.round(guide);
+        const distance = Math.abs(candidate - nextHeight);
+        if (candidate >= STICKY_MIN_HEIGHT && candidate <= STICKY_MAX_HEIGHT && distance <= snapTolerance && distance < best) {
+          nextHeight = candidate;
+          best = distance;
+        }
+      }
+    }
   }
 
-  return axis === 'x'
-    ? { width_px: nextWidth, height_px: initialHeightPx }
-    : { width_px: nextWidth, height_px: nextHeight };
+  return {
+    width_px: nextWidth,
+    height_px: nextHeight,
+    position_x: nextX,
+    position_y: nextY,
+  };
 }
