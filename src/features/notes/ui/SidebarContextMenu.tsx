@@ -39,6 +39,7 @@ interface SidebarContextMenuProps {
   onCreateNoteInFolder?: (folderId: string) => void;
   onCreateSubfolder?: (parentFolderId: string) => void;
   onSplitNote?: (noteId: string) => void;
+  onConvertNoteToStick?: (noteId: string) => void;
   onDuplicateNote?: (noteId: string) => void;
   onOpenNoteInNewTab?: (noteId: string) => void;
   onDetachPdfSummary?: (noteId: string) => void;
@@ -74,6 +75,7 @@ export function SidebarContextMenu({
   onCreateNoteInFolder,
   onCreateSubfolder,
   onSplitNote,
+  onConvertNoteToStick,
   onDuplicateNote,
   onOpenNoteInNewTab,
   onDetachPdfSummary,
@@ -174,6 +176,20 @@ export function SidebarContextMenu({
           >
             <ExternalLink className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
             <span>Abrir em nova aba</span>
+          </button>
+
+          <button
+            id="context-menu-convert-note-to-stick-btn"
+            type="button"
+            onClick={() => {
+              if (onConvertNoteToStick && menuOpenId) onConvertNoteToStick(menuOpenId);
+              onClose();
+            }}
+            className="w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616] hover:text-[#1b1c19] dark:hover:text-white transition-colors cursor-pointer text-left"
+            title="Transformar esta nota em Stick"
+          >
+            <StickyNote className="w-3.5 h-3.5 text-[#68594d] dark:text-[#d7c3b0] shrink-0" />
+            <span>Transformar em Stick</span>
           </button>
 
           {/* Opção: Dividir tela */}
