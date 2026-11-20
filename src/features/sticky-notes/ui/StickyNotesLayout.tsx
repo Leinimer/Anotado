@@ -66,6 +66,8 @@ export function StickyNotesLayout() {
   const pendingPatchesRef = useRef<Map<string, UpdateStickyNotePatch>>(new Map());
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const notesRef = useRef<StickyNote[]>(notes);
+  // Keep event/ResizeObserver callbacks synchronized with the latest React state.
+  notesRef.current = notes;
   const userIdRef = useRef<string>(userId);
   const canvasZoomRef = useRef<number>(canvasZoom);
   const canvasPanRef = useRef<{ x: number; y: number }>(canvasPan);
@@ -231,35 +233,6 @@ export function StickyNotesLayout() {
       window.removeEventListener('blur', handleWindowBlur);
     };
   }, []);
-
-  useLayoutEffect(() => {
-    if (isLoading || typeof ResizeObserver === 'undefined') return;
-
-    const elements = notes
-      .map(note => document.getElementById('sticky-note-' + note.id))
-      .filter((element): element is HTMLElement => Boolean(element));
-
-    const updateHeight = (element: HTMLElement) => {
-      const noteId = element.dataset.stickyNoteId;
-      if (!noteId) return;
-      const height = Math.ceil(element.getBoundingClientRect().height);
-      setNoteHeights(previous => previous[noteId] === height
-        ? previous
-        : { ...previous, [noteId]: height });
-    };
-
-    elements.forEach(updateHeight);
-    const observer = new ResizeObserver(entries => {
-      entries.forEach(entry => updateHeight(entry.target as HTMLElement));
-    });
-    elements.forEach(element => observer.observe(element));
-
-    return () => observer.disconnect();
-  }, [notes, isLoading]);
-
-  useEffect(() => {
-    notesRef.current = notes;
-  }, [notes]);
 
   useEffect(() => {
     userIdRef.current = userId;
@@ -627,6 +600,31 @@ export function StickyNotesLayout() {
       });
     }
   }, [persistPatch]);
+
+  // A única medição de altura fica no quadro. Assim, qualquer mudança real
+  // no tamanho de um Stick aciona a mesma rotina de prevenção de colisões.
+  useLayoutEffect(() => {
+    if (isLoading || typeof ResizeObserver === 'undefined') return;
+
+    const elements = notes
+      .map(note => document.getElementById('sticky-note-' + note.id))
+      .filter((element): element is HTMLElement => Boolean(element));
+
+    const reportHeight = (element: HTMLElement) => {
+      const noteId = element.dataset.stickyNoteId;
+      if (!noteId) return;
+      const height = Math.ceil(element.getBoundingClientRect().height);
+      handleNoteHeightChange(noteId, height);
+    };
+
+    elements.forEach(reportHeight);
+    const observer = new ResizeObserver(entries => {
+      entries.forEach(entry => reportHeight(entry.target as HTMLElement));
+    });
+    elements.forEach(element => observer.observe(element));
+
+    return () => observer.disconnect();
+  }, [notes, isLoading, handleNoteHeightChange]);
 
   const handleMoveLive = useCallback((noteId: string, x: number, y: number) => {
     setNotes((prev) =>
