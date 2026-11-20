@@ -191,6 +191,8 @@ export async function createStickyNote(
     position_y: Math.round(input.position_y),
     width_px: Math.round(input.width_px ?? STICKY_DEFAULT_WIDTH),
     z_index: Math.round(input.z_index),
+    // Persiste o campo escolhido no submenu de conversão Nota -> Stick.
+    group_id: input.group_id ?? null,
   };
   if (input.height_px !== undefined) {
     payload.height_px = input.height_px != null ? Math.round(input.height_px) : null;
