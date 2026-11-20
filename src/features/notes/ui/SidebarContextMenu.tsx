@@ -218,7 +218,7 @@ export function SidebarContextMenu({
               <ChevronRight className="w-3.5 h-3.5 opacity-60" />
             </button>
             {showStickSubmenu && (
-              <div className="absolute left-full top-0 ml-1 z-[70] min-w-[190px] max-h-[60vh] overflow-y-auto rounded-xl border border-[#e4e2dd] dark:border-[#5a514a] bg-white dark:bg-[#2a2826] p-1.5 shadow-xl">
+              <div className="absolute left-full top-0 z-[70] min-w-[190px] max-h-[60vh] overflow-y-auto rounded-xl border border-[#e4e2dd] dark:border-[#5a514a] bg-white dark:bg-[#2a2826] p-1.5 shadow-xl">
                 <button type="button" onClick={() => { if (onConvertNoteToStick && menuOpenId) onConvertNoteToStick(menuOpenId, null); setShowStickSubmenu(false); onClose(); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-[#4e453f] dark:text-[#d1c4bc] hover:bg-[#f0eee9] dark:hover:bg-[#161616]">Criar Stick</button>
                 <div className="my-1 border-t border-[#e8e1d9] dark:border-[#51483f]" />
                 {stickGroupsLoading ? (
