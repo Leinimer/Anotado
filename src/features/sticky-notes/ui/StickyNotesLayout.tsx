@@ -369,19 +369,6 @@ export function StickyNotesLayout() {
             requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById('sticky-note-' + linkedStickyId)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })));
           }
 
-          const pendingConversion = sessionStorage.getItem('anotado_pending_sticky_conversion');
-          if (pendingConversion) {
-            sessionStorage.removeItem('anotado_pending_sticky_conversion');
-            try {
-              const payload = JSON.parse(pendingConversion) as { title?: string; content?: string };
-              // Aguarda a renderização do quadro para medir alturas já disponíveis.
-              requestAnimationFrame(() => {
-                void handleConvertPendingNoteToStick(payload);
-              });
-            } catch (conversionError) {
-              console.error('[Stick] Dados inválidos para conversão de nota:', conversionError);
-            }
-          }
         }
       } catch (error) {
         if (!isMounted) return;
@@ -493,8 +480,8 @@ export function StickyNotesLayout() {
     [schedulePatch]
   );
 
-  const handleConvertPendingNoteToStick = useCallback(async (payload: { title?: string; content?: string }) => {
-    const uid = userIdRef.current || 'demo-user';
+  const handleConvertPendingNoteToStick = useCallback(async (payload: { title?: string; content?: string }, authenticatedUserId: string): Promise<boolean> => {
+    const uid = authenticatedUserId;
     const currentNotes = notesRef.current;
     const gap = 24;
     const width = STICKY_DEFAULT_WIDTH;
@@ -548,7 +535,7 @@ export function StickyNotesLayout() {
       setNotes(previous => [...previous, created]);
       setSelectedNoteId(created.id);
       setNewlyCreatedId(created.id);
-      setSaveState(uid !== 'demo-user' ? 'saved' : 'idle');
+      setSaveState('saved');
       requestAnimationFrame(() => {
         const viewport = boardScrollRef.current;
         if (!viewport) return;
@@ -565,8 +552,34 @@ export function StickyNotesLayout() {
       setSaveState('error');
       setSaveError(message);
       console.error('[Stick] Falha ao converter nota:', error);
+      window.alert(message);
+      return false;
     }
+    return true;
   }, [activeColor, getNextZIndex, canvasPan, canvasZoom]);
+
+  // Só consome a solicitação depois que a autenticação e as notas existentes
+  // terminaram de carregar. Isso evita criar com um user_id temporário ("demo-user").
+  const conversionInProgressRef = useRef(false);
+  useEffect(() => {
+    if (isLoading || !userId || userId === 'demo-user' || conversionInProgressRef.current) return;
+    const pendingConversion = sessionStorage.getItem('anotado_pending_sticky_conversion');
+    if (!pendingConversion) return;
+
+    conversionInProgressRef.current = true;
+    void (async () => {
+      try {
+        const payload = JSON.parse(pendingConversion) as { title?: string; content?: string };
+        const created = await handleConvertPendingNoteToStick(payload, userId);
+        if (created) sessionStorage.removeItem('anotado_pending_sticky_conversion');
+      } catch (error) {
+        console.error('[Stick] Não foi possível concluir a conversão pendente:', error);
+        window.alert('Não foi possível transformar a nota em Stick. A solicitação foi mantida para tentar novamente.');
+      } finally {
+        conversionInProgressRef.current = false;
+      }
+    })();
+  }, [isLoading, userId, handleConvertPendingNoteToStick]);
 
   const handleCreateNote = useCallback(async () => {
     const uid = userIdRef.current || 'demo-user';
