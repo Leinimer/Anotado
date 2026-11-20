@@ -2030,8 +2030,8 @@ html.dark {
 
 /* Somente a tela Stick em tablets: cabeçalho de duas linhas e quadro com zoom próprio. */
 .app-header-tablet { display: none; }
-@media screen and (min-width: 768px) and (max-width: 1200px),
-       screen and (pointer: coarse) and (min-width: 768px) {
+@media screen and (min-width: 768px) and (max-width: 1200px) and (hover: none),
+       screen and (pointer: coarse) and (min-width: 700px) and (min-height: 600px) {
   #sticky-notes-app-container { height: 100dvh; min-height: 0; overflow: hidden; touch-action: pan-x pan-y; }
   #sticky-notes-app-container #app-main-header {
     display: block;
