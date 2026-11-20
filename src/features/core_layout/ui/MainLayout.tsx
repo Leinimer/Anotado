@@ -820,7 +820,7 @@ export function MainLayout() {
   // Converte uma nota do workspace Notas em um Stick real persistido no Supabase,
   // preservando integralmente título e conteúdo e mantendo a nota original intacta.
   const handleConvertNoteToStick = useCallback(
-    async (targetNoteId: string) => {
+    async (targetNoteId: string, groupId: string | null = null) => {
       if (convertingNoteToStickRef.current) {
         return;
       }
@@ -841,6 +841,7 @@ export function MainLayout() {
         const result = await convertNoteToStickAndPersist({
           userId,
           note: targetNote,
+          groupId,
         });
 
         saveConvertedStickHandoff(result.created);
@@ -2198,8 +2199,8 @@ export function MainLayout() {
             onUpdateFolderColor={handleUpdateFolderColor}
             onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
             onSplitNote={handleSplitFromSidebar}
-            onConvertNoteToStick={(id) => {
-              void handleConvertNoteToStick(id);
+            onConvertNoteToStick={(id, groupId) => {
+              void handleConvertNoteToStick(id, groupId);
             }}
             onDuplicateNote={handleDuplicateNote}
             onOpenNoteInNewTab={handleOpenNoteInNewTab}
@@ -2262,8 +2263,8 @@ export function MainLayout() {
                   handleSplitFromSidebar(id);
                   setMobileSidebarOpen(false);
                 }}
-                onConvertNoteToStick={(id) => {
-                  void handleConvertNoteToStick(id);
+                onConvertNoteToStick={(id, groupId) => {
+                  void handleConvertNoteToStick(id, groupId);
                   setMobileSidebarOpen(false);
                 }}
                 onMoveItem={handleMoveItem}
