@@ -26,9 +26,11 @@ export function StickyNotesToolbar({activeColor,selectedNoteColor,hasSelectedNot
  if(layoutMode==='tablet-editing'){
   const tabletGroupsBtn=onToggleGroups&&<button id="sticky-groups-toggle-btn" type="button" onClick={onToggleGroups} aria-label="Mostrar campos criados" aria-pressed={Boolean(groupsOpen)} title="Campos criados" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d8cfc4] bg-[#f4efe7] text-[#68594d] shadow-sm transition-colors active:scale-95 hover:bg-[#eae1d6] dark:border-[#494038] dark:bg-[#211e1b] dark:text-[#e2d4c8] dark:hover:bg-[#302922]"><LayoutGrid className="h-[18px] w-[18px]"/></button>;
   const tabletCreateBtn=<button id="sticky-create-note-btn" type="button" onClick={onCreateNote} className="inline-flex h-10 items-center gap-1.5 px-3.5 rounded-xl bg-[#68594d] active:scale-[0.98] hover:bg-[#53463c] dark:bg-[#2e2620] text-white text-[13px] font-medium whitespace-nowrap shrink-0"><Plus className="w-4 h-4"/>Novo Stick</button>;
-  return <div id="sticky-notes-toolbar-editing" className="w-full min-w-0 flex flex-nowrap items-center justify-start gap-2 overflow-x-auto no-scrollbar select-none touch-pan-x">
-   <div className="flex items-center gap-2 shrink-0">{tabletGroupsBtn}{tabletCreateBtn}</div>
-   <span className="h-6 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
+  return <div id="sticky-notes-toolbar-editing" className="w-full min-w-0 flex flex-col items-stretch gap-1.5 overflow-hidden select-none">
+   <div id="sticky-tablet-primary-actions" className="flex w-full items-center justify-start gap-2 shrink-0">
+    {tabletGroupsBtn}{tabletCreateBtn}
+   </div>
+   <div className="w-full min-w-0 flex flex-nowrap items-center justify-start gap-2 overflow-x-auto no-scrollbar touch-pan-x">
    <div className="flex items-center gap-0.5 shrink-0" role="group" aria-label="Cores das notas">{STICKY_COLORS.map(c=><button key={c.key} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>onSelectColor(c.key)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full active:scale-95" title={c.label} aria-label={c.label} aria-pressed={active===c.key}><span style={{backgroundColor:dark?c.swatchDark:c.swatchLight}} className={`block w-6 h-6 rounded-full border transition-transform ${active===c.key?'ring-2 ring-[#68594d] dark:ring-[#f4dfcb] ring-offset-2 ring-offset-[#fbf9f4] dark:ring-offset-[#0a0a0a] border-transparent scale-105':'border-black/15 dark:border-white/20'}`}/></button>)}</div>
    <span className="h-6 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
    <div className="flex items-center gap-1 shrink-0">
@@ -47,6 +49,7 @@ export function StickyNotesToolbar({activeColor,selectedNoteColor,hasSelectedNot
     {btn('Desfazer',<Undo2 className="w-[18px] h-[18px]"/>,()=>onFormat?.('undo'),!hasSelectedNote,'w-10 h-10 rounded-lg')}
     {btn('Refazer',<Redo2 className="w-[18px] h-[18px]"/>,()=>onFormat?.('redo'),!hasSelectedNote,'w-10 h-10 rounded-lg')}
     {btn('Referenciar nota',<Link2 className="w-[18px] h-[18px]"/>,()=>onInsertNoteLink?.(),!hasSelectedNote,'w-10 h-10 rounded-lg')}
+   </div>
    </div>
   </div>;
  }
