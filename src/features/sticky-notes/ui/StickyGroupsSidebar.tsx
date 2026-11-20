@@ -212,7 +212,7 @@ export function StickyGroupsSidebar({
     <aside
       aria-label="Campos criados"
       onPointerDown={(event) => event.stopPropagation()}
-      className={`fixed left-0 ${isTablet ? 'top-[92px]' : 'top-[76px]'} bottom-0 z-[10500] flex w-[min(290px,85vw)] flex-col border-r border-[#ded6cc] bg-[#fbf9f4] shadow-[8px_0_28px_rgba(40,30,20,.14)] dark:border-[#38332e] dark:bg-[#11100f] dark:shadow-[8px_0_28px_rgba(0,0,0,.45)]`}
+      className={`fixed left-0 ${isTablet ? 'top-[100px]' : 'top-[76px]'} bottom-0 z-[10500] flex w-[min(290px,85vw)] flex-col border-r border-[#ded6cc] bg-[#fbf9f4] shadow-[8px_0_28px_rgba(40,30,20,.14)] dark:border-[#38332e] dark:bg-[#11100f] dark:shadow-[8px_0_28px_rgba(0,0,0,.45)]`}
     >
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-[#e8e1d8] px-4 dark:border-[#302b26]">
         <h2 className="text-sm font-semibold text-[#51463d] dark:text-[#e8ded4]">Campos criados</h2>
@@ -220,7 +220,7 @@ export function StickyGroupsSidebar({
           type="button"
           onClick={onClose}
           aria-label="Fechar campos criados"
-          className="rounded-full p-1.5 text-[#75695f] hover:bg-[#eee8df] dark:text-[#c5b8aa] dark:hover:bg-[#29231e]"
+          className={`flex items-center justify-center rounded-full text-[#75695f] hover:bg-[#eee8df] dark:text-[#c5b8aa] dark:hover:bg-[#29231e] ${isTablet ? 'h-10 w-10' : 'p-1.5'}`}
         >
           <X className="h-4 w-4" />
         </button>

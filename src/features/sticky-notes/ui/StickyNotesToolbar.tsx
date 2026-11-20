@@ -24,26 +24,29 @@ export function StickyNotesToolbar({activeColor,selectedNoteColor,hasSelectedNot
  </div>;
 
  if(layoutMode==='tablet-editing'){
-  return <div id="sticky-notes-toolbar-editing" className="w-full min-w-0 flex flex-nowrap items-center justify-start gap-2 sm:gap-2.5 overflow-x-auto no-scrollbar select-none">
-   <div className="flex items-center gap-1.5 shrink-0">{groupsButton}{createButton}</div>
-   <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
-   <div className="flex items-center gap-2 shrink-0" role="group" aria-label="Cores das notas">{STICKY_COLORS.map(c=><button key={c.key} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>onSelectColor(c.key)} style={{backgroundColor:dark?c.swatchDark:c.swatchLight}} className={`w-5.5 h-5.5 rounded-full border shrink-0 transition-transform hover:scale-110 ${active===c.key?'ring-2 ring-[#68594d] dark:ring-[#f4dfcb] ring-offset-2 ring-offset-[#fbf9f4] dark:ring-offset-[#0a0a0a] border-transparent':'border-black/15 dark:border-white/20'}`} title={c.label} aria-label={c.label} aria-pressed={active===c.key}/>)}</div>
-   <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
+  const tabletGroupsBtn=onToggleGroups&&<button id="sticky-groups-toggle-btn" type="button" onClick={onToggleGroups} aria-label="Mostrar campos criados" aria-pressed={Boolean(groupsOpen)} title="Campos criados" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d8cfc4] bg-[#f4efe7] text-[#68594d] shadow-sm transition-colors active:scale-95 hover:bg-[#eae1d6] dark:border-[#494038] dark:bg-[#211e1b] dark:text-[#e2d4c8] dark:hover:bg-[#302922]"><LayoutGrid className="h-[18px] w-[18px]"/></button>;
+  const tabletCreateBtn=<button id="sticky-create-note-btn" type="button" onClick={onCreateNote} className="inline-flex h-10 items-center gap-1.5 px-3.5 rounded-xl bg-[#68594d] active:scale-[0.98] hover:bg-[#53463c] dark:bg-[#2e2620] text-white text-[13px] font-medium whitespace-nowrap shrink-0"><Plus className="w-4 h-4"/>Novo Stick</button>;
+  return <div id="sticky-notes-toolbar-editing" className="w-full min-w-0 flex flex-nowrap items-center justify-start gap-2 overflow-x-auto no-scrollbar select-none touch-pan-x">
+   <div className="flex items-center gap-2 shrink-0">{tabletGroupsBtn}{tabletCreateBtn}</div>
+   <span className="h-6 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
+   <div className="flex items-center gap-0.5 shrink-0" role="group" aria-label="Cores das notas">{STICKY_COLORS.map(c=><button key={c.key} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>onSelectColor(c.key)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full active:scale-95" title={c.label} aria-label={c.label} aria-pressed={active===c.key}><span style={{backgroundColor:dark?c.swatchDark:c.swatchLight}} className={`block w-6 h-6 rounded-full border transition-transform ${active===c.key?'ring-2 ring-[#68594d] dark:ring-[#f4dfcb] ring-offset-2 ring-offset-[#fbf9f4] dark:ring-offset-[#0a0a0a] border-transparent scale-105':'border-black/15 dark:border-white/20'}`}/></button>)}</div>
+   <span className="h-6 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
    <div className="flex items-center gap-1 shrink-0">
-    {btn('Negrito',<Bold className="w-4 h-4"/>,()=>onFormat?.('bold'),!hasSelectedNote,'w-8 h-8')}
-    {btn('Itálico',<Italic className="w-4 h-4"/>,()=>onFormat?.('italic'),!hasSelectedNote,'w-8 h-8')}
-    {btn('Sublinhado',<Underline className="w-4 h-4"/>,()=>onFormat?.('underline'),!hasSelectedNote,'w-8 h-8')}<button key="Marca-texto" type="button" onMouseDown={e=>e.preventDefault()} onClick={toggleHighlight} title={highlightMode?'Desativar marca-texto':'Ativar marca-texto'} aria-label="Marca-texto" aria-pressed={highlightMode} className={`inline-flex items-center justify-center w-8 h-8 shrink-0 rounded-md text-[#5d5148] dark:text-[#d1c4bc] disabled:opacity-35 disabled:cursor-not-allowed ${highlightMode?'bg-[#ded4c7] text-[#4b3e33] ring-1 ring-[#9d8874] dark:bg-[#514438] dark:text-[#fff]':'hover:bg-[#eee9e1] dark:hover:bg-[#202020]'}`}><Highlighter className="w-4 h-4"/></button>
+    {btn('Negrito',<Bold className="w-[18px] h-[18px]"/>,()=>onFormat?.('bold'),!hasSelectedNote,'w-10 h-10 rounded-lg')}
+    {btn('Itálico',<Italic className="w-[18px] h-[18px]"/>,()=>onFormat?.('italic'),!hasSelectedNote,'w-10 h-10 rounded-lg')}
+    {btn('Sublinhado',<Underline className="w-[18px] h-[18px]"/>,()=>onFormat?.('underline'),!hasSelectedNote,'w-10 h-10 rounded-lg')}
+    <button key="Marca-texto" type="button" onMouseDown={e=>e.preventDefault()} onClick={toggleHighlight} title={highlightMode?'Desativar marca-texto':'Ativar marca-texto'} aria-label="Marca-texto" aria-pressed={highlightMode} className={`inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-lg text-[#5d5148] dark:text-[#d1c4bc] disabled:opacity-35 disabled:cursor-not-allowed ${highlightMode?'bg-[#ded4c7] text-[#4b3e33] ring-1 ring-[#9d8874] dark:bg-[#514438] dark:text-[#fff]':'hover:bg-[#eee9e1] dark:hover:bg-[#202020]'}`}><Highlighter className="w-[18px] h-[18px]"/></button>
    </div>
-   <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
+   <span className="h-6 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
    <div className="flex items-center gap-1 shrink-0">
-    {btn('Marcadores',<List className="w-4 h-4"/>,()=>onFormat?.('bullet'),!hasSelectedNote,'w-8 h-8')}
-    {btn('Checklist',<CheckSquare className="w-4 h-4"/>,()=>onFormat?.('checklist'),!hasSelectedNote,'w-8 h-8')}
+    {btn('Marcadores',<List className="w-[18px] h-[18px]"/>,()=>onFormat?.('bullet'),!hasSelectedNote,'w-10 h-10 rounded-lg')}
+    {btn('Checklist',<CheckSquare className="w-[18px] h-[18px]"/>,()=>onFormat?.('checklist'),!hasSelectedNote,'w-10 h-10 rounded-lg')}
    </div>
-   <span className="h-5 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
+   <span className="h-6 w-px bg-[#e4e2dd] dark:bg-[#303030] shrink-0"/>
    <div className="flex items-center gap-1 shrink-0">
-    {btn('Desfazer',<Undo2 className="w-4 h-4"/>,()=>onFormat?.('undo'),!hasSelectedNote,'w-8 h-8')}
-    {btn('Refazer',<Redo2 className="w-4 h-4"/>,()=>onFormat?.('redo'),!hasSelectedNote,'w-8 h-8')}
-    {btn('Referenciar nota',<Link2 className="w-4 h-4"/>,()=>onInsertNoteLink?.(),!hasSelectedNote,'w-8 h-8')}
+    {btn('Desfazer',<Undo2 className="w-[18px] h-[18px]"/>,()=>onFormat?.('undo'),!hasSelectedNote,'w-10 h-10 rounded-lg')}
+    {btn('Refazer',<Redo2 className="w-[18px] h-[18px]"/>,()=>onFormat?.('redo'),!hasSelectedNote,'w-10 h-10 rounded-lg')}
+    {btn('Referenciar nota',<Link2 className="w-[18px] h-[18px]"/>,()=>onInsertNoteLink?.(),!hasSelectedNote,'w-10 h-10 rounded-lg')}
    </div>
   </div>;
  }

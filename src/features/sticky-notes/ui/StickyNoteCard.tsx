@@ -1,11 +1,11 @@
 'use client';
 import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
-import {AlarmClock,GripHorizontal,Trash2} from 'lucide-react';
+import {AlarmClock,GripHorizontal,MoreVertical,Trash2} from 'lucide-react';
 import {StickyNote,getStickyColorTheme} from '../types';
 import {StickyResizeAxis,StickyResizePatch,StickySnapTarget,computeNextStickySize} from '../lib/sticky-interactions';
 export type StickyEditorAction='bold'|'italic'|'underline'|'highlight'|'undo'|'redo'|'bullet'|'checklist'|'outdent'|'indent';
 export interface StickyEditorActions{format:(action:StickyEditorAction)=>void;prepareNoteReference:()=>string;insertNoteLink:(id:string,title:string,type?:'note'|'sticky'|'diary')=>void;}
-interface Props{snapTargets?:StickySnapTarget[];canvasZoom?:number;isPinchingRef?:React.RefObject<boolean>;isMovingWithGroup?:boolean;note:StickyNote;isSelected:boolean;highlightMode?:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeStart?:(id:string)=>void;onResizeLive:(id:string,size:StickyResizePatch)=>void;onResizeEnd:(id:string,size:StickyResizePatch)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;onPreviewLinkedNote?:(id:string,type:'note'|'sticky'|'diary',anchor:HTMLElement)=>void;hasReminder?:boolean;onOpenReminder?:(note:StickyNote)=>void;onContextMenu?:(note:StickyNote,x:number,y:number)=>void;}
+interface Props{isTablet?:boolean;visualFrame?:{x:number;y:number;width:number};onTabletMoveLive?:(id:string,dx:number,dy:number)=>void;onTabletMoveEnd?:(id:string,dx:number,dy:number)=>void;snapTargets?:StickySnapTarget[];canvasZoom?:number;isPinchingRef?:React.RefObject<boolean>;isMovingWithGroup?:boolean;note:StickyNote;isSelected:boolean;highlightMode?:boolean;autoFocus?:boolean;onSelect:(id:string)=>void;onChangeTitle:(id:string,title:string)=>void;onChangeContent:(id:string,content:string)=>void;onChangeColor:(id:string,color:any)=>void;onMoveLive:(id:string,x:number,y:number)=>void;onMoveEnd:(id:string,x:number,y:number)=>void;onResizeStart?:(id:string)=>void;onResizeLive:(id:string,size:StickyResizePatch)=>void;onResizeEnd:(id:string,size:StickyResizePatch)=>void;onDelete:(id:string)=>void;registerEditorActions?:(id:string,a:StickyEditorActions|null)=>void;onOpenLinkedNote?:(id:string,type:'note'|'sticky'|'diary')=>void;onPreviewLinkedNote?:(id:string,type:'note'|'sticky'|'diary',anchor:HTMLElement)=>void;hasReminder?:boolean;onOpenReminder?:(note:StickyNote)=>void;onContextMenu?:(note:StickyNote,x:number,y:number)=>void;}
 const esc=(v:string)=>v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const getStickyHighlightColor=(color?:string|null)=>{
  const hex=getStickyColorTheme(color).swatchLight.replace('#','');
@@ -103,8 +103,8 @@ const styleChecklist=(editor:HTMLElement)=>{
  editor.querySelectorAll<HTMLParagraphElement>('p[data-sticky-after-checklist]').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.2',minHeight:'0',height:'auto'}));
 };
 
-export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=false,snapTargets=[],canvasZoom=1,isPinchingRef,isMovingWithGroup=false,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeStart,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,onPreviewLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
- const colors=getStickyColorTheme(note.color);const cardRef=useRef<HTMLDivElement>(null);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);const highlightModeRef=useRef(highlightMode);const applyingHighlight=useRef(false);
+export function StickyNoteCard({isTablet=false,visualFrame,onTabletMoveLive,onTabletMoveEnd,note,isSelected,highlightMode=false,autoFocus=false,snapTargets=[],canvasZoom=1,isPinchingRef,isMovingWithGroup=false,onSelect,onChangeTitle,onChangeContent,onMoveLive,onMoveEnd,onResizeStart,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,onPreviewLinkedNote,hasReminder=false,onOpenReminder,onContextMenu}:Props){
+ const colors=getStickyColorTheme(note.color);const cardRef=useRef<HTMLDivElement>(null);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);const highlightModeRef=useRef(highlightMode);const applyingHighlight=useRef(false);const tabletHighlightTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
  type EditorHistoryEntry={html:string;caret:number};
  const history=useRef<{entries:EditorHistoryEntry[];index:number;restoring:boolean}>({entries:[],index:-1,restoring:false});const [drag,setDrag]=useState(false);const [resizeAxis,setResizeAxis]=useState<StickyResizeAxis|null>(null);const resize=resizeAxis!==null;const [highlightDeleteTarget,setHighlightDeleteTarget]=useState<{element:HTMLElement;left:number;top:number}|null>(null);
  useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');const changed=el.innerHTML!==html;if(changed)el.innerHTML=html;styleChecklist(el);if(changed||history.current.index<0)history.current={entries:[{html:el.innerHTML,caret:0}],index:0,restoring:false};}},[note.content]);
@@ -276,6 +276,31 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
   if(!highlightModeRef.current)return;
   requestAnimationFrame(()=>applySelectionHighlight());
  };
+ // No tablet, alças de seleção por toque disparam selectionchange sem mouseup.
+ // Aplica o marca-texto após breve estabilização da seleção dentro deste Stick.
+ useEffect(()=>{
+  if(!isTablet||!highlightMode)return;
+  const onSelectionChange=()=>{
+   if(!highlightModeRef.current||applyingHighlight.current)return;
+   const el=editor.current;
+   const selection=window.getSelection();
+   if(!el||!selection?.rangeCount||selection.isCollapsed)return;
+   const range=selection.getRangeAt(0);
+   if(!el.contains(range.commonAncestorContainer))return;
+   if(tabletHighlightTimerRef.current)clearTimeout(tabletHighlightTimerRef.current);
+   tabletHighlightTimerRef.current=setTimeout(()=>{
+    applySelectionHighlight();
+   },280);
+  };
+  document.addEventListener('selectionchange',onSelectionChange);
+  return ()=>{
+   document.removeEventListener('selectionchange',onSelectionChange);
+   if(tabletHighlightTimerRef.current){
+    clearTimeout(tabletHighlightTimerRef.current);
+    tabletHighlightTimerRef.current=null;
+   }
+  };
+ });
  const command=(cmd:string)=>{if(!editor.current)return;if(cmd==='undo'||cmd==='redo'){editor.current.focus();moveHistory(cmd);return;}editor.current.focus();if(cmd==='highlight'){scheduleSelectionHighlight();return;}document.execCommand(cmd,false);save();};
  const placeCaret=(target:HTMLElement)=>{
   const range=document.createRange();
@@ -760,7 +785,8 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
  };
  const click=(e:React.MouseEvent<HTMLDivElement>)=>{
   const t=e.target as HTMLElement;
-  showHighlightDelete(t);
+  if(findHighlightElement(t))showHighlightDelete(t);
+  else if(isTablet)setHighlightDeleteTarget(null);
   if(t instanceof HTMLInputElement&&t.type==='checkbox'){
    const item=t.closest('li');
    // The checkbox's native click activation has already updated checked here.
@@ -792,15 +818,20 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
   e.stopPropagation();
   onSelect(note.id);
   const pointerId=e.pointerId;
+  const isTouchPointer=e.pointerType!=='mouse';
+  const dragThreshold=isTablet&&isTouchPointer?6:2;
   const captureEl=e.currentTarget;
   try{captureEl.setPointerCapture?.(pointerId);}catch{}
   const prevUserSelect=document.body.style.userSelect;
   document.body.style.userSelect='none';
   const zoom=canvasZoom||1;
-  const sx=e.clientX,sy=e.clientY,px=note.position_x,py=note.position_y;
-  let x=px,y=py,moved=false,cancelledByPinch=false;
+  const sx=e.clientX,sy=e.clientY;
+  const px=isTablet&&visualFrame?visualFrame.x:note.position_x;
+  const py=isTablet&&visualFrame?visualFrame.y:note.position_y;
+  const cardWidth=isTablet&&visualFrame?visualFrame.width:note.width_px;
+  let x=px,y=py,dx=0,dy=0,moved=false,cancelledByPinch=false;
   const ownHeight=cardRef.current?.offsetHeight||note.height_px||280;
-  setDrag(true);
+  if(!isTablet||!isTouchPointer)setDrag(true);
   const cleanup=()=>{
    try{if(captureEl.hasPointerCapture?.(pointerId))captureEl.releasePointerCapture(pointerId);}catch{}
    document.body.style.userSelect=prevUserSelect;
@@ -814,14 +845,27 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
    cancelledByPinch=true;
    cleanup();
    setDrag(false);
-   if(moved)onMoveLive(note.id,px,py);
+   if(moved){
+    if(isTablet&&onTabletMoveLive)onTabletMoveLive(note.id,0,0);
+    else onMoveLive(note.id,px,py);
+   }
   };
   const move=(v:PointerEvent)=>{
    if(v.pointerId!==pointerId)return;
    if(isPinchingRef?.current){abortForPinch();return;}
-   if(Math.abs(v.clientX-sx)>2||Math.abs(v.clientY-sy)>2)moved=true;
-   const rawX=Math.max(12,Math.round(px+(v.clientX-sx)/zoom));
-   const rawY=Math.max(12,Math.round(py+(v.clientY-sy)/zoom));
+   if(!moved){
+    if(Math.hypot(v.clientX-sx,v.clientY-sy)<=dragThreshold)return;
+    moved=true;
+    setDrag(true);
+   }
+   dx=(v.clientX-sx)/zoom;
+   dy=(v.clientY-sy)/zoom;
+   if(isTablet&&onTabletMoveLive){
+    onTabletMoveLive(note.id,Math.round(dx),Math.round(dy));
+    return;
+   }
+   const rawX=Math.max(12,Math.round(px+dx));
+   const rawY=Math.max(12,Math.round(py+dy));
    x=rawX;y=rawY;
    // Gentle magnetic guides: only snap when an edge is already within 6px.
    // Each axis is independent, so fine positioning remains unrestricted.
@@ -829,7 +873,7 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
    const nearest=(value:number,candidates:number[])=>{let best=value,bestDistance=tolerance+1;for(const candidate of candidates){const distance=Math.abs(candidate-value);if(distance<=tolerance&&distance<bestDistance){best=candidate;bestDistance=distance;}}return best;};
    const xGuides:number[]=[];const yGuides:number[]=[];
    for(const target of snapTargets){
-    xGuides.push(target.x,target.x+target.width-note.width_px,target.x+target.width+gap,target.x-note.width_px-gap);
+    xGuides.push(target.x,target.x+target.width-cardWidth,target.x+target.width+gap,target.x-cardWidth-gap);
     yGuides.push(target.y,target.y+target.height-ownHeight,target.y+target.height+gap,target.y-ownHeight-gap);
    }
    x=Math.max(12,nearest(rawX,xGuides));y=Math.max(12,nearest(rawY,yGuides));
@@ -839,7 +883,10 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
    if(v.pointerId!==pointerId)return;
    cleanup();
    setDrag(false);
-   if(moved&&!cancelledByPinch)onMoveEnd(note.id,x,y);
+   if(moved&&!cancelledByPinch){
+    if(isTablet&&onTabletMoveEnd)onTabletMoveEnd(note.id,Math.round(dx),Math.round(dy));
+    else onMoveEnd(note.id,x,y);
+   }
   };
   window.addEventListener('pointermove',move);
   window.addEventListener('pointerup',up);
@@ -860,10 +907,12 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
   document.body.style.userSelect='none';
   const zoom=canvasZoom||1;
   const sx=e.clientX,sy=e.clientY;
-  const sw=note.width_px;
+  const sw=isTablet&&visualFrame?visualFrame.width:note.width_px;
+  const startPosX=isTablet&&visualFrame?visualFrame.x:note.position_x;
+  const startPosY=isTablet&&visualFrame?visualFrame.y:note.position_y;
   const initialHeightPx=note.height_px??null;
   const sh=Math.round(note.height_px??cardRef.current?.offsetHeight??180);
-  let currentSize:StickyResizePatch={width_px:sw,height_px:initialHeightPx,position_x:note.position_x,position_y:note.position_y};
+  let currentSize:StickyResizePatch={width_px:sw,height_px:initialHeightPx,position_x:startPosX,position_y:startPosY};
   let changed=false,cancelledByPinch=false;
   setResizeAxis(axis);
   const cleanup=()=>{
@@ -879,8 +928,8 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
    cancelledByPinch=true;
    cleanup();
    setResizeAxis(null);
-   if(changed)onResizeLive(note.id,{width_px:sw,height_px:initialHeightPx,position_x:note.position_x,position_y:note.position_y});
-   onResizeEnd(note.id,{width_px:sw,height_px:initialHeightPx,position_x:note.position_x,position_y:note.position_y});
+   if(changed)onResizeLive(note.id,{width_px:sw,height_px:initialHeightPx,position_x:startPosX,position_y:startPosY});
+   onResizeEnd(note.id,{width_px:sw,height_px:initialHeightPx,position_x:startPosX,position_y:startPosY});
   };
   const move=(v:PointerEvent)=>{
    if(v.pointerId!==pointerId)return;
@@ -893,9 +942,9 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
     deltaX:v.clientX-sx,
     deltaY:v.clientY-sy,
     zoom,
-    positionX:note.position_x,
-    positionY:note.position_y,
-    snapTargets,
+    positionX:startPosX,
+    positionY:startPosY,
+    snapTargets:isTablet?[]:snapTargets,
    });
    if(next.width_px!==currentSize.width_px||next.height_px!==currentSize.height_px||next.position_x!==currentSize.position_x||next.position_y!==currentSize.position_y){
     currentSize=next;
@@ -908,7 +957,7 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
    cleanup();
    setResizeAxis(null);
    if(!cancelledByPinch){
-    onResizeEnd(note.id,changed?currentSize:{width_px:sw,height_px:initialHeightPx,position_x:note.position_x,position_y:note.position_y});
+    onResizeEnd(note.id,changed?currentSize:{width_px:sw,height_px:initialHeightPx,position_x:startPosX,position_y:startPosY});
    }
   };
   window.addEventListener('pointermove',move);
@@ -917,19 +966,33 @@ export function StickyNoteCard({note,isSelected,highlightMode=false,autoFocus=fa
   window.addEventListener('anotado:sticky-pinch-start',abortForPinch);
  };
  const hasManualHeight=note.height_px!=null;
- <style>{`.sticky-rich-editor::selection{background:var(--sticky-selection-color)!important;color:inherit!important}.sticky-rich-editor *::selection{background:var(--sticky-selection-color)!important;color:inherit!important}.sticky-rich-editor::-moz-selection{background:var(--sticky-selection-color)!important;color:inherit!important}`}</style>
- return <div ref={cardRef} id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={()=>{if(!isPinchingRef?.current)onSelect(note.id);}} onMouseLeave={e=>{const next=e.relatedTarget;if(next instanceof Element&&next.closest('[data-sticky-highlight-delete]'))return;setHighlightDeleteTarget(null);}} style={{position:'absolute',left:note.position_x,top:note.position_y,width:note.width_px,height:hasManualHeight?note.height_px??undefined:undefined,zIndex:note.z_index,transition:drag||resize||isMovingWithGroup?'none':'left 200ms ease, top 200ms ease, box-shadow 150ms ease, transform 150ms ease'}} className={`group flex flex-col rounded-xl border ${colors.cardClass} ${drag||resize?'scale-[1.015] shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
- <div onPointerDown={dragStart} className={`flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 border-b rounded-t-xl cursor-grab active:cursor-grabbing touch-none select-none ${colors.headerClass}`}><GripHorizontal className={`w-3.5 h-3.5 shrink-0 opacity-45 ${colors.textClass}`}/><input value={note.title} onPointerDown={e=>{e.stopPropagation();onSelect(note.id);}} onChange={e=>onChangeTitle(note.id,e.target.value)} placeholder="Título..." aria-label="Título do Stick" className={`flex-1 min-w-0 bg-transparent text-[15px] font-semibold focus:outline-none placeholder:opacity-50 ${colors.textClass}`}/><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onOpenReminder?.(note);}} className={`relative p-1 rounded-md opacity-35 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-[#8d725d]/10 ${hasReminder?'opacity-100 text-[#b4533c] dark:text-[#f08a72]':colors.mutedTextClass}`} title={hasReminder?'Gerenciar lembretes deste Stick':'Configurar lembrete'} aria-label="Configurar lembrete"><AlarmClock className="w-3.5 h-3.5"/>{hasReminder&&<span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-[#c34f3c] ring-1 ring-white dark:ring-[#222]"/>}</button><button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onDelete(note.id);}} className={`p-1 rounded-md opacity-25 hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-500/15 ${colors.mutedTextClass}`} title="Excluir Stick" aria-label="Excluir Stick"><Trash2 className="w-3.5 h-3.5"/></button></div>
- <div data-sticky-scroll-color={note.color} onClick={e=>{if(e.target===e.currentTarget)editor.current?.focus();}} className={`sticky-note-scroll-area px-3 py-2.5 ${hasManualHeight?'flex-1 min-h-0 overflow-y-auto':''}`}><div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onKeyUp={()=>{pasteAsPlainText.current=false;scheduleSelectionHighlight();}} onMouseUp={scheduleSelectionHighlight} onPointerUp={scheduleSelectionHighlight} onMouseOver={e=>{if(findHighlightElement(e.target))showHighlightDelete(e.target);}} onMouseMove={e=>showNearbyHighlightDelete(e.clientX,e.clientY)} onMouseOut={e=>{const next=e.relatedTarget;if(next instanceof Element&&next.closest('[data-sticky-highlight-delete]'))return;}} onBlur={()=>{pasteAsPlainText.current=false;}} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} style={{'--sticky-selection-color':getStickyHighlightColor(note.color)} as React.CSSProperties} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words text-[13.5px] leading-[1.55] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/></div>
+ const renderLeft=isTablet&&visualFrame?visualFrame.x:note.position_x;
+ const renderTop=isTablet&&visualFrame?visualFrame.y:note.position_y;
+ const renderWidth=isTablet&&visualFrame?visualFrame.width:note.width_px;
+ const edgeVClass=isTablet?'w-6':'w-3';
+ const edgeHClass=isTablet?'h-6':'h-3';
+ return <div ref={cardRef} id={`sticky-note-${note.id}`} data-sticky-note-id={note.id} onContextMenu={e=>{e.preventDefault();e.stopPropagation();onSelect(note.id);onContextMenu?.(note,e.clientX,e.clientY);}} onPointerDown={e=>{if(isTablet)e.stopPropagation();if(!isPinchingRef?.current)onSelect(note.id);}} onMouseLeave={e=>{const next=e.relatedTarget;if(next instanceof Element&&next.closest('[data-sticky-highlight-delete]'))return;setHighlightDeleteTarget(null);}} style={{position:'absolute',left:renderLeft,top:renderTop,width:renderWidth,height:hasManualHeight?note.height_px??undefined:undefined,zIndex:drag?Math.max(note.z_index,9999):note.z_index,transition:drag||resize||isMovingWithGroup?'none':'left 200ms ease, top 200ms ease, box-shadow 150ms ease, transform 150ms ease'}} className={`group flex flex-col rounded-xl border ${colors.cardClass} ${drag||resize?'scale-[1.015] shadow-2xl ring-2 ring-[#68594d]/45':isSelected?'shadow-lg ring-2 ring-[#68594d]/35':'shadow-[0_6px_18px_-6px_rgba(40,30,20,0.16)] dark:shadow-[0_8px_22px_-6px_rgba(0,0,0,0.65)] hover:shadow-md'}`}>
+ <div onPointerDown={dragStart} className={`flex shrink-0 items-center ${isTablet?'min-h-[44px] gap-1 px-2.5 py-1.5':'gap-1.5 px-2.5 py-1.5'} border-b rounded-t-xl cursor-grab active:cursor-grabbing touch-none select-none ${colors.headerClass}`}>
+  <GripHorizontal className={`${isTablet?'w-4 h-4 opacity-55':'w-3.5 h-3.5 opacity-45'} shrink-0 ${colors.textClass}`}/>
+  <input value={note.title} onPointerDown={e=>{e.stopPropagation();onSelect(note.id);}} onChange={e=>onChangeTitle(note.id,e.target.value)} placeholder="Título..." aria-label="Título do Stick" className={`flex-1 min-w-0 bg-transparent ${isTablet?'text-[15.5px] py-1':'text-[15px]'} font-semibold focus:outline-none placeholder:opacity-50 ${colors.textClass}`}/>
+  <button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onOpenReminder?.(note);}} className={`relative flex items-center justify-center rounded-md transition-opacity hover:bg-[#8d725d]/10 ${isTablet?'h-9 w-9 opacity-75 active:scale-95':'p-1 opacity-35 hover:opacity-100 focus-visible:opacity-100'} ${hasReminder?'opacity-100 text-[#b4533c] dark:text-[#f08a72]':colors.mutedTextClass}`} title={hasReminder?'Gerenciar lembretes deste Stick':'Configurar lembrete'} aria-label="Configurar lembrete"><AlarmClock className={isTablet?'w-4 h-4':'w-3.5 h-3.5'}/>{hasReminder&&<span className={`absolute ${isTablet?'right-1.5 top-1.5':'right-0 top-0'} h-1.5 w-1.5 rounded-full bg-[#c34f3c] ring-1 ring-white dark:ring-[#222]`}/>}</button>
+  {isTablet&&<button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onSelect(note.id);const rect=e.currentTarget.getBoundingClientRect();onContextMenu?.(note,rect.left,rect.bottom+6);}} className={`flex h-9 w-9 items-center justify-center rounded-md opacity-75 active:scale-95 hover:bg-[#8d725d]/10 ${colors.mutedTextClass}`} title="Opções do Stick" aria-label="Opções do Stick"><MoreVertical className="w-4 h-4"/></button>}
+  <button type="button" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onDelete(note.id);}} className={`flex items-center justify-center rounded-md transition-opacity hover:bg-red-500/15 ${isTablet?'h-9 w-9 opacity-70 active:scale-95':'p-1 opacity-25 hover:opacity-100 focus-visible:opacity-100'} ${colors.mutedTextClass}`} title="Excluir Stick" aria-label="Excluir Stick"><Trash2 className={isTablet?'w-4 h-4':'w-3.5 h-3.5'}/></button>
+ </div>
+ <div data-sticky-scroll-color={note.color} onClick={e=>{if(e.target===e.currentTarget)editor.current?.focus();}} className={`sticky-note-scroll-area ${isTablet?'px-3.5 py-3':'px-3 py-2.5'} ${hasManualHeight?'flex-1 min-h-0 overflow-y-auto':''}`} style={isTablet?{touchAction:hasManualHeight?'pan-y':'manipulation'}:undefined}>
+  <div ref={editor} contentEditable suppressContentEditableWarning onFocus={()=>onSelect(note.id)} onInput={handleInput} onKeyDown={keyDown} onPaste={paste} onKeyUp={()=>{pasteAsPlainText.current=false;scheduleSelectionHighlight();}} onMouseUp={scheduleSelectionHighlight} onPointerUp={scheduleSelectionHighlight} onTouchEnd={isTablet?scheduleSelectionHighlight:undefined} onMouseOver={e=>{if(!isTablet&&findHighlightElement(e.target))showHighlightDelete(e.target);}} onMouseMove={e=>{if(!isTablet)showNearbyHighlightDelete(e.clientX,e.clientY);}} onMouseOut={e=>{const next=e.relatedTarget;if(next instanceof Element&&next.closest('[data-sticky-highlight-delete]'))return;}} onBlur={()=>{pasteAsPlainText.current=false;}} onClick={click} onChangeCapture={e=>{const target=e.target;if(target instanceof HTMLInputElement&&target.type==='checkbox'){const item=target.closest('li');target.toggleAttribute('checked',target.checked);if(item)item.dataset.checked=String(target.checked);save();}}} style={{'--sticky-selection-color':getStickyHighlightColor(note.color),...(isTablet?{touchAction:'manipulation'}:{})} as React.CSSProperties} data-placeholder="Escreva aqui..." className={`sticky-rich-editor w-full min-h-[72px] break-words ${isTablet?'text-[14.5px] leading-[1.6]':'text-[13.5px] leading-[1.55]'} focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:opacity-40 ${colors.textClass}`}/>
+ </div>
  {/* Oito zonas de arraste: quatro bordas e quatro quinas. */}
- {highlightDeleteTarget&&<button type="button" data-sticky-highlight-delete onMouseDown={e=>e.preventDefault()} onClick={e=>{e.stopPropagation();removeHighlight();}}  title="Remover marcação" aria-label="Remover marcação" style={{position:'absolute',left:highlightDeleteTarget.left,top:highlightDeleteTarget.top,zIndex:40}} className="flex h-8 w-8 items-center justify-center rounded-full border border-[#d8c9b8] bg-[#fffaf4] text-[#8b5548] shadow-md hover:bg-[#f8e6df] dark:border-[#665448] dark:bg-[#2b241f] dark:text-[#f0b5a7] dark:hover:bg-[#49302a]"><Trash2 className="h-4 w-4"/></button>}
- <div onPointerDown={e=>startResize('left',e)} role="separator" aria-orientation="vertical" aria-label="Redimensionar pela borda esquerda" className="absolute left-0 top-3 bottom-3 w-3 -translate-x-1/2 cursor-ew-resize touch-none z-20"/>
- <div onPointerDown={e=>startResize('right',e)} role="separator" aria-orientation="vertical" aria-label="Redimensionar pela borda direita" className="absolute right-0 top-3 bottom-3 w-3 translate-x-1/2 cursor-ew-resize touch-none z-20"/>
- <div onPointerDown={e=>startResize('top',e)} role="separator" aria-orientation="horizontal" aria-label="Redimensionar pela borda superior" className="absolute top-0 left-3 right-3 h-3 -translate-y-1/2 cursor-ns-resize touch-none z-20"/>
- <div onPointerDown={e=>startResize('bottom',e)} role="separator" aria-orientation="horizontal" aria-label="Redimensionar pela borda inferior" className="absolute bottom-0 left-3 right-3 h-3 translate-y-1/2 cursor-ns-resize touch-none z-20"/>
- <div onPointerDown={e=>startResize('top-left',e)} role="separator" aria-label="Redimensionar pela quina superior esquerda" className="absolute -left-1.5 -top-1.5 w-5 h-5 cursor-nwse-resize touch-none z-30"/>
- <div onPointerDown={e=>startResize('top-right',e)} role="separator" aria-label="Redimensionar pela quina superior direita" className="absolute -right-1.5 -top-1.5 w-5 h-5 cursor-nesw-resize touch-none z-30"/>
- <div onPointerDown={e=>startResize('bottom-left',e)} role="separator" aria-label="Redimensionar pela quina inferior esquerda" className="absolute -left-1.5 -bottom-1.5 w-5 h-5 cursor-nesw-resize touch-none z-30"/>
- <div onPointerDown={e=>startResize('bottom-right',e)} role="separator" aria-label="Redimensionar pela quina inferior direita" className="absolute -right-1.5 -bottom-1.5 w-5 h-5 cursor-nwse-resize touch-none z-30"/>
+ {highlightDeleteTarget&&<button type="button" data-sticky-highlight-delete onMouseDown={e=>e.preventDefault()} onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();removeHighlight();}} title="Remover marcação" aria-label="Remover marcação" style={{position:'absolute',left:highlightDeleteTarget.left,top:highlightDeleteTarget.top,zIndex:40}} className={`flex ${isTablet?'h-10 w-10':'h-8 w-8'} items-center justify-center rounded-full border border-[#d8c9b8] bg-[#fffaf4] text-[#8b5548] shadow-md hover:bg-[#f8e6df] dark:border-[#665448] dark:bg-[#2b241f] dark:text-[#f0b5a7] dark:hover:bg-[#49302a]`}><Trash2 className="h-4 w-4"/></button>}
+ <div onPointerDown={e=>startResize('left',e)} role="separator" aria-orientation="vertical" aria-label="Redimensionar pela borda esquerda" className={`absolute left-0 top-4 bottom-4 ${edgeVClass} -translate-x-1/2 cursor-ew-resize touch-none z-20`}/>
+ <div onPointerDown={e=>startResize('right',e)} role="separator" aria-orientation="vertical" aria-label="Redimensionar pela borda direita" className={`absolute right-0 top-4 bottom-4 ${edgeVClass} translate-x-1/2 cursor-ew-resize touch-none z-20`}/>
+ <div onPointerDown={e=>startResize('top',e)} role="separator" aria-orientation="horizontal" aria-label="Redimensionar pela borda superior" className={`absolute top-0 left-4 right-4 ${edgeHClass} -translate-y-1/2 cursor-ns-resize touch-none z-20`}/>
+ <div onPointerDown={e=>startResize('bottom',e)} role="separator" aria-orientation="horizontal" aria-label="Redimensionar pela borda inferior" className={`absolute bottom-0 left-4 right-4 ${edgeHClass} translate-y-1/2 cursor-ns-resize touch-none z-20`}/>
+ <div onPointerDown={e=>startResize('top-left',e)} role="separator" aria-label="Redimensionar pela quina superior esquerda" className={`absolute ${isTablet?'-left-3 -top-3 w-9 h-9':'-left-1.5 -top-1.5 w-5 h-5'} cursor-nwse-resize touch-none z-30`}/>
+ <div onPointerDown={e=>startResize('top-right',e)} role="separator" aria-label="Redimensionar pela quina superior direita" className={`absolute ${isTablet?'-right-3 -top-3 w-9 h-9':'-right-1.5 -top-1.5 w-5 h-5'} cursor-nesw-resize touch-none z-30`}/>
+ <div onPointerDown={e=>startResize('bottom-left',e)} role="separator" aria-label="Redimensionar pela quina inferior esquerda" className={`absolute ${isTablet?'-left-3 -bottom-3 w-9 h-9':'-left-1.5 -bottom-1.5 w-5 h-5'} cursor-nesw-resize touch-none z-30`}/>
+ <div onPointerDown={e=>startResize('bottom-right',e)} role="separator" aria-label="Redimensionar pela quina inferior direita" className={`absolute ${isTablet?'-right-3 -bottom-3 w-9 h-9':'-right-1.5 -bottom-1.5 w-5 h-5'} cursor-nwse-resize touch-none z-30 flex items-end justify-end p-2`}>
+  {isTablet&&isSelected&&<span aria-hidden="true" className="block h-2.5 w-2.5 rounded-br-sm border-r-2 border-b-2 border-[#68594d]/55 dark:border-[#e2d4c8]/55 pointer-events-none"/>}
+ </div>
  </div>;
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Loader2, Plus, StickyNote as StickyNoteIcon, X } from 'lucide-react';
+import { AlertCircle, Loader2, MoreVertical, Move, Plus, StickyNote as StickyNoteIcon, X } from 'lucide-react';
 import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 import {
   STICKY_DEFAULT_WIDTH,
@@ -42,8 +42,16 @@ import {
   findNonOverlappingStickPosition,
   readConvertedStickHandoff,
 } from '../lib/note-to-stick';
+import {
+  computeTabletBoardLayout,
+  TabletBoardLayout,
+  TabletOffset,
+} from '../lib/tablet-layout';
 
 const DEBOUNCE_MS = 450;
+const TABLET_GROUP_HOLD_MS = 3000;
+const TABLET_HOLD_VISUAL_DELAY_MS = 320;
+const TABLET_HOLD_CANCEL_PX = 10;
 
 export function StickyNotesLayout() {
   const [userId, setUserId] = useState<string>('');
@@ -77,6 +85,18 @@ export function StickyNotesLayout() {
   const [referencePreview, setReferencePreview] = useState<{id:string;type:ReferenceType;left:number;top:number}|null>(null);
 
   const { isTablet } = useStickyTabletMode();
+  const [boardViewportWidth, setBoardViewportWidth] = useState<number>(820);
+  const [tabletGroupDisplacements, setTabletGroupDisplacements] = useState<Record<string, TabletOffset>>({});
+  const tabletGroupDisplacementsRef = useRef<Record<string, TabletOffset>>({});
+  const [tabletNoteDisplacements, setTabletNoteDisplacements] = useState<Record<string, TabletOffset>>({});
+  const tabletNoteDisplacementsRef = useRef<Record<string, TabletOffset>>({});
+  const [tabletWidthOverrides, setTabletWidthOverrides] = useState<Record<string, number>>({});
+  const [tabletHoldState, setTabletHoldState] = useState<{ groupId: string; progress: number; x: number; y: number } | null>(null);
+  const [tabletMovingGroupId, setTabletMovingGroupId] = useState<string | null>(null);
+  const tabletDragStartOffsetRef = useRef<Map<string, TabletOffset>>(new Map());
+  const tabletResizeStartRef = useRef<{ startVisualX: number; startVisualY: number; startOffset: TabletOffset } | null>(null);
+  const tabletLayoutRef = useRef<TabletBoardLayout | null>(null);
+
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const editorActionsRef = useRef<Map<string, StickyEditorActions>>(new Map());
   const pendingPatchesRef = useRef<Map<string, UpdateStickyNotePatch>>(new Map());
@@ -98,6 +118,14 @@ export function StickyNotesLayout() {
     groupsRef.current = groups;
   }, [groups]);
 
+  useLayoutEffect(() => {
+    tabletGroupDisplacementsRef.current = tabletGroupDisplacements;
+  }, [tabletGroupDisplacements]);
+
+  useLayoutEffect(() => {
+    tabletNoteDisplacementsRef.current = tabletNoteDisplacements;
+  }, [tabletNoteDisplacements]);
+
   useEffect(() => {
     canvasZoomRef.current = canvasZoom;
   }, [canvasZoom]);
@@ -106,8 +134,26 @@ export function StickyNotesLayout() {
     canvasPanRef.current = canvasPan;
   }, [canvasPan]);
 
-  // Zoom por pinça exclusivo do quadro no modo tablet, reutilizando o mesmo
-  // estado canvasZoom / canvasPan já usado no zoom desktop (Space + scroll).
+  // Monitora a largura real do quadro no tablet para calcular o layout de 2 colunas.
+  useEffect(() => {
+    if (!isTablet || typeof ResizeObserver === 'undefined') return;
+    const boardEl = boardScrollRef.current;
+    if (!boardEl) return;
+
+    const updateWidth = () => {
+      const nextWidth = Math.round(boardEl.clientWidth);
+      if (nextWidth > 0) {
+        setBoardViewportWidth((previous) => (previous === nextWidth ? previous : nextWidth));
+      }
+    };
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(boardEl);
+    return () => observer.disconnect();
+  }, [isTablet]);
+
+  // Zoom por pinça exclusivo do quadro no modo tablet, ancorado no ponto médio
+  // entre os dois dedos e bloqueando completamente o zoom nativo do navegador.
   useEffect(() => {
     if (!isTablet) {
       isPinchingRef.current = false;
@@ -170,7 +216,7 @@ export function StickyNotesLayout() {
       const midX = (p1.x + p2.x) / 2 - rect.left;
       const midY = (p1.y + p2.y) / 2 - rect.top;
       const nextZoom = Math.max(
-        0.15,
+        0.3,
         Math.min(2.5, pinchAnchor.startZoom * (dist / pinchAnchor.startDist))
       );
       const nextPan = {
@@ -196,6 +242,12 @@ export function StickyNotesLayout() {
       }
     };
 
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length >= 2) {
+        event.preventDefault();
+      }
+    };
+
     const handleTouchMove = (event: TouchEvent) => {
       if (event.touches.length >= 2 || isPinchingRef.current) {
         event.preventDefault();
@@ -210,6 +262,7 @@ export function StickyNotesLayout() {
     window.addEventListener('pointermove', handlePointerMove, { passive: true });
     window.addEventListener('pointerup', handlePointerEnd);
     window.addEventListener('pointercancel', handlePointerEnd);
+    boardEl.addEventListener('touchstart', handleTouchStart, { passive: false });
     boardEl.addEventListener('touchmove', handleTouchMove, { passive: false });
     boardEl.addEventListener('gesturestart', preventSafariGesture, { passive: false });
     boardEl.addEventListener('gesturechange', preventSafariGesture, { passive: false });
@@ -222,12 +275,88 @@ export function StickyNotesLayout() {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerEnd);
       window.removeEventListener('pointercancel', handlePointerEnd);
+      boardEl.removeEventListener('touchstart', handleTouchStart);
       boardEl.removeEventListener('touchmove', handleTouchMove);
       boardEl.removeEventListener('gesturestart', preventSafariGesture);
       boardEl.removeEventListener('gesturechange', preventSafariGesture);
       boardEl.removeEventListener('gestureend', preventSafariGesture);
     };
   }, [isTablet]);
+
+  // Navegação fluida com 1 dedo pelo quadro no modo tablet (fundo e arraste rápido sobre campos).
+  const startTabletBoardPan = useCallback(
+    (
+      pointerId: number,
+      startX: number,
+      startY: number,
+      options?: { deselectOnTap?: boolean; immediate?: boolean; currentX?: number; currentY?: number }
+    ) => {
+      const initialPan = canvasPanRef.current;
+      let moved = Boolean(options?.immediate);
+
+      if (moved && options?.currentX !== undefined && options?.currentY !== undefined) {
+        const nextPan = {
+          x: initialPan.x + (options.currentX - startX),
+          y: initialPan.y + (options.currentY - startY),
+        };
+        canvasPanRef.current = nextPan;
+        setCanvasPan(nextPan);
+        setIsPanning(true);
+      }
+
+      const cleanup = () => {
+        setIsPanning(false);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onEnd);
+        window.removeEventListener('pointercancel', onCancel);
+        window.removeEventListener('anotado:sticky-pinch-start', onAbortForPinch);
+      };
+
+      const onAbortForPinch = () => {
+        cleanup();
+      };
+
+      const onMove = (pointer: PointerEvent) => {
+        if (pointer.pointerId !== pointerId) return;
+        if (isPinchingRef.current) {
+          cleanup();
+          return;
+        }
+        const dx = pointer.clientX - startX;
+        const dy = pointer.clientY - startY;
+        if (!moved) {
+          if (Math.hypot(dx, dy) <= 6) return;
+          moved = true;
+          setIsPanning(true);
+        }
+        const nextPan = { x: initialPan.x + dx, y: initialPan.y + dy };
+        canvasPanRef.current = nextPan;
+        setCanvasPan(nextPan);
+      };
+
+      const onCancel = (pointer: PointerEvent) => {
+        if (pointer.pointerId !== pointerId) return;
+        cleanup();
+      };
+
+      const onEnd = (pointer: PointerEvent) => {
+        if (pointer.pointerId !== pointerId) return;
+        cleanup();
+        if (!moved && options?.deselectOnTap && !isPinchingRef.current) {
+          setSelectedNoteId(null);
+          if (document.activeElement instanceof HTMLElement && boardScrollRef.current?.contains(document.activeElement)) {
+            document.activeElement.blur();
+          }
+        }
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onEnd);
+      window.addEventListener('pointercancel', onCancel);
+      window.addEventListener('anotado:sticky-pinch-start', onAbortForPinch);
+    },
+    []
+  );
 
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => {
@@ -352,11 +481,21 @@ export function StickyNotesLayout() {
       const viewport = boardScrollRef.current;
       if (!viewport || viewport.clientWidth === 0 || viewport.clientHeight === 0) return false;
       const element = document.getElementById('sticky-note-' + target.id);
+      const tabletFrame = isTablet ? tabletLayoutRef.current?.noteFrames[target.id] : undefined;
+      const zoom = canvasZoomRef.current || 1;
+      if (tabletFrame) {
+        const nextPan = {
+          x: Math.round(viewport.clientWidth / 2 - (tabletFrame.x + tabletFrame.width / 2) * zoom),
+          y: Math.round(viewport.clientHeight / 2 - (tabletFrame.y + tabletFrame.height / 2) * zoom),
+        };
+        canvasPanRef.current = nextPan;
+        setCanvasPan(nextPan);
+        return true;
+      }
       const measuredHeight =
         target.height_px ??
         noteHeightsRef.current[target.id] ??
         (element && element.offsetHeight > 0 ? element.offsetHeight : undefined);
-      const zoom = canvasZoomRef.current || 1;
       const nextPan = computeCanvasPanToCenterStick(
         target,
         { width: viewport.clientWidth, height: viewport.clientHeight },
@@ -377,7 +516,7 @@ export function StickyNotesLayout() {
         }
       });
     });
-  }, []);
+  }, [isTablet]);
 
   // Carrega usuário autenticado e notas adesivas do Supabase.
   useEffect(() => {
@@ -686,12 +825,15 @@ export function StickyNotesLayout() {
       setSelectedNoteId(created.id);
       setNewlyCreatedId(created.id);
       setSaveState(uid !== 'demo-user' ? 'saved' : 'idle');
+      if (isTablet) {
+        centerViewportOnStick(created);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao criar Stick.';
       setSaveState('error');
       setSaveError(message);
     }
-  }, [activeColor, getNextZIndex, canvasPan, canvasZoom]);
+  }, [activeColor, getNextZIndex, canvasPan, canvasZoom, isTablet, centerViewportOnStick]);
 
   const handleChangeTitle = useCallback(
     (noteId: string, title: string) => {
@@ -741,6 +883,10 @@ export function StickyNotesLayout() {
     const previousHeight = noteHeightsRef.current[noteId] || 0;
     noteHeightsRef.current[noteId] = height;
     setNoteHeights(previous => previous[noteId] === height ? previous : { ...previous, [noteId]: height });
+
+    // No tablet, o layout visual em 2 colunas recalcula automaticamente as fileiras
+    // sem alterar as coordenadas position_y salvas para a versão desktop.
+    if (isTablet) return;
 
     // Durante o redimensionamento manual, apenas atualiza a altura medida sem empurrar cartões no meio do gesto.
     if (resizingNoteIdRef.current === noteId) return;
@@ -794,7 +940,7 @@ export function StickyNotesLayout() {
         if (current && current.position_y !== y) void persistPatch(id, { position_y: y });
       });
     }
-  }, [persistPatch]);
+  }, [isTablet, persistPatch]);
 
   // A única medição de altura fica no quadro. Usa offsetHeight (não afetado por canvasZoom)
   // para medir a altura real no espaço do quadro sem distorções durante zoom/pinça.
@@ -869,16 +1015,111 @@ export function StickyNotesLayout() {
     [persistPatch]
   );
 
+  const handleTabletMoveLive = useCallback((noteId: string, dx: number, dy: number) => {
+    let base = tabletDragStartOffsetRef.current.get(noteId);
+    if (!base) {
+      base = tabletNoteDisplacementsRef.current[noteId] || { dx: 0, dy: 0 };
+      tabletDragStartOffsetRef.current.set(noteId, base);
+    }
+    const nextOffset = { dx: base.dx + dx, dy: base.dy + dy };
+    const nextMap = { ...tabletNoteDisplacementsRef.current, [noteId]: nextOffset };
+    tabletNoteDisplacementsRef.current = nextMap;
+    setTabletNoteDisplacements(nextMap);
+  }, []);
+
+  const handleTabletMoveEnd = useCallback(
+    (noteId: string, dx: number, dy: number) => {
+      const base =
+        tabletDragStartOffsetRef.current.get(noteId) ||
+        tabletNoteDisplacementsRef.current[noteId] ||
+        { dx: 0, dy: 0 };
+      tabletDragStartOffsetRef.current.delete(noteId);
+
+      const target = notesRef.current.find((n) => n.id === noteId);
+      const noteElement = document.getElementById('sticky-note-' + noteId);
+      const noteRect = noteElement?.getBoundingClientRect();
+      if (noteRect) {
+        const centerX = noteRect.left + noteRect.width / 2;
+        const centerY = noteRect.top + noteRect.height / 2;
+        const hitGroup = Array.from(document.querySelectorAll<HTMLElement>('[data-sticky-group-id]'))
+          .find((element) => {
+            const rect = element.getBoundingClientRect();
+            return centerX >= rect.left && centerX <= rect.right && centerY >= rect.top && centerY <= rect.bottom;
+          });
+        const hitGroupId = hitGroup?.dataset.stickyGroupId;
+        if (hitGroupId && target && target.group_id !== hitGroupId) {
+          const members = notesRef.current.filter((note) => note.group_id === hitGroupId && note.id !== noteId);
+          const maxRight = members.reduce((right, note) => Math.max(right, note.position_x + note.width_px), 0);
+          const rowY = members.length ? Math.min(...members.map((note) => note.position_y)) : target.position_y;
+          const nextX = members.length ? maxRight + 18 : target.position_x;
+
+          const clearedDisplacements = { ...tabletNoteDisplacementsRef.current };
+          delete clearedDisplacements[noteId];
+          tabletNoteDisplacementsRef.current = clearedDisplacements;
+          setTabletNoteDisplacements(clearedDisplacements);
+
+          setNotes((previous) =>
+            previous.map((note) =>
+              note.id === noteId
+                ? { ...note, group_id: hitGroupId, position_x: nextX, position_y: rowY }
+                : note
+            )
+          );
+          void persistPatch(noteId, { group_id: hitGroupId, position_x: nextX, position_y: rowY });
+          return;
+        }
+      }
+
+      const nextOffset = { dx: base.dx + dx, dy: base.dy + dy };
+      const nextMap = { ...tabletNoteDisplacementsRef.current, [noteId]: nextOffset };
+      tabletNoteDisplacementsRef.current = nextMap;
+      setTabletNoteDisplacements(nextMap);
+    },
+    [persistPatch]
+  );
+
   const handleResizeStart = useCallback((noteId: string) => {
     const target = notesRef.current.find((item) => item.id === noteId);
     resizingNoteIdRef.current = noteId;
     resizeInitialSizeRef.current = target
       ? { width_px: target.width_px, height_px: target.height_px ?? null, position_x: target.position_x, position_y: target.position_y }
       : null;
-  }, []);
+    if (isTablet) {
+      const frame = tabletLayoutRef.current?.noteFrames[noteId];
+      const startOffset = tabletNoteDisplacementsRef.current[noteId] || { dx: 0, dy: 0 };
+      tabletResizeStartRef.current = frame
+        ? { startVisualX: frame.x, startVisualY: frame.y, startOffset }
+        : null;
+    } else {
+      tabletResizeStartRef.current = null;
+    }
+  }, [isTablet]);
 
   const handleResizeLive = useCallback((noteId: string, size: StickyResizePatch) => {
     if (size.height_px != null) noteHeightsRef.current[noteId] = size.height_px;
+    if (isTablet) {
+      setTabletWidthOverrides((previous) =>
+        previous[noteId] === size.width_px ? previous : { ...previous, [noteId]: size.width_px }
+      );
+      const startInfo = tabletResizeStartRef.current;
+      if (startInfo && (size.position_x !== undefined || size.position_y !== undefined)) {
+        const deltaX = size.position_x !== undefined ? size.position_x - startInfo.startVisualX : 0;
+        const deltaY = size.position_y !== undefined ? size.position_y - startInfo.startVisualY : 0;
+        const nextOffset = {
+          dx: Math.round(startInfo.startOffset.dx + deltaX),
+          dy: Math.round(startInfo.startOffset.dy + deltaY),
+        };
+        const nextMap = { ...tabletNoteDisplacementsRef.current, [noteId]: nextOffset };
+        tabletNoteDisplacementsRef.current = nextMap;
+        setTabletNoteDisplacements(nextMap);
+      }
+      if (size.height_px !== undefined) {
+        setNotes((prev) =>
+          prev.map((item) => (item.id === noteId ? { ...item, height_px: size.height_px } : item))
+        );
+      }
+      return;
+    }
     setNotes((prev) =>
       prev.map((item) => item.id === noteId
         ? {
@@ -891,13 +1132,25 @@ export function StickyNotesLayout() {
         : item
       )
     );
-  }, []);
+  }, [isTablet]);
 
   const handleResizeEnd = useCallback(
     (noteId: string, size: StickyResizePatch) => {
       const initial = resizeInitialSizeRef.current;
       resizingNoteIdRef.current = null;
       resizeInitialSizeRef.current = null;
+      tabletResizeStartRef.current = null;
+
+      if (isTablet) {
+        const nextHeight = size.height_px ?? null;
+        const heightChanged = !initial || initial.height_px !== nextHeight;
+        // No tablet, mantém a largura visual em tabletWidthOverrides sem sobrescrever
+        // as dimensões/coordenadas desktop salvas no banco de dados.
+        if (heightChanged) {
+          void persistPatch(noteId, { height_px: nextHeight });
+        }
+        return;
+      }
 
       const nextHeight = size.height_px ?? null;
       const widthChanged = !initial || initial.width_px !== size.width_px;
@@ -912,7 +1165,7 @@ export function StickyNotesLayout() {
       if (yChanged && size.position_y !== undefined) patch.position_y = size.position_y;
       void persistPatch(noteId, patch);
     },
-    [persistPatch]
+    [isTablet, persistPatch]
   );
 
   const handleDeleteNote = useCallback(async (noteId: string) => {
@@ -972,8 +1225,181 @@ export function StickyNotesLayout() {
   }, []);
 
   const handleGroupPointerDown = useCallback((groupId: string, event: React.PointerEvent<HTMLDivElement>) => {
-    if ((event.button !== 0 && event.pointerType === 'mouse') || event.target !== event.currentTarget) return;
     if (isPinchingRef.current) return;
+
+    // No tablet com toque: movimentação do campo somente após pressionar e segurar por
+    // 3 segundos completos. Antes disso, deslizar o dedo navega o quadro normalmente.
+    if (isTablet && event.pointerType !== 'mouse') {
+      const targetEl = event.target as HTMLElement | null;
+      if (targetEl?.closest('input, button, textarea, a, [contenteditable="true"]')) return;
+      const members = notesRef.current.filter((note) => note.group_id === groupId).map((note) => ({ ...note }));
+      if (!members.length) return;
+
+      event.stopPropagation();
+      const pointerId = event.pointerId;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let currentClientX = startX;
+      let currentClientY = startY;
+      let dragStartX = startX;
+      let dragStartY = startY;
+      let activated = false;
+      let aborted = false;
+      const holdStartedAt = performance.now();
+      const baseGroupOffset = tabletGroupDisplacementsRef.current[groupId] || { dx: 0, dy: 0 };
+
+      let progressInterval: ReturnType<typeof setInterval> | null = null;
+      let holdTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const clearHoldTimers = () => {
+        if (holdTimer) {
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          progressInterval = null;
+        }
+      };
+
+      const cleanup = () => {
+        clearHoldTimers();
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onFinish);
+        window.removeEventListener('pointercancel', onCancel);
+        window.removeEventListener('anotado:sticky-pinch-start', onAbortForPinch);
+        setTabletHoldState((prev) => (prev?.groupId === groupId ? null : prev));
+        setTabletMovingGroupId((prev) => (prev === groupId ? null : prev));
+        setMovingGroupNoteIds(new Set());
+      };
+
+      const restoreBaseOffset = () => {
+        const nextMap = { ...tabletGroupDisplacementsRef.current, [groupId]: baseGroupOffset };
+        tabletGroupDisplacementsRef.current = nextMap;
+        setTabletGroupDisplacements(nextMap);
+      };
+
+      const onAbortForPinch = () => {
+        if (aborted) return;
+        aborted = true;
+        const wasActivated = activated;
+        cleanup();
+        if (wasActivated) restoreBaseOffset();
+      };
+
+      progressInterval = setInterval(() => {
+        if (activated || aborted) return;
+        const elapsed = performance.now() - holdStartedAt;
+        if (elapsed >= TABLET_HOLD_VISUAL_DELAY_MS) {
+          setTabletHoldState({
+            groupId,
+            progress: Math.min(1, elapsed / TABLET_GROUP_HOLD_MS),
+            x: currentClientX,
+            y: currentClientY,
+          });
+        }
+      }, 50);
+
+      holdTimer = setTimeout(() => {
+        if (aborted || isPinchingRef.current) return;
+        clearHoldTimers();
+        activated = true;
+        dragStartX = currentClientX;
+        dragStartY = currentClientY;
+        setTabletHoldState(null);
+        setTabletMovingGroupId(groupId);
+        setMovingGroupNoteIds(new Set(members.map((member) => member.id)));
+        try {
+          navigator.vibrate?.(35);
+        } catch {
+          // Alguns tablets/navegadores não oferecem vibração háptica.
+        }
+      }, TABLET_GROUP_HOLD_MS);
+
+      const onMove = (pointer: PointerEvent) => {
+        if (pointer.pointerId !== pointerId) return;
+        if (isPinchingRef.current) {
+          onAbortForPinch();
+          return;
+        }
+        currentClientX = pointer.clientX;
+        currentClientY = pointer.clientY;
+
+        if (!activated) {
+          if (Math.hypot(pointer.clientX - startX, pointer.clientY - startY) > TABLET_HOLD_CANCEL_PX) {
+            aborted = true;
+            cleanup();
+            startTabletBoardPan(pointerId, startX, startY, {
+              immediate: true,
+              currentX: pointer.clientX,
+              currentY: pointer.clientY,
+            });
+          }
+          return;
+        }
+
+        const zoom = canvasZoomRef.current || 1;
+        const dx = Math.round((pointer.clientX - dragStartX) / zoom);
+        const dy = Math.round((pointer.clientY - dragStartY) / zoom);
+        const nextOffset = { dx: baseGroupOffset.dx + dx, dy: baseGroupOffset.dy + dy };
+        const nextMap = { ...tabletGroupDisplacementsRef.current, [groupId]: nextOffset };
+        tabletGroupDisplacementsRef.current = nextMap;
+        setTabletGroupDisplacements(nextMap);
+      };
+
+      const onCancel = (pointer: PointerEvent) => {
+        if (pointer.pointerId !== pointerId) return;
+        const wasActivated = activated;
+        aborted = true;
+        cleanup();
+        if (wasActivated) restoreBaseOffset();
+      };
+
+      const onFinish = (pointer: PointerEvent) => {
+        if (pointer.pointerId !== pointerId) return;
+        const wasActivated = activated;
+        const wasAborted = aborted;
+        cleanup();
+        if (!wasActivated || wasAborted) return;
+
+        const zoom = canvasZoomRef.current || 1;
+        const dx = Math.round((pointer.clientX - dragStartX) / zoom);
+        const dy = Math.round((pointer.clientY - dragStartY) / zoom);
+        const finalOffset = { dx: baseGroupOffset.dx + dx, dy: baseGroupOffset.dy + dy };
+        const nextMap = { ...tabletGroupDisplacementsRef.current, [groupId]: finalOffset };
+        tabletGroupDisplacementsRef.current = nextMap;
+        setTabletGroupDisplacements(nextMap);
+
+        if (dx !== 0 || dy !== 0) {
+          const finalNotes = notesRef.current.map((note) => {
+            const initial = members.find((member) => member.id === note.id);
+            return initial
+              ? {
+                  ...note,
+                  position_x: Math.max(12, Math.round(initial.position_x + dx)),
+                  position_y: Math.max(12, Math.round(initial.position_y + dy)),
+                }
+              : note;
+          });
+          notesRef.current = finalNotes;
+          setNotes(finalNotes);
+          members.forEach((member) => {
+            void persistPatch(member.id, {
+              position_x: Math.max(12, Math.round(member.position_x + dx)),
+              position_y: Math.max(12, Math.round(member.position_y + dy)),
+            });
+          });
+        }
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onFinish);
+      window.addEventListener('pointercancel', onCancel);
+      window.addEventListener('anotado:sticky-pinch-start', onAbortForPinch);
+      return;
+    }
+
+    if ((event.button !== 0 && event.pointerType === 'mouse') || event.target !== event.currentTarget) return;
     event.preventDefault();
     event.stopPropagation();
     const pointerId = event.pointerId;
@@ -1051,7 +1477,7 @@ export function StickyNotesLayout() {
     window.addEventListener('pointerup', finish);
     window.addEventListener('pointercancel', cancel);
     window.addEventListener('anotado:sticky-pinch-start', abortForPinch);
-  }, [canvasZoom, persistPatch]);
+  }, [isTablet, canvasZoom, persistPatch, startTabletBoardPan]);
 
   const handleReorderGroups = useCallback(async (sourceId: string, targetId: string) => {
     const previous = groupsRef.current;
@@ -1077,26 +1503,45 @@ export function StickyNotesLayout() {
   }, []);
 
   const handleSelectGroupFromSidebar = useCallback((groupId: string) => {
-    const members = notesRef.current.filter((note) => note.group_id === groupId);
-    if (members.length && boardScrollRef.current) {
-      const left = Math.min(...members.map((note) => note.position_x));
-      const top = Math.min(...members.map((note) => note.position_y));
-      const right = Math.max(...members.map((note) => note.position_x + note.width_px));
-      const bottom = Math.max(
-        ...members.map((note) => {
-          const element = document.getElementById('sticky-note-' + note.id);
-          return note.position_y + (note.height_px ?? noteHeightsRef.current[note.id] ?? element?.offsetHeight ?? 280);
-        })
-      );
-      const viewport = boardScrollRef.current;
+    const viewport = boardScrollRef.current;
+    if (viewport) {
       const zoom = canvasZoomRef.current || 1;
-      setCanvasPan({
-        x: viewport.clientWidth / 2 - ((left + right) / 2) * zoom,
-        y: viewport.clientHeight / 2 - ((top + bottom) / 2) * zoom,
-      });
+      const tabletBound = isTablet
+        ? tabletLayoutRef.current?.groupBounds.find((item) => item.group.id === groupId)
+        : undefined;
+      if (tabletBound) {
+        const x = Math.round(viewport.clientWidth / 2 - (tabletBound.left + tabletBound.width / 2) * zoom);
+        const fitsVertically = tabletBound.height * zoom <= viewport.clientHeight - 40;
+        const y = fitsVertically
+          ? Math.round(viewport.clientHeight / 2 - (tabletBound.top + tabletBound.height / 2) * zoom)
+          : Math.round(20 - tabletBound.top * zoom);
+        canvasPanRef.current = { x, y };
+        setCanvasPan({ x, y });
+        setGroupsSidebarOpen(false);
+        return;
+      }
+
+      const members = notesRef.current.filter((note) => note.group_id === groupId);
+      if (members.length) {
+        const left = Math.min(...members.map((note) => note.position_x));
+        const top = Math.min(...members.map((note) => note.position_y));
+        const right = Math.max(...members.map((note) => note.position_x + note.width_px));
+        const bottom = Math.max(
+          ...members.map((note) => {
+            const element = document.getElementById('sticky-note-' + note.id);
+            return note.position_y + (note.height_px ?? noteHeightsRef.current[note.id] ?? element?.offsetHeight ?? 280);
+          })
+        );
+        const nextPan = {
+          x: viewport.clientWidth / 2 - ((left + right) / 2) * zoom,
+          y: viewport.clientHeight / 2 - ((top + bottom) / 2) * zoom,
+        };
+        canvasPanRef.current = nextPan;
+        setCanvasPan(nextPan);
+      }
     }
     setGroupsSidebarOpen(false);
-  }, []);
+  }, [isTablet]);
 
   const handleGroupTitleChange = useCallback((groupId: string, title: string) => {
     setGroups(previous => previous.map(group => group.id === groupId ? { ...group, title } : group));
@@ -1125,13 +1570,37 @@ export function StickyNotesLayout() {
   }, []);
 
   const handleNoteContextMenu = useCallback((note: StickyNote, x: number, y: number) => {
-    setContextMenu({ kind: 'note', id: note.id, x: Math.min(x, window.innerWidth - 190), y: Math.min(y, window.innerHeight - 240) });
-  }, []);
+    const menuWidth = isTablet ? 230 : 190;
+    const menuHeight = isTablet ? 310 : 240;
+    setContextMenu({
+      kind: 'note',
+      id: note.id,
+      x: Math.max(12, Math.min(x, window.innerWidth - menuWidth)),
+      y: Math.max(12, Math.min(y, window.innerHeight - menuHeight)),
+    });
+  }, [isTablet]);
 
   const handleGroupContextMenu = useCallback((groupId: string, event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    setContextMenu({ kind: 'group', id: groupId, x: Math.min(event.clientX, window.innerWidth - 190), y: Math.min(event.clientY, window.innerHeight - 190) });
+    const menuWidth = isTablet ? 230 : 190;
+    const menuHeight = isTablet ? 280 : 190;
+    setContextMenu({
+      kind: 'group',
+      id: groupId,
+      x: Math.max(12, Math.min(event.clientX, window.innerWidth - menuWidth)),
+      y: Math.max(12, Math.min(event.clientY, window.innerHeight - menuHeight)),
+    });
+  }, [isTablet]);
+
+  const handleOpenTabletGroupMenu = useCallback((groupId: string, anchor: HTMLElement) => {
+    const rect = anchor.getBoundingClientRect();
+    setContextMenu({
+      kind: 'group',
+      id: groupId,
+      x: Math.max(12, Math.min(rect.right - 220, window.innerWidth - 232)),
+      y: Math.max(12, Math.min(rect.bottom + 6, window.innerHeight - 280)),
+    });
   }, []);
 
   const groupBounds = useMemo(() => groups.map(group => {
@@ -1148,6 +1617,34 @@ export function StickyNotesLayout() {
     return { group, left: left - 22, top: top - 42, width: right - left + 44, height: bottom - top + 66 };
   }).filter((item): item is NonNullable<typeof item> => Boolean(item)), [groups, notes, noteHeights]);
 
+  const tabletLayout = useMemo(() => {
+    if (!isTablet) return null;
+    return computeTabletBoardLayout({
+      notes,
+      groups,
+      viewportWidth: boardViewportWidth,
+      noteHeights,
+      groupDisplacements: tabletGroupDisplacements,
+      noteDisplacements: tabletNoteDisplacements,
+      widthOverrides: tabletWidthOverrides,
+    });
+  }, [
+    isTablet,
+    notes,
+    groups,
+    boardViewportWidth,
+    noteHeights,
+    tabletGroupDisplacements,
+    tabletNoteDisplacements,
+    tabletWidthOverrides,
+  ]);
+
+  useLayoutEffect(() => {
+    tabletLayoutRef.current = tabletLayout;
+  }, [tabletLayout]);
+
+  const activeGroupBounds = isTablet && tabletLayout ? tabletLayout.groupBounds : groupBounds;
+
   const selectedNote = useMemo(
     () => notes.find((n) => n.id === selectedNoteId) || null,
     [notes, selectedNoteId]
@@ -1156,7 +1653,8 @@ export function StickyNotesLayout() {
   return (
     <div
       id="sticky-notes-app-container"
-      className="flex flex-col h-screen w-screen min-h-0 min-w-0 overflow-hidden bg-[#f7f4ed] dark:bg-[#050505] font-sans-ui"
+      data-sticky-tablet={isTablet ? 'true' : undefined}
+      className={`flex flex-col ${isTablet ? 'h-[100dvh]' : 'h-screen'} w-screen min-h-0 min-w-0 overflow-hidden bg-[#f7f4ed] dark:bg-[#050505] font-sans-ui`}
     >
       <AppHeader
         activeSection="sticky-notes"
@@ -1300,6 +1798,10 @@ export function StickyNotesLayout() {
             window.addEventListener('pointercancel', finish);
             return;
           }
+          if (isTablet && event.pointerType !== 'mouse' && isBackground && !isPinchingRef.current) {
+            startTabletBoardPan(event.pointerId, event.clientX, event.clientY, { deselectOnTap: true });
+            return;
+          }
           if (isBackground && !isPinchingRef.current) setSelectedNoteId(null);
         }}
         onWheel={(event) => {
@@ -1314,7 +1816,7 @@ export function StickyNotesLayout() {
           setCanvasPan({ x: pointerX - worldX * nextZoom, y: pointerY - worldY * nextZoom });
           setCanvasZoom(nextZoom);
         }}
-        className="flex-1 min-h-0 min-w-0 overflow-hidden relative bg-[#f7f4ed] dark:bg-[#050505] sticky-board-viewport"
+        className="flex-1 min-h-0 min-w-0 overflow-hidden relative isolate z-0 bg-[#f7f4ed] dark:bg-[#050505] sticky-board-viewport"
         style={{
           backgroundSize: `${24 * canvasZoom}px ${24 * canvasZoom}px`,
           backgroundPosition: `${canvasPan.x}px ${canvasPan.y}px`,
@@ -1335,9 +1837,11 @@ export function StickyNotesLayout() {
           }}
           className="relative"
         >
-          {groupBounds.map(({group,left,top,width,height}) => {
+          {activeGroupBounds.map(({group,left,top,width,height}) => {
             const palette = STICKY_COLORS.find(color => color.key === group.color) || STICKY_COLORS[0];
             const tint = palette.swatchLight;
+            const isHoldingThisGroup = isTablet && tabletHoldState?.groupId === group.id;
+            const isMovingThisGroup = isTablet && tabletMovingGroupId === group.id;
             const titleColorClass = ({
               yellow: 'text-[#8a741f] dark:text-[#f5df78]',
               green: 'text-[#39794a] dark:text-[#8fd59d]',
@@ -1353,48 +1857,114 @@ export function StickyNotesLayout() {
                 data-sticky-group-id={group.id}
                 onPointerDown={event => handleGroupPointerDown(group.id, event)}
                 onContextMenu={event => handleGroupContextMenu(group.id, event)}
-                title="Arraste para mover o agrupamento; clique com o botão direito para opções"
+                title={isTablet ? 'Segure por 3 segundos para mover este campo' : 'Arraste para mover o agrupamento; clique com o botão direito para opções'}
                 style={{
                   position: 'absolute', left, top, width, height,
                   borderRadius: 22,
-                  background: `color-mix(in srgb, ${tint} 34%, transparent)`,
-                  border: `2px solid color-mix(in srgb, ${tint} 78%, #9a7658)`,
-                  boxShadow: '0 5px 18px rgba(65,45,28,.08)',
+                  background: isMovingThisGroup
+                    ? `color-mix(in srgb, ${tint} 48%, transparent)`
+                    : `color-mix(in srgb, ${tint} 34%, transparent)`,
+                  border: isMovingThisGroup
+                    ? `3px solid color-mix(in srgb, ${tint} 92%, #68594d)`
+                    : isHoldingThisGroup
+                      ? `2.5px dashed color-mix(in srgb, ${tint} 88%, #68594d)`
+                      : `2px solid color-mix(in srgb, ${tint} 78%, #9a7658)`,
+                  boxShadow: isMovingThisGroup
+                    ? '0 18px 42px rgba(45,30,18,.26)'
+                    : '0 5px 18px rgba(65,45,28,.08)',
                   zIndex: 0,
-                  cursor: 'grab',
+                  cursor: isMovingThisGroup ? 'grabbing' : 'grab',
                   touchAction: 'none',
                 }}
               />
-              <div
-                onContextMenu={event => handleGroupContextMenu(group.id, event)}
-                style={{
-                  position: 'absolute', left: left + width / 2, top: top + 7,
-                  transform: 'translateX(-50%)', width: Math.max(120, Math.min(width - 32, 360)),
-                  zIndex: 2, textAlign: 'center', pointerEvents: 'auto',
-                }}
-              >
-                {editingGroupTitleId === group.id ? (
-                  <input
-                    autoFocus
-                    value={group.title || ''}
-                    onChange={event => handleGroupTitleChange(group.id, event.target.value)}
-                    onBlur={() => void handleSaveGroupTitle(group.id)}
-                    onKeyDown={event => {
-                      if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
-                    }}
-                    placeholder="Título do agrupamento"
-                    aria-label="Título do agrupamento"
-                    className={`w-full rounded-lg border border-transparent bg-transparent px-3 py-1 text-center text-base font-semibold outline-none placeholder:text-[#927f6a] focus:border-[#92704f]/40 dark:placeholder:text-[#a99681] ${titleColorClass}`}
-                  />
-                ) : group.title ? (
+              {isTablet ? (
+                <div
+                  data-sticky-group-header={group.id}
+                  onPointerDown={event => handleGroupPointerDown(group.id, event)}
+                  onContextMenu={event => handleGroupContextMenu(group.id, event)}
+                  style={{
+                    position: 'absolute',
+                    left: left + 12,
+                    top: top + 6,
+                    width: Math.max(140, width - 24),
+                    height: 36,
+                    zIndex: 2,
+                    touchAction: 'none',
+                  }}
+                  className="flex items-center justify-between gap-2 px-1"
+                >
+                  <div className="w-9 shrink-0" aria-hidden="true" />
+                  <div className="flex-1 min-w-0 text-center">
+                    {editingGroupTitleId === group.id ? (
+                      <input
+                        autoFocus
+                        value={group.title || ''}
+                        onPointerDown={event => event.stopPropagation()}
+                        onChange={event => handleGroupTitleChange(group.id, event.target.value)}
+                        onBlur={() => void handleSaveGroupTitle(group.id)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
+                        }}
+                        placeholder="Título do campo"
+                        aria-label="Título do campo"
+                        className={`w-full rounded-lg border border-transparent bg-transparent px-3 py-1 text-center text-base font-semibold outline-none placeholder:text-[#927f6a] focus:border-[#92704f]/40 dark:placeholder:text-[#a99681] ${titleColorClass}`}
+                      />
+                    ) : group.title ? (
+                      <button
+                        type="button"
+                        onPointerDown={event => event.stopPropagation()}
+                        onClick={() => setEditingGroupTitleId(group.id)}
+                        className={`max-w-full truncate rounded-md bg-transparent px-3 py-0.5 text-base font-semibold ${titleColorClass}`}
+                        title="Toque para editar o título"
+                      >{group.title}</button>
+                    ) : null}
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setEditingGroupTitleId(group.id)}
-                    className={`max-w-full rounded-md bg-transparent px-3 py-0.5 text-base font-semibold hover:bg-transparent dark:bg-transparent dark:hover:bg-transparent ${titleColorClass}`}
-                    title="Clique para editar o título"
-                  >{group.title}</button>
-                ) : null}
-              </div>
+                    onPointerDown={event => event.stopPropagation()}
+                    onClick={event => {
+                      event.stopPropagation();
+                      handleOpenTabletGroupMenu(group.id, event.currentTarget);
+                    }}
+                    aria-label="Opções do campo"
+                    title="Opções do campo"
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/45 dark:bg-black/25 active:scale-95 ${titleColorClass}`}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onContextMenu={event => handleGroupContextMenu(group.id, event)}
+                  style={{
+                    position: 'absolute', left: left + width / 2, top: top + 7,
+                    transform: 'translateX(-50%)', width: Math.max(120, Math.min(width - 32, 360)),
+                    zIndex: 2, textAlign: 'center', pointerEvents: 'auto',
+                  }}
+                >
+                  {editingGroupTitleId === group.id ? (
+                    <input
+                      autoFocus
+                      value={group.title || ''}
+                      onChange={event => handleGroupTitleChange(group.id, event.target.value)}
+                      onBlur={() => void handleSaveGroupTitle(group.id)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
+                      }}
+                      placeholder="Título do agrupamento"
+                      aria-label="Título do agrupamento"
+                      className={`w-full rounded-lg border border-transparent bg-transparent px-3 py-1 text-center text-base font-semibold outline-none placeholder:text-[#927f6a] focus:border-[#92704f]/40 dark:placeholder:text-[#a99681] ${titleColorClass}`}
+                    />
+                  ) : group.title ? (
+                    <button
+                      type="button"
+                      onClick={() => setEditingGroupTitleId(group.id)}
+                      className={`max-w-full rounded-md bg-transparent px-3 py-0.5 text-base font-semibold hover:bg-transparent dark:bg-transparent dark:hover:bg-transparent ${titleColorClass}`}
+                      title="Clique para editar o título"
+                    >{group.title}</button>
+                  ) : null}
+                </div>
+              )}
             </React.Fragment>;
           })}
           {isLoading ? (
@@ -1444,11 +2014,15 @@ export function StickyNotesLayout() {
             notes.map((note) => (
               <StickyNoteCard
                 key={note.id}
+                isTablet={isTablet}
+                visualFrame={isTablet ? tabletLayout?.noteFrames[note.id] : undefined}
+                onTabletMoveLive={isTablet ? handleTabletMoveLive : undefined}
+                onTabletMoveEnd={isTablet ? handleTabletMoveEnd : undefined}
                 note={note}
                 isMovingWithGroup={movingGroupNoteIds.has(note.id)}
                 canvasZoom={canvasZoom}
                 isPinchingRef={isPinchingRef}
-                snapTargets={notes.filter(other => other.id !== note.id).map(other => ({
+                snapTargets={isTablet ? [] : notes.filter(other => other.id !== note.id).map(other => ({
                   id: other.id,
                   x: other.position_x,
                   y: other.position_y,
@@ -1478,31 +2052,67 @@ export function StickyNotesLayout() {
             ))
           )}
         </div>
+
+        {/* Feedback visual do pressionamento longo de 3 segundos no tablet */}
+        {isTablet && tabletHoldState && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed z-[10900] pointer-events-none flex items-center gap-2.5 rounded-full border border-[#dfd2c3] dark:border-[#4b3e33] bg-[#fffdf9]/95 dark:bg-[#1e1b18]/95 px-3.5 py-2 shadow-lg backdrop-blur-sm"
+            style={{
+              left: Math.max(16, Math.min(tabletHoldState.x - 105, (typeof window !== 'undefined' ? window.innerWidth : 800) - 230)),
+              top: Math.max(112, tabletHoldState.y - 68),
+            }}
+          >
+            <div className="relative h-2.5 w-20 overflow-hidden rounded-full bg-[#ebe1d6] dark:bg-[#342c25]">
+              <div
+                className="h-full rounded-full bg-[#68594d] dark:bg-[#e7d4bf] transition-[width] duration-75"
+                style={{ width: `${Math.round(tabletHoldState.progress * 100)}%` }}
+              />
+            </div>
+            <span className="text-xs font-medium text-[#514235] dark:text-[#eadccd] whitespace-nowrap">
+              Segure para mover ({Math.max(1, Math.ceil((1 - tabletHoldState.progress) * 3))}s)
+            </span>
+          </div>
+        )}
+
+        {/* Indicador do modo ativo de movimentação de campo no tablet */}
+        {isTablet && tabletMovingGroupId && (
+          <div
+            role="status"
+            aria-live="assertive"
+            className="fixed left-1/2 top-[112px] -translate-x-1/2 z-[10950] pointer-events-none flex items-center gap-2 rounded-full bg-[#68594d] dark:bg-[#3a3028] border border-[#53463c] dark:border-[#68594d] px-4 py-2 text-xs font-medium text-white shadow-xl"
+          >
+            <Move className="h-3.5 w-3.5 shrink-0" />
+            <span>Movendo campo — arraste para posicionar e solte</span>
+          </div>
+        )}
+
         {contextMenu && <div
           className="fixed inset-0 z-[11100]"
           onPointerDown={() => setContextMenu(null)}
           onContextMenu={event => { event.preventDefault(); setContextMenu(null); }}
         >
           <div
-            className="fixed min-w-[176px] rounded-xl border border-[#e5d9cc] bg-[#fffdf9] p-1.5 shadow-[0_12px_35px_rgba(40,28,18,.22)] dark:border-[#494038] dark:bg-[#211e1b]"
+            className={`fixed ${isTablet ? 'min-w-[216px] p-2' : 'min-w-[176px] p-1.5'} rounded-xl border border-[#e5d9cc] bg-[#fffdf9] shadow-[0_12px_35px_rgba(40,28,18,.22)] dark:border-[#494038] dark:bg-[#211e1b]`}
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onPointerDown={event => event.stopPropagation()}
           >
             {contextMenu.kind === 'note' ? <>
-              {!notes.find(note => note.id === contextMenu.id)?.group_id && <button type="button" onClick={() => void handleCreateGroupForNote(contextMenu.id)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]">Agrupar</button>}
-              <button type="button" onClick={() => { void handleDeleteNote(contextMenu.id); setContextMenu(null); }} className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#a24e42] hover:bg-[#faeae5] dark:hover:bg-[#3d2521]">Excluir</button>
+              {!notes.find(note => note.id === contextMenu.id)?.group_id && <button type="button" onClick={() => void handleCreateGroupForNote(contextMenu.id)} className={`w-full rounded-lg px-3 ${isTablet ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]`}>Agrupar</button>}
+              <button type="button" onClick={() => { void handleDeleteNote(contextMenu.id); setContextMenu(null); }} className={`w-full rounded-lg px-3 ${isTablet ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#a24e42] hover:bg-[#faeae5] dark:hover:bg-[#3d2521]`}>Excluir</button>
               <div className="my-1 border-t border-[#eee5dc] dark:border-[#40372f]"/>
               <p className="px-3 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[#988777]">Mudar cor do Stick</p>
-              <div className="flex flex-wrap gap-2 px-3 py-2">
-                {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => { handleChangeNoteColor(contextMenu.id, color.key); setContextMenu(null); }} className="h-5 w-5 rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]" style={{ backgroundColor: color.swatchLight }}/>)}
+              <div className={`flex flex-wrap ${isTablet ? 'gap-2.5 px-3 py-2.5' : 'gap-2 px-3 py-2'}`}>
+                {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => { handleChangeNoteColor(contextMenu.id, color.key); setContextMenu(null); }} className={`${isTablet ? 'h-8 w-8' : 'h-5 w-5'} rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]`} style={{ backgroundColor: color.swatchLight }}/>)}
               </div>
             </> : <>
-              <button type="button" onClick={() => { setEditingGroupTitleId(contextMenu.id); setContextMenu(null); }} className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]">{groups.find(group => group.id === contextMenu.id)?.title ? 'Editar título' : 'Adicionar título'}</button>
-              <button type="button" onClick={() => void handleDeleteGroup(contextMenu.id)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]">Desagrupar</button>
+              <button type="button" onClick={() => { setEditingGroupTitleId(contextMenu.id); setContextMenu(null); }} className={`w-full rounded-lg px-3 ${isTablet ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]`}>{groups.find(group => group.id === contextMenu.id)?.title ? 'Editar título' : 'Adicionar título'}</button>
+              <button type="button" onClick={() => void handleDeleteGroup(contextMenu.id)} className={`w-full rounded-lg px-3 ${isTablet ? 'min-h-[44px] py-2.5 text-[15px]' : 'py-2 text-sm'} text-left text-[#514235] hover:bg-[#f2ebe3] dark:text-[#eadccd] dark:hover:bg-[#342c25]`}>Desagrupar</button>
               <div className="my-1 border-t border-[#eee5dc] dark:border-[#40372f]"/>
               <p className="px-3 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[#988777]">Mudar cor do campo</p>
-              <div className="flex flex-wrap gap-2 px-3 py-2">
-                {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => void handleGroupColor(contextMenu.id, color.key)} className="h-5 w-5 rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]" style={{ backgroundColor: color.swatchLight }}/>)}
+              <div className={`flex flex-wrap ${isTablet ? 'gap-2.5 px-3 py-2.5' : 'gap-2 px-3 py-2'}`}>
+                {STICKY_COLORS.map(color => <button key={color.key} type="button" title={color.label} onClick={() => void handleGroupColor(contextMenu.id, color.key)} className={`${isTablet ? 'h-8 w-8' : 'h-5 w-5'} rounded-full border border-black/10 ring-offset-1 hover:ring-2 hover:ring-[#80634f]`} style={{ backgroundColor: color.swatchLight }}/>)}
               </div>
             </>}
           </div>

@@ -2072,3 +2072,60 @@ html.dark {
 .dark .sticky-note-scroll-area[data-sticky-scroll-color="orange"] { --sticky-scroll-thumb: #754b28; --sticky-scroll-thumb-hover: #8c5b31; }
 .dark .sticky-note-scroll-area[data-sticky-scroll-color="red"] { --sticky-scroll-thumb: #733535; --sticky-scroll-thumb-hover: #894141; }
 .dark .sticky-note-scroll-area[data-sticky-scroll-color="gray"] { --sticky-scroll-thumb: #4b515b; --sticky-scroll-thumb-hover: #5c6470; }
+
+/* Seleção de texto no editor dos Sticks (coerente com a cor do cartão). */
+.sticky-rich-editor::selection,
+.sticky-rich-editor *::selection {
+  background: var(--sticky-selection-color);
+}
+.sticky-rich-editor::-moz-selection,
+.sticky-rich-editor *::-moz-selection {
+  background: var(--sticky-selection-color);
+}
+
+/* ==========================================================================
+   STICKY NOTES — ERGONOMIA EXCLUSIVA PARA TABLET (NÃO AFETA DESKTOP)
+   ========================================================================== */
+[data-sticky-tablet="true"] .sticky-board-viewport {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
+}
+
+[data-sticky-tablet="true"] .sticky-rich-editor {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+[data-sticky-tablet="true"] .sticky-rich-editor ul[data-sticky-checklist] li {
+  gap: 0.6rem !important;
+  margin-bottom: 0.25rem !important;
+  font-size: 14.5px !important;
+  line-height: 1.55 !important;
+}
+
+[data-sticky-tablet="true"] .sticky-rich-editor ul[data-sticky-checklist] li > label {
+  flex: 0 0 22px !important;
+  width: 22px !important;
+  height: 22px !important;
+  margin: calc((1.55em - 22px) / 2) 0 0 !important;
+}
+
+[data-sticky-tablet="true"] .sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"] {
+  width: 20px !important;
+  height: 20px !important;
+  flex: 0 0 20px !important;
+  border-width: 1.75px !important;
+}
+
+[data-sticky-tablet="true"] .sticky-rich-editor ul[data-sticky-checklist] li > label input[type="checkbox"]:checked::before {
+  font-size: 12px !important;
+}
+
+[data-sticky-tablet="true"] [data-sticky-group-id],
+[data-sticky-tablet="true"] [role="separator"] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
