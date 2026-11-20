@@ -2028,32 +2028,42 @@ html.dark {
 }
 
 
-/* Sticky Notes: barra interna acompanha a cor do Stick em um tom mais escuro. */
+/* Sticky Notes: barra interna discreta, sem setas e em tom mais claro que o Stick. */
 .sticky-note-scroll-area {
   scrollbar-width: thin;
-  scrollbar-color: var(--sticky-scroll-thumb, #b7a987) transparent;
+  scrollbar-color: var(--sticky-scroll-thumb, #c8bfae) transparent;
   scrollbar-gutter: stable;
 }
 .sticky-note-scroll-area::-webkit-scrollbar { width: 7px; height: 7px; }
 .sticky-note-scroll-area::-webkit-scrollbar-track { background: transparent; }
+.sticky-note-scroll-area::-webkit-scrollbar-button,
+.sticky-note-scroll-area::-webkit-scrollbar-button:single-button,
+.sticky-note-scroll-area::-webkit-scrollbar-button:vertical:decrement,
+.sticky-note-scroll-area::-webkit-scrollbar-button:vertical:increment,
+.sticky-note-scroll-area::-webkit-scrollbar-button:horizontal:decrement,
+.sticky-note-scroll-area::-webkit-scrollbar-button:horizontal:increment {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
 .sticky-note-scroll-area::-webkit-scrollbar-thumb {
-  background: var(--sticky-scroll-thumb, #b7a987);
+  background: var(--sticky-scroll-thumb, #c8bfae);
   border-radius: 999px;
   border: 1px solid transparent;
   background-clip: padding-box;
 }
 .sticky-note-scroll-area::-webkit-scrollbar-thumb:hover {
-  background: var(--sticky-scroll-thumb-hover, #9f906e);
+  background: var(--sticky-scroll-thumb-hover, #b5a993);
   background-clip: padding-box;
 }
-.sticky-note-scroll-area[data-sticky-scroll-color="yellow"] { --sticky-scroll-thumb: #d2bd56; --sticky-scroll-thumb-hover: #bda63f; }
-.sticky-note-scroll-area[data-sticky-scroll-color="green"] { --sticky-scroll-thumb: #8dbb8b; --sticky-scroll-thumb-hover: #72a771; }
-.sticky-note-scroll-area[data-sticky-scroll-color="blue"] { --sticky-scroll-thumb: #80b5df; --sticky-scroll-thumb-hover: #6599c4; }
-.sticky-note-scroll-area[data-sticky-scroll-color="pink"] { --sticky-scroll-thumb: #d99ab3; --sticky-scroll-thumb-hover: #c27f9a; }
-.sticky-note-scroll-area[data-sticky-scroll-color="lilac"] { --sticky-scroll-thumb: #ad9bdc; --sticky-scroll-thumb-hover: #927cc8; }
-.sticky-note-scroll-area[data-sticky-scroll-color="orange"] { --sticky-scroll-thumb: #dca875; --sticky-scroll-thumb-hover: #c38d59; }
-.sticky-note-scroll-area[data-sticky-scroll-color="red"] { --sticky-scroll-thumb: #d78c8c; --sticky-scroll-thumb-hover: #c27070; }
-.sticky-note-scroll-area[data-sticky-scroll-color="gray"] { --sticky-scroll-thumb: #aeb4bd; --sticky-scroll-thumb-hover: #929aa5; }
+.sticky-note-scroll-area[data-sticky-scroll-color="yellow"] { --sticky-scroll-thumb: #e4d58a; --sticky-scroll-thumb-hover: #d2c16d; }
+.sticky-note-scroll-area[data-sticky-scroll-color="green"] { --sticky-scroll-thumb: #afd2ad; --sticky-scroll-thumb-hover: #97c396; }
+.sticky-note-scroll-area[data-sticky-scroll-color="blue"] { --sticky-scroll-thumb: #a4cfee; --sticky-scroll-thumb-hover: #8dbfe5; }
+.sticky-note-scroll-area[data-sticky-scroll-color="pink"] { --sticky-scroll-thumb: #e8b8ca; --sticky-scroll-thumb-hover: #dba2b9; }
+.sticky-note-scroll-area[data-sticky-scroll-color="lilac"] { --sticky-scroll-thumb: #c5b8e8; --sticky-scroll-thumb-hover: #b09fda; }
+.sticky-note-scroll-area[data-sticky-scroll-color="orange"] { --sticky-scroll-thumb: #e9c39d; --sticky-scroll-thumb-hover: #dcae80; }
+.sticky-note-scroll-area[data-sticky-scroll-color="red"] { --sticky-scroll-thumb: #e6b0b0; --sticky-scroll-thumb-hover: #d99a9a; }
+.sticky-note-scroll-area[data-sticky-scroll-color="gray"] { --sticky-scroll-thumb: #c6cbd2; --sticky-scroll-thumb-hover: #b1b8c2; }
 .dark .sticky-note-scroll-area[data-sticky-scroll-color="yellow"] { --sticky-scroll-thumb: #66551f; --sticky-scroll-thumb-hover: #7e6928; }
 .dark .sticky-note-scroll-area[data-sticky-scroll-color="green"] { --sticky-scroll-thumb: #315d3c; --sticky-scroll-thumb-hover: #3d714a; }
 .dark .sticky-note-scroll-area[data-sticky-scroll-color="blue"] { --sticky-scroll-thumb: #315b84; --sticky-scroll-thumb-hover: #3d6e9e; }
