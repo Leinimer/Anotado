@@ -13,7 +13,7 @@ const markdownPlainToHtml=(value:string)=>{
  const inline=(text:string)=>esc(text).replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>').replace(/\*([^*\n]+)\*/g,'<strong>$1</strong>');
  return paragraphs.map(paragraph=>'<p>'+paragraph.split('\n').map(inline).join('<br>')+'</p>').join('');
 };
-const looksLikeStickyMarkup=(value:string)=>/<\/?(?:p|br|div|ul|ol|li|strong|b|em|i|u|s|h[1-6]|blockquote|hr)\b[^>]*>/i.test(value);
+const looksLikeStickyMarkup=(value:string)=>/<\/?(?:p|br|div|ul|ol|li|strong|b|em|i|u|s|del|mark|h[1-6]|blockquote|hr|pre|code|table|tr|td|th|a|img)\b[^>]*>/i.test(value);
 const normalizePastedMarkup=(value:string)=>{
  const decoder=document.createElement('textarea');
  decoder.innerHTML=value;

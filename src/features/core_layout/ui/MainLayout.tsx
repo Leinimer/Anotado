@@ -48,6 +48,12 @@ import {
   deleteNoteAttachment,
 } from '@/src/features/notes/api/storage-api';
 import { indexedDBStorage } from '@/src/features/notes/db/indexed-db';
+import {
+  convertNoteToStickAndPersist,
+  NoteToStickError,
+  saveConvertedStickHandoff,
+} from '@/src/features/sticky-notes/lib/note-to-stick';
+import { AlertCircle, Loader2, X } from 'lucide-react';
 
 export function MainLayout() {
   const router = useRouter();
@@ -807,33 +813,48 @@ export function MainLayout() {
     }
   }, [isSplit, leftNoteId, rightNoteId, activeSplitPane, tabs]);
 
-  // Converte uma nota do workspace Notas em um Stick, preservando título e conteúdo.
+  const convertingNoteToStickRef = useRef<string | null>(null);
+  const [isConvertingToStick, setIsConvertingToStick] = useState(false);
+  const [stickConversionError, setStickConversionError] = useState<string | null>(null);
+
+  // Converte uma nota do workspace Notas em um Stick real persistido no Supabase,
+  // preservando integralmente título e conteúdo e mantendo a nota original intacta.
   const handleConvertNoteToStick = useCallback(
     async (targetNoteId: string) => {
-      const targetNote = notes.find((item) => item.id === targetNoteId);
-      if (!targetNote) return;
+      if (convertingNoteToStickRef.current) {
+        return;
+      }
+
+      const targetNote = notes.find((item) => item.id === targetNoteId) || null;
+      if (!targetNote) {
+        const message = 'A nota selecionada não foi encontrada para conversão em Stick.';
+        console.error('[MainLayout] Falha ao converter nota em Stick:', { targetNoteId, reason: 'note_not_found' });
+        setStickConversionError(message);
+        return;
+      }
+
+      convertingNoteToStickRef.current = targetNoteId;
+      setIsConvertingToStick(true);
+      setStickConversionError(null);
 
       try {
-        // Garante que o conteúdo mais recente esteja persistido antes da conversão.
-        await flushNoteSaves(targetNoteId);
-        let content = targetNote.content;
-        if (content === undefined || content === null) {
-          const loaded = await fetchNoteContent(userId, targetNote);
-          content = loaded.content ?? '';
-        }
+        const result = await convertNoteToStickAndPersist({
+          userId,
+          note: targetNote,
+        });
 
-        sessionStorage.setItem(
-          'anotado_pending_sticky_conversion',
-          JSON.stringify({
-            sourceNoteId: targetNote.id,
-            title: targetNote.title || '',
-            content: typeof content === 'string' ? content : String(content ?? ''),
-          })
-        );
+        saveConvertedStickHandoff(result.created);
         router.push('/sticky-notes');
       } catch (error) {
-        console.error('[MainLayout] Não foi possível preparar a conversão para Stick:', error);
-        window.alert('Não foi possível carregar o conteúdo completo desta nota. Tente novamente.');
+        const message =
+          error instanceof NoteToStickError || error instanceof Error
+            ? error.message
+            : 'Não foi possível transformar esta nota em Stick. Tente novamente.';
+        console.error('[MainLayout] Falha ao transformar nota em Stick:', error);
+        setStickConversionError(message);
+      } finally {
+        convertingNoteToStickRef.current = null;
+        setIsConvertingToStick(false);
       }
     },
     [notes, userId, router]
@@ -2177,6 +2198,9 @@ export function MainLayout() {
             onUpdateFolderColor={handleUpdateFolderColor}
             onUpdateFolderSmartConfig={handleUpdateFolderSmartConfig}
             onSplitNote={handleSplitFromSidebar}
+            onConvertNoteToStick={(id) => {
+              void handleConvertNoteToStick(id);
+            }}
             onDuplicateNote={handleDuplicateNote}
             onOpenNoteInNewTab={handleOpenNoteInNewTab}
             onDetachPdfSummary={handleDetachPdfSummary}
@@ -2292,6 +2316,36 @@ export function MainLayout() {
           onUnsplitTab={handleUnsplitTab}
           onSwapSplitPanes={handleSwapSplitPanes}
         />
+
+        {isConvertingToStick && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-4 right-4 z-[10050] flex items-center gap-2 rounded-xl border border-[#e4d5c7] dark:border-[#3a332d] bg-[#fffdf9] dark:bg-[#1b1917] px-3.5 py-2.5 text-xs font-medium text-[#4e453f] dark:text-[#e7dfd6] shadow-lg"
+          >
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#68594d] dark:text-[#d7c3b0]" />
+            <span>Criando Stick...</span>
+          </div>
+        )}
+
+        {stickConversionError && !isConvertingToStick && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="fixed bottom-4 right-4 z-[10050] flex max-w-sm items-start gap-2.5 rounded-xl border border-[#efc9c9] dark:border-[#5a2b2b] bg-[#fff8f8] dark:bg-[#241515] px-3.5 py-2.5 text-xs text-[#8f2424] dark:text-[#fecaca] shadow-lg"
+          >
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#ba1a1a] dark:text-[#f87171]" />
+            <span className="leading-relaxed">{stickConversionError}</span>
+            <button
+              type="button"
+              onClick={() => setStickConversionError(null)}
+              aria-label="Fechar aviso"
+              className="ml-1 rounded-md p-0.5 text-[#8f2424]/70 hover:text-[#8f2424] dark:text-[#fecaca]/70 dark:hover:text-[#fecaca] cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

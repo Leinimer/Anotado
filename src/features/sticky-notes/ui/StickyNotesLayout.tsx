@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Plus, StickyNote as StickyNoteIcon } from 'lucide-react';
+import { AlertCircle, Loader2, Plus, StickyNote as StickyNoteIcon, X } from 'lucide-react';
 import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 import {
   STICKY_DEFAULT_WIDTH,
@@ -32,6 +32,16 @@ import { StickyReminderSettingsModal } from './StickyReminderSettingsModal';
 import { fetchStickyReminderNoteIds } from '../api/sticky-reminders-api';
 import { useStickyTabletMode } from '../hooks/useStickyTabletMode';
 import { reorderStickyGroups, StickyResizePatch } from '../lib/sticky-interactions';
+import {
+  ACTIVE_STICKY_ID_KEY,
+  LEGACY_PENDING_CONVERSION_KEY,
+  clearConvertedStickHandoff,
+  computeCanvasPanToCenterStick,
+  convertNoteContentForStick,
+  estimateStickyCardHeight,
+  findNonOverlappingStickPosition,
+  readConvertedStickHandoff,
+} from '../lib/note-to-stick';
 
 const DEBOUNCE_MS = 450;
 
@@ -52,6 +62,7 @@ export function StickyNotesLayout() {
   const [newlyCreatedId, setNewlyCreatedId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<StickySaveState>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [conversionNoticeError, setConversionNoticeError] = useState<string | null>(null);
   const [referenceModalOpen, setReferenceModalOpen] = useState(false);
   const [referenceSelectedText, setReferenceSelectedText] = useState('');
   const [canvasZoom, setCanvasZoom] = useState(1);
@@ -331,6 +342,38 @@ export function StickyNotesLayout() {
     return () => document.removeEventListener('pointerdown', closeOutside);
   }, [referencePreview]);
 
+  const centerViewportOnStick = useCallback((target: StickyNote) => {
+    const applyCenter = () => {
+      const viewport = boardScrollRef.current;
+      if (!viewport || viewport.clientWidth === 0 || viewport.clientHeight === 0) return false;
+      const element = document.getElementById('sticky-note-' + target.id);
+      const measuredHeight =
+        target.height_px ??
+        noteHeightsRef.current[target.id] ??
+        (element && element.offsetHeight > 0 ? element.offsetHeight : undefined);
+      const zoom = canvasZoomRef.current || 1;
+      const nextPan = computeCanvasPanToCenterStick(
+        target,
+        { width: viewport.clientWidth, height: viewport.clientHeight },
+        zoom,
+        measuredHeight
+      );
+      canvasPanRef.current = nextPan;
+      setCanvasPan(nextPan);
+      return true;
+    };
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!applyCenter()) {
+          setTimeout(() => {
+            applyCenter();
+          }, 80);
+        }
+      });
+    });
+  }, []);
+
   // Carrega usuário autenticado e notas adesivas do Supabase.
   useEffect(() => {
     let isMounted = true;
@@ -358,17 +401,53 @@ export function StickyNotesLayout() {
           ]);
           if (!isMounted) return;
 
-          setNotes(loaded);
+          const convertedHandoff = readConvertedStickHandoff();
+          const linkedStickyId = sessionStorage.getItem(ACTIVE_STICKY_ID_KEY);
+
+          let mergedNotes = loaded;
+          if (
+            convertedHandoff &&
+            convertedHandoff.user_id === authUser.userId &&
+            !loaded.some((note) => note.id === convertedHandoff.id)
+          ) {
+            mergedNotes = [...loaded, convertedHandoff];
+          }
+
+          notesRef.current = mergedNotes;
+          setNotes(mergedNotes);
           setGroups(loadedGroups);
           setReminderNoteIds(new Set(activeReminderIds));
 
-          const linkedStickyId = sessionStorage.getItem('anotado_active_sticky_id');
-          if (linkedStickyId && loaded.some(note => note.id === linkedStickyId)) {
-            setSelectedNoteId(linkedStickyId);
-            sessionStorage.removeItem('anotado_active_sticky_id');
-            requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById('sticky-note-' + linkedStickyId)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })));
-          }
+          const targetId =
+            (convertedHandoff && convertedHandoff.user_id === authUser.userId
+              ? convertedHandoff.id
+              : null) || linkedStickyId;
 
+          if (targetId) {
+            const targetNote = mergedNotes.find((note) => note.id === targetId);
+            if (targetNote) {
+              setSelectedNoteId(targetNote.id);
+              if (convertedHandoff && targetNote.id === convertedHandoff.id) {
+                setNewlyCreatedId(targetNote.id);
+              }
+              clearConvertedStickHandoff();
+              centerViewportOnStick(targetNote);
+            } else if (convertedHandoff) {
+              clearConvertedStickHandoff();
+              setConversionNoticeError(
+                'O Stick foi criado, mas não foi possível localizá-lo na lista atualizada. Recarregue a página para verificar.'
+              );
+            }
+          }
+        } else {
+          const hasPendingConversion =
+            Boolean(sessionStorage.getItem(LEGACY_PENDING_CONVERSION_KEY)) ||
+            Boolean(readConvertedStickHandoff());
+          if (hasPendingConversion) {
+            setConversionNoticeError(
+              'Sua sessão não está autenticada. Faça login novamente para visualizar ou criar o Stick.'
+            );
+          }
         }
       } catch (error) {
         if (!isMounted) return;
@@ -385,7 +464,7 @@ export function StickyNotesLayout() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [centerViewportOnStick]);
 
   const persistPatch = useCallback(async (noteId: string, patch: UpdateStickyNotePatch) => {
     const uid = userIdRef.current;
@@ -480,90 +559,74 @@ export function StickyNotesLayout() {
     [schedulePatch]
   );
 
-  const handleConvertPendingNoteToStick = useCallback(async (payload: { title?: string; content?: string }, authenticatedUserId: string): Promise<boolean> => {
-    const uid = authenticatedUserId;
-    const currentNotes = notesRef.current;
-    const gap = 24;
-    const width = STICKY_DEFAULT_WIDTH;
-    const defaultHeight = 280;
-    const rectangles = currentNotes.map(note => ({
-      x: note.position_x,
-      y: note.position_y,
-      width: note.width_px,
-      height: note.height_px ?? noteHeightsRef.current[note.id] ?? defaultHeight,
-    }));
-
-    const overlaps = (x: number, y: number) => rectangles.some(rect =>
-      x < rect.x + rect.width + gap &&
-      x + width + gap > rect.x &&
-      y < rect.y + rect.height + gap &&
-      y + defaultHeight + gap > rect.y
-    );
-
-    // Procura primeiro um espaço imediatamente à direita de cada Stick existente;
-    // se estiver ocupado, tenta à esquerda e depois abaixo, sempre sem sobreposição.
-    const candidates: Array<{ x: number; y: number }> = [];
-    for (const rect of rectangles) {
-      candidates.push({ x: rect.x + rect.width + gap, y: rect.y });
-      candidates.push({ x: rect.x - width - gap, y: rect.y });
-      candidates.push({ x: rect.x, y: rect.y + rect.height + gap });
-      candidates.push({ x: rect.x, y: rect.y - defaultHeight - gap });
-    }
-    candidates.sort((a, b) => a.y - b.y || a.x - b.x);
-    let position = candidates.find(candidate =>
-      candidate.x >= 12 && candidate.y >= 12 && !overlaps(candidate.x, candidate.y)
-    );
-
-    if (!position) {
-      const rightEdge = rectangles.reduce((max, rect) => Math.max(max, rect.x + rect.width), 12);
-      position = { x: rightEdge + gap, y: 12 };
-    }
-
-    const nextZ = getNextZIndex(currentNotes);
-    setSaveState('saving');
-    setSaveError(null);
-    try {
-      const created = await createStickyNote(uid, {
-        title: payload.title || '',
-        content: payload.content || '',
-        color: activeColor,
-        position_x: Math.round(position.x),
-        position_y: Math.round(position.y),
-        width_px: width,
-        z_index: nextZ,
+  const handleConvertPendingNoteToStick = useCallback(
+    async (
+      payload: { title?: string; content?: string },
+      authenticatedUserId: string
+    ): Promise<boolean> => {
+      const uid = authenticatedUserId;
+      const currentNotes = notesRef.current;
+      const title = (payload.title || '').trim();
+      const formattedContent = convertNoteContentForStick(payload.content || '');
+      const width = STICKY_DEFAULT_WIDTH;
+      const estimatedHeight = estimateStickyCardHeight(title, formattedContent || payload.content, width);
+      const position = findNonOverlappingStickPosition(currentNotes, {
+        widthPx: width,
+        estimatedHeight,
+        measuredHeights: noteHeightsRef.current,
       });
-      setNotes(previous => [...previous, created]);
-      setSelectedNoteId(created.id);
-      setNewlyCreatedId(created.id);
-      setSaveState('saved');
-      requestAnimationFrame(() => {
-        const viewport = boardScrollRef.current;
-        if (!viewport) return;
-        const centerX = (created.position_x + created.width_px / 2) * canvasZoom + canvasPan.x;
-        const centerY = (created.position_y + (created.height_px ?? defaultHeight) / 2) * canvasZoom + canvasPan.y;
-        viewport.scrollTo({
-          left: Math.max(0, centerX - viewport.clientWidth / 2),
-          top: Math.max(0, centerY - viewport.clientHeight / 2),
-          behavior: 'smooth',
+
+      const nextZ = getNextZIndex(currentNotes);
+      setSaveState('saving');
+      setSaveError(null);
+      setConversionNoticeError(null);
+
+      try {
+        const created = await createStickyNote(uid, {
+          title,
+          content: formattedContent,
+          color: activeColor,
+          position_x: Math.round(position.x),
+          position_y: Math.round(position.y),
+          width_px: width,
+          z_index: nextZ,
         });
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao transformar nota em Stick.';
-      setSaveState('error');
-      setSaveError(message);
-      console.error('[Stick] Falha ao converter nota:', error);
-      window.alert(message);
-      return false;
-    }
-    return true;
-  }, [activeColor, getNextZIndex, canvasPan, canvasZoom]);
 
-  // Só consome a solicitação depois que a autenticação e as notas existentes
-  // terminaram de carregar. Isso evita criar com um user_id temporário ("demo-user").
+        if (!created?.id || created.user_id !== uid) {
+          throw new Error(
+            'O Stick foi enviado, mas o registro confirmado não foi retornado pelo banco de dados.'
+          );
+        }
+
+        const nextNotes = currentNotes.some((item) => item.id === created.id)
+          ? currentNotes
+          : [...currentNotes, created];
+        notesRef.current = nextNotes;
+        setNotes(nextNotes);
+        setSelectedNoteId(created.id);
+        setNewlyCreatedId(created.id);
+        setSaveState('saved');
+        centerViewportOnStick(created);
+        return true;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Erro ao transformar nota em Stick.';
+        setSaveState('error');
+        setSaveError(message);
+        setConversionNoticeError(message);
+        console.error('[Stick] Falha ao converter nota pendente:', error);
+        return false;
+      }
+    },
+    [activeColor, getNextZIndex, centerViewportOnStick]
+  );
+
+  // Fallback seguro para solicitações legadas ainda presentes no sessionStorage.
+  // Só consome após autenticação e carregamento concluídos, evitando user_id temporário.
   const conversionInProgressRef = useRef(false);
   useEffect(() => {
     if (isLoading || !userId || userId === 'demo-user' || conversionInProgressRef.current) return;
-    const pendingConversion = sessionStorage.getItem('anotado_pending_sticky_conversion');
+    const pendingConversion = sessionStorage.getItem(LEGACY_PENDING_CONVERSION_KEY);
     if (!pendingConversion) return;
 
     conversionInProgressRef.current = true;
@@ -571,10 +634,14 @@ export function StickyNotesLayout() {
       try {
         const payload = JSON.parse(pendingConversion) as { title?: string; content?: string };
         const created = await handleConvertPendingNoteToStick(payload, userId);
-        if (created) sessionStorage.removeItem('anotado_pending_sticky_conversion');
+        if (created) {
+          sessionStorage.removeItem(LEGACY_PENDING_CONVERSION_KEY);
+        }
       } catch (error) {
         console.error('[Stick] Não foi possível concluir a conversão pendente:', error);
-        window.alert('Não foi possível transformar a nota em Stick. A solicitação foi mantida para tentar novamente.');
+        setConversionNoticeError(
+          'Não foi possível transformar a nota em Stick. Tente novamente a partir da lista de Notas.'
+        );
       } finally {
         conversionInProgressRef.current = false;
       }
@@ -1431,6 +1498,24 @@ export function StickyNotesLayout() {
             </>}
           </div>
         </div>}
+        {conversionNoticeError && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="fixed bottom-4 right-4 z-[11150] flex max-w-sm items-start gap-2.5 rounded-xl border border-[#efc9c9] dark:border-[#5a2b2b] bg-[#fff8f8] dark:bg-[#241515] px-3.5 py-2.5 text-xs text-[#8f2424] dark:text-[#fecaca] shadow-lg"
+          >
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#ba1a1a] dark:text-[#f87171]" />
+            <span className="leading-relaxed">{conversionNoticeError}</span>
+            <button
+              type="button"
+              onClick={() => setConversionNoticeError(null)}
+              aria-label="Fechar aviso"
+              className="ml-1 rounded-md p-0.5 text-[#8f2424]/70 hover:text-[#8f2424] dark:text-[#fecaca]/70 dark:hover:text-[#fecaca] cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </main>
     </div>
   );
