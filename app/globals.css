@@ -1286,17 +1286,19 @@ html.dark {
   -webkit-user-select: text !important;
 }
 
+/* Durante o arraste do marca-texto, a seleção nativa do PDF usa a cor
+   ativa da ferramenta em vez do azul padrão do navegador. */
 .pdf-text-layer ::selection,
 .pdf-text-layer span::selection {
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  background: rgba(59, 130, 246, 0.38);
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  background-color: color-mix(in srgb, var(--pdf-selection-color, #ffe600) 58%, transparent) !important;
 }
 
 .pdf-text-layer ::-moz-selection,
 .pdf-text-layer span::-moz-selection {
-  color: transparent;
-  background: rgba(59, 130, 246, 0.38);
+  color: transparent !important;
+  background-color: color-mix(in srgb, var(--pdf-selection-color, #ffe600) 58%, transparent) !important;
 }
 
 
