@@ -793,7 +793,9 @@ export function PdfCanvasPage({
             // No modo Selecionar, a camada de marcações fica acima da
             // camada de texto transparente para receber o clique diretamente.
             zIndex: mode === 'select' ? 4 : 1,
-            pointerEvents: mode === 'select' ? 'auto' : 'none',
+            // Grifos persistidos precisam continuar clicáveis após reabrir o PDF.
+            // Select permite selecioná-los/movê-los; Eraser permite removê-los diretamente.
+            pointerEvents: mode === 'select' || mode === 'eraser' ? 'auto' : 'none',
             mixBlendMode: 'multiply',
           }}
         >
@@ -808,7 +810,14 @@ export function PdfCanvasPage({
                   data-pdf-annotation="true"
                   className="pointer-events-auto"
                   transform={dragOffset ? `translate(${dragOffset.deltaX} ${dragOffset.deltaY})` : undefined}
-                  onPointerDown={(event) => handleAnnotationPointerDown(event, ann)}
+                  onPointerDown={(event) => {
+                    if (mode === 'eraser') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      return;
+                    }
+                    handleAnnotationPointerDown(event, ann);
+                  }}
                 >
                   {ann.rects.map((r, i) => (
                     <rect
@@ -822,12 +831,17 @@ export function PdfCanvasPage({
                       fill={ann.color}
                       opacity={Math.max(ann.opacity ?? 0.58, 0.58)}
                       onClick={(e) => {
-                        if (mode === 'hand') return;
+                        if (mode !== 'select' && mode !== 'eraser') return;
+                        e.preventDefault();
                         e.stopPropagation();
-                        if (mode === 'eraser') onDeleteAnnotation(ann.id);
-                        else onSelectAnnotation(ann.id);
+                        if (mode === 'eraser') {
+                          onDeleteAnnotation(ann.id);
+                          onSelectAnnotation(null);
+                        } else {
+                          onSelectAnnotation(ann.id);
+                        }
                       }}
-                      className={`${mode === 'hand' ? 'cursor-grab' : 'cursor-pointer'} ${isSelected ? 'stroke-2 stroke-blue-500' : ''}`}
+                      className={`${mode === 'eraser' ? 'cursor-crosshair' : mode === 'hand' ? 'cursor-grab' : 'cursor-pointer'} ${isSelected ? 'stroke-2 stroke-blue-500' : ''}`}
                     />
                   ))}
                 </g>
