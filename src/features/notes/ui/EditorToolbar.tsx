@@ -113,9 +113,11 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const [customHighlightHex, setCustomHighlightHex] = useState('#fef08a');
   const customHighlightInputRef = useRef<HTMLInputElement>(null);
   const highlightSelectionModeRef = useRef(false);
+  const [isHighlightSelectionMode, setIsHighlightSelectionMode] = useState(false);
 
   const setHighlightSelectionMode = (enabled: boolean) => {
     highlightSelectionModeRef.current = enabled;
+    setIsHighlightSelectionMode(enabled);
     if (editor) {
       editor.view.dom.dataset.highlightSelectionMode = enabled ? 'true' : 'false';
     }
@@ -1011,12 +1013,13 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             type="button"
             onClick={toggleHighlightPicker}
             className={`min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 ${
-              showHighlightPicker
-                ? 'bg-[#f0eee9] text-[#1b1c19]'
+              showHighlightPicker || isHighlightSelectionMode
+                ? 'bg-[#f0eee9] text-[#1b1c19] ring-1 ring-[#b9a58f]'
                 : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
             }`}
-            title="Marca-texto"
-            aria-label="Marca-texto"
+            title={isHighlightSelectionMode ? "Marca-texto ativo — clique novamente para desativar" : "Marca-texto"}
+            aria-label={isHighlightSelectionMode ? "Desativar marca-texto" : "Marca-texto"}
+            aria-pressed={isHighlightSelectionMode}
           >
             <Highlighter className="w-4.5 h-4.5" />
             <ChevronDown className="w-3 h-3 text-[#7f756e]" />
