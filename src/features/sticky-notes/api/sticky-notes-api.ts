@@ -369,12 +369,40 @@ export async function updateStickyNoteGroupsOrder(groupIds: string[], userId?: s
   throw formatSupabaseStickyError(error, 'Erro ao salvar a ordem dos campos.');
 }
 
-export async function deleteStickyNoteGroup(userId: string, groupId: string): Promise<void> {
+export async function deleteStickyNoteGroup(
+  userId: string,
+  groupId: string,
+  deleteSticks = false
+): Promise<void> {
   if (!isSupabaseConfigured()) return;
   const client = createClient();
-  const { error: detachError } = await client.from('sticky_notes')
-    .update({ group_id: null }).eq('group_id', groupId).eq('user_id', userId);
-  if (detachError) throw formatSupabaseStickyError(detachError, 'Erro ao desagrupar Sticks.');
-  const { error } = await client.from('sticky_note_groups').delete().eq('id', groupId).eq('user_id', userId);
-  if (error) throw formatSupabaseStickyError(error, 'Erro ao excluir agrupamento.');
+
+  if (deleteSticks) {
+    // Exclui somente os Sticks pertencentes ao usuário e vinculados a este campo.
+    const { error: notesError } = await client
+      .from('sticky_notes')
+      .delete()
+      .eq('group_id', groupId)
+      .eq('user_id', userId);
+    if (notesError) {
+      throw formatSupabaseStickyError(notesError, 'Erro ao excluir os Sticks do campo.');
+    }
+  } else {
+    // Mantém os Sticks e apenas remove o vínculo com o campo.
+    const { error: detachError } = await client
+      .from('sticky_notes')
+      .update({ group_id: null })
+      .eq('group_id', groupId)
+      .eq('user_id', userId);
+    if (detachError) {
+      throw formatSupabaseStickyError(detachError, 'Erro ao manter os Sticks e excluir o campo.');
+    }
+  }
+
+  const { error } = await client
+    .from('sticky_note_groups')
+    .delete()
+    .eq('id', groupId)
+    .eq('user_id', userId);
+  if (error) throw formatSupabaseStickyError(error, 'Erro ao excluir campo.');
 }
