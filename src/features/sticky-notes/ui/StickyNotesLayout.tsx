@@ -389,7 +389,7 @@ export function StickyNotesLayout() {
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || isEditableTarget(event.target)) return;
-      // Evita que a barra de espaço role a página enquanto funciona como modificador de pan.
+      // Evita a rolagem da página enquanto Espaço é usado como modificador do quadro.
       event.preventDefault();
       spacePressedRef.current = true;
       setIsSpacePressed(true);
@@ -2343,22 +2343,28 @@ export function StickyNotesLayout() {
           }
           return next;
         })}
+      />
+
+      {/* Área livre do quadro de post-its, sem sidebar */}
+      <main
+        ref={boardScrollRef}
+        id="sticky-notes-board-viewport"
         onPointerDownCapture={(event) => {
-          // Trackpad/mouse: arraste no fundo move o quadro sem tecla; com Espaço,
-          // o mesmo gesto pode começar sobre um Stick ou sobre um campo.
+          // O quadro é movido pelo trackpad/mouse: no fundo sem modificador,
+          // ou em qualquer área não editável enquanto Espaço estiver pressionado.
           if (isTouchLayout || event.pointerType !== 'mouse' || isPinchingRef.current) return;
 
           const target = event.target as HTMLElement;
           const isBackground =
             target === event.currentTarget || target.dataset.stickyCanvas === 'true';
-          const isEditable = Boolean(
-            target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')
+          const isInteractive = Boolean(
+            target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"], button, a, [role="button"]')
           );
-          const isMiddleButtonPan = event.button === 1;
-          const isSpacePan = event.button === 0 && spacePressedRef.current && !isEditable;
-          const isBackgroundPan = event.button === 0 && isBackground;
+          const shouldPan =
+            event.button === 1 ||
+            (event.button === 0 && (isBackground || (spacePressedRef.current && !isInteractive)));
 
-          if (!isMiddleButtonPan && !isSpacePan && !isBackgroundPan) return;
+          if (!shouldPan) return;
 
           event.preventDefault();
           event.stopPropagation();
@@ -2419,11 +2425,6 @@ export function StickyNotesLayout() {
             target === event.currentTarget || target.dataset.stickyCanvas === 'true';
           if (isTouchLayout && event.pointerType !== 'mouse' && isBackground && !isPinchingRef.current) {
             startTabletBoardPan(event.pointerId, event.clientX, event.clientY, { deselectOnTap: true });
-            return;
-          }
-          if (isBackground && !isPinchingRef.current) setSelectedNoteId(null);
-        }}
-tY, { deselectOnTap: true });
             return;
           }
           if (isBackground && !isPinchingRef.current) setSelectedNoteId(null);
