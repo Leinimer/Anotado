@@ -37,7 +37,14 @@ function removeExistingAnotadoAnnotations(pdfDoc: any, page: any): void {
 
     const name = dict.lookupMaybe(PDFName.of('NM'), PDFHexString, PDFString);
     const marker = name?.decodeText?.() || '';
-    if (marker.startsWith('ANOTADO:')) {
+    const title = dict.lookupMaybe(PDFName.of('T'), PDFHexString, PDFString);
+    const author = title?.decodeText?.()?.trim() || '';
+
+    // Versões antigas do Anotado salvaram /T = "ANOTADO" sem /NM padronizado.
+    // Considerar somente /NM deixa a aparência nativa antiga no PDF depois de
+    // apagar a camada SVG. Reconhece os dois formatos legados e o formato atual.
+    const belongsToAnotado = marker.startsWith('ANOTADO:') || author === 'ANOTADO';
+    if (belongsToAnotado) {
       annots.remove(index);
     }
   }
