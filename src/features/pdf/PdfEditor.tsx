@@ -1529,11 +1529,9 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
       if (created.length > 0) {
         pushHistory([...annotationsRef.current, ...created]);
-        // Mantém o grifo recém-criado selecionado para exibir imediatamente
-        // a ação de exclusão contextual junto à marcação.
-        if (modeToApply === 'highlight') {
-          setSelectedAnnotationId(created[0].id);
-        }
+        // A lixeira contextual permanece oculta após a criação.
+        // Ela aparece somente quando o usuário clica em uma marcação existente.
+        setSelectedAnnotationId(null);
         const newHighlights = created
           .filter((item) => item.type === 'highlight' && Boolean(item.quoteText?.trim()))
           .map((item) => item.type === 'highlight' ? ({

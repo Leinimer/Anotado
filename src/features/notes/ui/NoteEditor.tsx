@@ -339,42 +339,57 @@ export function NoteEditor({
     },
   });
 
-  // Exibe uma lixeira contextual ao passar o cursor sobre um grifo existente.
-  // A remoção atua somente na marca Highlight, preservando texto e demais formatações.
+  // Exibe a lixeira contextual somente quando o usuário clica em um grifo.
+  // A remoção atua apenas sobre a marca Highlight, preservando texto e formatações.
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || !editable) return;
     const dom = editor.view.dom;
 
-    const handlePointerOver = (event: PointerEvent) => {
+    const handleHighlightClick = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       const markElement = target?.closest<HTMLElement>('mark');
-      if (!markElement || !dom.contains(markElement)) return;
+      if (!markElement || !dom.contains(markElement)) {
+        setHighlightDeleteTarget(null);
+        return;
+      }
 
       try {
         const from = editor.view.posAtDOM(markElement, 0);
         const to = editor.view.posAtDOM(markElement, markElement.childNodes.length);
-        if (to <= from) return;
+        if (to <= from) {
+          setHighlightDeleteTarget(null);
+          return;
+        }
 
         const range = document.createRange();
         range.selectNodeContents(markElement);
-        const markRect = range.getBoundingClientRect();
+        const markRects = Array.from(range.getClientRects()).filter(
+          (rect) => rect.width > 0 && rect.height > 0
+        );
         const wrapperRect = wrapperRef.current?.getBoundingClientRect();
-        if (!wrapperRect || markRect.width <= 0 || markRect.height <= 0) return;
+        if (!wrapperRect || markRects.length === 0) {
+          setHighlightDeleteTarget(null);
+          return;
+        }
+
+        // Mesmo posicionamento do PDF: canto superior direito da marcação.
+        const maxRight = Math.max(...markRects.map((rect) => rect.right));
+        const minTop = Math.min(...markRects.map((rect) => rect.top));
 
         setHighlightDeleteTarget({
           from,
           to,
-          left: Math.max(6, Math.min(wrapperRect.width - 38, markRect.right - wrapperRect.left - 8)),
-          top: Math.max(4, markRect.top - wrapperRect.top - 18),
+          left: Math.max(6, Math.min(wrapperRect.width - 38, maxRight - wrapperRect.left - 8)),
+          top: Math.max(4, minTop - wrapperRect.top - 18),
         });
       } catch {
         setHighlightDeleteTarget(null);
       }
     };
 
-    dom.addEventListener('pointerover', handlePointerOver);
-    return () => dom.removeEventListener('pointerover', handlePointerOver);
-  }, [editor]);
+    dom.addEventListener('click', handleHighlightClick);
+    return () => dom.removeEventListener('click', handleHighlightClick);
+  }, [editor, editable]);
 
   const removeNoteHighlight = () => {
     const target = highlightDeleteTarget;

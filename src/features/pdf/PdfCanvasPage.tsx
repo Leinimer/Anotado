@@ -840,7 +840,8 @@ export function PdfCanvasPage({
                       fill={ann.color}
                       opacity={Math.max(ann.opacity ?? 0.58, 0.58)}
                       onClick={(e) => {
-                        if (mode !== 'select') return;
+                        // Permite selecionar um grifo existente com um clique mesmo após sair do modo de criação.
+                        if (mode !== 'select' && mode !== 'highlight') return;
                         e.preventDefault();
                         e.stopPropagation();
                         onSelectAnnotation(ann.id);
