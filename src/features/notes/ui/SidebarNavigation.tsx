@@ -171,7 +171,7 @@ export function SidebarNavigation({
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('demo-user');
   const [isAddPdfModalOpen, setIsAddPdfModalOpen] = useState(false);
-  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2', SYSTEM_FAVORITES_FOLDER_ID]));
+  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2']));
 
   // Estado para menu flutuante de opções (...)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
