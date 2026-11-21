@@ -112,6 +112,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const [showCustomHighlight, setShowCustomHighlight] = useState(false);
   const [customHighlightHex, setCustomHighlightHex] = useState('#fef08a');
   const customHighlightInputRef = useRef<HTMLInputElement>(null);
+  const pendingHighlightSelectionRef = useRef<{ from: number; to: number } | null>(null);
   // A seleção nativa funciona como prévia do marca-texto: acompanha sempre
   // a última cor escolhida, antes mesmo de o usuário soltar o mouse/toque.
   useLayoutEffect(() => {
@@ -186,6 +187,80 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       editor.off('transaction', handleTransaction);
     };
   }, [editor]);
+
+  // Mantém uma referência à seleção de texto do ProseMirror enquanto o foco
+  // passa do editor para a barra de ferramentas e para a paleta de cores.
+  // Notas e Diário usam a mesma instância de NoteCanvas/EditorToolbar.
+  const captureHighlightSelection = () => {
+    if (!editor) return;
+    const selection = editor.state.selection;
+    if (selection instanceof TextSelection && !selection.empty) {
+      pendingHighlightSelectionRef.current = {
+        from: selection.from,
+        to: selection.to,
+      };
+    } else if (editor.isFocused) {
+      pendingHighlightSelectionRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!editor) {
+      pendingHighlightSelectionRef.current = null;
+      return;
+    }
+
+    const rememberSelection = () => {
+      const selection = editor.state.selection;
+      if (selection instanceof TextSelection && !selection.empty) {
+        pendingHighlightSelectionRef.current = {
+          from: selection.from,
+          to: selection.to,
+        };
+      } else if (editor.isFocused) {
+        // Uma nova posição de cursor dentro do texto substitui a seleção antiga.
+        pendingHighlightSelectionRef.current = null;
+      }
+    };
+
+    editor.on('selectionUpdate', rememberSelection);
+    return () => {
+      editor.off('selectionUpdate', rememberSelection);
+      pendingHighlightSelectionRef.current = null;
+    };
+  }, [editor]);
+
+  // Usa o comando original da extensão Highlight, mas primeiro restaura a
+  // seleção que estava ativa antes do clique na barra/paleta.
+  const applyHighlightToSelection = (color: string | null) => {
+    if (!editor) return;
+
+    const currentSelection = editor.state.selection;
+    const remembered = pendingHighlightSelectionRef.current;
+    const selectionRange =
+      remembered ||
+      (currentSelection instanceof TextSelection && !currentSelection.empty
+        ? { from: currentSelection.from, to: currentSelection.to }
+        : null);
+
+    let command = editor.chain().focus();
+    if (
+      selectionRange &&
+      selectionRange.from >= 0 &&
+      selectionRange.to > selectionRange.from &&
+      selectionRange.to <= editor.state.doc.content.size
+    ) {
+      command = command.setTextSelection(selectionRange);
+    }
+
+    if (color) {
+      command.setHighlight({ color }).run();
+    } else {
+      command.unsetHighlight().run();
+    }
+
+    pendingHighlightSelectionRef.current = null;
+  };
 
   const openTableAreaContextMenu = (detail: {
     tablePos: number;
@@ -477,7 +552,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
       setCustomHighlightHex(normalized);
 
       editor.view.dom.style.setProperty('--note-selection-color', normalized);
-      editor.chain().focus().setHighlight({ color: normalized }).run();
+      applyHighlightToSelection(normalized);
       setShowHighlightPicker(false);
       setShowCustomHighlight(false);
     }
@@ -945,6 +1020,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             ref={highlightBtnRef}
             id="toolbar-btn-highlight"
             type="button"
+            onPointerDownCapture={captureHighlightSelection}
             onClick={toggleHighlightPicker}
             className={`min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 ${
               showHighlightPicker
@@ -1275,9 +1351,10 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             <button
               type="button"
               id="highlight-opt-none"
+              onPointerDownCapture={captureHighlightSelection}
               onClick={() => {
 
-                editor.chain().focus().unsetHighlight().run();
+                applyHighlightToSelection(null);
                 setShowHighlightPicker(false);
                 setShowCustomHighlight(false);
               }}
@@ -1294,11 +1371,12 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
                 key={h.color}
                 id={`highlight-opt-${h.color.replace('#', '')}`}
                 type="button"
+                onPointerDownCapture={captureHighlightSelection}
                 onClick={() => {
                   setCustomHighlightHex(h.color);
 
                   editor.view.dom.style.setProperty('--note-selection-color', h.color);
-                  editor.chain().focus().setHighlight({ color: h.color }).run();
+                  applyHighlightToSelection(h.color);
                   setShowHighlightPicker(false);
                   setShowCustomHighlight(false);
                 }}
@@ -1318,6 +1396,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             <button
               type="button"
               id="highlight-btn-more-colors"
+              onPointerDownCapture={captureHighlightSelection}
               onClick={() => {
                 setShowCustomHighlight(true);
                 customHighlightInputRef.current?.click();
@@ -1348,6 +1427,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
               <input
                 type="text"
                 value={customHighlightHex}
+                onPointerDownCapture={captureHighlightSelection}
                 onChange={(e) => {
                   let val = e.target.value.trim();
                   if (!val.startsWith('#') && val.length > 0) val = '#' + val;
@@ -1356,7 +1436,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
                   if (normalized) {
 
                     editor.view.dom.style.setProperty('--note-selection-color', normalized);
-                    editor.chain().focus().setHighlight({ color: normalized }).run();
+                    applyHighlightToSelection(normalized);
                   }
                 }}
                 onKeyDown={(e) => {
@@ -1387,12 +1467,13 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             id="custom-highlight-color-input"
             type="color"
             value={formatToFullHex(customHighlightHex, '#fef08a')}
+            onPointerDownCapture={captureHighlightSelection}
             onChange={(e) => {
               const hex = e.target.value;
               setCustomHighlightHex(hex);
 
               editor.view.dom.style.setProperty('--note-selection-color', hex);
-              editor.chain().focus().setHighlight({ color: hex }).run();
+              applyHighlightToSelection(hex);
             }}
             className="sr-only"
           />
