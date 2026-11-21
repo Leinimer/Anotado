@@ -92,6 +92,9 @@ export function StickyNotesLayout() {
   const [reminderNoteIds, setReminderNoteIds] = useState<Set<string>>(new Set());
   const [reminderDialogNoteId, setReminderDialogNoteId] = useState<string | null>(null);
   const [groupsSidebarOpen, setGroupsSidebarOpen] = useState(false);
+  const [deleteGroupConfirmationId, setDeleteGroupConfirmationId] = useState<string | null>(null);
+  const [isDeletingGroup, setIsDeletingGroup] = useState(false);
+  const [groupDeletionError, setGroupDeletionError] = useState<string | null>(null);
   const [referencePreview, setReferencePreview] = useState<{id:string;type:ReferenceType;left:number;top:number}|null>(null);
 
   const { layoutType, isDesktop, isTablet, isMobile, isResolved } = useStickyDeviceMode();
@@ -1542,47 +1545,130 @@ export function StickyNotesLayout() {
   );
 
   const handleDeleteGroup = useCallback(
-    async (groupId: string) => {
+    async (groupId: string, deleteSticks = false) => {
+      const uid = userIdRef.current || 'demo-user';
+      const affectedNotes = notesRef.current.filter((note) => note.group_id === groupId);
+      const affectedIds = new Set(affectedNotes.map((note) => note.id));
+      let groupWasDeleted = false;
+
+      setIsDeletingGroup(true);
+      setGroupDeletionError(null);
+      setSaveState('saving');
+      setSaveError(null);
+
       try {
-        await deleteStickyNoteGroup(userIdRef.current, groupId);
+        await deleteStickyNoteGroup(uid, groupId, deleteSticks);
+        groupWasDeleted = true;
+
         const nextGroups = groupsRef.current.filter((group) => group.id !== groupId);
         groupsRef.current = nextGroups;
         setGroups(nextGroups);
-        const affectedIds = new Set(
-          notesRef.current.filter((note) => note.group_id === groupId).map((note) => note.id)
-        );
-        const nextNotes = notesRef.current.map((note) =>
-          note.group_id === groupId ? { ...note, group_id: null } : note
-        );
+
+        const nextNotes = deleteSticks
+          ? notesRef.current.filter((note) => note.group_id !== groupId)
+          : notesRef.current.map((note) =>
+              note.group_id === groupId ? { ...note, group_id: null } : note
+            );
         notesRef.current = nextNotes;
         setNotes(nextNotes);
 
-        const activeType = layoutTypeRef.current;
-        const currentSaved = deviceLayoutsRef.current[activeType];
-        if (currentSaved) {
-          const nextSavedNotes = { ...currentSaved.notes };
-          const now = new Date().toISOString();
+        if (deleteSticks) {
           affectedIds.forEach((id) => {
-            if (nextSavedNotes[id]) {
-              nextSavedNotes[id] = { ...nextSavedNotes[id], group_id: null, updated_at: now };
-            }
+            const timer = debounceTimersRef.current.get(id);
+            if (timer) clearTimeout(timer);
+            debounceTimersRef.current.delete(id);
+            pendingPatchesRef.current.delete(id);
+            editorActionsRef.current.delete(id);
           });
-          const nextSavedGroups = { ...currentSaved.groups };
-          delete nextSavedGroups[groupId];
-          void commitAndSaveDeviceLayout(activeType, {
-            ...currentSaved,
-            notes: nextSavedNotes,
-            groups: nextSavedGroups,
-            updated_at: now,
+          setSelectedNoteId((current) => (current && affectedIds.has(current) ? null : current));
+          setReminderNoteIds((current) => {
+            const next = new Set(current);
+            affectedIds.forEach((id) => next.delete(id));
+            return next;
+          });
+          setNoteHeights((current) => {
+            const next = { ...current };
+            affectedIds.forEach((id) => delete next[id]);
+            noteHeightsRef.current = next;
+            return next;
           });
         }
+
+        setDeleteGroupConfirmationId(null);
+        setGroupDeletionError(null);
+        setContextMenu(null);
+
+        // Limpa os registros do campo em todos os layouts, sem compartilhar ou
+        // sobrescrever coordenadas entre desktop, tablet e mobile.
+        const layoutTypes: StickyLayoutType[] = ['desktop', 'tablet', 'mobile'];
+        const layoutErrors: string[] = [];
+        const now = new Date().toISOString();
+
+        for (const targetType of layoutTypes) {
+          try {
+            let savedLayout = deviceLayoutsRef.current[targetType];
+            if (savedLayout === undefined) {
+              savedLayout = (await fetchStickyBoardLayout(uid, targetType)).data;
+            }
+            if (!savedLayout) continue;
+
+            const nextSavedNotes = { ...savedLayout.notes };
+            affectedIds.forEach((id) => {
+              if (deleteSticks) {
+                delete nextSavedNotes[id];
+              } else if (nextSavedNotes[id]) {
+                nextSavedNotes[id] = {
+                  ...nextSavedNotes[id],
+                  group_id: null,
+                  updated_at: now,
+                };
+              }
+            });
+
+            const nextSavedGroups = { ...savedLayout.groups };
+            delete nextSavedGroups[groupId];
+            const nextLayout = {
+              ...savedLayout,
+              notes: nextSavedNotes,
+              groups: nextSavedGroups,
+              updated_at: now,
+            };
+
+            applyDeviceLayoutState(targetType, nextLayout);
+            await saveStickyBoardLayout(uid, targetType, nextLayout);
+          } catch (layoutError) {
+            layoutErrors.push(
+              layoutError instanceof Error
+                ? layoutError.message
+                : `Não foi possível atualizar o layout ${targetType}.`
+            );
+          }
+        }
+
+        if (layoutErrors.length) {
+          setSaveState('error');
+          setSaveError(
+            `O campo foi excluído, mas houve falha ao sincronizar um ou mais layouts: ${layoutErrors.join(' ')}`
+          );
+        } else {
+          setSaveState(uid !== 'demo-user' ? 'saved' : 'idle');
+        }
       } catch (error) {
-        setSaveState('error');
-        setSaveError(error instanceof Error ? error.message : 'Não foi possível desagrupar.');
+        const message = error instanceof Error
+          ? error.message
+          : 'Não foi possível excluir o campo.';
+        if (!groupWasDeleted) {
+          setGroupDeletionError(message);
+        } else {
+          setSaveError(`O campo foi excluído, mas ocorreu um erro ao atualizar os layouts: ${message}`);
+          setSaveState('error');
+        }
+      } finally {
+        setIsDeletingGroup(false);
+        setContextMenu(null);
       }
-      setContextMenu(null);
     },
-    [commitAndSaveDeviceLayout]
+    [applyDeviceLayoutState]
   );
 
   const handleGroupPointerDown = useCallback(
@@ -2150,8 +2236,88 @@ export function StickyNotesLayout() {
           onReorderGroups={(activeId, overId) => {
             void handleReorderGroups(activeId, overId);
           }}
+          onRequestDeleteGroup={(groupId) => {
+            setGroupDeletionError(null);
+            setDeleteGroupConfirmationId(groupId);
+          }}
         />
       )}
+
+      {deleteGroupConfirmationId && (() => {
+        const targetGroup = groups.find((group) => group.id === deleteGroupConfirmationId);
+        if (!targetGroup) return null;
+        const stickCount = notes.filter((note) => note.group_id === targetGroup.id).length;
+        return (
+          <div
+            className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-[2px]"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget && !isDeletingGroup) {
+                setDeleteGroupConfirmationId(null);
+                setGroupDeletionError(null);
+              }
+            }}
+          >
+            <section
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="sticky-delete-group-title"
+              aria-describedby="sticky-delete-group-description"
+              className="w-full max-w-md rounded-2xl border border-[#e5d9cc] bg-[#fffdf9] p-5 shadow-[0_18px_55px_rgba(25,18,12,.28)] dark:border-[#494038] dark:bg-[#211e1b]"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center gap-2.5">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#faeae5] text-[#a24e42] dark:bg-[#3d2521] dark:text-[#f0b5a7]">
+                  <AlertCircle className="h-5 w-5" />
+                </span>
+                <h2 id="sticky-delete-group-title" className="text-base font-semibold text-[#514235] dark:text-[#f1e7dc]">
+                  Excluir campo?
+                </h2>
+              </div>
+              <p id="sticky-delete-group-description" className="mb-4 text-sm leading-relaxed text-[#75695f] dark:text-[#c5b8aa]">
+                Você está prestes a excluir <strong className="font-semibold text-[#514235] dark:text-[#f1e7dc]">{targetGroup.title || 'Campo sem título'}</strong>, que contém {stickCount} {stickCount === 1 ? 'Stick' : 'Sticks'}. Como deseja prosseguir?
+              </p>
+
+              {groupDeletionError && (
+                <p role="alert" className="mb-3 rounded-lg border border-[#efc9c9] bg-[#fff3f1] px-3 py-2 text-xs leading-relaxed text-[#9b3128] dark:border-[#65342d] dark:bg-[#321d1a] dark:text-[#ffc4ba]">
+                  {groupDeletionError}
+                </p>
+              )}
+
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={isDeletingGroup}
+                  onClick={() => void handleDeleteGroup(targetGroup.id, false)}
+                  className="flex min-h-11 w-full items-center justify-center rounded-xl border border-[#d8cfc4] bg-[#f7f2eb] px-3 py-2.5 text-sm font-medium text-[#514235] transition-colors hover:bg-[#eee5d9] disabled:cursor-wait disabled:opacity-60 dark:border-[#494038] dark:bg-[#302922] dark:text-[#eadccd] dark:hover:bg-[#3a3028]"
+                >
+                  {isDeletingGroup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Excluir somente o campo e manter os Sticks
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingGroup}
+                  onClick={() => void handleDeleteGroup(targetGroup.id, true)}
+                  className="flex min-h-11 w-full items-center justify-center rounded-xl bg-[#a24e42] px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#8d3f35] disabled:cursor-wait disabled:opacity-60 dark:bg-[#873c33] dark:hover:bg-[#9a493e]"
+                >
+                  {isDeletingGroup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Excluir campo e todos os {stickCount} Sticks
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingGroup}
+                  onClick={() => {
+                    setDeleteGroupConfirmationId(null);
+                    setGroupDeletionError(null);
+                  }}
+                  className="mt-1 min-h-10 w-full rounded-xl px-3 py-2 text-sm font-medium text-[#75695f] transition-colors hover:bg-[#f1ece5] disabled:cursor-wait disabled:opacity-60 dark:text-[#c5b8aa] dark:hover:bg-[#302922]"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </section>
+          </div>
+        );
+      })()}
 
       {referencePreview && userId && <StickyNoteReferencePreview
         targetId={referencePreview.id}
