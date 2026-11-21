@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import { TextSelection, NodeSelection } from '@tiptap/pm/state';
-import { Youtube, Video, Link as LinkIcon, X } from 'lucide-react';
+import { Youtube, Video, Link as LinkIcon, X, Trash2 } from 'lucide-react';
 import { defaultEditorExtensions } from '../editor/editor-config';
 import { FloatingBubbleToolbar } from './FloatingBubbleToolbar';
 import { isYouTubeUrl, getYouTubeEmbedUrl, normalizeUrl } from '../editor/utils/url-helper';
@@ -116,7 +116,14 @@ export function NoteEditor({
 }: NoteEditorProps) {
   const lastEmittedContentRef = useRef<string>(content ?? '');
   const isApplyingRemoteAttachmentResolution = useRef(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [youtubePasteData, setYoutubePasteData] = useState<{ url: string } | null>(null);
+  const [highlightDeleteTarget, setHighlightDeleteTarget] = useState<{
+    from: number;
+    to: number;
+    left: number;
+    top: number;
+  } | null>(null);
 
   // Profiler T1
   const noteIdentifier = noteId || 'active-note';
@@ -331,6 +338,50 @@ export function NoteEditor({
       onChange(serializedContent);
     },
   });
+
+  // Exibe uma lixeira contextual ao passar o cursor sobre um grifo existente.
+  // A remoção atua somente na marca Highlight, preservando texto e demais formatações.
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom;
+
+    const handlePointerOver = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const markElement = target?.closest<HTMLElement>('mark');
+      if (!markElement || !dom.contains(markElement)) return;
+
+      try {
+        const from = editor.view.posAtDOM(markElement, 0);
+        const to = editor.view.posAtDOM(markElement, markElement.childNodes.length);
+        if (to <= from) return;
+
+        const range = document.createRange();
+        range.selectNodeContents(markElement);
+        const markRect = range.getBoundingClientRect();
+        const wrapperRect = wrapperRef.current?.getBoundingClientRect();
+        if (!wrapperRect || markRect.width <= 0 || markRect.height <= 0) return;
+
+        setHighlightDeleteTarget({
+          from,
+          to,
+          left: Math.max(6, Math.min(wrapperRect.width - 38, markRect.right - wrapperRect.left - 8)),
+          top: Math.max(4, markRect.top - wrapperRect.top - 18),
+        });
+      } catch {
+        setHighlightDeleteTarget(null);
+      }
+    };
+
+    dom.addEventListener('pointerover', handlePointerOver);
+    return () => dom.removeEventListener('pointerover', handlePointerOver);
+  }, [editor]);
+
+  const removeNoteHighlight = () => {
+    const target = highlightDeleteTarget;
+    if (!editor || !target) return;
+    editor.chain().focus().setTextSelection({ from: target.from, to: target.to }).unsetHighlight().run();
+    setHighlightDeleteTarget(null);
+  };
 
   // Atualiza nós do documento Tiptap quando anexos locais forem resolvidos remotamente
   useEffect(() => {
@@ -601,11 +652,41 @@ export function NoteEditor({
   }
 
   return (
-    <div id="note-rich-editor-wrapper" className="w-full relative">
+    <div
+      id="note-rich-editor-wrapper"
+      ref={wrapperRef}
+      className="w-full relative"
+      onMouseLeave={(event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Element && next.closest('[data-note-highlight-delete]')) return;
+        setHighlightDeleteTarget(null);
+      }}
+    >
       {/* Barra Flutuante Contextual de Seleção de Texto (Bubble Menu) */}
       <FloatingBubbleToolbar editor={editor} />
 
       <EditorContent editor={editor} />
+
+      {highlightDeleteTarget && editable && (
+        <button
+          type="button"
+          data-note-highlight-delete
+          onMouseDown={(event) => event.preventDefault()}
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={removeNoteHighlight}
+          title="Excluir grifo"
+          aria-label="Excluir grifo do texto"
+          style={{
+            position: 'absolute',
+            left: highlightDeleteTarget.left,
+            top: highlightDeleteTarget.top,
+            zIndex: 80,
+          }}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-[#d8c9b8] bg-[#fffaf4] text-[#8b5548] shadow-md transition-colors hover:bg-[#f8e6df] dark:border-[#665448] dark:bg-[#2b241f] dark:text-[#f0b5a7] dark:hover:bg-[#49302a]"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      )}
 
       {/* Pop-up Interceptador de Colagem de Link do YouTube */}
       {youtubePasteData && (
