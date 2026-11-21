@@ -1305,7 +1305,9 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
   const handleAddAnnotation = (ann: PdfAnnotation) => {
     if (isSavingRef.current) return;
-    const next = [...annotations, ann];
+    // Sempre parte da referência mais recente para não perder uma marca criada
+    // imediatamente antes de outra atualização/renderização.
+    const next = [...annotationsRef.current, ann];
     pushHistory(next);
   };
 
@@ -1323,7 +1325,7 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
   const handleUpdateAnnotation = (updated: PdfAnnotation) => {
     if (isSavingRef.current) return;
-    const next = annotations.map((a) => (a.id === updated.id ? updated : a));
+    const next = annotationsRef.current.map((a) => (a.id === updated.id ? updated : a));
     pushHistory(next);
   };
 
@@ -1343,7 +1345,11 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
       }));
     }
 
-    const next = annotations.filter((a) => a.id !== id);
+    // Usa a lista corrente como fonte de verdade, inclusive para grifos que
+    // foram restaurados do PDF nativo depois de fechar e reabrir o documento.
+    const currentAnnotations = annotationsRef.current;
+    const next = currentAnnotations.filter((a) => a.id !== id);
+    if (next.length === currentAnnotations.length) return;
     if (selectedAnnotationId === id) {
       setSelectedAnnotationId(null);
     }
@@ -1800,8 +1806,14 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
         throw new Error('O IndexedDB não confirmou a gravação local do PDF editado.');
       }
 
-      // Neste ponto o Blob e a tarefa REPLACE_ATTACHMENT já estão no IndexedDB.
-      // Isso é persistência local, ainda não é prova de que o Supabase recebeu o PDF.
+      // Atualiza também a fonte de bytes em memória para que salvamentos
+      // consecutivos partam exatamente do último PDF gerado, e não do original
+      // carregado ao abrir o documento.
+      const savedPdfBytes = await updatedBlob.arrayBuffer();
+      setRawPdfBytes(savedPdfBytes);
+
+      // Neste ponto o Blob atualizado e a tarefa REPLACE_ATTACHMENT já estão
+      // persistidos no IndexedDB. A confirmação remota vem pelo SyncEngine.
       setSelectedAnnotationId(null);
       hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
