@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Editor } from '@tiptap/react';
 import { TextSelection } from '@tiptap/pm/state';
 import {
@@ -115,7 +115,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
 
   // A seleção nativa funciona como prévia do marca-texto: acompanha sempre
   // a última cor escolhida, antes mesmo de o usuário soltar o mouse/toque.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editor) return;
     const candidate = customHighlightHex.trim();
     const previewColor = /^#[0-9a-f]{3}(?:[0-9a-f]{3}|[0-9a-f]{5})?$/i.test(candidate)
@@ -476,6 +476,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     const normalized = normalizeHexColor(val);
     if (normalized) {
       setCustomHighlightHex(normalized);
+      editor.view.dom.style.setProperty('--note-selection-color', normalized);
       editor.chain().focus().setHighlight({ color: normalized }).run();
       setShowHighlightPicker(false);
       setShowCustomHighlight(false);
@@ -1294,6 +1295,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
                 type="button"
                 onClick={() => {
                   setCustomHighlightHex(h.color);
+                  editor.view.dom.style.setProperty('--note-selection-color', h.color);
                   editor.chain().focus().setHighlight({ color: h.color }).run();
                   setShowHighlightPicker(false);
                   setShowCustomHighlight(false);
@@ -1350,6 +1352,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
                   setCustomHighlightHex(val);
                   const normalized = normalizeHexColor(val);
                   if (normalized) {
+                    editor.view.dom.style.setProperty('--note-selection-color', normalized);
                     editor.chain().focus().setHighlight({ color: normalized }).run();
                   }
                 }}
@@ -1384,6 +1387,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
             onChange={(e) => {
               const hex = e.target.value;
               setCustomHighlightHex(hex);
+              editor.view.dom.style.setProperty('--note-selection-color', hex);
               editor.chain().focus().setHighlight({ color: hex }).run();
             }}
             className="sr-only"
