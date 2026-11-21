@@ -113,6 +113,17 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
   const [customHighlightHex, setCustomHighlightHex] = useState('#fef08a');
   const customHighlightInputRef = useRef<HTMLInputElement>(null);
 
+  // A seleção nativa funciona como prévia do marca-texto: acompanha sempre
+  // a última cor escolhida, antes mesmo de o usuário soltar o mouse/toque.
+  useEffect(() => {
+    if (!editor) return;
+    const candidate = customHighlightHex.trim();
+    const previewColor = /^#[0-9a-f]{3}(?:[0-9a-f]{3}|[0-9a-f]{5})?$/i.test(candidate)
+      ? candidate
+      : '#fef08a';
+    editor.view.dom.style.setProperty('--note-selection-color', previewColor);
+  }, [editor, customHighlightHex]);
+
   const effectiveUserId = propUserId && propUserId !== 'anonymous' ? propUserId : authUserId;
 
   const footerRef = useRef<HTMLElement>(null);
@@ -464,6 +475,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     const val = colorOverride || customHighlightHex;
     const normalized = normalizeHexColor(val);
     if (normalized) {
+      setCustomHighlightHex(normalized);
       editor.chain().focus().setHighlight({ color: normalized }).run();
       setShowHighlightPicker(false);
       setShowCustomHighlight(false);
@@ -1281,6 +1293,7 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
                 id={`highlight-opt-${h.color.replace('#', '')}`}
                 type="button"
                 onClick={() => {
+                  setCustomHighlightHex(h.color);
                   editor.chain().focus().setHighlight({ color: h.color }).run();
                   setShowHighlightPicker(false);
                   setShowCustomHighlight(false);
