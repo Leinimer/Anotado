@@ -105,7 +105,7 @@ const styleChecklist=(editor:HTMLElement)=>{
 
 export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabletPanStart,note,isSelected,highlightMode=false,autoFocus=false,snapTargets=[],canvasZoom=1,isPinchingRef,isMovingWithGroup=false,onSelect,onChangeTitle,onChangeContent,onMoveStart,onMoveLive,onMoveEnd,onResizeStart,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,onPreviewLinkedNote,hasReminder=false,onOpenReminder,onContextMenu,onOpenTabletNoteMenu}:Props){
  const isTouchLayout=isTablet||isMobile;
- const colors=getStickyColorTheme(note.color);const cardRef=useRef<HTMLDivElement>(null);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);const highlightModeRef=useRef(highlightMode);const applyingHighlight=useRef(false);
+ const colors=getStickyColorTheme(note.color);const cardRef=useRef<HTMLDivElement>(null);const editor=useRef<HTMLDivElement>(null);const referenceRange=useRef<Range|null>(null);const pasteAsPlainText=useRef(false);const highlightModeRef=useRef(highlightMode);const applyingHighlight=useRef(false);const tabletHighlightTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
  type EditorHistoryEntry={html:string;caret:number};
  const history=useRef<{entries:EditorHistoryEntry[];index:number;restoring:boolean}>({entries:[],index:-1,restoring:false});const [drag,setDrag]=useState(false);const [resizeAxis,setResizeAxis]=useState<StickyResizeAxis|null>(null);const resize=resizeAxis!==null;const [highlightDeleteTarget,setHighlightDeleteTarget]=useState<{element:HTMLElement;left:number;top:number}|null>(null);
  useLayoutEffect(()=>{const el=editor.current;if(el&&document.activeElement!==el&&!el.contains(document.activeElement)){const html=toHtml(note.content||'');const changed=el.innerHTML!==html;if(changed)el.innerHTML=html;styleChecklist(el);if(changed||history.current.index<0)history.current={entries:[{html:el.innerHTML,caret:0}],index:0,restoring:false};}},[note.content]);
@@ -205,52 +205,24 @@ export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabl
   }
   save();
  };
- const applySelectionHighlight=(rangeOverride?:Range|null)=>{
+ const applySelectionHighlight=()=>{
   const el=editor.current;
   const selection=window.getSelection();
-  if(!highlightModeRef.current||!el||applyingHighlight.current)return;
-  const range=rangeOverride?.cloneRange()||(selection?.rangeCount?selection.getRangeAt(0).cloneRange():null);
-  if(!range||range.collapsed||!el.contains(range.commonAncestorContainer))return;
-  const selectedText=range.toString();
+  if(!highlightModeRef.current||!el||!selection?.rangeCount||selection.isCollapsed||applyingHighlight.current)return;
+  const range=selection.getRangeAt(0);
+  if(!el.contains(range.commonAncestorContainer))return;
+  const selectedText=selection.toString();
   if(!selectedText.trim())return;
-
-  const desiredColor=getStickyHighlightColor(note.color).replace(/\\s/g,'').toLowerCase();
-  const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);
-  const pending:Array<{node:Text;start:number;end:number}>=[];
-  let current:Node|null;
-  while((current=walker.nextNode())){
-   const textNode=current as Text;
-   if(!textNode.data.length)continue;
-   try{
-    if(!range.intersectsNode(textNode))continue;
-   }catch{continue;}
-   const startOffset=range.startContainer===textNode?range.startOffset:0;
-   const endOffset=range.endContainer===textNode?range.endOffset:textNode.data.length;
-   if(endOffset<=startOffset)continue;
-   const parent=textNode.parentElement;
-   const existing=parent?.closest<HTMLElement>('span[style],mark');
-   const existingColor=existing?.style.backgroundColor.replace(/\\s/g,'').toLowerCase();
-   if(existingColor===desiredColor)continue;
-   pending.push({node:textNode,start:startOffset,end:endOffset});
-  }
-  if(!pending.length)return;
-
+  const fragment=range.cloneContents();
+  const alreadyHighlighted=Array.from(fragment.querySelectorAll<HTMLElement>('span[style],mark')).length>0&&
+   Array.from(fragment.querySelectorAll<HTMLElement>('span[style],mark')).every(node=>{
+    const bg=(node.style.backgroundColor||'').replace(/\\s/g,'');
+    return bg===getStickyHighlightColor(note.color).replace(/\\s/g,'');
+   });
+  if(alreadyHighlighted)return;
   applyingHighlight.current=true;
   try{
-   // Envolve apenas os nós de texto selecionados, do fim para o início.
-   // Isso preserva links, negrito, listas e blocos, sem depender do
-   // document.execCommand('hiliteColor'), que perde a seleção em alguns browsers.
-   for(let i=pending.length-1;i>=0;i--){
-    const item=pending[i];
-    if(!item.node.isConnected)continue;
-    let selectedNode=item.node;
-    if(item.end<selectedNode.length)selectedNode.splitText(item.end);
-    if(item.start>0)selectedNode=selectedNode.splitText(item.start);
-    const span=document.createElement('span');
-    span.style.backgroundColor=getStickyHighlightColor(note.color);
-    selectedNode.parentNode?.insertBefore(span,selectedNode);
-    span.appendChild(selectedNode);
-   }
+   document.execCommand('hiliteColor',false,getStickyHighlightColor(note.color));
    save();
    requestAnimationFrame(()=>window.getSelection()?.removeAllRanges());
   }finally{
@@ -303,15 +275,33 @@ export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabl
  };
  const scheduleSelectionHighlight=()=>{
   if(!highlightModeRef.current)return;
-  // Captura o Range no próprio evento de soltura: o navegador pode limpar ou
-  // mover a seleção antes do próximo frame.
-  const selection=window.getSelection();
-  const range=selection?.rangeCount?selection.getRangeAt(0).cloneRange():null;
-  if(!range||range.collapsed||!editor.current?.contains(range.commonAncestorContainer))return;
-  requestAnimationFrame(()=>applySelectionHighlight(range));
+  requestAnimationFrame(()=>applySelectionHighlight());
  };
- // Desktop, tablet e mobile aplicam o grifo somente quando a seleção é concluída
- // (mouseup/pointerup/touchend), usando o Range capturado antes de o browser limpá-lo.
+ // No tablet, alças de seleção por toque disparam selectionchange sem mouseup.
+ // Aplica o marca-texto após breve estabilização da seleção dentro deste Stick.
+ useEffect(()=>{
+  if(!isTablet||!highlightMode)return;
+  const onSelectionChange=()=>{
+   if(!highlightModeRef.current||applyingHighlight.current)return;
+   const el=editor.current;
+   const selection=window.getSelection();
+   if(!el||!selection?.rangeCount||selection.isCollapsed)return;
+   const range=selection.getRangeAt(0);
+   if(!el.contains(range.commonAncestorContainer))return;
+   if(tabletHighlightTimerRef.current)clearTimeout(tabletHighlightTimerRef.current);
+   tabletHighlightTimerRef.current=setTimeout(()=>{
+    applySelectionHighlight();
+   },280);
+  };
+  document.addEventListener('selectionchange',onSelectionChange);
+  return ()=>{
+   document.removeEventListener('selectionchange',onSelectionChange);
+   if(tabletHighlightTimerRef.current){
+    clearTimeout(tabletHighlightTimerRef.current);
+    tabletHighlightTimerRef.current=null;
+   }
+  };
+ });
  const command=(cmd:string)=>{if(!editor.current)return;if(cmd==='undo'||cmd==='redo'){editor.current.focus();moveHistory(cmd);return;}editor.current.focus();if(cmd==='highlight'){scheduleSelectionHighlight();return;}document.execCommand(cmd,false);save();};
  const placeCaret=(target:HTMLElement)=>{
   const range=document.createRange();
