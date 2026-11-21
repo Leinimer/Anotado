@@ -745,13 +745,13 @@ export function PdfEditorToolbar({
         )}
 
         {/* Excluir Anotação Selecionada */}
-        {!isReadOnly && hasSelection && !isTextMarkSelected && (
+        {!isReadOnly && hasSelection && (
           <button
             type="button"
             onClick={onDeleteSelected}
             className="p-1.5 rounded-xl text-[#ba1a1a] hover:bg-[#ba1a1a]/10 transition-colors cursor-pointer flex items-center justify-center animate-in fade-in"
-            title="Excluir anotação selecionada (Del)"
-            aria-label="Excluir anotação selecionada"
+            title={isTextMarkSelected ? "Excluir grifo selecionado (Del)" : "Excluir anotação selecionada (Del)"}
+            aria-label={isTextMarkSelected ? "Excluir grifo selecionado" : "Excluir anotação selecionada"}
           >
             <Trash2 className="w-4 h-4" />
           </button>
