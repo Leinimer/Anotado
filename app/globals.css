@@ -2073,14 +2073,29 @@ html.dark {
 .dark .sticky-note-scroll-area[data-sticky-scroll-color="red"] { --sticky-scroll-thumb: #733535; --sticky-scroll-thumb-hover: #894141; }
 .dark .sticky-note-scroll-area[data-sticky-scroll-color="gray"] { --sticky-scroll-thumb: #4b515b; --sticky-scroll-thumb-hover: #5c6470; }
 
-/* Seleção de texto no editor dos Sticks (coerente com a cor do cartão). */
+/* Prévia do marca-texto nas Notas: a seleção já assume a última cor escolhida. */
+.tiptap-note-content-editable::selection,
+.tiptap-note-content-editable *::selection {
+  background-color: var(--note-selection-color, #fef08a) !important;
+  color: inherit !important;
+}
+.tiptap-note-content-editable::-moz-selection,
+.tiptap-note-content-editable *::-moz-selection {
+  background-color: var(--note-selection-color, #fef08a) !important;
+  color: inherit !important;
+}
+
+/* Seleção de texto nos Sticks: usa a mesma cor que será gravada como grifo.
+   background-color é suportado por ::selection; background shorthand não é confiável aqui. */
 .sticky-rich-editor::selection,
 .sticky-rich-editor *::selection {
-  background: var(--sticky-selection-color);
+  background-color: var(--sticky-selection-color) !important;
+  color: inherit !important;
 }
 .sticky-rich-editor::-moz-selection,
 .sticky-rich-editor *::-moz-selection {
-  background: var(--sticky-selection-color);
+  background-color: var(--sticky-selection-color) !important;
+  color: inherit !important;
 }
 
 /* ==========================================================================
