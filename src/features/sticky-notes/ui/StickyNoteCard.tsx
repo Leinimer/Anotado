@@ -205,24 +205,52 @@ export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabl
   }
   save();
  };
- const applySelectionHighlight=()=>{
+ const applySelectionHighlight=(rangeOverride?:Range|null)=>{
   const el=editor.current;
   const selection=window.getSelection();
-  if(!highlightModeRef.current||!el||!selection?.rangeCount||selection.isCollapsed||applyingHighlight.current)return;
-  const range=selection.getRangeAt(0);
-  if(!el.contains(range.commonAncestorContainer))return;
-  const selectedText=selection.toString();
+  if(!highlightModeRef.current||!el||applyingHighlight.current)return;
+  const range=rangeOverride?.cloneRange()||(selection?.rangeCount?selection.getRangeAt(0).cloneRange():null);
+  if(!range||range.collapsed||!el.contains(range.commonAncestorContainer))return;
+  const selectedText=range.toString();
   if(!selectedText.trim())return;
-  const fragment=range.cloneContents();
-  const alreadyHighlighted=Array.from(fragment.querySelectorAll<HTMLElement>('span[style],mark')).length>0&&
-   Array.from(fragment.querySelectorAll<HTMLElement>('span[style],mark')).every(node=>{
-    const bg=(node.style.backgroundColor||'').replace(/\\s/g,'');
-    return bg===getStickyHighlightColor(note.color).replace(/\\s/g,'');
-   });
-  if(alreadyHighlighted)return;
+
+  const desiredColor=getStickyHighlightColor(note.color).replace(/\\s/g,'').toLowerCase();
+  const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);
+  const pending:Array<{node:Text;start:number;end:number}>=[];
+  let current:Node|null;
+  while((current=walker.nextNode())){
+   const textNode=current as Text;
+   if(!textNode.data.length)continue;
+   try{
+    if(!range.intersectsNode(textNode))continue;
+   }catch{continue;}
+   const startOffset=range.startContainer===textNode?range.startOffset:0;
+   const endOffset=range.endContainer===textNode?range.endOffset:textNode.data.length;
+   if(endOffset<=startOffset)continue;
+   const parent=textNode.parentElement;
+   const existing=parent?.closest<HTMLElement>('span[style],mark');
+   const existingColor=existing?.style.backgroundColor.replace(/\\s/g,'').toLowerCase();
+   if(existingColor===desiredColor)continue;
+   pending.push({node:textNode,start:startOffset,end:endOffset});
+  }
+  if(!pending.length)return;
+
   applyingHighlight.current=true;
   try{
-   document.execCommand('hiliteColor',false,getStickyHighlightColor(note.color));
+   // Envolve apenas os nós de texto selecionados, do fim para o início.
+   // Isso preserva links, negrito, listas e blocos, sem depender do
+   // document.execCommand('hiliteColor'), que perde a seleção em alguns browsers.
+   for(let i=pending.length-1;i>=0;i--){
+    const item=pending[i];
+    if(!item.node.isConnected)continue;
+    let selectedNode=item.node;
+    if(item.end<selectedNode.length)selectedNode.splitText(item.end);
+    if(item.start>0)selectedNode=selectedNode.splitText(item.start);
+    const span=document.createElement('span');
+    span.style.backgroundColor=getStickyHighlightColor(note.color);
+    selectedNode.parentNode?.insertBefore(span,selectedNode);
+    span.appendChild(selectedNode);
+   }
    save();
    requestAnimationFrame(()=>window.getSelection()?.removeAllRanges());
   }finally{
@@ -275,7 +303,12 @@ export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabl
  };
  const scheduleSelectionHighlight=()=>{
   if(!highlightModeRef.current)return;
-  requestAnimationFrame(()=>applySelectionHighlight());
+  // Captura o Range no próprio evento de soltura: o navegador pode limpar ou
+  // mover a seleção antes do próximo frame.
+  const selection=window.getSelection();
+  const range=selection?.rangeCount?selection.getRangeAt(0).cloneRange():null;
+  if(!range||range.collapsed||!editor.current?.contains(range.commonAncestorContainer))return;
+  requestAnimationFrame(()=>applySelectionHighlight(range));
  };
  // No tablet, alças de seleção por toque disparam selectionchange sem mouseup.
  // Aplica o marca-texto após breve estabilização da seleção dentro deste Stick.
