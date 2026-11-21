@@ -385,10 +385,12 @@ export function StickyNotesLayout() {
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => {
       const element = target as HTMLElement | null;
-      return Boolean(element?.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]'));
+      return Boolean(element?.closest('input, textarea, select, [contenteditable="true"], [role="textbox"], button, a, [role="button"]'));
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || isEditableTarget(event.target)) return;
+      // Evita que a barra de espaço role a página enquanto funciona como modificador de pan.
+      event.preventDefault();
       spacePressedRef.current = true;
       setIsSpacePressed(true);
     };
@@ -2341,58 +2343,87 @@ export function StickyNotesLayout() {
           }
           return next;
         })}
-      />
+        onPointerDownCapture={(event) => {
+          // Trackpad/mouse: arraste no fundo move o quadro sem tecla; com Espaço,
+          // o mesmo gesto pode começar sobre um Stick ou sobre um campo.
+          if (isTouchLayout || event.pointerType !== 'mouse' || isPinchingRef.current) return;
 
-      {/* Área livre do quadro de post-its, sem sidebar */}
-      <main
-        ref={boardScrollRef}
-        id="sticky-notes-board-viewport"
+          const target = event.target as HTMLElement;
+          const isBackground =
+            target === event.currentTarget || target.dataset.stickyCanvas === 'true';
+          const isEditable = Boolean(
+            target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')
+          );
+          const isMiddleButtonPan = event.button === 1;
+          const isSpacePan = event.button === 0 && spacePressedRef.current && !isEditable;
+          const isBackgroundPan = event.button === 0 && isBackground;
+
+          if (!isMiddleButtonPan && !isSpacePan && !isBackgroundPan) return;
+
+          event.preventDefault();
+          event.stopPropagation();
+
+          const pointerId = event.pointerId;
+          const startX = event.clientX;
+          const startY = event.clientY;
+          const initialPan = canvasPanRef.current;
+          const previousUserSelect = document.body.style.userSelect;
+          let moved = false;
+
+          document.body.style.userSelect = 'none';
+
+          const cleanup = () => {
+            document.body.style.userSelect = previousUserSelect;
+            setIsPanning(false);
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', finish);
+            window.removeEventListener('pointercancel', finish);
+            window.removeEventListener('blur', cancel);
+          };
+
+          const move = (pointer: PointerEvent) => {
+            if (pointer.pointerId !== pointerId) return;
+            if (isPinchingRef.current) {
+              cleanup();
+              return;
+            }
+
+            const dx = pointer.clientX - startX;
+            const dy = pointer.clientY - startY;
+            if (!moved && Math.hypot(dx, dy) <= 2) return;
+
+            moved = true;
+            window.getSelection()?.removeAllRanges();
+            const nextPan = { x: initialPan.x + dx, y: initialPan.y + dy };
+            canvasPanRef.current = nextPan;
+            setCanvasPan(nextPan);
+            setIsPanning(true);
+          };
+
+          const finish = (pointer: PointerEvent) => {
+            if (pointer.pointerId !== pointerId) return;
+            cleanup();
+            if (!moved && isBackground) setSelectedNoteId(null);
+          };
+
+          const cancel = () => cleanup();
+
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', finish);
+          window.addEventListener('pointercancel', finish);
+          window.addEventListener('blur', cancel);
+        }}
         onPointerDown={(event) => {
           const target = event.target as HTMLElement;
-          const isBackground = target === event.currentTarget || target.dataset.stickyCanvas === 'true';
-          if (event.button === 1) {
-            event.preventDefault();
-            setIsPanning(true);
-            const startX = event.clientX;
-            const startY = event.clientY;
-            const initial = canvasPan;
-            const move = (pointer: PointerEvent) => {
-              setCanvasPan({ x: initial.x + pointer.clientX - startX, y: initial.y + pointer.clientY - startY });
-            };
-            const finish = () => {
-              setIsPanning(false);
-              window.removeEventListener('pointermove', move);
-              window.removeEventListener('pointerup', finish);
-              window.removeEventListener('pointercancel', finish);
-            };
-            window.addEventListener('pointermove', move);
-            window.addEventListener('pointerup', finish);
-            window.addEventListener('pointercancel', finish);
-            return;
-          }
-          if (spacePressedRef.current && isBackground && event.button === 0) {
-            event.preventDefault();
-            setSelectedNoteId(null);
-            setIsPanning(true);
-            const startX = event.clientX;
-            const startY = event.clientY;
-            const initial = canvasPan;
-            const move = (pointer: PointerEvent) => {
-              setCanvasPan({ x: initial.x + pointer.clientX - startX, y: initial.y + pointer.clientY - startY });
-            };
-            const finish = () => {
-              setIsPanning(false);
-              window.removeEventListener('pointermove', move);
-              window.removeEventListener('pointerup', finish);
-              window.removeEventListener('pointercancel', finish);
-            };
-            window.addEventListener('pointermove', move);
-            window.addEventListener('pointerup', finish);
-            window.addEventListener('pointercancel', finish);
-            return;
-          }
+          const isBackground =
+            target === event.currentTarget || target.dataset.stickyCanvas === 'true';
           if (isTouchLayout && event.pointerType !== 'mouse' && isBackground && !isPinchingRef.current) {
             startTabletBoardPan(event.pointerId, event.clientX, event.clientY, { deselectOnTap: true });
+            return;
+          }
+          if (isBackground && !isPinchingRef.current) setSelectedNoteId(null);
+        }}
+tY, { deselectOnTap: true });
             return;
           }
           if (isBackground && !isPinchingRef.current) setSelectedNoteId(null);
