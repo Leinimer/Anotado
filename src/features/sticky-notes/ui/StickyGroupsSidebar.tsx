@@ -25,7 +25,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, X } from 'lucide-react';
+import { GripVertical, Trash2, X } from 'lucide-react';
 import { STICKY_COLORS, StickyNote, StickyNoteGroup } from '../types';
 
 interface StickyGroupsSidebarProps {
@@ -35,6 +35,7 @@ interface StickyGroupsSidebarProps {
   onClose: () => void;
   onSelectGroup: (groupId: string) => void;
   onReorderGroups: (activeId: string, overId: string) => void;
+  onRequestDeleteGroup: (groupId: string) => void;
 }
 
 const dropAnimationConfig: DropAnimation = {
@@ -53,9 +54,10 @@ interface SortableGroupCardProps {
   group: StickyNoteGroup;
   count: number;
   onSelect: (groupId: string) => void;
+  onRequestDelete: (groupId: string) => void;
 }
 
-function SortableGroupCard({ group, count, onSelect }: SortableGroupCardProps) {
+function SortableGroupCard({ group, count, onSelect, onRequestDelete }: SortableGroupCardProps) {
   const palette = STICKY_COLORS.find((color) => color.key === group.color) || STICKY_COLORS[0];
   const {
     attributes,
@@ -113,6 +115,19 @@ function SortableGroupCard({ group, count, onSelect }: SortableGroupCardProps) {
           {count} {count === 1 ? 'Stick' : 'Sticks'}
         </span>
       </button>
+
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onRequestDelete(group.id);
+        }}
+        aria-label={`Excluir campo ${group.title || 'sem título'}`}
+        title="Excluir campo"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#a24e42]/75 transition-colors hover:bg-[#faeae5] hover:text-[#a24e42] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a24e42] dark:text-[#e5a096]/75 dark:hover:bg-[#3d2521] dark:hover:text-[#f0b5a7]"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
     </div>
   );
 }
@@ -151,6 +166,7 @@ export function StickyGroupsSidebar({
   onClose,
   onSelectGroup,
   onReorderGroups,
+  onRequestDeleteGroup,
 }: StickyGroupsSidebarProps) {
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
@@ -246,6 +262,7 @@ export function StickyGroupsSidebar({
                 group={group}
                 count={countsByGroup.get(group.id) || 0}
                 onSelect={onSelectGroup}
+                onRequestDelete={onRequestDeleteGroup}
               />
             ))}
           </SortableContext>
