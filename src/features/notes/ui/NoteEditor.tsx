@@ -134,7 +134,7 @@ export function NoteEditor({
         id: noteId ? `tiptap-note-content-editable-${noteId}` : 'tiptap-note-content-editable',
         'data-user-id': userId || 'anonymous',
         class:
-          'tiptap-note-content-editable focus:outline-none min-h-[420px] text-[#1b1c19] dark:text-[#ededed] font-serif-note text-base sm:text-lg leading-[1.6] selection:bg-[#f4dfcb] selection:text-[#1b1c19] dark:selection:bg-[#333333] dark:selection:text-[#ffffff]',
+          'tiptap-note-content-editable focus:outline-none min-h-[420px] text-[#1b1c19] dark:text-[#ededed] font-serif-note text-base sm:text-lg leading-[1.6]',
       },
       clipboardTextSerializer: (slice) => {
         return slice.content.textBetween(0, slice.content.size, '\n\n', '\n');
