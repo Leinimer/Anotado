@@ -382,7 +382,6 @@ export function PdfCanvasPage({
 
     event.stopPropagation();
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
     annotationDragRef.current = {
       id: annotation.id,
       pointerId: event.pointerId,
@@ -391,7 +390,14 @@ export function PdfCanvasPage({
       deltaX: 0,
       deltaY: 0,
     };
+    // A seleção deve funcionar mesmo em navegadores que não oferecem
+    // pointer capture em SVG <g>. A captura é apenas um recurso do arraste.
     onSelectAnnotation(annotation.id);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // O grifo já está selecionado; a lixeira contextual continua disponível.
+    }
   };
 
   const handleAnnotationPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
