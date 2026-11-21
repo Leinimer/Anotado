@@ -354,15 +354,19 @@ export function NoteEditor({
       }
 
       try {
-        const from = editor.view.posAtDOM(markElement, 0);
-        const to = editor.view.posAtDOM(markElement, markElement.childNodes.length);
+        const range = document.createRange();
+        range.selectNodeContents(markElement);
+
+        // Converte os limites reais do conteúdo do mark para posições do ProseMirror.
+        // Isso também funciona quando o grifo contém elementos aninhados (ex.: negrito).
+        let from = editor.view.posAtDOM(range.startContainer, range.startOffset);
+        let to = editor.view.posAtDOM(range.endContainer, range.endOffset);
+        if (from > to) [from, to] = [to, from];
         if (to <= from) {
           setHighlightDeleteTarget(null);
           return;
         }
 
-        const range = document.createRange();
-        range.selectNodeContents(markElement);
         const markRects = Array.from(range.getClientRects()).filter(
           (rect) => rect.width > 0 && rect.height > 0
         );
@@ -394,8 +398,24 @@ export function NoteEditor({
   const removeNoteHighlight = () => {
     const target = highlightDeleteTarget;
     if (!editor || !target) return;
-    editor.chain().focus().setTextSelection({ from: target.from, to: target.to }).unsetHighlight().run();
+
+    // Fecha a ação contextual imediatamente, antes de alterar o documento.
     setHighlightDeleteTarget(null);
+
+    const { state, view } = editor;
+    const highlightMark = state.schema.marks.highlight;
+    if (!highlightMark) return;
+
+    const from = Math.max(0, Math.min(target.from, state.doc.content.size));
+    const to = Math.max(0, Math.min(target.to, state.doc.content.size));
+    if (to <= from) return;
+
+    // Despacha a remoção diretamente no ProseMirror. Não depende de restaurar
+    // o foco/seleção do editor, o que podia deixar o destaque visual até o próximo clique.
+    const transaction = state.tr.removeMark(from, to, highlightMark);
+    if (transaction.docChanged) {
+      view.dispatch(transaction);
+    }
   };
 
   // Atualiza nós do documento Tiptap quando anexos locais forem resolvidos remotamente

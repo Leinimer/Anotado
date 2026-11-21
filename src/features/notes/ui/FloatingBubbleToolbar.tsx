@@ -77,6 +77,9 @@ export function FloatingBubbleToolbar({ editor }: FloatingBubbleToolbarProps) {
       }}
       shouldShow={({ editor, from, to, state }) => {
         if (!editor.isEditable) return false;
+        // Ao usar o marca-texto, a seleção é apenas para aplicar a cor.
+        // Não abrir a barra flutuante sobre o texto selecionado.
+        if (editor.view.dom.dataset.highlightSelectionMode === 'true') return false;
         const { empty } = state.selection;
         if (empty || from === to) return false;
         // Não exibe caso um node view especial como imagem/youtube/documento esteja selecionado
