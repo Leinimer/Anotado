@@ -511,18 +511,27 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     togglePopover(showColorPicker, colorBtnRef, 'color');
   };
 
-  const toggleHighlightPicker = () => {
-    // O mesmo botão desarma o modo contínuo quando ele já está ativo.
+  const toggleHighlightTool = () => {
+    // Um clique no botão principal arma/desarma imediatamente o marca-texto.
+    // O amarelo é o padrão; a cor escolhida na paleta permanece ativa até ser alterada.
     if (highlightSelectionModeRef.current) {
       setHighlightSelectionMode(false);
       setShowHighlightPicker(false);
       setShowCustomHighlight(false);
       return;
     }
-    const currentHighlight = editor.getAttributes('highlight').color;
-    if (currentHighlight) {
-      setCustomHighlightHex(currentHighlight);
-    }
+
+    const normalized = normalizeHexColor(customHighlightHex) || '#fef08a';
+    setCustomHighlightHex(normalized);
+    setHighlightSelectionMode(true);
+    editor.view.dom.style.setProperty('--note-selection-color', normalized);
+    editor.chain().focus().setHighlight({ color: normalized }).run();
+    setShowHighlightPicker(false);
+    setShowCustomHighlight(false);
+  };
+
+  // A seta abre apenas a paleta; não desarma o modo de grifar.
+  const toggleHighlightPalette = () => {
     togglePopover(showHighlightPicker, highlightBtnRef, 'highlight');
   };
 
@@ -1007,23 +1016,39 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
           </button>
 
           {/* Marca-Texto (Highlight) */}
-          <button
-            ref={highlightBtnRef}
-            id="toolbar-btn-highlight"
-            type="button"
-            onClick={toggleHighlightPicker}
-            className={`min-h-[40px] px-2 py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 ${
-              showHighlightPicker || isHighlightSelectionMode
-                ? 'bg-[#f0eee9] text-[#1b1c19] ring-1 ring-[#b9a58f]'
-                : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
-            }`}
-            title={isHighlightSelectionMode ? "Marca-texto ativo — clique novamente para desativar" : "Marca-texto"}
-            aria-label={isHighlightSelectionMode ? "Desativar marca-texto" : "Marca-texto"}
-            aria-pressed={isHighlightSelectionMode}
-          >
-            <Highlighter className="w-4.5 h-4.5" />
-            <ChevronDown className="w-3 h-3 text-[#7f756e]" />
-          </button>
+          <div className="flex items-center rounded-xl">
+            <button
+              id="toolbar-btn-highlight"
+              type="button"
+              onClick={toggleHighlightTool}
+              className={`min-h-[40px] px-2 py-1.5 rounded-l-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+                isHighlightSelectionMode
+                  ? 'bg-[#f0eee9] text-[#1b1c19] ring-1 ring-[#b9a58f]'
+                  : 'text-[#4e453f] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
+              }`}
+              title={isHighlightSelectionMode ? "Marca-texto ativo — clique novamente para desativar" : "Ativar marca-texto (amarelo)"}
+              aria-label={isHighlightSelectionMode ? "Desativar marca-texto" : "Ativar marca-texto"}
+              aria-pressed={isHighlightSelectionMode}
+            >
+              <Highlighter className="w-4.5 h-4.5" />
+            </button>
+            <button
+              ref={highlightBtnRef}
+              id="toolbar-btn-highlight-palette"
+              type="button"
+              onClick={toggleHighlightPalette}
+              className={`min-h-[40px] px-1.5 py-1.5 rounded-r-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+                showHighlightPicker || isHighlightSelectionMode
+                  ? 'bg-[#f0eee9] text-[#1b1c19]'
+                  : 'text-[#7f756e] hover:bg-[#f0eee9] hover:text-[#1b1c19]'
+              }`}
+              title="Escolher cor do marca-texto"
+              aria-label="Escolher cor do marca-texto"
+              aria-expanded={showHighlightPicker}
+            >
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          </div>
         </div>
 
         <div className="h-5 w-[1px] bg-[#e4e2dd] mx-0.5 shrink-0" />

@@ -127,6 +127,11 @@ export function PdfCanvasPage({
     moved: boolean;
   } | null>(null);
   const suppressStickyClickRef = useRef(false);
+  const highlightPointerStartRef = useRef<{
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
 
   const [annotationDragPreview, setAnnotationDragPreview] = useState<{
     id: string;
@@ -715,6 +720,61 @@ export function PdfCanvasPage({
 
   const pageAnnotations = annotations.filter((a) => a.pageIndex === pageIndex);
 
+  // No modo marca-texto, um toque/clique simples sobre uma marcação existente
+  // seleciona o grifo e mostra a lixeira. Arrastes continuam reservados à
+  // seleção de texto, inclusive quando começam sobre um grifo já existente.
+  const handleHighlightLayerPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (mode !== 'highlight' || event.button !== 0) {
+      highlightPointerStartRef.current = null;
+      return;
+    }
+    highlightPointerStartRef.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+  };
+
+  const handleHighlightLayerPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (mode !== 'highlight') {
+      highlightPointerStartRef.current = null;
+      return;
+    }
+
+    const start = highlightPointerStartRef.current;
+    highlightPointerStartRef.current = null;
+    if (!start || start.pointerId !== event.pointerId) return;
+
+    // Diferencia um clique de um arraste real de seleção de texto.
+    if (Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) > 5) return;
+
+    const pageBounds = containerRef.current?.getBoundingClientRect();
+    if (!pageBounds) return;
+
+    const scaleX = (pageDimensions?.scaleX || 1.333333) * zoom;
+    const scaleY = (pageDimensions?.scaleY || 1.333333) * zoom;
+    if (scaleX <= 0 || scaleY <= 0) return;
+
+    const pointX = (event.clientX - pageBounds.left) / scaleX;
+    const pointY = (event.clientY - pageBounds.top) / scaleY;
+
+    // Considera o último grifo desenhado primeiro, como aparece visualmente na camada.
+    const clickedHighlight = [...pageAnnotations].reverse().find((annotation) =>
+      annotation.type === 'highlight' &&
+      annotation.rects.some((rect) =>
+        pointX >= rect.x &&
+        pointX <= rect.x + rect.width &&
+        pointY >= rect.y &&
+        pointY <= rect.y + rect.height
+      )
+    );
+
+    if (clickedHighlight) {
+      event.stopPropagation();
+      onSelectAnnotation(clickedHighlight.id);
+    }
+  };
+
   // A ação de excluir é contextual: só existe para a edição selecionada.
   // Notas adesivas mantêm o botão de exclusão dentro do próprio comentário.
   const selectedDeletableAnnotation = pageAnnotations.find(
@@ -892,6 +952,11 @@ export function PdfCanvasPage({
           cursor: ['highlight', 'underline', 'strikethrough', 'select'].includes(mode) ? 'text' : 'default',
         }}
         aria-label={`Texto da página ${pageIndex + 1}`}
+        onPointerDown={handleHighlightLayerPointerDown}
+        onPointerUp={handleHighlightLayerPointerUp}
+        onPointerCancel={() => {
+          highlightPointerStartRef.current = null;
+        }}
       />
 
       {/* Camada interativa de SVG para anotações vetorizadas */}
