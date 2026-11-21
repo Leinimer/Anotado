@@ -1523,6 +1523,11 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
 
       if (created.length > 0) {
         pushHistory([...annotationsRef.current, ...created]);
+        // Mantém o grifo recém-criado selecionado para exibir imediatamente
+        // a ação de exclusão contextual junto à marcação.
+        if (modeToApply === 'highlight') {
+          setSelectedAnnotationId(created[0].id);
+        }
         const newHighlights = created
           .filter((item) => item.type === 'highlight' && Boolean(item.quoteText?.trim()))
           .map((item) => item.type === 'highlight' ? ({
@@ -2067,7 +2072,10 @@ export function PdfEditor({ attachmentId, userId, sourceUrl, isReadOnly = false,
               ? (isHandPanning ? 'cursor-grabbing select-none' : 'cursor-grab select-none')
               : currentMode === 'crop' ? 'cursor-crosshair' : ''
           }`}
-          style={{ touchAction: currentMode === 'hand' ? 'none' : 'pan-y' }}
+          style={{
+            touchAction: currentMode === 'hand' ? 'none' : 'pan-y',
+            '--pdf-selection-color': highlightColor,
+          } as React.CSSProperties & { '--pdf-selection-color': string }}
           onPointerDown={handleViewportPointerDown}
           onPointerMove={handleViewportPointerMove}
           onPointerUp={finishViewportPan}
