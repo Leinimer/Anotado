@@ -55,6 +55,68 @@ import {
 } from '@/src/features/sticky-notes/lib/note-to-stick';
 import { AlertCircle, Loader2, X } from 'lucide-react';
 
+const NOTES_WORKSPACE_SESSION_KEY = 'anotado_notes_workspace_state_v1';
+const NOTES_TREE_SESSION_KEY = 'anotado_notes_tree_open_folders_v1';
+
+interface NotesWorkspaceSessionState {
+  tabs: NoteTabItem[];
+  activeTabId: string | null;
+  activeNoteId: string | null;
+  isSplit: boolean;
+  leftNoteId: string | null;
+  rightNoteId: string | null;
+  activeSplitPane: 'left' | 'right';
+}
+
+function readNotesWorkspaceSessionState(): NotesWorkspaceSessionState | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = sessionStorage.getItem(NOTES_WORKSPACE_SESSION_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<NotesWorkspaceSessionState>;
+      if (Array.isArray(parsed.tabs)) {
+        const tabs = parsed.tabs.filter((tab): tab is NoteTabItem =>
+          Boolean(
+            tab &&
+            typeof tab.id === 'string' &&
+            typeof tab.noteId === 'string' &&
+            (tab.type === undefined || tab.type === 'note' || tab.type === 'pdf') &&
+            (tab.type !== 'pdf' || typeof tab.attachmentId === 'string')
+          )
+        );
+        return {
+          tabs,
+          activeTabId: typeof parsed.activeTabId === 'string' ? parsed.activeTabId : null,
+          activeNoteId: typeof parsed.activeNoteId === 'string' ? parsed.activeNoteId : null,
+          isSplit: Boolean(parsed.isSplit),
+          leftNoteId: typeof parsed.leftNoteId === 'string' ? parsed.leftNoteId : null,
+          rightNoteId: typeof parsed.rightNoteId === 'string' ? parsed.rightNoteId : null,
+          activeSplitPane: parsed.activeSplitPane === 'right' ? 'right' : 'left',
+        };
+      }
+    }
+  } catch (error) {
+    console.warn('[MainLayout] Não foi possível restaurar o estado das guias:', error);
+  }
+
+  // Compatibilidade com versões anteriores, que armazenavam apenas a nota ativa.
+  const legacyActiveId = sessionStorage.getItem('anotado_active_notes_id');
+  if (legacyActiveId) {
+    return {
+      tabs: [{ id: `tab-${legacyActiveId}`, noteId: legacyActiveId }],
+      activeTabId: `tab-${legacyActiveId}`,
+      activeNoteId: legacyActiveId,
+      isSplit: false,
+      leftNoteId: null,
+      rightNoteId: null,
+      activeSplitPane: 'left',
+    };
+  }
+
+  return null;
+}
+
 export function MainLayout() {
   const router = useRouter();
 
@@ -71,41 +133,42 @@ export function MainLayout() {
       body.classList.remove('anotado-app-viewport-locked');
     };
   }, []);
+  const [initialWorkspaceState] = useState<NotesWorkspaceSessionState | null>(
+    () => readNotesWorkspaceSessionState()
+  );
   const [folders, setFolders] = useState<Folder[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [libraryPdfs, setLibraryPdfs] = useState<any[]>([]);
-  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(
+    () => initialWorkspaceState?.activeNoteId ?? null
+  );
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isNewNoteJustCreated, setIsNewNoteJustCreated] = useState(false);
 
-  // Estado do Sistema de Abas (Apenas interface/memória do cliente)
-  const [tabs, setTabs] = useState<NoteTabItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem('anotado_active_notes_id');
-      if (saved) {
-        return [{ id: `tab-${saved}`, noteId: saved }];
-      }
-    }
-    return [];
-  });
-  const [activeTabId, setActiveTabId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem('anotado_active_notes_id');
-      if (saved) {
-        return `tab-${saved}`;
-      }
-    }
-    return null;
-  });
+  // Estado do Sistema de Abas: mantido na sessionStorage ao navegar entre workspaces.
+  const [tabs, setTabs] = useState<NoteTabItem[]>(
+    () => initialWorkspaceState?.tabs ?? []
+  );
+  const [activeTabId, setActiveTabId] = useState<string | null>(
+    () => initialWorkspaceState?.activeTabId ?? null
+  );
 
-  // Estado de Divisão de Tela (Apenas interface/memória do cliente)
-  const [isSplit, setIsSplit] = useState(false);
-  const [leftNoteId, setLeftNoteId] = useState<string | null>(null);
-  const [rightNoteId, setRightNoteId] = useState<string | null>(null);
-  const [activeSplitPane, setActiveSplitPane] = useState<'left' | 'right'>('left');
+  // Estado de Divisão de Tela: também preservado durante a navegação entre páginas.
+  const [isSplit, setIsSplit] = useState(
+    () => Boolean(initialWorkspaceState?.isSplit)
+  );
+  const [leftNoteId, setLeftNoteId] = useState<string | null>(
+    () => initialWorkspaceState?.leftNoteId ?? null
+  );
+  const [rightNoteId, setRightNoteId] = useState<string | null>(
+    () => initialWorkspaceState?.rightNoteId ?? null
+  );
+  const [activeSplitPane, setActiveSplitPane] = useState<'left' | 'right'>(
+    () => initialWorkspaceState?.activeSplitPane ?? 'left'
+  );
 
   const activeNoteIdRef = useRef<string | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
@@ -119,15 +182,31 @@ export function MainLayout() {
     activeNoteIdRef.current = activeNoteId;
     if (typeof window === 'undefined') return;
 
-    // A chave só representa a última nota realmente selecionada.
-    // Quando o workspace está vazio, remove o valor antigo para não reabrir
-    // uma nota anterior em uma próxima sessão.
+    // Mantém compatibilidade com referências internas e sessões antigas.
     if (activeNoteId) {
       sessionStorage.setItem('anotado_active_notes_id', activeNoteId);
     } else {
       sessionStorage.removeItem('anotado_active_notes_id');
     }
   }, [activeNoteId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !userId) return;
+    const workspaceState: NotesWorkspaceSessionState = {
+      tabs,
+      activeTabId,
+      activeNoteId,
+      isSplit,
+      leftNoteId,
+      rightNoteId,
+      activeSplitPane,
+    };
+    try {
+      sessionStorage.setItem(NOTES_WORKSPACE_SESSION_KEY, JSON.stringify(workspaceState));
+    } catch (error) {
+      console.warn('[MainLayout] Não foi possível salvar o estado das guias:', error);
+    }
+  }, [userId, tabs, activeTabId, activeNoteId, isSplit, leftNoteId, rightNoteId, activeSplitPane]);
 
   // 1. Carregamento inicial do Supabase, ouvintes de autenticação e reatividade do SyncEngine
   useEffect(() => {
@@ -337,26 +416,70 @@ export function MainLayout() {
             ? sessionStorage.getItem('anotado_reference_notes_id')
             : null;
         const savedActiveId =
-          typeof window !== 'undefined'
-            ? referenceTargetId || sessionStorage.getItem('anotado_active_notes_id')
+          referenceTargetId ||
+          initialWorkspaceState?.activeNoteId ||
+          (typeof window !== 'undefined' ? sessionStorage.getItem('anotado_active_notes_id') : null);
+
+        // Restaura todas as guias ainda válidas, não apenas a última nota ativa.
+        const restoredTabs = (initialWorkspaceState?.tabs ?? []).filter((tab) => {
+          if (tab.type === 'pdf') return Boolean(tab.attachmentId);
+          const savedNote = fetchedNotes.find((note) => note.id === tab.noteId);
+          return Boolean(savedNote && !savedNote.is_archived);
+        });
+        let nextTabs = restoredTabs;
+        let nextActiveTabId =
+          initialWorkspaceState?.activeTabId &&
+          restoredTabs.some((tab) => tab.id === initialWorkspaceState.activeTabId)
+            ? initialWorkspaceState.activeTabId
             : null;
 
-        // O workspace inicia vazio quando não existe uma seleção válida salva.
-        // A nota só é aberta após clique explícito na árvore ou em um link.
-        if (savedActiveId && fetchedNotes.some((n) => n.id === savedActiveId)) {
-          if (referenceTargetId) sessionStorage.removeItem('anotado_reference_notes_id');
-          setActiveNoteId(savedActiveId);
-          const initialTabId = `tab-${savedActiveId}`;
-          setTabs([{ id: initialTabId, noteId: savedActiveId }]);
-          setActiveTabId(initialTabId);
-        } else {
-          if (typeof window !== 'undefined') {
-            sessionStorage.removeItem('anotado_active_notes_id');
+        // Referências internas continuam abrindo o destino e preservam as outras guias.
+        if (savedActiveId && fetchedNotes.some((note) => note.id === savedActiveId && !note.is_archived)) {
+          const existingReferenceTab = nextTabs.find(
+            (tab) => tab.type !== 'pdf' && tab.noteId === savedActiveId
+          );
+          if (existingReferenceTab) {
+            nextActiveTabId = existingReferenceTab.id;
+          } else {
+            const referenceTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            nextTabs = [...nextTabs, { id: referenceTabId, noteId: savedActiveId }];
+            nextActiveTabId = referenceTabId;
           }
-          setActiveNoteId(null);
-          setTabs([]);
-          setActiveTabId(null);
+        } else if (!nextActiveTabId && nextTabs.length > 0) {
+          const noteTab = nextTabs.find((tab) => tab.type !== 'pdf');
+          nextActiveTabId = noteTab?.id ?? nextTabs[0].id;
         }
+
+        const activeRestoredTab = nextTabs.find((tab) => tab.id === nextActiveTabId) || null;
+        const restoredActiveNoteId =
+          activeRestoredTab?.type === 'pdf'
+            ? null
+            : activeRestoredTab?.noteId ||
+              (savedActiveId && fetchedNotes.some((note) => note.id === savedActiveId && !note.is_archived)
+                ? savedActiveId
+                : null);
+
+        const canRestoreSplit = Boolean(
+          !referenceTargetId &&
+          initialWorkspaceState?.isSplit &&
+          initialWorkspaceState.leftNoteId &&
+          initialWorkspaceState.rightNoteId &&
+          fetchedNotes.some((note) => note.id === initialWorkspaceState.leftNoteId && !note.is_archived) &&
+          fetchedNotes.some((note) => note.id === initialWorkspaceState.rightNoteId && !note.is_archived) &&
+          nextTabs.some((tab) => tab.type !== 'pdf' && tab.noteId === initialWorkspaceState.leftNoteId) &&
+          nextTabs.some((tab) => tab.type !== 'pdf' && tab.noteId === initialWorkspaceState.rightNoteId)
+        );
+
+        setTabs(nextTabs);
+        setActiveTabId(nextActiveTabId);
+        setActiveNoteId(restoredActiveNoteId);
+        setIsSplit(canRestoreSplit);
+        setLeftNoteId(canRestoreSplit ? initialWorkspaceState!.leftNoteId : null);
+        setRightNoteId(canRestoreSplit ? initialWorkspaceState!.rightNoteId : null);
+        setActiveSplitPane(
+          canRestoreSplit ? initialWorkspaceState!.activeSplitPane : 'left'
+        );
+        if (referenceTargetId) sessionStorage.removeItem('anotado_reference_notes_id');
 
         // Apenas verifica se há mutações pendentes locais na fila (sem disparar PULL desnecessário)
         syncEngine.checkWatchdog(currentUserId);
@@ -375,6 +498,9 @@ export function MainLayout() {
         if (event === 'SIGNED_OUT') {
           if (typeof window !== 'undefined') {
             localStorage.removeItem('anotado_last_auth_user_id');
+            sessionStorage.removeItem(NOTES_WORKSPACE_SESSION_KEY);
+            sessionStorage.removeItem(NOTES_TREE_SESSION_KEY);
+            sessionStorage.removeItem('anotado_active_notes_id');
           }
           currentUserIdRef.current = null;
           syncEngine.cleanup();
@@ -452,23 +578,12 @@ export function MainLayout() {
       } else {
         const existingTab = tabs.find((tab) => tab.type !== 'pdf' && tab.noteId === noteId);
 
-        if (existingTab) {
+        if (existingTab && !openInNewTab) {
+          // Notas já abertas voltam para a guia existente; notas novas nunca substituem a guia ativa.
           selectedTabId = existingTab.id;
-        } else if (
-          openInNewTab ||
-          tabs.length === 0 ||
-          !activeTabId ||
-          tabs.some((tab) => tab.id === activeTabId && tab.type === 'pdf')
-        ) {
+        } else {
           selectedTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
           setTabs((previous) => [...previous, { id: selectedTabId!, noteId }]);
-        } else {
-          selectedTabId = activeTabId;
-          setTabs((previous) =>
-            previous.map((tab) =>
-              tab.id === activeTabId ? { ...tab, noteId } : tab
-            )
-          );
         }
       }
 
@@ -587,13 +702,8 @@ export function MainLayout() {
         }
       }
 
-      const existingTab = tabs.find((tab) => tab.type !== 'pdf' && tab.noteId === noteId);
-      let newTabId = existingTab?.id || null;
-
-      if (!newTabId) {
-        newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        setTabs((previous) => [...previous, { id: newTabId!, noteId }]);
-      }
+      const newTabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setTabs((previous) => [...previous, { id: newTabId, noteId }]);
 
       setActiveTabId(newTabId);
       setActiveNoteId(noteId);

@@ -58,6 +58,8 @@ import { SmartFolderModal } from './SmartFolderModal';
 import { ConfirmDeleteModal, BatchDeleteConfirmModal } from './SidebarDeleteModals';
 import { BatchMoveModal } from './BatchMoveModal';
 import { FolderCustomColorModal } from './FolderCustomColorModal';
+
+const NOTES_TREE_SESSION_KEY = 'anotado_notes_tree_open_folders_v1';
 import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
 
 interface SidebarNavigationProps {
@@ -171,7 +173,22 @@ export function SidebarNavigation({
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('demo-user');
   const [isAddPdfModalOpen, setIsAddPdfModalOpen] = useState(false);
-  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set(['pasta-2']));
+  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = sessionStorage.getItem(NOTES_TREE_SESSION_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            return new Set(parsed.filter((folderId): folderId is string => typeof folderId === 'string'));
+          }
+        }
+      } catch (error) {
+        console.warn('[SidebarNavigation] Não foi possível restaurar as pastas expandidas:', error);
+      }
+    }
+    return new Set(['pasta-2']);
+  });
 
   // Estado para menu flutuante de opções (...)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -201,6 +218,16 @@ export function SidebarNavigation({
     name: string;
     hasChildren?: boolean;
   } | null>(null);
+
+  // Persiste a árvore expandida durante a navegação entre Notas, Stick e Diário.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      sessionStorage.setItem(NOTES_TREE_SESSION_KEY, JSON.stringify(Array.from(openFolderIds)));
+    } catch (error) {
+      console.warn('[SidebarNavigation] Não foi possível salvar as pastas expandidas:', error);
+    }
+  }, [openFolderIds]);
 
   // Estado para o painel recolhível de etiquetas e o modal de todas as etiquetas
   const [isTagsPanelOpen, setIsTagsPanelOpen] = useState(false);

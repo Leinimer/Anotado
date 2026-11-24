@@ -466,6 +466,7 @@ Esta seção é um mapa rápido da base. Antes de alterar um item, leia o seu c�
 ### Layouts/workspaces
 - **AppHeader.tsx**: cabeçalho global com logo, navegação entre **Notas** (`/notes`), **Notas adesivas** (`/sticky-notes`) e **Diário** (`/diary`), além do alternador de tema e botão de configurações.
 - **MainLayout.tsx**: estado de Notas, carregamento, handlers CRUD e integração sidebar/editor/sync.
+- O estado das guias de Notas (incluindo guia ativa e divisão de tela) é preservado em `sessionStorage` (`anotado_notes_workspace_state_v1`) ao navegar para Stick/Diário; a expansão de pastas/subpastas da árvore usa `anotado_notes_tree_open_folders_v1`. Ao restaurar, guias de notas inválidas/arquivadas são descartadas sem apagar as demais guias válidas. Novas notas abertas pela árvore ganham uma guia própria; clicar em nota já aberta ativa sua guia existente.
 - **WorkspaceSwitch.tsx**: alternância Notas/Diário (legado, substituído na barra superior pelo `AppHeader`).
 - **DiaryLayout.tsx**: estado/carregamento e handlers do Diário.
 - **SharedDiaryLayout.tsx**: carregamento e eventos da visualização compartilhada.
