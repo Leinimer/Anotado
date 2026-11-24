@@ -59,8 +59,9 @@ import { ConfirmDeleteModal, BatchDeleteConfirmModal } from './SidebarDeleteModa
 import { BatchMoveModal } from './BatchMoveModal';
 import { FolderCustomColorModal } from './FolderCustomColorModal';
 
-const NOTES_TREE_SESSION_KEY = 'anotado_notes_tree_open_folders_v1';
 import { AppHeader } from '@/src/features/core_layout/ui/AppHeader';
+
+const NOTES_TREE_SESSION_KEY = 'anotado_notes_tree_open_folders_v1';
 
 interface SidebarNavigationProps {
   folders: FolderType[];

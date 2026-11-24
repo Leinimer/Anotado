@@ -96,22 +96,22 @@ function readNotesWorkspaceSessionState(): NotesWorkspaceSessionState | null {
         };
       }
     }
+
+    // Compatibilidade com versões anteriores, que armazenavam apenas a nota ativa.
+    const legacyActiveId = sessionStorage.getItem('anotado_active_notes_id');
+    if (legacyActiveId) {
+      return {
+        tabs: [{ id: `tab-${legacyActiveId}`, noteId: legacyActiveId }],
+        activeTabId: `tab-${legacyActiveId}`,
+        activeNoteId: legacyActiveId,
+        isSplit: false,
+        leftNoteId: null,
+        rightNoteId: null,
+        activeSplitPane: 'left',
+      };
+    }
   } catch (error) {
     console.warn('[MainLayout] Não foi possível restaurar o estado das guias:', error);
-  }
-
-  // Compatibilidade com versões anteriores, que armazenavam apenas a nota ativa.
-  const legacyActiveId = sessionStorage.getItem('anotado_active_notes_id');
-  if (legacyActiveId) {
-    return {
-      tabs: [{ id: `tab-${legacyActiveId}`, noteId: legacyActiveId }],
-      activeTabId: `tab-${legacyActiveId}`,
-      activeNoteId: legacyActiveId,
-      isSplit: false,
-      leftNoteId: null,
-      rightNoteId: null,
-      activeSplitPane: 'left',
-    };
   }
 
   return null;
@@ -446,7 +446,10 @@ export function MainLayout() {
             nextActiveTabId = referenceTabId;
           }
         } else if (!nextActiveTabId && nextTabs.length > 0) {
-          const noteTab = nextTabs.find((tab) => tab.type !== 'pdf');
+          const previouslyActiveNoteTab = savedActiveId
+            ? nextTabs.find((tab) => tab.type !== 'pdf' && tab.noteId === savedActiveId)
+            : undefined;
+          const noteTab = previouslyActiveNoteTab || nextTabs.find((tab) => tab.type !== 'pdf');
           nextActiveTabId = noteTab?.id ?? nextTabs[0].id;
         }
 
