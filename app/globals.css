@@ -2078,7 +2078,7 @@ html.dark {
 /* Prévia do marca-texto nas Notas: a seleção já assume a última cor escolhida. */
 .tiptap-note-content-editable::selection,
 .tiptap-note-content-editable *::selection {
-  background-color: var(--note-selection-color, #fef08a) !important;
+  background-color: var(--note-selection-color, #bfdbfe) !important;
   color: inherit !important;
 }
 .tiptap-note-content-editable::-moz-selection,
@@ -2091,7 +2091,7 @@ html.dark {
    background-color é suportado por ::selection; background shorthand não é confiável aqui. */
 .sticky-rich-editor::selection,
 .sticky-rich-editor *::selection {
-  background-color: var(--sticky-selection-color) !important;
+  background-color: var(--sticky-selection-color, #bfdbfe) !important;
   color: inherit !important;
 }
 .sticky-rich-editor::-moz-selection,
