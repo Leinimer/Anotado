@@ -2411,7 +2411,19 @@ export function StickyNotesLayout() {
           const finish = (pointer: PointerEvent) => {
             if (pointer.pointerId !== pointerId) return;
             cleanup();
-            if (!moved && isBackground) setSelectedNoteId(null);
+            if (isBackground) {
+              // O pointerdown do painel é interceptado para permitir pan; por isso
+              // o navegador não transfere o foco automaticamente para o painel.
+              // Libera explicitamente o editor do Stick ao clicar fora dele.
+              const activeElement = document.activeElement;
+              if (
+                activeElement instanceof HTMLElement &&
+                boardScrollRef.current?.contains(activeElement)
+              ) {
+                activeElement.blur();
+              }
+              if (!moved) setSelectedNoteId(null);
+            }
           };
 
           const cancel = () => cleanup();
