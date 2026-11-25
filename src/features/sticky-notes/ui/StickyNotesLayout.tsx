@@ -385,7 +385,9 @@ export function StickyNotesLayout() {
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => {
       const element = target as HTMLElement | null;
-      return Boolean(element?.closest('input, textarea, select, [contenteditable="true"], [role="textbox"], button, a, [role="button"]'));
+      // Botões e Sticks não devem bloquear Espaço como modificador do quadro.
+      // Só campos de edição de texto precisam manter o comportamento nativo.
+      return Boolean(element?.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]'));
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || isEditableTarget(event.target)) return;
@@ -2431,6 +2433,10 @@ export function StickyNotesLayout() {
         }}
         onWheel={(event) => {
           if (!spacePressedRef.current) return;
+          const target = event.target as HTMLElement;
+          const isPanelBackground =
+            target === event.currentTarget || target.dataset.stickyCanvas === 'true';
+          if (!isPanelBackground) return;
           event.preventDefault();
           const rect = event.currentTarget.getBoundingClientRect();
           const pointerX = event.clientX - rect.left;
