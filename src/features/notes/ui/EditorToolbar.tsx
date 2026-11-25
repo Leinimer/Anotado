@@ -123,16 +123,18 @@ export function EditorToolbar({ editor, activeNoteId, userId: propUserId }: Edit
     }
   };
 
-  // A seleção nativa funciona como prévia do marca-texto: acompanha sempre
-  // a última cor escolhida, antes mesmo de o usuário soltar o mouse/toque.
+  // A seleção nativa permanece no azul-claro padrão enquanto o marca-texto
+  // estiver desligado. A cor escolhida só aparece como prévia quando a ferramenta
+  // está efetivamente armada.
   useLayoutEffect(() => {
     if (!editor) return;
     const candidate = customHighlightHex.trim();
-    const previewColor = /^#[0-9a-f]{3}(?:[0-9a-f]{3}|[0-9a-f]{5})?$/i.test(candidate)
+    const selectedHighlightColor = /^#[0-9a-f]{3}(?:[0-9a-f]{3}|[0-9a-f]{5})?$/i.test(candidate)
       ? candidate
       : '#fef08a';
+    const previewColor = isHighlightSelectionMode ? selectedHighlightColor : '#bfdbfe';
     editor.view.dom.style.setProperty('--note-selection-color', previewColor);
-  }, [editor, customHighlightHex]);
+  }, [editor, customHighlightHex, isHighlightSelectionMode]);
 
   // Quando o marca-texto está armado, qualquer seleção concluída dentro do
   // editor vira uma marca permanente na cor ativa ao soltar o mouse/toque.
