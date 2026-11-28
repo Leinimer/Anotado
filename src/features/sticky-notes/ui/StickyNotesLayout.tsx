@@ -62,18 +62,43 @@ const DEBOUNCE_MS = 450;
 const TABLET_GROUP_HOLD_MS = 1500;
 const TABLET_CONTEXT_MENU_DELAY_MS = 1000;
 const TABLET_HOLD_CANCEL_PX = 10;
+const STICKY_WORKSPACE_CACHE_PREFIX = 'anotado_sticky_workspace_cache_v1:';
+
+function readStickyWorkspaceCache(userId: string | null, layoutType: StickyLayoutType | null) {
+  if (typeof window === 'undefined' || !userId || !layoutType) return null;
+  try {
+    const raw = sessionStorage.getItem(STICKY_WORKSPACE_CACHE_PREFIX + userId + ':' + layoutType);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.notes) || !Array.isArray(parsed.groups)) return null;
+    return parsed as {
+      notes: StickyNote[];
+      groups: StickyNoteGroup[];
+      reminderNoteIds: string[];
+      layout: StickyBoardLayoutData | null;
+    };
+  } catch (error) {
+    console.warn('[Stick] Não foi possível restaurar o cache da sessão:', error);
+    return null;
+  }
+}
 
 export function StickyNotesLayout() {
+  const { layoutType, isDesktop, isTablet, isMobile, isResolved } = useStickyDeviceMode();
+  const cachedUserId = typeof window !== 'undefined'
+    ? localStorage.getItem('anotado_last_auth_user_id')
+    : null;
+  const initialCache = readStickyWorkspaceCache(cachedUserId, layoutType);
   const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
-  const [notes, setNotes] = useState<StickyNote[]>([]);
+  const [notes, setNotes] = useState<StickyNote[]>(initialCache?.notes ?? []);
   const [noteHeights, setNoteHeights] = useState<Record<string, number>>({});
   const noteHeightsRef = useRef<Record<string, number>>({});
-  const [groups, setGroups] = useState<StickyNoteGroup[]>([]);
+  const [groups, setGroups] = useState<StickyNoteGroup[]>(initialCache?.groups ?? []);
   const [movingGroupNoteIds, setMovingGroupNoteIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{kind:'note'|'group';id:string;x:number;y:number}|null>(null);
   const [editingGroupTitleId, setEditingGroupTitleId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!initialCache);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeColor, setActiveColor] = useState<StickyNoteColorKey>('yellow');
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
@@ -97,12 +122,14 @@ export function StickyNotesLayout() {
   const [groupDeletionError, setGroupDeletionError] = useState<string | null>(null);
   const [referencePreview, setReferencePreview] = useState<{id:string;type:ReferenceType;left:number;top:number}|null>(null);
 
-  const { layoutType, isDesktop, isTablet, isMobile, isResolved } = useStickyDeviceMode();
   const isTouchLayout = isTablet || isMobile;
   const [boardViewportWidth, setBoardViewportWidth] = useState<number>(820);
   const [deviceLayouts, setDeviceLayouts] = useState<
     Partial<Record<StickyLayoutType, StickyBoardLayoutData | null>>
-  >({});
+  >(() => {
+    const cached = readStickyWorkspaceCache(cachedUserId, layoutType);
+    return cached ? { [layoutType]: cached.layout } : {};
+  });
   const deviceLayoutsRef = useRef<
     Partial<Record<StickyLayoutType, StickyBoardLayoutData | null>>
   >({});
@@ -132,6 +159,26 @@ export function StickyNotesLayout() {
   useLayoutEffect(() => {
     groupsRef.current = groups;
   }, [groups]);
+
+  // Guarda um snapshot local da área Stick para que a próxima navegação a exiba
+  // imediatamente; a consulta remota continua atualizando os dados em segundo plano.
+  useEffect(() => {
+    if (isLoading || !userId || userId === 'demo-user' || typeof window === 'undefined') return;
+    const layout = deviceLayouts[layoutType] ?? null;
+    try {
+      sessionStorage.setItem(
+        STICKY_WORKSPACE_CACHE_PREFIX + userId + ':' + layoutType,
+        JSON.stringify({
+          notes,
+          groups,
+          reminderNoteIds: Array.from(reminderNoteIds),
+          layout,
+        })
+      );
+    } catch (error) {
+      console.warn('[Stick] Não foi possível atualizar o cache da sessão:', error);
+    }
+  }, [isLoading, userId, layoutType, notes, groups, reminderNoteIds, deviceLayouts]);
 
   useLayoutEffect(() => {
     layoutTypeRef.current = layoutType;
@@ -613,6 +660,15 @@ export function StickyNotesLayout() {
         setUserEmail(email);
 
         if (authUser?.userId) {
+          const cachedWorkspace = readStickyWorkspaceCache(authUser.userId, initialLayoutType);
+          if (cachedWorkspace) {
+            notesRef.current = cachedWorkspace.notes;
+            setNotes(cachedWorkspace.notes);
+            setGroups(cachedWorkspace.groups);
+            setReminderNoteIds(new Set(cachedWorkspace.reminderNoteIds || []));
+            applyDeviceLayoutState(initialLayoutType, cachedWorkspace.layout);
+            setIsLoading(false);
+          }
           const layoutCacheKey = `${authUser.userId}:${initialLayoutType}`;
           loadedLayoutKeysRef.current.add(layoutCacheKey);
 
