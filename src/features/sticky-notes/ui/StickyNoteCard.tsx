@@ -25,8 +25,9 @@ const normalizePastedMarkup=(value:string)=>{
  decoder.innerHTML=value;
  const decoded=decoder.value;
  const candidate=looksLikeStickyMarkup(decoded)?decoded:value;
- const bullet=candidate.match(/^\s*[•·]\s*(?=<p\b)/i);
- return bullet?'<ul class="sticky-bullet-list"><li>'+candidate.replace(/^\s*[•·]\s*/,'')+'</li></ul>':candidate;
+ const withoutClipboardMarkers=candidate.replace(/<!--\s*(?:StartFragment|EndFragment)\s*-->/gi,'');
+ const bullet=withoutClipboardMarkers.match(/^\s*[•·]\s*(?=<p\b)/i);
+ return bullet?'<ul class="sticky-bullet-list"><li>'+withoutClipboardMarkers.replace(/^\s*[•·]\s*/,'')+'</li></ul>':withoutClipboardMarkers;
 };
 const toHtml=(v:string)=>{
  if(!v)return '<p><br></p>';
@@ -35,8 +36,20 @@ const toHtml=(v:string)=>{
  return v.split('\n').map(x=>'<p>'+(esc(x)||'<br>')+'</p>').join('');
 };
 const styleChecklist=(editor:HTMLElement)=>{
+ // Une listas consecutivas que representam uma única checklist. O editor antigo
+ // criava um UL por item; isso é semanticamente redundante e infla o HTML salvo.
  editor.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]').forEach(list=>{
-  Object.assign(list.style,{listStyle:'none',paddingLeft:'0',margin:'0'});
+  let next=list.nextElementSibling;
+  while(next instanceof HTMLUListElement&&next.matches('ul[data-sticky-checklist]')){
+   while(next.firstChild)list.appendChild(next.firstChild);
+   const redundant=next;
+   next=next.nextElementSibling;
+   redundant.remove();
+  }
+ });
+
+ editor.querySelectorAll<HTMLUListElement>('ul[data-sticky-checklist]').forEach(list=>{
+  list.removeAttribute('style');
   Array.from(list.children).forEach(child=>{
    if(!(child instanceof HTMLLIElement))return;
    const item=child;
@@ -54,53 +67,64 @@ const styleChecklist=(editor:HTMLElement)=>{
     checkbox.setAttribute('aria-label','Marcar item como concluído');
    }
    if(checkbox.parentElement!==label)label.appendChild(checkbox);
+   label.removeAttribute('style');
    label.contentEditable='false';
+   checkbox.removeAttribute('style');
    checkbox.contentEditable='false';
    checkbox.tabIndex=-1;
 
-   // Canonical markup mirrors the Notes TaskItem node view:
-   // LI > LABEL(INPUT) + DIV(P(text)).
-   let content=item.querySelector<HTMLElement>(':scope > div');
-   if(!content){
-    content=document.createElement('div');
+   // Estrutura canônica compacta: LI > LABEL(INPUT) + DIV(P(text)).
+   let textContent=item.querySelector<HTMLElement>(':scope > div');
+   if(!textContent){
+    textContent=document.createElement('div');
     const legacyText=item.querySelector<HTMLElement>(':scope > [data-sticky-check-text]');
     if(legacyText){
      const paragraph=document.createElement('p');
      while(legacyText.firstChild)paragraph.appendChild(legacyText.firstChild);
-     legacyText.replaceWith(content);
-     content.appendChild(paragraph);
+     legacyText.replaceWith(textContent);
+     textContent.appendChild(paragraph);
     }else{
      const paragraph=document.createElement('p');
      Array.from(item.childNodes).forEach(node=>{
       if(node===label||node instanceof HTMLUListElement)return;
       paragraph.appendChild(node);
      });
-     content.appendChild(paragraph);
+     textContent.appendChild(paragraph);
     }
-    item.insertBefore(content,Array.from(item.children).find(el=>el instanceof HTMLUListElement)||null);
+    item.insertBefore(textContent,Array.from(item.children).find(el=>el instanceof HTMLUListElement)||null);
    }
-   if(!content.querySelector(':scope > p')){
+   if(!textContent.querySelector(':scope > p')){
     const paragraph=document.createElement('p');
-    while(content.firstChild)paragraph.appendChild(content.firstChild);
-    content.appendChild(paragraph);
+    while(textContent.firstChild)paragraph.appendChild(textContent.firstChild);
+    textContent.appendChild(paragraph);
    }
-   const paragraph=content.querySelector<HTMLElement>(':scope > p');
-   if(paragraph&&!paragraph.childNodes.length)paragraph.innerHTML='<br>';
+   const paragraph=textContent.querySelector<HTMLElement>(':scope > p');
+   if(paragraph&&!paragraph.childNodes.length)paragraph.appendChild(document.createElement('br'));
+   textContent.removeAttribute('style');
+   paragraph?.removeAttribute('style');
 
-   const nested=Array.from(content.children).filter(el=>el instanceof HTMLUListElement);
-   Object.assign(item.style,{display:'flex',alignItems:'flex-start',gap:'0.45rem',fontSize:'14px',listStyle:'none',margin:'0 0 0.075rem',padding:'0',lineHeight:'1.45'});
-   Object.assign(label.style,{display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 14px',width:'14px',height:'14px',margin:'0.15rem 0 0',padding:'0',lineHeight:'1',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation'});
-   Object.assign(checkbox.style,{appearance:'none',width:'14px',height:'14px',margin:'0',padding:'0',verticalAlign:'middle',flex:'0 0 14px',accentColor:'#eab308',borderRadius:'9999px'});
-   Object.assign(content.style,{display:'block',flex:'1 1 auto',minWidth:'0',margin:'0',padding:'0',lineHeight:'1.45',outline:'none'});
-   if(paragraph)Object.assign(paragraph.style,{margin:'0',padding:'0',lineHeight:'1.45',fontSize:'14px'});
    const checked=checkbox.checked||checkbox.hasAttribute('checked')||item.dataset.checked==='true';
    checkbox.checked=checked;
    if(checked){checkbox.setAttribute('checked','');item.dataset.checked='true';}
    else{checkbox.removeAttribute('checked');item.dataset.checked='false';}
-   nested.forEach(list=>Object.assign((list as HTMLElement).style,{display:'block',margin:'0.05rem 0 0 0',paddingLeft:'0'}));
+
+   // Remove estilos inline antigos e mantém apenas o atributo semântico.
+   item.removeAttribute('style');
+   item.removeAttribute('data-sticky-check-text');
+   item.querySelectorAll<HTMLElement>(':scope > div > ul[data-sticky-checklist]').forEach(nested=>{
+    nested.removeAttribute('style');
+   });
   });
  });
- editor.querySelectorAll<HTMLParagraphElement>('p[data-sticky-after-checklist]').forEach(p=>Object.assign(p.style,{margin:'0',padding:'0',lineHeight:'1.2',minHeight:'0',height:'auto'}));
+ editor.querySelectorAll<HTMLParagraphElement>('p[data-sticky-after-checklist]').forEach(p=>{
+  p.removeAttribute('style');
+ });
+ // Fragmentos de cópia de alguns aplicativos não fazem parte do conteúdo.
+ const walker=document.createTreeWalker(editor,NodeFilter.SHOW_COMMENT);
+ const comments:Comment[]=[];
+ let comment:Node|null;
+ while((comment=walker.nextNode()))comments.push(comment as Comment);
+ comments.forEach(node=>node.remove());
 };
 
 export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabletPanStart,note,isSelected,highlightMode=false,autoFocus=false,snapTargets=[],canvasZoom=1,isPinchingRef,isMovingWithGroup=false,onSelect,onChangeTitle,onChangeContent,onMoveStart,onMoveLive,onMoveEnd,onResizeStart,onResizeLive,onResizeEnd,onDelete,registerEditorActions,onOpenLinkedNote,onPreviewLinkedNote,hasReminder=false,onOpenReminder,onContextMenu,onOpenTabletNoteMenu}:Props){
@@ -339,7 +363,7 @@ export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabl
  };
  const makeListItem=(kind:'bullet'|'checklist')=>{
   if(kind==='checklist')return makeChecklistItem();
-  const li=document.createElement('li');li.innerHTML='<br>';li.style.listStyleType='disc';return li;
+  const li=document.createElement('li');li.innerHTML='<br>';return li;
  };
  const getListContext=()=>{
   const el=editor.current;const selection=window.getSelection();
@@ -378,8 +402,8 @@ export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabl
   let block=anchor?.closest('p,div');
   if(block===el)block=null;
   const list=document.createElement('ul');
-  if(kind==='checklist'){list.setAttribute('data-sticky-checklist','true');list.style.cssText='list-style:none;padding-left:0;margin:0';}
-  else{list.className='sticky-bullet-list';list.style.cssText='list-style-type:disc;padding-left:1.5em;margin:0.15em 0';}
+  if(kind==='checklist'){list.setAttribute('data-sticky-checklist','true');}
+  else{list.className='sticky-bullet-list';}
   const item=makeListItem(kind);list.appendChild(item);
   if(block&&el.contains(block)){
    const after=document.createRange();after.setStart(range.startContainer,range.startOffset);after.setEndAfter(block.lastChild||block);
@@ -420,10 +444,8 @@ export function StickyNoteCard({isTablet=false,isMobile=false,visualFrame,onTabl
     nested=document.createElement('ul');
     if(kind==='checklist'){
      nested.setAttribute('data-sticky-checklist','true');
-     nested.style.cssText='list-style:none;padding-left:0;margin:0';
     }else{
      nested.className='sticky-bullet-list';
-     nested.style.cssText='list-style-type:disc;padding-left:1.5em;margin:0.15em 0';
     }
     previousContent.appendChild(nested);
    }
